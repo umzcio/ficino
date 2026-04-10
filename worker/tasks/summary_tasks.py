@@ -98,9 +98,9 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
     log.info("paper_summary_start")
 
     try:
-        # Check if summary already exists
-        existing = fetchrow("SELECT id FROM paper_summaries WHERE paper_id = $1", paper_id)
-        if existing:
+        # Check if a completed summary already exists
+        existing = fetchrow("SELECT id, status FROM paper_summaries WHERE paper_id = $1", paper_id)
+        if existing and (existing.get("status") or "complete") == "complete" and existing.get("status") != "generating":
             log.info("paper_summary_exists")
             return {"status": "exists", "paper_id": paper_id}
 
@@ -152,9 +152,9 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
         # Store
         messages_json = json.dumps(messages, default=str)
         execute(
-            """INSERT INTO paper_summaries (paper_id, messages)
-               VALUES ($1, $2)
-               ON CONFLICT (paper_id) DO UPDATE SET messages = $2, generated_at = NOW()""",
+            """INSERT INTO paper_summaries (paper_id, messages, status, task_id)
+               VALUES ($1, $2, 'complete', NULL)
+               ON CONFLICT (paper_id) DO UPDATE SET messages = $2, status = 'complete', task_id = NULL, generated_at = NOW()""",
             paper_id, messages_json,
         )
 

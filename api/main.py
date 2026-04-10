@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from db.connection import close_pool, create_pool
-from routers import alerts as alerts_router, bookmarks, feed, messages, papers, personas, replies, search, settings as settings_router, tags, users, workspaces
+from routers import alerts as alerts_router, annotations, bookmarks, citations, feed, messages, papers, personas, replies, search, settings as settings_router, tags, users, workspaces
 
 logger = structlog.get_logger(__name__)
 
@@ -51,7 +51,9 @@ else:
     )
 
 app.include_router(alerts_router.router)
+app.include_router(annotations.router)
 app.include_router(bookmarks.router)
+app.include_router(citations.router)
 app.include_router(papers.router)
 app.include_router(personas.router)
 app.include_router(replies.router)

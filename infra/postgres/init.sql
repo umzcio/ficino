@@ -123,11 +123,27 @@ CREATE TABLE bookmarks (
   UNIQUE(user_id, feed_id, post_index)
 );
 
+-- Annotations (private user notes on posts)
+CREATE TABLE annotations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  feed_id UUID REFERENCES feeds(id) ON DELETE CASCADE,
+  post_index INTEGER NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, feed_id, post_index)
+);
+
+CREATE INDEX ON annotations (user_id, feed_id);
+
 -- Paper summaries (individual DMs — paper talks to you)
 CREATE TABLE paper_summaries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   paper_id UUID REFERENCES papers(id) ON DELETE CASCADE UNIQUE,
   messages JSONB NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'complete',
+  task_id TEXT,
   generated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

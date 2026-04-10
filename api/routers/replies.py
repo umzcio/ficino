@@ -26,6 +26,60 @@ class ReplyRequest(BaseModel):
     paper_ref: str | None = None
 
 
+@router.get("/conversations")
+async def list_conversations(
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, object]]:
+    """List all reply conversations with metadata for the inbox."""
+    rows = await db.fetch(
+        """SELECT pr.id, pr.feed_id, pr.post_index, pr.persona_key,
+                  pr.messages, pr.updated_at,
+                  f.generated_at AS feed_generated_at
+           FROM post_replies pr
+           LEFT JOIN feeds f ON pr.feed_id::uuid = f.id
+           ORDER BY pr.updated_at DESC"""
+    )
+    results = []
+    for r in rows:
+        messages = r["messages"]
+        if isinstance(messages, str):
+            messages = json.loads(messages)
+        # Get last user message as preview
+        last_user = ""
+        last_persona = ""
+        for msg in reversed(messages):
+            if msg["role"] == "user" and not last_user:
+                last_user = msg["content"][:100]
+            elif msg["role"] == "persona" and not last_persona:
+                last_persona = msg["content"][:100]
+            if last_user and last_persona:
+                break
+        results.append({
+            "id": str(r["id"]),
+            "feed_id": r["feed_id"],
+            "post_index": r["post_index"],
+            "persona_key": r["persona_key"],
+            "message_count": len(messages),
+            "last_user_message": last_user,
+            "last_persona_message": last_persona,
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+        })
+    return results
+
+
+@router.get("/replied-posts/{feed_id}")
+async def get_replied_post_indices(
+    feed_id: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[int]:
+    """Return post indices that have reply conversations for a given feed."""
+    rows = await db.fetch(
+        "SELECT post_index FROM post_replies WHERE feed_id = $1",
+        feed_id,
+    )
+    return [r["post_index"] for r in rows]
+
+
 @router.get("/{feed_id}/{post_index}")
 async def get_replies(
     feed_id: str,

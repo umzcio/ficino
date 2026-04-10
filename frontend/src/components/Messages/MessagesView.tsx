@@ -8,7 +8,11 @@ type View =
   | { type: 'paper'; paperId: string }
   | { type: 'group'; groupId: string }
 
-export function MessagesView() {
+interface MessagesViewProps {
+  onOpenThread?: (feedId: string, postIndex: number) => void
+}
+
+export function MessagesView({ onOpenThread }: MessagesViewProps = {}) {
   const [view, setView] = useState<View>({ type: 'inbox' })
 
   if (view.type === 'paper') {
@@ -37,6 +41,7 @@ export function MessagesView() {
         // TODO: group creation modal
         alert('Group chat creation coming soon!')
       }}
+      onOpenThread={onOpenThread}
     />
   )
 }

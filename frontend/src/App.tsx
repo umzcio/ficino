@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
   Zap, Loader2
@@ -23,7 +23,10 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { WorkspaceDropdown } from './components/Nav/WorkspaceDropdown'
 import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
 import { MobileDrawer } from './components/Nav/MobileDrawer'
+import { PostDetail } from './components/Feed/PostDetail'
 import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
+import { getFeed } from './lib/api'
+import { useAnnotations } from './hooks/useAnnotations'
 
 type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'settings'
 
@@ -257,11 +260,14 @@ export default function App() {
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [showWorkspaceSheet, setShowWorkspaceSheet] = useState(false)
   const [showMobileDrawer, setShowMobileDrawer] = useState(false)
+  const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
+  const feedScrollRef = useRef(0)
   const personas = usePersonasLoader()
   const ws = useWorkspaces()
   const corpus = useCorpus(ws.activeId)
   const feed = useFeed(ws.activeId)
   const bm = useBookmarks()
+  const notes = useAnnotations()
   const appSettings = useSettings()
   const alertsHook = useAlerts()
 
@@ -274,6 +280,7 @@ export default function App() {
     : completePapers.length
 
   const handleGenerate = () => {
+    setSelectedPostIndex(null)
     feed.generate(ws.activeId, activeTag ? [activeTag] : undefined)
   }
 
@@ -288,7 +295,20 @@ export default function App() {
   const renderMainContent = () => {
     switch (activeView) {
       case 'messages':
-        return <MessagesView />
+        return (
+          <MessagesView
+            onOpenThread={async (feedId, postIndex) => {
+              try {
+                const feedData = await getFeed(feedId)
+                feed.loadFeed(feedData)
+                setSelectedPostIndex(postIndex)
+                setActiveView('feed')
+              } catch {
+                // Feed may have been deleted
+              }
+            }}
+          />
+        )
       case 'search':
         return (
           <ExploreView
@@ -312,7 +332,7 @@ export default function App() {
           />
         )
       case 'bookmarks':
-        return <BookmarksView bookmarks={bm.bookmarks} loading={bm.loading} onRemove={bm.remove} />
+        return <BookmarksView bookmarks={bm.bookmarks} loading={bm.loading} onRemove={bm.remove} getAnnotation={notes.getNote} onAnnotationSave={notes.save} onAnnotationDelete={notes.remove} />
       case 'settings':
         return (
           <SettingsView
@@ -322,6 +342,31 @@ export default function App() {
           />
         )
       default:
+        if (selectedPostIndex !== null && feed.posts[selectedPostIndex]) {
+          return (
+            <PostDetail
+              post={feed.posts[selectedPostIndex]}
+              postIndex={selectedPostIndex}
+              posts={feed.posts}
+              feedId={feed.feedId}
+              onBack={() => {
+                setSelectedPostIndex(null)
+                requestAnimationFrame(() => {
+                  document.querySelector('main')?.scrollTo(0, feedScrollRef.current)
+                })
+              }}
+              onNavigateToPost={(idx) => {
+                setSelectedPostIndex(idx)
+                document.querySelector('main')?.scrollTo(0, 0)
+              }}
+              isBookmarked={bm.isBookmarked}
+              onBookmarkToggle={(fid, idx, post) => bm.toggle(fid, idx, post)}
+              getAnnotation={notes.getNote}
+              onAnnotationSave={notes.save}
+              onAnnotationDelete={notes.remove}
+            />
+          )
+        }
         return (
           <>
             <FeedHeader
@@ -353,6 +398,14 @@ export default function App() {
               activeTab={activeTab}
               isBookmarked={bm.isBookmarked}
               onBookmarkToggle={(fid, idx, post) => bm.toggle(fid, idx, post)}
+              getAnnotation={notes.getNote}
+              onAnnotationSave={notes.save}
+              onAnnotationDelete={notes.remove}
+              onPostClick={(idx) => {
+                feedScrollRef.current = document.querySelector('main')?.scrollTop ?? 0
+                setSelectedPostIndex(idx)
+                document.querySelector('main')?.scrollTo(0, 0)
+              }}
             />
           </>
         )

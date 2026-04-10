@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react'
 import { FileText, Loader2, AlertCircle } from 'lucide-react'
 import type { FeedPost } from '../../types'
+import { getRepliedPostIndices } from '../../lib/api'
 import { PostCard } from './PostCard'
 
 interface FeedProps {
@@ -11,6 +13,10 @@ interface FeedProps {
   activeTab: number
   isBookmarked: (feedId: string, postIndex: number) => string | null
   onBookmarkToggle: (feedId: string, postIndex: number, post: FeedPost) => void
+  getAnnotation?: (feedId: string, postIndex: number) => string | null
+  onAnnotationSave?: (feedId: string, postIndex: number, body: string) => void
+  onAnnotationDelete?: (feedId: string, postIndex: number) => void
+  onPostClick?: (postIndex: number) => void
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -28,7 +34,16 @@ const TAB_CATEGORIES: Record<number, string | null> = {
   3: 'findings',   // Findings — hype + figure posts
 }
 
-export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle }: FeedProps) {
+export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick }: FeedProps) {
+  const [repliedIndices, setRepliedIndices] = useState<Set<number>>(new Set())
+
+  useEffect(() => {
+    if (feedId && feedState === 'complete') {
+      getRepliedPostIndices(feedId).then((indices) => setRepliedIndices(new Set(indices))).catch(() => {})
+    } else {
+      setRepliedIndices(new Set())
+    }
+  }, [feedId, feedState])
   if (feedState === 'generating') {
     const stepLabel = STEP_LABELS[generatingMeta.step || ''] || 'Starting...'
     return (
@@ -91,6 +106,11 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
             postIndex={originalIndex}
             bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
             onBookmarkToggle={(p, idx) => feedId && onBookmarkToggle(feedId, idx, p)}
+            onClick={() => onPostClick?.(originalIndex)}
+            hasUserReply={repliedIndices.has(originalIndex)}
+            annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
+            onAnnotationSave={onAnnotationSave}
+            onAnnotationDelete={onAnnotationDelete}
           />
         )
       })}

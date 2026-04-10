@@ -73,7 +73,7 @@ async def get_paper_summary(
 
     # Check for existing summary
     summary = await db.fetchrow(
-        "SELECT messages, generated_at FROM paper_summaries WHERE paper_id = $1",
+        "SELECT messages, generated_at, status, task_id FROM paper_summaries WHERE paper_id = $1",
         paper_id,
     )
 
@@ -81,16 +81,20 @@ async def get_paper_summary(
         messages = summary["messages"]
         if isinstance(messages, str):
             messages = json.loads(messages)
-        return {
+        status = summary["status"] or "complete"
+        result: dict[str, object] = {
             "paper_id": paper_id,
             "title": paper["title"] or paper["filename"],
             "authors": paper["authors"] or [],
             "messages": messages,
             "generated_at": summary["generated_at"],
-            "status": "complete",
+            "status": status,
         }
+        if status == "generating" and summary["task_id"]:
+            result["task_id"] = summary["task_id"]
+        return result
 
-    # No summary yet — trigger generation
+    # No summary yet — trigger generation and create placeholder row
     celery_app = _get_celery()
     task = celery_app.send_task(
         "tasks.summary_tasks.generate_paper_summary",
@@ -98,6 +102,13 @@ async def get_paper_summary(
         queue="persona",
     )
     logger.info("paper_summary_dispatched", paper_id=paper_id, task_id=task.id)
+
+    await db.execute(
+        """INSERT INTO paper_summaries (paper_id, messages, status, task_id)
+           VALUES ($1, '[]', 'generating', $2)
+           ON CONFLICT (paper_id) DO UPDATE SET status = 'generating', task_id = $2""",
+        paper_id, task.id,
+    )
 
     return {
         "paper_id": paper_id,

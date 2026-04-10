@@ -4,11 +4,11 @@ import {
   MoreHorizontal, FileText, ImageIcon, ZoomIn, X, Loader2
 } from 'lucide-react'
 import type { FeedPost } from '../../types'
-import { sendReply, getPostReplies, type ReplyMessage } from '../../lib/api'
+import { sendReply, getPostReplies, getCitation, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 
 /** Lightweight inline markdown: **bold**, *italic*, `code`. No block elements. */
-function InlineMd({ text }: { text: string }) {
+export function InlineMd({ text }: { text: string }) {
   const parts: React.ReactNode[] = []
   // Split on **bold**, *italic*, and `code` patterns
   const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g
@@ -119,9 +119,14 @@ interface PostCardProps {
   postIndex?: number
   bookmarkedId?: string | null
   onBookmarkToggle?: (post: FeedPost, postIndex: number) => void
+  onClick?: () => void
+  hasUserReply?: boolean
+  annotation?: string | null
+  onAnnotationSave?: (feedId: string, postIndex: number, body: string) => void
+  onAnnotationDelete?: (feedId: string, postIndex: number) => void
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle }: PostCardProps) {
+export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const [liked, setLiked] = useState(false)
@@ -135,7 +140,33 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
   const [replyInput, setReplyInput] = useState('')
   const [replyLoading, setReplyLoading] = useState(false)
   const [repliesLoaded, setRepliesLoaded] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const [noteEditing, setNoteEditing] = useState(false)
+  const [noteText, setNoteText] = useState(annotation || '')
   const inputRef = useRef<HTMLInputElement>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 2000)
+  }
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => showToast(`${label} copied`)).catch(() => {})
+  }
+
+  const handleCite = async (format: 'apa' | 'mla') => {
+    const title = post.sources?.[0]?.paper_title
+    if (!title) { showToast('No source paper'); return }
+    try {
+      const data = await getCitation(title, format)
+      await navigator.clipboard.writeText(data.citation)
+      showToast(`${format.toUpperCase()} citation copied`)
+    } catch {
+      showToast('Citation failed')
+    }
+  }
 
   if (!p) return null
 
@@ -178,10 +209,11 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
 
   return (
     <article
-      className="border-b border-border px-4 py-3.5 flex gap-3 hover:bg-bg-hover transition-colors cursor-pointer"
+      className="border-b border-border px-4 py-3.5 flex gap-3 hover:bg-bg-hover transition-colors cursor-pointer relative"
       style={{
         borderLeft: isFigure ? '3px solid #c8a96e30' : '3px solid transparent',
       }}
+      onClick={onClick}
     >
       <Avatar persona={post.persona} />
 
@@ -197,15 +229,88 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
               THREAD {post.thread_count}
             </span>
           )}
+          {hasUserReply && (
+            <span className="text-[11px] text-persona-practitioner bg-persona-practitioner/8 border border-persona-practitioner/20 rounded px-1.5 py-px font-semibold tracking-wide inline-flex items-center gap-1">
+              <MessageCircle size={9} />
+              REPLIED
+            </span>
+          )}
           {isFigure && (
             <span className="text-[11px] text-persona-methodologist bg-persona-methodologist/8 border border-persona-methodologist/20 rounded px-1.5 py-px font-semibold tracking-wide inline-flex items-center gap-1">
               <ImageIcon size={9} />
               FIGURE
             </span>
           )}
-          <button aria-label="More options" className="ml-auto bg-transparent border-none cursor-pointer p-1">
-            <MoreHorizontal size={16} className="text-text-muted" />
-          </button>
+          <div className="ml-auto relative">
+            <button
+              aria-label="More options"
+              className="bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full"
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
+            >
+              <MoreHorizontal size={16} className="text-text-muted" />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} />
+                <div className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-lg py-1 min-w-[180px]">
+                  <button
+                    className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      const text = isThread && post.thread_posts
+                        ? post.thread_posts.join('\n\n')
+                        : post.content
+                      copyToClipboard(text, 'Post text')
+                    }}
+                  >
+                    Copy text
+                  </button>
+                  {post.sources && post.sources.length > 0 && (
+                    <>
+                      <button
+                        className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setMenuOpen(false); handleCite('apa') }}
+                      >
+                        Cite (APA)
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setMenuOpen(false); handleCite('mla') }}
+                      >
+                        Cite (MLA)
+                      </button>
+                    </>
+                  )}
+                  <div className="border-t border-border my-1" />
+                  <button
+                    className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      setNoteText(annotation || '')
+                      setNoteEditing(true)
+                      setTimeout(() => noteRef.current?.focus(), 50)
+                    }}
+                  >
+                    {annotation ? 'Edit note' : 'Add note'}
+                  </button>
+                  {annotation && (
+                    <button
+                      className="w-full text-left px-3 py-2 text-[13px] text-persona-skeptic hover:bg-bg-hover bg-transparent border-none cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMenuOpen(false)
+                        if (feedId) onAnnotationDelete?.(feedId, postIndex)
+                      }}
+                    >
+                      Remove note
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Replying to */}
@@ -366,6 +471,68 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
           </div>
         )}
 
+        {/* Annotation display */}
+        {annotation && !noteEditing && (
+          <div
+            className="mb-2 px-3 py-2 border-l-2 border-gold/30 bg-gold/4 rounded-r-lg cursor-pointer hover:bg-gold/8 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation()
+              setNoteText(annotation)
+              setNoteEditing(true)
+              setTimeout(() => noteRef.current?.focus(), 50)
+            }}
+          >
+            <div className="text-[11px] text-gold/60 font-semibold uppercase tracking-wider mb-0.5">Your note</div>
+            <p className="text-[13px] text-text-mid leading-snug italic whitespace-pre-wrap">{annotation}</p>
+          </div>
+        )}
+
+        {/* Annotation editor */}
+        {noteEditing && (
+          <div className="mb-2" onClick={(e) => e.stopPropagation()}>
+            <textarea
+              ref={noteRef}
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add a personal note..."
+              rows={3}
+              className="w-full bg-bg-hover border border-border rounded-lg px-3 py-2 text-[13px] text-text resize-none focus:outline-none focus:border-gold/40 transition-colors"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { setNoteEditing(false) }
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  if (noteText.trim() && feedId) {
+                    onAnnotationSave?.(feedId, postIndex, noteText.trim())
+                  }
+                  setNoteEditing(false)
+                }
+              }}
+            />
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[11px] text-text-muted">Ctrl+Enter to save, Esc to cancel</span>
+              <div className="flex gap-2">
+                <button
+                  className="text-[12px] text-text-muted bg-transparent border-none cursor-pointer hover:text-text"
+                  onClick={() => setNoteEditing(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="text-[12px] text-gold bg-gold/10 border border-gold/20 rounded-lg px-3 py-1 cursor-pointer hover:bg-gold/15 font-semibold disabled:opacity-40"
+                  disabled={!noteText.trim()}
+                  onClick={() => {
+                    if (noteText.trim() && feedId) {
+                      onAnnotationSave?.(feedId, postIndex, noteText.trim())
+                    }
+                    setNoteEditing(false)
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex -ml-2 mt-1">
           <ActionBtn icon={MessageCircle} count={post.replies + replyMessages.length} color="#4a9eff" active={replyOpen} onClick={handleOpenReply} label="Replies" />
@@ -502,6 +669,13 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
           </div>
         )}
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-gold text-bg text-[12px] font-semibold px-3 py-1.5 rounded-lg shadow-lg z-40 whitespace-nowrap">
+          {toast}
+        </div>
+      )}
     </article>
   )
 }

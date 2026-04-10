@@ -81,6 +81,25 @@ export interface ReplyMessage {
   content: string
 }
 
+export interface ReplyConversation {
+  id: string
+  feed_id: string
+  post_index: number
+  persona_key: string
+  message_count: number
+  last_user_message: string
+  last_persona_message: string
+  updated_at: string
+}
+
+export async function listReplyConversations(): Promise<ReplyConversation[]> {
+  return request<ReplyConversation[]>('/replies/conversations')
+}
+
+export async function getRepliedPostIndices(feedId: string): Promise<number[]> {
+  return request<number[]>(`/replies/replied-posts/${feedId}`)
+}
+
 export async function getPostReplies(feedId: string, postIndex: number): Promise<{ messages: ReplyMessage[]; persona_key: string | null }> {
   return request(`/replies/${feedId}/${postIndex}`)
 }
@@ -141,6 +160,37 @@ export interface PersonaData {
 
 export async function listPersonas(): Promise<PersonaData[]> {
   return request<PersonaData[]>('/personas')
+}
+
+// Citations
+export async function getCitation(title: string, format: 'apa' | 'mla' = 'apa'): Promise<{ citation: string; format: string; title: string }> {
+  return request(`/citations/by-title?title=${encodeURIComponent(title)}&format=${format}`)
+}
+
+// Annotations
+export interface AnnotationItem {
+  id: string
+  feed_id: string
+  post_index: number
+  body: string
+  created_at: string
+  updated_at: string
+}
+
+export async function listAnnotations(): Promise<AnnotationItem[]> {
+  return request<AnnotationItem[]>('/annotations')
+}
+
+export async function upsertAnnotation(feedId: string, postIndex: number, body: string): Promise<AnnotationItem> {
+  return request<AnnotationItem>(`/annotations/${feedId}/${postIndex}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+}
+
+export async function deleteAnnotation(feedId: string, postIndex: number): Promise<void> {
+  return request<void>(`/annotations/${feedId}/${postIndex}`, { method: 'DELETE' })
 }
 
 // Settings

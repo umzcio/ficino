@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
-import { FileText, Users, ChevronRight, Loader2 } from 'lucide-react'
+import { FileText, Users, MessageCircle, ChevronRight, Loader2 } from 'lucide-react'
 import type { PaperConversation, GroupChatPreview } from '../../types'
-import { listPaperConversations, listGroupChats } from '../../lib/api'
+import { listPaperConversations, listGroupChats, listReplyConversations, type ReplyConversation } from '../../lib/api'
+import { usePersonas } from '../../hooks/usePersonas'
 
 interface InboxProps {
   onOpenPaper: (paperId: string) => void
   onOpenGroup: (groupId: string) => void
   onNewGroup: () => void
+  onOpenThread?: (feedId: string, postIndex: number) => void
 }
 
 function timeAgo(dateStr: string): string {
@@ -18,18 +20,21 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d`
 }
 
-export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup }: InboxProps) {
-  const [tab, setTab] = useState<'papers' | 'groups'>('papers')
+export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: InboxProps) {
+  const personas = usePersonas()
+  const [tab, setTab] = useState<'papers' | 'groups' | 'threads'>('papers')
   const [papers, setPapers] = useState<PaperConversation[]>([])
   const [groups, setGroups] = useState<GroupChatPreview[]>([])
+  const [threads, setThreads] = useState<ReplyConversation[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const [p, g] = await Promise.all([listPaperConversations(), listGroupChats()])
+      const [p, g, t] = await Promise.all([listPaperConversations(), listGroupChats(), listReplyConversations()])
       setPapers(p)
       setGroups(g)
+      setThreads(t)
       setLoading(false)
     }
     load()
@@ -45,30 +50,25 @@ export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup }: InboxProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-border">
-        <button
-          onClick={() => setTab('papers')}
-          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-all"
-          style={{
-            color: tab === 'papers' ? '#e8eaf0' : '#555d6e',
-            fontWeight: tab === 'papers' ? 700 : 400,
-            borderBottom: tab === 'papers' ? '2px solid #c8a96e' : '2px solid transparent',
-          }}
-        >
-          <FileText size={16} />
-          Papers
-        </button>
-        <button
-          onClick={() => setTab('groups')}
-          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-all"
-          style={{
-            color: tab === 'groups' ? '#e8eaf0' : '#555d6e',
-            fontWeight: tab === 'groups' ? 700 : 400,
-            borderBottom: tab === 'groups' ? '2px solid #c8a96e' : '2px solid transparent',
-          }}
-        >
-          <Users size={16} />
-          Group Chats
-        </button>
+        {([
+          { key: 'papers' as const, icon: FileText, label: 'Papers' },
+          { key: 'groups' as const, icon: Users, label: 'Groups' },
+          { key: 'threads' as const, icon: MessageCircle, label: 'Threads' },
+        ]).map(({ key, icon: Icon, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-all"
+            style={{
+              color: tab === key ? '#e8eaf0' : '#555d6e',
+              fontWeight: tab === key ? 700 : 400,
+              borderBottom: tab === key ? '2px solid #c8a96e' : '2px solid transparent',
+            }}
+          >
+            <Icon size={16} />
+            {label}
+          </button>
+        ))}
       </div>
 
       {loading ? (
@@ -116,6 +116,60 @@ export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup }: InboxProps) {
                 <ChevronRight size={16} className="text-text-muted mt-3 shrink-0" />
               </button>
             ))
+          )}
+        </div>
+      ) : tab === 'threads' ? (
+        <div>
+          {threads.length === 0 ? (
+            <div className="py-16 text-center text-text-muted text-sm">
+              No conversations yet. Reply to a persona in your feed to start one.
+            </div>
+          ) : (
+            threads.map((t) => {
+              const persona = personas[t.persona_key]
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => onOpenThread?.(t.feed_id, t.post_index)}
+                  className="w-full text-left px-4 py-3 flex gap-3 items-start border-b border-border bg-transparent border-x-0 border-t-0 cursor-pointer hover:bg-bg-hover transition-colors"
+                >
+                  {persona ? (
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0 mt-0.5"
+                      style={{
+                        backgroundColor: persona.color + '22',
+                        border: `1.5px solid ${persona.color}50`,
+                        color: persona.color,
+                      }}
+                    >
+                      {persona.initials}
+                    </div>
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-persona-practitioner/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <MessageCircle size={18} className="text-persona-practitioner" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-sm text-text">
+                        {persona?.name || t.persona_key}
+                      </span>
+                      <span className="text-xs text-text-muted shrink-0">{timeAgo(t.updated_at)}</span>
+                    </div>
+                    <div className="text-xs text-text-muted">{persona?.handle}</div>
+                    {t.last_persona_message && (
+                      <div className="text-[13px] text-text-mid mt-0.5 truncate">
+                        {t.last_persona_message}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[11px] text-text-muted">{t.message_count} messages</span>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-text-muted mt-3 shrink-0" />
+                </button>
+              )
+            })
           )}
         </div>
       ) : (
