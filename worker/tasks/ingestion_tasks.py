@@ -20,7 +20,7 @@ from lib import (
     vision_extractor,
     figure_describer,
 )
-from lib.db import execute, store_chunks_batch, store_figure
+from lib.db import execute, fetchrow, store_chunks_batch, store_figure
 
 logger = structlog.get_logger(__name__)
 
@@ -145,6 +145,30 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
                 *meta_args,
             )
             log.info("metadata_stored", title=meta.get("title"), authors=len(meta.get("authors", [])))
+
+        # Auto-tag from extracted metadata
+        auto_tags = meta.get("tags", [])
+        if auto_tags:
+            user_id = "00000000-0000-0000-0000-000000000000"
+            for tag_name in auto_tags:
+                try:
+                    tag = fetchrow(
+                        "SELECT id FROM tags WHERE user_id = $1 AND name = $2",
+                        user_id, tag_name,
+                    )
+                    if not tag:
+                        tag = fetchrow(
+                            "INSERT INTO tags (user_id, name) VALUES ($1, $2) RETURNING id",
+                            user_id, tag_name,
+                        )
+                    if tag:
+                        execute(
+                            "INSERT INTO paper_tags (paper_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                            paper_id, str(tag["id"]),
+                        )
+                except Exception as e:
+                    log.warn("auto_tag_failed", tag=tag_name, error=str(e))
+            log.info("auto_tags_assigned", tags=auto_tags)
 
         # --- Step 3: Chunking ---
         self.update_state(state="PROGRESS", meta={"step": "chunking", "paper_id": paper_id})

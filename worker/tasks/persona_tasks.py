@@ -268,6 +268,10 @@ def generate_feed(
                 post_data["id"] = i + 1
                 post_data["time"] = f"{(i + 1) * 2}m"
 
+                # Override paper_ref with actual metadata (don't trust LLM citation)
+                if chunks:
+                    post_data["paper_ref"] = persona_lib._build_short_cite(chunks[0])
+
                 # Attach the figure data that was used in the prompt
                 if selected_figure:
                     post_data["figure_url"] = selected_figure["image_url"]

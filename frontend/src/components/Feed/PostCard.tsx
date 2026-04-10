@@ -7,6 +7,25 @@ import type { FeedPost } from '../../types'
 import { sendReply, getPostReplies, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 
+/** Lightweight inline markdown: **bold**, *italic*, `code`. No block elements. */
+function InlineMd({ text }: { text: string }) {
+  const parts: React.ReactNode[] = []
+  // Split on **bold**, *italic*, and `code` patterns
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g
+  let last = 0
+  let match: RegExpExecArray | null
+  let key = 0
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index))
+    if (match[2]) parts.push(<strong key={key++}>{match[2]}</strong>)
+    else if (match[3]) parts.push(<em key={key++}>{match[3]}</em>)
+    else if (match[4]) parts.push(<code key={key++} className="text-[13px] bg-bg-hover px-1 py-px rounded">{match[4]}</code>)
+    last = match.index + match[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return <>{parts}</>
+}
+
 function FigureLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -216,7 +235,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                 <div className="w-px flex-1 bg-gold/20 mt-1" />
               </div>
               <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words flex-1">
-                {post.thread_posts![0]}
+                <InlineMd text={post.thread_posts![0]} />
               </p>
             </div>
 
@@ -239,7 +258,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                       )}
                     </div>
                     <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words flex-1">
-                      {text}
+                      <InlineMd text={text} />
                     </p>
                   </div>
                 ))}
@@ -254,7 +273,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
           </div>
         ) : (
           <p className="my-1 mb-2.5 text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words">
-            {post.content}
+            <InlineMd text={post.content} />
           </p>
         )}
 
@@ -313,7 +332,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
               {post.quoting_handle}
             </div>
             <div className="text-[13px] text-text-secondary leading-snug">
-              {post.quoting_content}
+              <InlineMd text={post.quoting_content || ''} />
             </div>
           </div>
         )}
@@ -422,7 +441,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                           Replying to <span className="text-gold">{isUser ? p.handle : 'you'}</span>
                         </div>
                         <p className="text-[14px] text-text leading-relaxed whitespace-pre-wrap">
-                          {msg.content}
+                          <InlineMd text={msg.content} />
                         </p>
                       </div>
                     </div>

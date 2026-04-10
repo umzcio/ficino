@@ -52,7 +52,7 @@ Upload PDFs --> Ingest & Chunk --> AI Personas Debate --> You Learn by Scrolling
 
 ## Personas
 
-Five AI personas with distinct epistemic styles, each grounded in RAG-retrieved paper content:
+Five AI personas with distinct epistemic styles, each grounded in RAG-retrieved paper content. Persona prompts are engineered from research on science communication, the replication crisis, and academic social media discourse -- each persona's "moves" map to documented behaviors from credible practitioners in their archetype (Gelman, Mollick, Bik, etc.).
 
 | Handle | Name | Style |
 |--------|------|-------|

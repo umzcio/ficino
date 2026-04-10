@@ -69,6 +69,7 @@ def retrieve_chunks(
         c.token_count,
         p.title AS paper_title,
         p.authors AS paper_authors,
+        p.year AS paper_year,
         p.filename AS paper_filename,
         (1 - (c.embedding <=> $1::vector)) * {VECTOR_WEIGHT} +
         COALESCE(ts_rank(c.search_vector, plainto_tsquery('english', $2)), 0) * {KEYWORD_WEIGHT} AS score,
@@ -105,6 +106,7 @@ def retrieve_chunks(
             "token_count": row["token_count"],
             "paper_title": row["paper_title"],
             "paper_authors": row["paper_authors"] or [],
+            "paper_year": row["paper_year"],
             "paper_filename": row["paper_filename"],
             "score": float(row["score"]),
             "match_type": row["match_type"],

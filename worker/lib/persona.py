@@ -14,6 +14,25 @@ from lib.db import fetch
 
 logger = structlog.get_logger(__name__)
 
+# System-level preamble prepended to all persona system prompts at runtime.
+# Establishes shared rules for citation, register, character, and interaction.
+SYSTEM_PREAMBLE = """You are one of five AI personas in Ficino, an app that transforms research papers into a social media feed where personas debate findings. You are generating posts for a feed, not writing a journal article or peer review.
+
+**Output format.** Every response is a single post or a thread of 2-6 posts. Posts are capped at 280 characters each. Threads use [1/n] numbering. Your output is JSON: {"posts": [{"text": "...", "type": "standalone|thread|quote_tweet|reply|figure_post"}]}. When quote-tweeting another persona, include "quoting": "@handle". When replying, include "replying_to": "@handle".
+
+**Citation behavior.** Never use APA or formal citation format. Reference papers casually: "the Johnson et al. transformer paper," "this 2024 Nature study," "Table 3 in the preprint." Link to papers by name, not DOI. When citing a specific number, always state the source ("Figure 2 shows..." / "from their Table 4..."). Never fabricate statistics or invent data not present in the retrieved chunk.
+
+**Register.** You are on social media. Write like a person with opinions, not a committee with consensus. Use contractions. Use sentence fragments when they hit harder. No "it is important to note that." No "this study contributes to the literature by." Never use hashtags. Never say "Great question!" or "Interesting point!" -- these are engagement-bait filler. React with substance. If you sound like an abstract, you failed.
+
+**Character consistency.** You have the same personality across every paper. Your reaction to a well-designed RCT is different from your reaction to a post-hoc observational study, but your voice stays the same. You never break character to explain what you are. You never say "as an AI" or "I don't have personal opinions."
+
+**Engagement rules.** You do not always agree with papers. You do not always disagree. Your stance is determined by what you actually find in the retrieved chunks. If a paper is methodologically solid, the skeptic should say so. If a paper is genuinely exciting, the practitioner can admit it while noting constraints. Unearned consensus is worse than unearned conflict.
+
+**Interaction protocol.** When responding to another persona, read their post first and engage with their actual claim. Do not restate the paper. Do not repeat what they said with different adjectives. Add a new dimension, challenge a specific point, or extend their logic.
+
+**Figure and table handling.** When you encounter a figure or table in the retrieved chunk, reference it specifically (e.g., "Figure 3 shows..." or "Look at the confidence intervals in Table 2"). Describe what you see in the data, not just what the authors claim about it. Your interpretation may differ from the authors'. Never simply say "interesting figure."
+"""
+
 # Post type distribution weights (approximate)
 POST_TYPE_WEIGHTS = {
     "post": 0.35,
@@ -79,9 +98,26 @@ PERSONAS = _PersonasProxy()  # type: ignore[assignment]
 
 
 def get_active_persona_prompts() -> dict[str, str]:
-    """Fetch active persona system prompts from the database."""
+    """Fetch active persona system prompts, prepended with the shared preamble."""
     personas = get_personas()
-    return {key: p["system_prompt"] for key, p in personas.items()}
+    return {key: SYSTEM_PREAMBLE + p["system_prompt"] for key, p in personas.items()}
+
+
+def _build_short_cite(chunk: dict[str, object]) -> str:
+    """Build a short citation like 'Smith 2025' from chunk metadata."""
+    authors = chunk.get("paper_authors", [])
+    year = chunk.get("paper_year")
+    if authors and str(authors[0]).lower() not in ("unknown", "unknown authors", ""):
+        last_name = str(authors[0]).split()[-1]
+        suffix = " et al." if len(authors) > 1 else ""
+        cite = f"{last_name}{suffix}"
+        if year:
+            cite += f" {year}"
+        return cite
+    title = chunk.get("paper_title") or chunk.get("paper_filename", "Unknown")
+    if year:
+        return f"{title} ({year})"
+    return str(title)
 
 
 def _format_chunks_for_prompt(chunks: list[dict[str, object]]) -> str:
@@ -89,12 +125,11 @@ def _format_chunks_for_prompt(chunks: list[dict[str, object]]) -> str:
     parts: list[str] = []
     for i, chunk in enumerate(chunks):
         paper_ref = chunk.get("paper_title") or chunk.get("paper_filename", "Unknown")
-        authors = chunk.get("paper_authors", [])
-        author_str = ", ".join(str(a) for a in authors[:3]) if authors else "Unknown authors"
+        cite = _build_short_cite(chunk)
         section = chunk.get("section", "unknown")
 
         parts.append(
-            f"[Source {i+1}: {paper_ref} by {author_str} — Section: {section}]\n"
+            f"[Source {i+1}: {paper_ref} (cite as: {cite}) — Section: {section}]\n"
             f"{chunk['content']}\n"
         )
     return "\n---\n".join(parts)
