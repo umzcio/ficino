@@ -197,7 +197,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                 <span className="text-[11px] font-bold text-gold">1</span>
                 <div className="w-px flex-1 bg-gold/20 mt-1" />
               </div>
-              <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap flex-1">
+              <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words flex-1">
                 {post.thread_posts![0]}
               </p>
             </div>
@@ -220,7 +220,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                         <div className="w-px flex-1 bg-gold/20 mt-1" />
                       )}
                     </div>
-                    <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap flex-1">
+                    <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words flex-1">
                       {text}
                     </p>
                   </div>
@@ -235,7 +235,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
             )}
           </div>
         ) : (
-          <p className="my-1 mb-2.5 text-[15px] text-text leading-relaxed whitespace-pre-wrap">
+          <p className="my-1 mb-2.5 text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words">
             {post.content}
           </p>
         )}

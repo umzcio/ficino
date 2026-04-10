@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
-  BookOpen, Zap, Loader2
+  Zap, Loader2
 } from 'lucide-react'
 import { useCorpus } from './hooks/useCorpus'
 import { useFeed } from './hooks/useFeed'
@@ -37,12 +37,11 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
   return (
     <nav className="w-16 shrink-0 flex-col items-center pt-5 gap-0.5 border-r border-border hidden md:flex">
       <div className="mb-5">
-        <div
-          className="w-9 h-9 rounded-[10px] flex items-center justify-center"
-          style={{ background: 'linear-gradient(135deg, #c8a96e, #a07840)' }}
-        >
-          <BookOpen size={18} color="#080a0f" strokeWidth={2.5} />
-        </div>
+        <img
+          src="/ficino/ficino-favicon.png"
+          alt="ficino"
+          className="w-9 h-9 rounded-[10px]"
+        />
       </div>
       {NAV_ITEMS.map(({ icon: Icon, view }) => (
         <button
@@ -130,12 +129,11 @@ function FeedHeader({
     <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5 flex items-center justify-between">
       <div>
         <div className="flex items-center gap-2">
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center md:hidden"
-            style={{ background: 'linear-gradient(135deg, #c8a96e, #a07840)' }}
-          >
-            <BookOpen size={14} color="#080a0f" strokeWidth={2.5} />
-          </div>
+          <img
+            src="/ficino/ficino-favicon.png"
+            alt="ficino"
+            className="w-7 h-7 rounded-lg md:hidden"
+          />
           <span className="text-[22px] font-semibold text-text tracking-[0.015em]" style={{ fontFamily: "'Cormorant Garamond', serif", fontKerning: 'normal' }}>ficino</span>
           <span className="text-[11px] text-gold bg-gold/10 border border-gold/20 rounded px-1.5 py-0.5 font-semibold tracking-wider">
             BETA
@@ -340,7 +338,7 @@ export default function App() {
     <div className="min-h-screen bg-bg text-text">
       <div className="max-w-[1050px] mx-auto flex min-h-screen">
         <LeftNav active={activeView} onNavigate={setActiveView} alertCount={alertsHook.unreadCount} />
-        <main className="flex-1 border-r border-border max-w-[600px] pb-16 md:pb-0">
+        <main className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
           {renderMainContent()}
         </main>
         <Sidebar corpus={corpus} activeTag={activeTag} onTagFilter={setActiveTag} enabledPersonas={enabledPersonas} />
