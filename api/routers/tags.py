@@ -1,0 +1,141 @@
+"""Tag management and paper tagging endpoints."""
+
+import asyncpg
+import structlog
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from db.connection import get_db
+
+logger = structlog.get_logger(__name__)
+router = APIRouter(prefix="/tags", tags=["tags"])
+
+STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
+
+
+class TagCreate(BaseModel):
+    name: str
+
+
+class PaperTagRequest(BaseModel):
+    paper_id: str
+    tag_name: str
+
+
+@router.get("")
+async def list_tags(
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, object]]:
+    """List all tags with paper counts."""
+    rows = await db.fetch(
+        """SELECT t.id, t.name, COUNT(pt.paper_id) AS paper_count
+           FROM tags t
+           LEFT JOIN paper_tags pt ON t.id = pt.tag_id
+           WHERE t.user_id = $1
+           GROUP BY t.id, t.name
+           ORDER BY t.name""",
+        STUB_USER_ID,
+    )
+    return [
+        {"id": str(row["id"]), "name": row["name"], "paper_count": row["paper_count"]}
+        for row in rows
+    ]
+
+
+@router.post("", status_code=201)
+async def create_tag(
+    body: TagCreate,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Create a new tag."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+
+    existing = await db.fetchrow(
+        "SELECT id FROM tags WHERE user_id = $1 AND name = $2",
+        STUB_USER_ID, name,
+    )
+    if existing:
+        return {"id": str(existing["id"]), "name": name}
+
+    row = await db.fetchrow(
+        "INSERT INTO tags (user_id, name) VALUES ($1, $2) RETURNING id",
+        STUB_USER_ID, name,
+    )
+    logger.info("tag_created", name=name)
+    return {"id": str(row["id"]), "name": name}
+
+
+@router.delete("/{tag_id}", status_code=204)
+async def delete_tag(
+    tag_id: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> None:
+    """Delete a tag."""
+    result = await db.execute("DELETE FROM tags WHERE id = $1 AND user_id = $2", tag_id, STUB_USER_ID)
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Tag not found")
+    logger.info("tag_deleted", tag_id=tag_id)
+
+
+@router.post("/assign", status_code=201)
+async def assign_tag(
+    body: PaperTagRequest,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Add a tag to a paper. Creates the tag if it doesn't exist."""
+    name = body.tag_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+
+    # Get or create tag
+    tag = await db.fetchrow(
+        "SELECT id FROM tags WHERE user_id = $1 AND name = $2",
+        STUB_USER_ID, name,
+    )
+    if not tag:
+        tag = await db.fetchrow(
+            "INSERT INTO tags (user_id, name) VALUES ($1, $2) RETURNING id",
+            STUB_USER_ID, name,
+        )
+
+    tag_id = str(tag["id"])
+
+    # Assign to paper (ignore if already assigned)
+    await db.execute(
+        "INSERT INTO paper_tags (paper_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        body.paper_id, tag_id,
+    )
+    logger.info("tag_assigned", paper_id=body.paper_id, tag=name)
+    return {"paper_id": body.paper_id, "tag_id": tag_id, "tag_name": name}
+
+
+@router.delete("/assign/{paper_id}/{tag_id}", status_code=204)
+async def unassign_tag(
+    paper_id: str,
+    tag_id: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> None:
+    """Remove a tag from a paper."""
+    await db.execute(
+        "DELETE FROM paper_tags WHERE paper_id = $1 AND tag_id = $2",
+        paper_id, tag_id,
+    )
+    logger.info("tag_unassigned", paper_id=paper_id, tag_id=tag_id)
+
+
+@router.get("/paper/{paper_id}")
+async def get_paper_tags(
+    paper_id: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, str]]:
+    """Get all tags for a paper."""
+    rows = await db.fetch(
+        """SELECT t.id, t.name FROM tags t
+           JOIN paper_tags pt ON t.id = pt.tag_id
+           WHERE pt.paper_id = $1
+           ORDER BY t.name""",
+        paper_id,
+    )
+    return [{"id": str(row["id"]), "name": row["name"]} for row in rows]

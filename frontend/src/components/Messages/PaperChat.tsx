@@ -1,0 +1,172 @@
+import { useState, useEffect, useRef } from 'react'
+import { ArrowLeft, FileText, Loader2 } from 'lucide-react'
+import type { PaperSummary, SummaryMessage } from '../../types'
+import { getPaperSummary, getPaperSummaryStatus } from '../../lib/api'
+
+interface PaperChatProps {
+  paperId: string
+  onBack: () => void
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  tldr: 'TL;DR',
+  intro: 'Overview',
+  question: 'Research Question',
+  methods: 'Methodology',
+  findings: 'Key Findings',
+  surprise: 'What Stood Out',
+  limitations: 'Limitations',
+  implications: 'Why It Matters',
+  figure: 'Figure Highlight',
+  summary: 'Summary',
+}
+
+const TYPE_COLORS: Record<string, string> = {
+  tldr: '#c8a96e',
+  intro: '#8b92a5',
+  question: '#4a9eff',
+  methods: '#a78bfa',
+  findings: '#34d399',
+  surprise: '#f5a623',
+  limitations: '#e85d4a',
+  implications: '#4a9eff',
+  figure: '#c8a96e',
+  summary: '#c8a96e',
+}
+
+function MessageBubble({ message }: { message: SummaryMessage }) {
+  const label = TYPE_LABELS[message.type] || message.type
+  const color = TYPE_COLORS[message.type] || '#c8a96e'
+  const isTldr = message.type === 'tldr'
+
+  if (isTldr) {
+    return (
+      <div className="mx-4 my-2 p-4 rounded-xl border" style={{ backgroundColor: '#c8a96e0a', borderColor: '#c8a96e25' }}>
+        <span className="text-[11px] font-bold tracking-widest uppercase text-gold">TL;DR</span>
+        <p className="text-[16px] text-text font-semibold leading-snug mt-1.5">
+          {message.content}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex gap-3 px-4 py-2">
+      <div
+        className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1"
+        style={{ backgroundColor: color + '18', border: `1.5px solid ${color}40` }}
+      >
+        <FileText size={14} style={{ color }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <span
+          className="text-[11px] font-semibold tracking-wide uppercase"
+          style={{ color }}
+        >
+          {label}
+        </span>
+        <p className="text-[14px] text-text leading-relaxed mt-0.5 whitespace-pre-wrap">
+          {message.content}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+export function PaperChat({ paperId, onBack }: PaperChatProps) {
+  const [summary, setSummary] = useState<PaperSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      const data = await getPaperSummary(paperId)
+      setSummary(data)
+
+      if (data.status === 'generating' && data.task_id) {
+        // Poll for completion
+        const poll = async () => {
+          const status = await getPaperSummaryStatus(paperId, data.task_id!)
+          if (status.status === 'complete') {
+            const updated = await getPaperSummary(paperId)
+            setSummary(updated)
+            setLoading(false)
+          } else {
+            timeoutRef.current = setTimeout(poll, 2000)
+          }
+        }
+        timeoutRef.current = setTimeout(poll, 2000)
+      } else {
+        setLoading(false)
+      }
+    }
+    load()
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [paperId])
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3 flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="w-8 h-8 rounded-full flex items-center justify-center bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors"
+        >
+          <ArrowLeft size={18} className="text-text" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-[15px] text-text truncate">
+            {summary?.title || 'Loading...'}
+          </div>
+          {summary?.authors && summary.authors.length > 0 && (
+            <div className="text-xs text-text-muted truncate">
+              {summary.authors.slice(0, 3).join(', ')}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Messages */}
+      {loading || (summary?.status === 'generating') ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <Loader2 size={28} className="text-gold animate-spin" />
+          <p className="text-sm text-text-muted">
+            {summary?.messages?.length === 0 ? 'Generating summary...' : 'Loading...'}
+          </p>
+          <p className="text-xs text-text-muted/60">This may take 30-60 seconds</p>
+        </div>
+      ) : summary?.messages && summary.messages.length > 0 ? (
+        <div className="py-3 space-y-3">
+          {/* Paper intro card */}
+          <div className="mx-4 p-3 bg-bg-hover border border-border rounded-xl">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 rounded-md bg-gold/15 flex items-center justify-center">
+                <FileText size={12} className="text-gold" />
+              </div>
+              <span className="text-xs font-semibold text-gold tracking-wide uppercase">Paper Summary</span>
+            </div>
+            <p className="text-[13px] text-text-muted">
+              This paper has {summary.messages.length} key takeaways for you.
+            </p>
+          </div>
+
+          {summary.messages.map((msg, i) => (
+            <MessageBubble key={i} message={msg} />
+          ))}
+
+          <div className="px-4 py-3 text-center">
+            <span className="text-xs text-text-muted/50">End of summary</span>
+          </div>
+        </div>
+      ) : (
+        <div className="py-16 text-center text-text-muted text-sm">
+          No summary available.
+        </div>
+      )}
+    </div>
+  )
+}

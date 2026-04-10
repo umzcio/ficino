@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #080a0f;
+  --color-bg-hover: #0d0f14;
+  --color-border: #1e2028;
+  --color-gold: #c8a96e;
+  --color-gold-dark: #a07840;
+  --color-text: #e8eaf0;
+  --color-text-muted: #555d6e;
+  --color-text-mid: #8b92a5;
+  --color-text-secondary: #b0b8c8;
+  --color-persona-skeptic: #e85d4a;
+  --color-persona-hype: #f5a623;
+  --color-persona-practitioner: #4a9eff;
+  --color-persona-methodologist: #a78bfa;
+  --color-persona-gradstudent: #34d399;
+  --color-like: #f91880;
+  --color-retweet: #34d399;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

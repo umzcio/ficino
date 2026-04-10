@@ -1,0 +1,207 @@
+"""Paper summaries (DMs) and corpus syntheses (group chats) endpoints."""
+
+import json
+import uuid
+
+import asyncpg
+import structlog
+from celery import Celery
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from config import settings
+from db.connection import get_db
+
+logger = structlog.get_logger(__name__)
+router = APIRouter(prefix="/messages", tags=["messages"])
+
+
+def _get_celery() -> Celery:
+    return Celery(broker=settings.redis_url, backend=settings.redis_url)
+
+
+# --- Paper Summaries (Individual DMs) ---
+
+@router.get("/papers")
+async def list_paper_conversations(
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, object]]:
+    """List all papers with their summary status (DM inbox)."""
+    rows = await db.fetch(
+        """SELECT p.id, p.title, p.filename, p.authors, p.chunk_count, p.figure_count,
+                  p.uploaded_at, ps.id AS summary_id, ps.generated_at AS summary_generated_at,
+                  ps.messages
+           FROM papers p
+           LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
+           WHERE p.status = 'complete'
+           ORDER BY p.uploaded_at DESC"""
+    )
+    result = []
+    for row in rows:
+        messages = []
+        if row["messages"]:
+            messages = row["messages"] if isinstance(row["messages"], list) else json.loads(row["messages"])
+        last_message = messages[-1]["content"][:80] if messages else None
+
+        result.append({
+            "paper_id": str(row["id"]),
+            "title": row["title"] or row["filename"],
+            "authors": row["authors"] or [],
+            "chunk_count": row["chunk_count"],
+            "has_summary": row["summary_id"] is not None,
+            "summary_generated_at": row["summary_generated_at"],
+            "last_message_preview": last_message,
+            "message_count": len(messages),
+            "uploaded_at": row["uploaded_at"],
+        })
+    return result
+
+
+@router.get("/papers/{paper_id}")
+async def get_paper_summary(
+    paper_id: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Get or trigger generation of a paper summary."""
+    # Check paper exists
+    paper = await db.fetchrow(
+        "SELECT id, title, filename, authors FROM papers WHERE id = $1 AND status = 'complete'",
+        paper_id,
+    )
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found or not processed")
+
+    # Check for existing summary
+    summary = await db.fetchrow(
+        "SELECT messages, generated_at FROM paper_summaries WHERE paper_id = $1",
+        paper_id,
+    )
+
+    if summary:
+        messages = summary["messages"]
+        if isinstance(messages, str):
+            messages = json.loads(messages)
+        return {
+            "paper_id": paper_id,
+            "title": paper["title"] or paper["filename"],
+            "authors": paper["authors"] or [],
+            "messages": messages,
+            "generated_at": summary["generated_at"],
+            "status": "complete",
+        }
+
+    # No summary yet — trigger generation
+    celery_app = _get_celery()
+    task = celery_app.send_task(
+        "tasks.summary_tasks.generate_paper_summary",
+        args=[paper_id],
+        queue="persona",
+    )
+    logger.info("paper_summary_dispatched", paper_id=paper_id, task_id=task.id)
+
+    return {
+        "paper_id": paper_id,
+        "title": paper["title"] or paper["filename"],
+        "authors": paper["authors"] or [],
+        "messages": [],
+        "status": "generating",
+        "task_id": task.id,
+    }
+
+
+@router.get("/papers/{paper_id}/status/{task_id}")
+async def get_paper_summary_status(paper_id: str, task_id: str) -> dict[str, object]:
+    """Poll summary generation status."""
+    celery_app = _get_celery()
+    result = celery_app.AsyncResult(task_id)
+
+    if result.state == "SUCCESS":
+        return {"status": "complete", "paper_id": paper_id}
+    elif result.state == "FAILURE":
+        return {"status": "error", "error": str(result.result)}
+    else:
+        return {"status": "generating"}
+
+
+# --- Corpus Syntheses (Group Chats) ---
+
+class SynthesisCreateRequest(BaseModel):
+    name: str
+    paper_ids: list[str]
+
+
+@router.get("/groups")
+async def list_group_chats(
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, object]]:
+    """List all corpus synthesis group chats."""
+    rows = await db.fetch(
+        """SELECT id, name, paper_ids, messages, generated_at
+           FROM corpus_syntheses ORDER BY generated_at DESC"""
+    )
+    result = []
+    for row in rows:
+        messages = row["messages"] if isinstance(row["messages"], list) else json.loads(row["messages"])
+        result.append({
+            "id": str(row["id"]),
+            "name": row["name"],
+            "paper_count": len(row["paper_ids"]),
+            "message_count": len(messages),
+            "last_message_preview": messages[-1]["content"][:80] if messages else None,
+            "generated_at": row["generated_at"],
+        })
+    return result
+
+
+@router.post("/groups", status_code=202)
+async def create_group_chat(
+    body: SynthesisCreateRequest,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Create a new corpus synthesis group chat."""
+    if len(body.paper_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 papers for a group chat")
+
+    synthesis_id = str(uuid.uuid4())
+    user_id = "00000000-0000-0000-0000-000000000000"  # stub until auth
+
+    celery_app = _get_celery()
+    task = celery_app.send_task(
+        "tasks.summary_tasks.generate_corpus_synthesis",
+        args=[synthesis_id, body.paper_ids, body.name, user_id],
+        queue="persona",
+    )
+
+    logger.info("corpus_synthesis_dispatched", synthesis_id=synthesis_id, task_id=task.id)
+    return {"synthesis_id": synthesis_id, "task_id": task.id, "status": "generating"}
+
+
+@router.get("/groups/{synthesis_id}")
+async def get_group_chat(
+    synthesis_id: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Get a corpus synthesis group chat."""
+    row = await db.fetchrow(
+        "SELECT id, name, paper_ids, messages, generated_at FROM corpus_syntheses WHERE id = $1",
+        synthesis_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Group chat not found")
+
+    messages = row["messages"] if isinstance(row["messages"], list) else json.loads(row["messages"])
+
+    # Get paper titles
+    paper_rows = await db.fetch(
+        "SELECT id, title, filename FROM papers WHERE id = ANY($1)",
+        row["paper_ids"],
+    )
+    papers = {str(r["id"]): r["title"] or r["filename"] for r in paper_rows}
+
+    return {
+        "id": str(row["id"]),
+        "name": row["name"],
+        "papers": papers,
+        "messages": messages,
+        "generated_at": row["generated_at"],
+    }

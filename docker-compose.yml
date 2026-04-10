@@ -1,0 +1,96 @@
+services:
+  frontend:
+    build: ./frontend
+    container_name: ficino-frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - ficino-network
+
+  api:
+    build: ./api
+    container_name: ficino-api
+    restart: unless-stopped
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - paper_uploads:/app/uploads
+      - figure_images:/app/figures
+    networks:
+      - ficino-network
+
+  worker:
+    build: ./worker
+    container_name: ficino-worker
+    restart: unless-stopped
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - paper_uploads:/app/uploads
+      - figure_images:/app/figures
+    networks:
+      - ficino-network
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ficino-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ficino
+      POSTGRES_PASSWORD: ficino
+      POSTGRES_DB: ficino
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ficino"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ficino-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ficino-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+    networks:
+      - ficino-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  paper_uploads:
+  figure_images:
+
+networks:
+  ficino-network:
+    name: ficino-network
+    driver: bridge

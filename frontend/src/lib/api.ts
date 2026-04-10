@@ -1,0 +1,270 @@
+import type { Paper, Feed, PaperConversation, PaperSummary, GroupChatPreview, GroupChat, Workspace, ActivityItem } from '../types'
+
+const API_BASE = '/ficino/api'
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      ...options?.headers,
+    },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API error ${res.status}: ${text}`)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+// Papers
+export async function uploadPaper(file: File): Promise<Paper> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<Paper>('/papers', { method: 'POST', body: formData })
+}
+
+export async function listPapers(workspaceId?: string): Promise<Paper[]> {
+  const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return request<Paper[]>(`/papers${query}`)
+}
+
+export async function getPaper(paperId: string): Promise<Paper> {
+  return request<Paper>(`/papers/${paperId}`)
+}
+
+export async function deletePaper(paperId: string): Promise<void> {
+  return request<void>(`/papers/${paperId}`, { method: 'DELETE' })
+}
+
+// Feed generation
+export interface GenerateResponse {
+  task_id: string
+  status: string
+}
+
+export interface FeedStatus {
+  status: string
+  task_id: string
+  feed_id?: string
+  post_count?: number
+  duration_ms?: number
+  meta?: { step?: string; post_progress?: string }
+  error?: string
+}
+
+export async function generateFeed(corpusId?: string, tagFilter?: string[]): Promise<GenerateResponse> {
+  return request<GenerateResponse>('/feed/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ corpus_id: corpusId, tag_filter: tagFilter }),
+  })
+}
+
+export async function getFeedStatus(taskId: string): Promise<FeedStatus> {
+  return request<FeedStatus>(`/feed/status/${taskId}`)
+}
+
+export async function getFeed(feedId: string): Promise<Feed> {
+  return request<Feed>(`/feed/${feedId}`)
+}
+
+export async function listFeeds(): Promise<Feed[]> {
+  return request<Feed[]>('/feed')
+}
+
+// Replies
+export interface ReplyMessage {
+  role: 'user' | 'persona'
+  content: string
+}
+
+export async function getPostReplies(feedId: string, postIndex: number): Promise<{ messages: ReplyMessage[]; persona_key: string | null }> {
+  return request(`/replies/${feedId}/${postIndex}`)
+}
+
+export async function sendReply(
+  feedId: string, postIndex: number, personaKey: string,
+  userMessage: string, postContent: string, paperRef: string | null,
+): Promise<{ messages: ReplyMessage[]; latest_response: string }> {
+  return request('/replies', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      feed_id: feedId, post_index: postIndex, persona_key: personaKey,
+      user_message: userMessage, post_content: postContent, paper_ref: paperRef,
+    }),
+  })
+}
+
+// Alerts
+export interface AlertItem {
+  id: string
+  type: string
+  title: string
+  body: string
+  metadata: Record<string, unknown>
+  read: boolean
+  created_at: string
+}
+
+export async function listAlerts(): Promise<AlertItem[]> {
+  return request<AlertItem[]>('/alerts')
+}
+
+export async function getUnreadCount(): Promise<{ count: number }> {
+  return request('/alerts/unread-count')
+}
+
+export async function markAlertRead(id: string): Promise<void> {
+  return request(`/alerts/${id}/read`, { method: 'PUT' })
+}
+
+export async function markAllAlertsRead(): Promise<void> {
+  return request('/alerts/read-all', { method: 'PUT' })
+}
+
+export async function dismissAlert(id: string): Promise<void> {
+  return request(`/alerts/${id}`, { method: 'DELETE' })
+}
+
+// Settings
+export async function getSettings(): Promise<Record<string, unknown>> {
+  return request('/settings')
+}
+
+export async function updateSettings(settings: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return request('/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings }),
+  })
+}
+
+export async function getOllamaModels(): Promise<{ llm: { name: string; size: string; family: string }[]; embed: { name: string; size: string }[]; vision: { name: string; size: string }[] }> {
+  return request('/settings/ollama-models')
+}
+
+export async function clearAllFeeds(): Promise<void> {
+  return request('/settings/clear-feeds', { method: 'POST' })
+}
+
+export async function clearAllSummaries(): Promise<void> {
+  return request('/settings/clear-summaries', { method: 'POST' })
+}
+
+// Workspaces
+export async function listWorkspaces(): Promise<Workspace[]> {
+  return request<Workspace[]>('/workspaces')
+}
+
+export async function createWorkspace(name: string): Promise<{ id: string; name: string }> {
+  return request('/workspaces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function renameWorkspace(id: string, name: string): Promise<void> {
+  return request(`/workspaces/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function deleteWorkspace(id: string): Promise<void> {
+  return request(`/workspaces/${id}`, { method: 'DELETE' })
+}
+
+export async function getWorkspaceActivity(id: string): Promise<ActivityItem[]> {
+  return request<ActivityItem[]>(`/workspaces/${id}/activity`)
+}
+
+// Bookmarks
+export interface BookmarkItem {
+  id: string
+  feed_id: string
+  post_index: number
+  post: Record<string, unknown>
+  bookmarked_at: string
+}
+
+export async function listBookmarks(): Promise<BookmarkItem[]> {
+  return request<BookmarkItem[]>('/bookmarks')
+}
+
+export async function createBookmark(feedId: string, postIndex: number, postSnapshot: Record<string, unknown>): Promise<{ id: string }> {
+  return request('/bookmarks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feed_id: feedId, post_index: postIndex, post_snapshot: postSnapshot }),
+  })
+}
+
+export async function deleteBookmarkByPost(feedId: string, postIndex: number): Promise<void> {
+  return request(`/bookmarks/post/${feedId}/${postIndex}`, { method: 'DELETE' })
+}
+
+export async function deleteBookmark(bookmarkId: string): Promise<void> {
+  return request(`/bookmarks/${bookmarkId}`, { method: 'DELETE' })
+}
+
+// Tags
+export async function listTags(): Promise<{ id: string; name: string; paper_count: number }[]> {
+  return request('/tags')
+}
+
+export async function createTag(name: string): Promise<{ id: string; name: string }> {
+  return request('/tags', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function assignTag(paperId: string, tagName: string): Promise<void> {
+  return request('/tags/assign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paper_id: paperId, tag_name: tagName }),
+  })
+}
+
+export async function unassignTag(paperId: string, tagId: string): Promise<void> {
+  return request(`/tags/assign/${paperId}/${tagId}`, { method: 'DELETE' })
+}
+
+export async function deleteTag(tagId: string): Promise<void> {
+  return request(`/tags/${tagId}`, { method: 'DELETE' })
+}
+
+// Messages / DMs
+export async function listPaperConversations(): Promise<PaperConversation[]> {
+  return request<PaperConversation[]>('/messages/papers')
+}
+
+export async function getPaperSummary(paperId: string): Promise<PaperSummary> {
+  return request<PaperSummary>(`/messages/papers/${paperId}`)
+}
+
+export async function getPaperSummaryStatus(paperId: string, taskId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/messages/papers/${paperId}/status/${taskId}`)
+}
+
+export async function listGroupChats(): Promise<GroupChatPreview[]> {
+  return request<GroupChatPreview[]>('/messages/groups')
+}
+
+export async function createGroupChat(name: string, paperIds: string[]): Promise<{ synthesis_id: string; task_id: string }> {
+  return request('/messages/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, paper_ids: paperIds }),
+  })
+}
+
+export async function getGroupChat(synthesisId: string): Promise<GroupChat> {
+  return request<GroupChat>(`/messages/groups/${synthesisId}`)
+}
