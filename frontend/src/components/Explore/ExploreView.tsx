@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
-import { Folder, Plus, FileText, Zap, Loader2, Trash2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Folder, Plus, FileText, Zap, Loader2, Trash2, Search, X } from 'lucide-react'
 import type { Workspace, ActivityItem } from '../../types'
-import { getWorkspaceActivity } from '../../lib/api'
+import { getWorkspaceActivity, searchCorpus, type SearchResults } from '../../lib/api'
+import { PERSONAS, type PersonaKey } from '../../types'
 
 interface ExploreViewProps {
   workspaces: Workspace[]
@@ -120,16 +121,170 @@ function ActivityTimeline({ workspaceId }: { workspaceId: string }) {
   )
 }
 
+function SearchBar() {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SearchResults | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleChange = (value: string) => {
+    setQuery(value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    if (!value.trim()) {
+      setResults(null)
+      return
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const data = await searchCorpus(value.trim())
+        setResults(data)
+      } catch {
+        // ignore
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+  }
+
+  const totalResults = results
+    ? results.papers.length + results.chunks.length + results.posts.length
+    : 0
+
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-2.5 bg-bg-hover border border-border rounded-2xl px-4 py-2.5 focus-within:border-gold/40 transition-colors">
+        <Search size={16} className="text-text-muted shrink-0" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 200)}
+          placeholder="Search papers, chunks, posts..."
+          aria-label="Search corpus"
+          className="flex-1 bg-transparent border-none text-[15px] text-text outline-none placeholder:text-text-muted"
+        />
+        {searching && <Loader2 size={14} className="text-gold animate-spin shrink-0" />}
+        {query && !searching && (
+          <button
+            onClick={() => { setQuery(''); setResults(null) }}
+            aria-label="Clear search"
+            className="bg-transparent border-none cursor-pointer p-1 text-text-muted hover:text-text"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Results dropdown */}
+      {focused && results && query && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-bg border border-border rounded-2xl shadow-lg z-50 max-h-[60vh] overflow-y-auto">
+          {totalResults === 0 ? (
+            <div className="p-4 text-center text-sm text-text-muted">
+              No results for "{query}"
+            </div>
+          ) : (
+            <>
+              {/* Papers */}
+              {results.papers.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 text-[11px] font-bold text-gold tracking-widest uppercase border-b border-border">
+                    Papers ({results.papers.length})
+                  </div>
+                  {results.papers.map((p) => (
+                    <div key={p.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
+                      <FileText size={14} className="text-text-muted shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] text-text font-medium truncate">{p.title}</div>
+                        <div className="text-[11px] text-text-muted">
+                          {p.authors.slice(0, 2).join(', ')}{p.year ? ` · ${p.year}` : ''} · {p.chunk_count} chunks
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Chunks */}
+              {results.chunks.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 text-[11px] font-bold text-persona-methodologist tracking-widest uppercase border-b border-border">
+                    Passages ({results.chunks.length})
+                  </div>
+                  {results.chunks.map((c) => (
+                    <div key={c.id} className="px-4 py-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[11px] text-text-mid font-medium truncate">{c.paper_title}</span>
+                        <span className="text-[10px] text-text-muted">· {c.section}</span>
+                        <span className="text-[10px] text-gold/50 ml-auto">{(c.rank * 100).toFixed(0)}%</span>
+                      </div>
+                      <p className="text-[12px] text-text-muted leading-relaxed line-clamp-2">
+                        {c.content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Posts */}
+              {results.posts.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 text-[11px] font-bold text-persona-practitioner tracking-widest uppercase border-b border-border">
+                    Feed Posts ({results.posts.length})
+                  </div>
+                  {results.posts.map((p, i) => {
+                    const persona = PERSONAS[p.persona as PersonaKey]
+                    return (
+                      <div key={i} className="px-4 py-2.5 flex items-start gap-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
+                        {persona && (
+                          <div
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5"
+                            style={{
+                              backgroundColor: persona.color + '22',
+                              border: `1px solid ${persona.color}40`,
+                              color: persona.color,
+                            }}
+                          >
+                            {persona.initials}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[11px] text-text-muted mb-0.5">
+                            {persona?.name || p.persona} · {p.paper_ref || 'General'}
+                          </div>
+                          <p className="text-[12px] text-text leading-relaxed line-clamp-2">
+                            {p.content}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete }: ExploreViewProps) {
   return (
     <div>
       {/* Header */}
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5">
         <h1 className="text-xl font-bold text-text">Explore</h1>
-        <p className="text-xs text-text-muted mt-0.5">Workspaces & activity</p>
+        <p className="text-xs text-text-muted mt-0.5">Search, workspaces & activity</p>
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Search */}
+        <SearchBar />
         {/* Workspace grid */}
         <div className="space-y-3">
           <div className="text-[13px] font-bold text-gold tracking-widest uppercase">

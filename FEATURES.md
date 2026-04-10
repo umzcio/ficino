@@ -220,6 +220,23 @@ Essentially RLHF for your personal academic discourse engine. Nobody else is doi
 
 ---
 
+## Post Actions Menu (Three Dots)
+
+**Concept**: The MoreHorizontal (three dots) menu on each post provides contextual actions:
+
+- **Copy post text**: For pasting into notes/papers
+- **Cite this**: Generate APA/MLA citation for the referenced paper, ready to paste into a dissertation
+- **View sources**: Show RAG chunks (already exists as separate button, could live here too)
+- **Regenerate**: Rerun just this one post with same persona/chunks
+- **Hide persona**: Quick toggle to disable that persona (links to settings)
+- **Debug view**: Show the full prompt + retrieved chunks that generated this post (dev only)
+
+**"Cite this" is the killer feature here**: Reading a post about Rankin et al. 2023, hit cite, get a formatted citation. Bridges the gap between "scrolling the feed" and "writing your dissertation."
+
+**Status**: Designed. Build after search.
+
+---
+
 - **Light mode**: Full light theme with inverted color system. Settings toggle already exists (shows "coming soon"). Need to define light palette, update all Tailwind theme vars, handle system preference detection (`prefers-color-scheme`), persist choice in settings DB
 - **Notification bell**: Alert when a newly uploaded paper contradicts something in your existing corpus
 - **Search**: Full-text search across all chunks with highlighted results

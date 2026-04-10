@@ -153,6 +153,18 @@ export async function clearAllSummaries(): Promise<void> {
   return request('/settings/clear-summaries', { method: 'POST' })
 }
 
+// Search
+export interface SearchResults {
+  query: string
+  papers: { id: string; title: string; authors: string[]; year: number | null; chunk_count: number }[]
+  chunks: { id: string; paper_id: string; paper_title: string; section: string; content: string; rank: number }[]
+  posts: { feed_id: string; post_index: number; persona: string; post_type: string; content: string; paper_ref: string | null; generated_at: string }[]
+}
+
+export async function searchCorpus(query: string): Promise<SearchResults> {
+  return request<SearchResults>(`/search?q=${encodeURIComponent(query)}`)
+}
+
 // Workspaces
 export async function listWorkspaces(): Promise<Workspace[]> {
   return request<Workspace[]>('/workspaces')
