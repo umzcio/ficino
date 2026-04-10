@@ -21,6 +21,7 @@ import { useSettings } from './hooks/useSettings'
 import { useAlerts } from './hooks/useAlerts'
 import { WorkspaceDropdown } from './components/Nav/WorkspaceDropdown'
 import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
+import { MobileDrawer } from './components/Nav/MobileDrawer'
 
 type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'settings'
 
@@ -110,6 +111,7 @@ function FeedHeader({
   onGenerate,
   generating,
   activeTag,
+  onMobileLogoTap,
   workspaceProps,
 }: {
   paperCount: number
@@ -117,6 +119,7 @@ function FeedHeader({
   onGenerate: () => void
   generating: boolean
   activeTag: string | null
+  onMobileLogoTap?: () => void
   workspaceProps?: {
     workspaces: import('./types').Workspace[]
     active: import('./types').Workspace | null
@@ -132,7 +135,8 @@ function FeedHeader({
           <img
             src="/ficino/ficino-favicon-light.png"
             alt="ficino"
-            className="w-7 h-7 rounded-lg md:hidden"
+            className="w-7 h-7 rounded-lg md:hidden cursor-pointer"
+            onClick={onMobileLogoTap}
           />
           <span className="text-[22px] font-semibold text-text tracking-[0.015em]" style={{ fontFamily: "'Cormorant Garamond', serif", fontKerning: 'normal' }}>ficino</span>
           <span className="text-[11px] text-gold bg-gold/10 border border-gold/20 rounded px-1.5 py-0.5 font-semibold tracking-wider">
@@ -231,6 +235,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(0)
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [showWorkspaceSheet, setShowWorkspaceSheet] = useState(false)
+  const [showMobileDrawer, setShowMobileDrawer] = useState(false)
   const ws = useWorkspaces()
   const corpus = useCorpus(ws.activeId)
   const feed = useFeed()
@@ -294,6 +299,7 @@ export default function App() {
               onGenerate={handleGenerate}
               generating={feed.feedState === 'generating'}
               activeTag={activeTag}
+              onMobileLogoTap={() => setShowMobileDrawer(true)}
               workspaceProps={{
                 workspaces: ws.workspaces,
                 active: ws.active,
@@ -304,21 +310,6 @@ export default function App() {
             />
             <FeedTabs active={activeTab} onSelect={setActiveTab} />
             <FeedHistory currentFeedId={feed.feedId} onLoadFeed={feed.loadFeed} />
-            <div className="lg:hidden p-4">
-              <PaperUpload onUpload={corpus.upload} uploading={corpus.uploading} />
-              {corpus.papers.length > 0 && (
-                <div className="mt-3">
-                  <CorpusPanel
-                    papers={corpus.papers}
-                    loading={corpus.loading}
-                    onDelete={corpus.remove}
-                    onRefresh={corpus.refresh}
-                    activeTag={activeTag}
-                    onTagFilter={setActiveTag}
-                  />
-                </div>
-              )}
-            </div>
             <FeedContent
               posts={feed.posts}
               feedId={feed.feedId}
@@ -347,6 +338,14 @@ export default function App() {
         active={activeView}
         onNavigate={setActiveView}
         onLongPressHome={() => setShowWorkspaceSheet(true)}
+      />
+      <MobileDrawer
+        open={showMobileDrawer}
+        onClose={() => setShowMobileDrawer(false)}
+        corpus={corpus}
+        enabledPersonas={enabledPersonas}
+        activeTag={activeTag}
+        onTagFilter={setActiveTag}
       />
       {showWorkspaceSheet && (
         <WorkspaceBottomSheet
