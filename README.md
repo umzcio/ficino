@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="frontend/public/ficino-logo.png" alt="Ficino" width="400" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/ficino-logo-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="frontend/public/ficino-logo.png" />
+    <img src="frontend/public/ficino-logo.png" alt="Ficino" width="400" />
+  </picture>
 </p>
 
 <p align="center">
