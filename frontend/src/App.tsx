@@ -19,6 +19,7 @@ import { SettingsView } from './components/Settings/SettingsView'
 import { AlertsView } from './components/Alerts/AlertsView'
 import { useSettings } from './hooks/useSettings'
 import { useAlerts } from './hooks/useAlerts'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { WorkspaceDropdown } from './components/Nav/WorkspaceDropdown'
 import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
 import { MobileDrawer } from './components/Nav/MobileDrawer'
@@ -254,6 +255,14 @@ export default function App() {
   const handleGenerate = () => {
     feed.generate(undefined, activeTag ? [activeTag] : undefined)
   }
+
+  useKeyboardShortcuts({
+    onNavigate: setActiveView,
+    onGenerate: handleGenerate,
+    onCloseMobileDrawer: () => setShowMobileDrawer(false),
+    onCloseWorkspaceSheet: () => setShowWorkspaceSheet(false),
+    generating: feed.feedState === 'generating',
+  })
 
   const renderMainContent = () => {
     switch (activeView) {
