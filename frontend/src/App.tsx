@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
   Zap, Loader2
@@ -25,7 +25,7 @@ import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
 import { MobileDrawer } from './components/Nav/MobileDrawer'
 import { PostDetail } from './components/Feed/PostDetail'
 import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
-import { getFeed } from './lib/api'
+import { getFeed, getPaperTldrs } from './lib/api'
 import { useAnnotations } from './hooks/useAnnotations'
 
 type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'settings'
@@ -221,12 +221,14 @@ function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) 
   )
 }
 
-function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClick }: {
+function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClick, paperSummaries, onPaperClick }: {
   corpus: ReturnType<typeof useCorpus>
   activeTag: string | null
   onTagFilter: (tag: string | null) => void
   enabledPersonas: Record<string, boolean>
   onSearchClick: () => void
+  paperSummaries?: Map<string, string>
+  onPaperClick?: (paperId: string) => void
 }) {
   return (
     <aside className="w-[260px] shrink-0 pt-3 pl-5 flex-col gap-3.5 hidden lg:flex">
@@ -247,6 +249,8 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
         onRefresh={corpus.refresh}
         activeTag={activeTag}
         onTagFilter={onTagFilter}
+        paperSummaries={paperSummaries}
+        onPaperClick={onPaperClick}
       />
 
       <PersonaPanel enabledPersonas={enabledPersonas} />
@@ -261,6 +265,7 @@ export default function App() {
   const [showWorkspaceSheet, setShowWorkspaceSheet] = useState(false)
   const [showMobileDrawer, setShowMobileDrawer] = useState(false)
   const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
+  const [pendingPaperId, setPendingPaperId] = useState<string | null>(null)
   const feedScrollRef = useRef(0)
   const personas = usePersonasLoader()
   const ws = useWorkspaces()
@@ -270,6 +275,12 @@ export default function App() {
   const notes = useAnnotations()
   const appSettings = useSettings()
   const alertsHook = useAlerts()
+
+  const [paperTldrs, setPaperTldrs] = useState<Map<string, string>>(new Map())
+
+  useEffect(() => {
+    getPaperTldrs().then((data) => setPaperTldrs(new Map(Object.entries(data)))).catch(() => {})
+  }, [corpus.papers])
 
   const completePapers = corpus.papers.filter((p) => p.status === 'complete')
   const enabledPersonas = (appSettings.settings.personas_enabled || {}) as Record<string, boolean>
@@ -297,6 +308,8 @@ export default function App() {
       case 'messages':
         return (
           <MessagesView
+            initialPaperId={pendingPaperId}
+            onInitialPaperConsumed={() => setPendingPaperId(null)}
             onOpenThread={async (feedId, postIndex) => {
               try {
                 const feedData = await getFeed(feedId)
@@ -420,7 +433,18 @@ export default function App() {
           <main className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
             {renderMainContent()}
           </main>
-          <Sidebar corpus={corpus} activeTag={activeTag} onTagFilter={setActiveTag} enabledPersonas={enabledPersonas} onSearchClick={() => setActiveView('search')} />
+          <Sidebar
+            corpus={corpus}
+            activeTag={activeTag}
+            onTagFilter={setActiveTag}
+            enabledPersonas={enabledPersonas}
+            onSearchClick={() => setActiveView('search')}
+            paperSummaries={paperTldrs}
+            onPaperClick={(paperId) => {
+              setPendingPaperId(paperId)
+              setActiveView('messages')
+            }}
+          />
         </div>
         <MobileBottomNav
           active={activeView}

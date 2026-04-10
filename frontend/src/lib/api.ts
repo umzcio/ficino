@@ -318,6 +318,10 @@ export async function deleteTag(tagId: string): Promise<void> {
 }
 
 // Messages / DMs
+export async function getPaperTldrs(): Promise<Record<string, string>> {
+  return request<Record<string, string>>('/messages/papers/tldrs')
+}
+
 export async function listPaperConversations(): Promise<PaperConversation[]> {
   return request<PaperConversation[]>('/messages/papers')
 }

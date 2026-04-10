@@ -240,6 +240,24 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         except Exception:
             log.warn("alert_dispatch_failed")
 
+        # --- Auto-generate feed if enabled ---
+        try:
+            from lib.settings import get_user_settings
+            user_settings = get_user_settings()
+            if user_settings.get("auto_generate_on_upload"):
+                corpus_id = fetchrow(
+                    "SELECT corpus_id FROM papers WHERE id = $1", paper_id
+                )
+                if corpus_id and corpus_id["corpus_id"]:
+                    app.send_task(
+                        "tasks.persona_tasks.generate_feed",
+                        kwargs={"corpus_id": str(corpus_id["corpus_id"])},
+                        queue="persona",
+                    )
+                    log.info("auto_generate_dispatched", corpus_id=str(corpus_id["corpus_id"]))
+        except Exception:
+            log.warn("auto_generate_dispatch_failed")
+
         return {
             "status": "complete",
             "paper_id": paper_id,

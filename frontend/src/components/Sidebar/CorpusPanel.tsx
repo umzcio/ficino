@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Trash2, Loader2, CheckCircle, AlertCircle, Plus, X } from 'lucide-react'
+import { ChevronRight, ChevronDown, Trash2, Loader2, CheckCircle, AlertCircle, Plus, X, MessageCircle } from 'lucide-react'
 import type { Paper, PaperStatus } from '../../types'
 import { assignTag, unassignTag } from '../../lib/api'
 
@@ -10,6 +10,8 @@ interface CorpusPanelProps {
   onRefresh: () => void
   activeTag: string | null
   onTagFilter: (tag: string | null) => void
+  paperSummaries?: Map<string, string>
+  onPaperClick?: (paperId: string) => void
 }
 
 const STATUS_CONFIG: Record<PaperStatus, { label: string; color: string; icon?: 'loading' | 'done' | 'error' }> = {
@@ -103,22 +105,156 @@ function AddTagInput({ paperId, onDone }: { paperId: string; onDone: () => void 
   )
 }
 
-export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, onTagFilter }: CorpusPanelProps) {
+function PaperCard({
+  paper, tldr, expanded, onToggle, onDelete, onRefresh, onPaperClick, addingTag, setAddingTag,
+}: {
+  paper: Paper
+  tldr?: string
+  expanded: boolean
+  onToggle: () => void
+  onDelete: () => void
+  onRefresh: () => void
+  onPaperClick?: () => void
+  addingTag: boolean
+  setAddingTag: (v: boolean) => void
+}) {
+  const isComplete = paper.status === 'complete'
+  const isProcessing = !isComplete && paper.status !== 'error'
+
+  const handleRemoveTag = async (tagId: string) => {
+    await unassignTag(paper.id, tagId)
+    onRefresh()
+  }
+
+  return (
+    <div className="py-2 group">
+      {/* Headline row — clickable */}
+      <div
+        className="flex items-start gap-2 cursor-pointer"
+        onClick={onToggle}
+      >
+        <div className="flex-1 min-w-0">
+          {/* Category tag from paper tags */}
+          {paper.tags && paper.tags.length > 0 && (
+            <div className="text-[11px] text-gold/60 mb-0.5">
+              {paper.tags.map(t => `#${t.name}`).join(' · ')}
+            </div>
+          )}
+          {/* Title as headline */}
+          <div className="text-[13px] text-text font-semibold leading-snug">
+            {paper.title || paper.filename}
+          </div>
+          {/* TL;DR teaser or status */}
+          {isComplete && tldr ? (
+            <p className="text-[12px] text-text-muted leading-snug mt-0.5 line-clamp-2">
+              {tldr}
+            </p>
+          ) : isProcessing ? (
+            <div className="mt-1">
+              <StatusBadge status={paper.status} />
+            </div>
+          ) : paper.status === 'error' ? (
+            <div className="mt-1">
+              <StatusBadge status={paper.status} />
+            </div>
+          ) : (
+            <p className="text-[12px] text-text-muted mt-0.5">
+              {paper.chunk_count} chunks · {paper.figure_count} figures
+            </p>
+          )}
+        </div>
+        <div className="shrink-0 mt-0.5">
+          {expanded ? (
+            <ChevronDown size={14} className="text-text-muted" />
+          ) : (
+            <ChevronRight size={14} className="text-text-muted" />
+          )}
+        </div>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="mt-2 pl-0">
+          {/* Full TL;DR */}
+          {isComplete && tldr && (
+            <div className="border-l-2 border-gold/20 pl-3 mb-2">
+              <p className="text-[12px] text-text-mid leading-relaxed">{tldr}</p>
+            </div>
+          )}
+
+          {/* Stats */}
+          {isComplete && (
+            <div className="flex items-center gap-3 text-[11px] text-text-muted mb-2">
+              <span>{paper.chunk_count} chunks</span>
+              {paper.figure_count > 0 && <span>{paper.figure_count} figures</span>}
+              {paper.authors && paper.authors.length > 0 && (
+                <span>{paper.authors.slice(0, 2).join(', ')}{paper.authors.length > 2 ? ' et al.' : ''}</span>
+              )}
+            </div>
+          )}
+
+          {/* Tags */}
+          <div className="flex items-center gap-1.5 flex-wrap mb-2">
+            {paper.tags?.map((tag) => (
+              <TagBadge
+                key={tag.id}
+                name={tag.name}
+                onRemove={() => handleRemoveTag(tag.id)}
+              />
+            ))}
+            {addingTag ? (
+              <AddTagInput
+                paperId={paper.id}
+                onDone={() => { setAddingTag(false); onRefresh() }}
+              />
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); setAddingTag(true) }}
+                className="inline-flex items-center gap-0.5 text-[10px] text-text-muted hover:text-gold bg-transparent border border-dashed border-border hover:border-gold/30 rounded px-1 py-0.5 cursor-pointer transition-colors"
+              >
+                <Plus size={8} />
+                #
+              </button>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            {isComplete && onPaperClick && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onPaperClick() }}
+                className="inline-flex items-center gap-1.5 text-[11px] text-gold bg-gold/8 border border-gold/20 rounded-lg px-2.5 py-1 cursor-pointer hover:bg-gold/15 transition-colors font-medium"
+              >
+                <MessageCircle size={10} />
+                View summary
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-persona-skeptic bg-transparent border border-border hover:border-persona-skeptic/30 rounded-lg px-2 py-1 cursor-pointer transition-colors"
+            >
+              <Trash2 size={10} />
+              Remove
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, onTagFilter, paperSummaries, onPaperClick }: CorpusPanelProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [addingTagFor, setAddingTagFor] = useState<string | null>(null)
 
   // Collect all unique tags across papers
   const allTags = [...new Set(papers.flatMap((p) => p.tags?.map((t) => t.name) || []))].sort()
 
-  const handleRemoveTag = async (paperId: string, tagId: string) => {
-    await unassignTag(paperId, tagId)
-    onRefresh()
-  }
-
   if (loading) {
     return (
       <div className="bg-bg-hover border border-border rounded-2xl p-4">
         <div className="text-[13px] font-bold text-gold tracking-widest uppercase mb-3">
-          Active Corpus
+          What's happening
         </div>
         <div className="flex items-center justify-center py-4">
           <Loader2 size={20} className="text-text-muted animate-spin" />
@@ -127,10 +263,12 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
     )
   }
 
+  const filtered = papers.filter((p) => !activeTag || p.tags?.some((t) => t.name === activeTag))
+
   return (
     <div className="bg-bg-hover border border-border rounded-2xl p-4">
       <div className="text-[13px] font-bold text-gold tracking-widest uppercase mb-3">
-        Active Corpus
+        What's happening
       </div>
 
       {/* Tag filter bar */}
@@ -168,65 +306,27 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
         <p className="text-xs text-text-muted py-3 text-center">
           No papers uploaded yet
         </p>
+      ) : filtered.length === 0 ? (
+        <p className="text-xs text-text-muted py-3 text-center">
+          No papers match #{activeTag}
+        </p>
       ) : (
-        papers
-          .filter((p) => !activeTag || p.tags?.some((t) => t.name === activeTag))
-          .map((paper, i, filtered) => (
-          <div
-            key={paper.id}
-            className="py-2 group"
-            style={{ borderBottom: i < filtered.length - 1 ? '1px solid #1e2028' : 'none' }}
-          >
-            <div className="flex justify-between items-start">
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] text-text font-semibold mb-0.5 truncate">
-                  {paper.title || paper.filename}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <StatusBadge status={paper.status} />
-                  {paper.status === 'complete' && (
-                    <span className="text-xs text-text-muted">{paper.chunk_count} chunks</span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-1 ml-2 shrink-0">
-                <button
-                  onClick={() => onDelete(paper.id)}
-                  aria-label={`Delete ${paper.title || paper.filename}`}
-                  className="opacity-0 group-hover:opacity-100 p-2 rounded hover:bg-persona-skeptic/10 transition-all"
-                >
-                  <Trash2 size={14} className="text-persona-skeptic" />
-                </button>
-                <ChevronRight size={14} className="text-text-muted" />
-              </div>
-            </div>
-
-            {/* Tags row */}
-            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-              {paper.tags?.map((tag) => (
-                <TagBadge
-                  key={tag.id}
-                  name={tag.name}
-                  onRemove={() => handleRemoveTag(paper.id, tag.id)}
-                />
-              ))}
-              {addingTagFor === paper.id ? (
-                <AddTagInput
-                  paperId={paper.id}
-                  onDone={() => { setAddingTagFor(null); onRefresh() }}
-                />
-              ) : (
-                <button
-                  onClick={() => setAddingTagFor(paper.id)}
-                  className="inline-flex items-center gap-0.5 text-[10px] text-text-muted hover:text-gold bg-transparent border border-dashed border-border hover:border-gold/30 rounded px-1 py-0.5 cursor-pointer transition-colors"
-                >
-                  <Plus size={8} />
-                  #
-                </button>
-              )}
-            </div>
-          </div>
-        ))
+        <div className="divide-y divide-border">
+          {filtered.map((paper) => (
+            <PaperCard
+              key={paper.id}
+              paper={paper}
+              tldr={paperSummaries?.get(paper.id)}
+              expanded={expandedId === paper.id}
+              onToggle={() => setExpandedId(expandedId === paper.id ? null : paper.id)}
+              onDelete={() => onDelete(paper.id)}
+              onRefresh={onRefresh}
+              onPaperClick={onPaperClick ? () => onPaperClick(paper.id) : undefined}
+              addingTag={addingTagFor === paper.id}
+              setAddingTag={(v) => setAddingTagFor(v ? paper.id : null)}
+            />
+          ))}
+        </div>
       )}
     </div>
   )

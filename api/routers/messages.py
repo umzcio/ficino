@@ -57,6 +57,26 @@ async def list_paper_conversations(
     return result
 
 
+@router.get("/papers/tldrs")
+async def get_paper_tldrs(
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Return paper_id → TL;DR mapping for all completed summaries."""
+    rows = await db.fetch(
+        """SELECT paper_id, messages FROM paper_summaries
+           WHERE status = 'complete' AND messages != '[]'"""
+    )
+    result: dict[str, str] = {}
+    for row in rows:
+        messages = row["messages"]
+        if isinstance(messages, str):
+            messages = json.loads(messages)
+        if messages and len(messages) > 0:
+            # First message is typically the TL;DR
+            result[str(row["paper_id"])] = messages[0].get("content", "")[:200]
+    return result
+
+
 @router.get("/papers/{paper_id}")
 async def get_paper_summary(
     paper_id: str,

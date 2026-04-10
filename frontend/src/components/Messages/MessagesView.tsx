@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Inbox } from './Inbox'
 import { PaperChat } from './PaperChat'
 import { GroupChatView } from './GroupChatView'
@@ -10,10 +10,21 @@ type View =
 
 interface MessagesViewProps {
   onOpenThread?: (feedId: string, postIndex: number) => void
+  initialPaperId?: string | null
+  onInitialPaperConsumed?: () => void
 }
 
-export function MessagesView({ onOpenThread }: MessagesViewProps = {}) {
-  const [view, setView] = useState<View>({ type: 'inbox' })
+export function MessagesView({ onOpenThread, initialPaperId, onInitialPaperConsumed }: MessagesViewProps = {}) {
+  const [view, setView] = useState<View>(
+    initialPaperId ? { type: 'paper', paperId: initialPaperId } : { type: 'inbox' }
+  )
+
+  useEffect(() => {
+    if (initialPaperId) {
+      setView({ type: 'paper', paperId: initialPaperId })
+      onInitialPaperConsumed?.()
+    }
+  }, [initialPaperId])
 
   if (view.type === 'paper') {
     return (
