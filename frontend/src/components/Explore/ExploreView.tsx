@@ -165,6 +165,7 @@ function SearchBar() {
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 200)}
           placeholder="Search papers, chunks, posts..."
+          autoFocus
           aria-label="Search corpus"
           className="flex-1 bg-transparent border-none text-[15px] text-text outline-none placeholder:text-text-muted"
         />

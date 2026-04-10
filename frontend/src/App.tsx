@@ -206,18 +206,22 @@ function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) 
   )
 }
 
-function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas }: {
+function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClick }: {
   corpus: ReturnType<typeof useCorpus>
   activeTag: string | null
   onTagFilter: (tag: string | null) => void
   enabledPersonas: Record<string, boolean>
+  onSearchClick: () => void
 }) {
   return (
     <aside className="w-[260px] shrink-0 pt-3 pl-5 flex-col gap-3.5 hidden lg:flex">
-      <div className="bg-bg-hover border border-border rounded-3xl px-4 py-2.5 flex items-center gap-2.5">
+      <button
+        onClick={onSearchClick}
+        className="bg-bg-hover border border-border rounded-3xl px-4 py-2.5 flex items-center gap-2.5 cursor-pointer hover:border-gold/30 transition-colors w-full text-left"
+      >
         <Search size={16} className="text-text-muted" />
         <span className="text-text-muted text-[15px]">Search corpus...</span>
-      </div>
+      </button>
 
       <PaperUpload onUpload={corpus.upload} uploading={corpus.uploading} />
 
@@ -345,7 +349,7 @@ export default function App() {
         <main className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
           {renderMainContent()}
         </main>
-        <Sidebar corpus={corpus} activeTag={activeTag} onTagFilter={setActiveTag} enabledPersonas={enabledPersonas} />
+        <Sidebar corpus={corpus} activeTag={activeTag} onTagFilter={setActiveTag} enabledPersonas={enabledPersonas} onSearchClick={() => setActiveView('search')} />
       </div>
       <MobileBottomNav
         active={activeView}
