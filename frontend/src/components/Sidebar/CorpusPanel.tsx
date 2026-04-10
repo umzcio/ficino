@@ -49,9 +49,10 @@ function TagBadge({ name, onRemove }: { name: string; onRemove?: () => void }) {
       {onRemove && (
         <button
           onClick={(e) => { e.stopPropagation(); onRemove() }}
-          className="bg-transparent border-none cursor-pointer p-0 flex items-center text-gold/50 hover:text-gold"
+          aria-label={`Remove tag ${name}`}
+          className="bg-transparent border-none cursor-pointer p-1 -mr-0.5 flex items-center text-gold/50 hover:text-gold"
         >
-          <X size={9} />
+          <X size={11} />
         </button>
       )}
     </span>
@@ -191,9 +192,10 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
               <div className="flex items-center gap-1 ml-2 shrink-0">
                 <button
                   onClick={() => onDelete(paper.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-persona-skeptic/10 transition-all"
+                  aria-label={`Delete ${paper.title || paper.filename}`}
+                  className="opacity-0 group-hover:opacity-100 p-2 rounded hover:bg-persona-skeptic/10 transition-all"
                 >
-                  <Trash2 size={12} className="text-persona-skeptic" />
+                  <Trash2 size={14} className="text-persona-skeptic" />
                 </button>
                 <ChevronRight size={14} className="text-text-muted" />
               </div>

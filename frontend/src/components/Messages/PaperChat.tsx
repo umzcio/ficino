@@ -114,7 +114,8 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3 flex items-center gap-3">
         <button
           onClick={onBack}
-          className="w-8 h-8 rounded-full flex items-center justify-center bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors"
+          aria-label="Go back"
+          className="w-10 h-10 rounded-full flex items-center justify-center bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors"
         >
           <ArrowLeft size={18} className="text-text" />
         </button>

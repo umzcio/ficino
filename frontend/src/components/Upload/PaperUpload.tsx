@@ -62,8 +62,10 @@ export function PaperUpload({ onUpload, uploading }: PaperUploadProps) {
         }
       `}
     >
+      <label htmlFor="pdf-upload" className="sr-only">Upload PDF</label>
       <input
         ref={inputRef}
+        id="pdf-upload"
         type="file"
         accept=".pdf"
         onChange={handleInputChange}

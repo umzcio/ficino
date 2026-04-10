@@ -34,7 +34,7 @@ export function MobileDrawer({
       />
 
       {/* Drawer */}
-      <div className="fixed top-0 left-0 bottom-0 w-[300px] max-w-[85vw] bg-bg z-50 overflow-y-auto animate-slide-right border-r border-border">
+      <div role="dialog" aria-label="Corpus management" className="fixed top-0 left-0 bottom-0 w-[300px] max-w-[85vw] bg-bg z-50 overflow-y-auto animate-slide-right border-r border-border">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
           <div className="flex items-center gap-2.5">
@@ -52,7 +52,8 @@ export function MobileDrawer({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center bg-transparent border-none cursor-pointer hover:bg-bg-hover"
+            aria-label="Close drawer"
+            className="w-10 h-10 rounded-full flex items-center justify-center bg-transparent border-none cursor-pointer hover:bg-bg-hover"
           >
             <X size={18} className="text-text-muted" />
           </button>

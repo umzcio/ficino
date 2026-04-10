@@ -81,7 +81,8 @@ function AlertCard({ alert, onMarkRead, onDismiss }: {
       {/* Dismiss */}
       <button
         onClick={(e) => { e.stopPropagation(); onDismiss() }}
-        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-transparent border-none cursor-pointer hover:bg-bg-hover text-text-muted hover:text-text transition-colors"
+        aria-label={`Dismiss ${alert.title}`}
+        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-transparent border-none cursor-pointer hover:bg-bg-hover text-text-muted hover:text-text transition-colors"
       >
         <X size={14} />
       </button>

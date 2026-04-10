@@ -37,7 +37,7 @@ const NAV_ITEMS: { icon: typeof Home; view: AppView; label: string }[] = [
 
 function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNavigate: (v: AppView) => void; alertCount: number }) {
   return (
-    <nav className="w-16 shrink-0 flex-col items-center pt-5 gap-0.5 border-r border-border hidden md:flex">
+    <nav aria-label="Main navigation" className="w-16 shrink-0 flex-col items-center pt-5 gap-0.5 border-r border-border hidden md:flex">
       <div className="mb-5">
         <img
           src="/ficino/ficino-favicon-light.png"
@@ -45,13 +45,15 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
           className="w-9 h-9 rounded-[10px]"
         />
       </div>
-      {NAV_ITEMS.map(({ icon: Icon, view }) => (
+      {NAV_ITEMS.map(({ icon: Icon, view, label }) => (
         <button
           key={view}
           onClick={() => onNavigate(view)}
+          aria-label={label}
+          aria-current={active === view ? 'page' : undefined}
           className="w-[46px] h-[46px] rounded-full border-none bg-transparent cursor-pointer flex items-center justify-center transition-all duration-100 hover:bg-gold/10 hover:text-gold relative"
           style={{
-            color: active === view ? '#e8eaf0' : '#555d6e',
+            color: active === view ? '#e8eaf0' : '#7a8194',
             backgroundColor: active === view ? 'rgba(200, 169, 110, 0.08)' : 'transparent',
           }}
         >
@@ -81,7 +83,7 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
   let longPressTimer: ReturnType<typeof setTimeout> | null = null
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-bg/95 backdrop-blur-md border-t border-border flex md:hidden z-50">
+    <nav aria-label="Mobile navigation" className="fixed bottom-0 left-0 right-0 bg-bg/95 backdrop-blur-md border-t border-border flex md:hidden z-50">
       {items.map(({ icon: Icon, view, label }) => (
         <button
           key={view}
@@ -95,8 +97,10 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
           onTouchCancel={view === 'feed' ? () => {
             if (longPressTimer) clearTimeout(longPressTimer)
           } : undefined}
+          aria-label={label}
+          aria-current={active === view ? 'page' : undefined}
           className="flex-1 flex flex-col items-center py-2.5 gap-0.5 bg-transparent border-none transition-colors"
-          style={{ color: active === view ? '#c8a96e' : '#555d6e' }}
+          style={{ color: active === view ? '#c8a96e' : '#7a8194' }}
         >
           <Icon size={22} strokeWidth={active === view ? 2.25 : 1.75} />
           <span className="text-[10px]">{label}</span>

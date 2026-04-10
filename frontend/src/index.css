@@ -7,7 +7,7 @@
   --color-gold: #c8a96e;
   --color-gold-dark: #a07840;
   --color-text: #e8eaf0;
-  --color-text-muted: #555d6e;
+  --color-text-muted: #7a8194;
   --color-text-mid: #8b92a5;
   --color-text-secondary: #b0b8c8;
   --color-persona-skeptic: #e85d4a;
@@ -31,6 +31,26 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+}
+
+/* Focus indicators */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 ::-webkit-scrollbar {

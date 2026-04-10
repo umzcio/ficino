@@ -11,9 +11,12 @@ function FigureLightbox({ src, alt, onClose }: { src: string; alt: string; onClo
     <div
       className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
       onClick={onClose}
+      role="dialog"
+      aria-label="Figure lightbox"
     >
       <button
         onClick={onClose}
+        aria-label="Close lightbox"
         className="absolute top-4 right-4 w-10 h-10 rounded-full bg-bg/80 border border-border flex items-center justify-center cursor-pointer hover:bg-bg transition-colors"
       >
         <X size={20} className="text-text" />
@@ -50,17 +53,20 @@ function Avatar({ persona }: { persona: PersonaKey }) {
 }
 
 function ActionBtn({
-  icon: Icon, count, color, active, onClick,
+  icon: Icon, count, color, active, onClick, label,
 }: {
   icon: typeof MessageCircle
   count: number
   color: string
   active?: boolean
   onClick?: () => void
+  label: string
 }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick?.() }}
+      aria-label={`${label}: ${count}`}
+      aria-pressed={active}
       className="flex items-center gap-[5px] px-2.5 py-1.5 rounded-[20px] text-[13px] flex-1 justify-center max-w-[80px] border-none bg-transparent cursor-pointer transition-all duration-100 hover:opacity-80"
       style={{
         color: active ? color : '#71767b',
@@ -166,9 +172,9 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
               FIGURE
             </span>
           )}
-          <div className="ml-auto">
+          <button aria-label="More options" className="ml-auto bg-transparent border-none cursor-pointer p-1">
             <MoreHorizontal size={16} className="text-text-muted" />
-          </div>
+          </button>
         </div>
 
         {/* Replying to */}
@@ -331,13 +337,14 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
 
         {/* Actions */}
         <div className="flex -ml-2 mt-1">
-          <ActionBtn icon={MessageCircle} count={post.replies + replyMessages.length} color="#4a9eff" active={replyOpen} onClick={handleOpenReply} />
+          <ActionBtn icon={MessageCircle} count={post.replies + replyMessages.length} color="#4a9eff" active={replyOpen} onClick={handleOpenReply} label="Replies" />
           <ActionBtn
             icon={Repeat2}
             count={post.retweets + (retweeted ? 1 : 0)}
             color="#34d399"
             active={retweeted}
             onClick={() => setRetweeted(!retweeted)}
+            label="Repost"
           />
           <ActionBtn
             icon={Heart}
@@ -345,6 +352,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
             color="#f91880"
             active={liked}
             onClick={() => setLiked(!liked)}
+            label="Like"
           />
           <ActionBtn
             icon={Bookmark}
@@ -352,6 +360,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
             color="#c8a96e"
             active={bookmarked}
             onClick={() => onBookmarkToggle?.(post, postIndex)}
+            label="Bookmark"
           />
         </div>
 

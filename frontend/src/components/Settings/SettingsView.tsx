@@ -58,13 +58,15 @@ function SettingRow({ label, description, children }: {
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="w-10 h-6 rounded-full border-none cursor-pointer transition-colors relative"
+      className="w-11 h-7 rounded-full border-none cursor-pointer transition-colors relative"
       style={{ backgroundColor: checked ? '#c8a96e' : '#1e2028' }}
     >
       <div
-        className="w-4.5 h-4.5 rounded-full bg-white absolute top-[3px] transition-all"
-        style={{ left: checked ? '20px' : '3px', width: 18, height: 18 }}
+        className="rounded-full bg-white absolute top-[3px] transition-all"
+        style={{ left: checked ? '22px' : '3px', width: 20, height: 20 }}
       />
     </button>
   )
