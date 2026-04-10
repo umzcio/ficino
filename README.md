@@ -82,11 +82,16 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 
 ### Organization
 - **Workspaces**: named research contexts (dissertation, conference paper, grant proposal)
-- **#Tags**: hashtag-style paper tagging with corpus-scoped feed generation
+- **#Tags**: auto-generated on upload + manual tagging, with corpus-scoped feed generation
+- **"What's happening" corpus panel**: papers as headlines with TL;DR teasers, click to expand
+- **Auto-generate on upload**: optional automatic feed generation when a paper finishes processing
 - **Desktop dropdown + mobile long-press** switcher for workspace management
 
 ### Interaction
 - **Reply to personas**: multi-turn threaded conversations in Twitter/X reply style
+- **Post detail view**: click any post to see full thread context — parent posts, quoted originals, downstream responses
+- **Annotations**: private notes on any post via three-dots menu, visible in feed and bookmarks
+- **Cite this**: one-click APA/MLA citation generation from the three-dots menu, copied to clipboard
 - **Bookmarks**: snapshot-based, survives feed regeneration
 - **Figure lightbox**: extracted figures rendered inline with expand-on-click
 
@@ -98,7 +103,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 ### Configuration
 - **LLM provider switching**: toggle between Ollama (local, free) and Claude/OpenAI APIs
 - **Model selection**: pick from installed Ollama models via dropdown
-- **Persona controls**: enable/disable personas, adjust temperature, tune post type weights
+- **Persona controls**: enable/disable personas, adjust temperature, tune post type weights — personas stored in DB, zero-code to add new ones
 - **Paper processing**: extraction mode (auto/PyMuPDF/vision), chunk size, display options
 
 ---
@@ -284,7 +289,7 @@ See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
 - Organic persona interjections (other personas jump into your reply threads naturally)
 - Like as training signal (RLHF-lite for your personal discourse engine)
 - Ask Your Corpus (conversational RAG Q&A in the DM view)
-- Tab-specific feed generation
+- Custom personas (user-created, one INSERT to the DB)
 - Light mode
 - Auth & multi-user support
 - Production hardening for ficino.ai deployment
