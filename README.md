@@ -24,11 +24,11 @@
 
 ## Origin
 
-Ficino is named after **Marsilio Ficino** (1433-1499), the Florentine Renaissance scholar who ran the Platonic Academy and spent his life translating, synthesizing, and animating Greek texts into active Latin discourse. He didn't just read sources -- he made them argue with each other across centuries.
+Ficino is named after **Marsilio Ficino** (1433-1499), the Florentine Renaissance scholar who ran the Platonic Academy and spent his life translating, synthesizing, and animating Greek texts into active Latin discourse. He didn't just read sources: he made them argue with each other across centuries.
 
 That's exactly what this app does.
 
-Ficino takes academic papers -- dense, unreadable, inaccessible -- and transforms them into a simulated social media feed where AI personas debate the findings, cross-reference competing papers, cite figures, and surface the fault lines in the literature. Built specifically for ADHD-native learning: scroll-first, controversy-first, one finding per post.
+Ficino takes academic papers (dense, unreadable, inaccessible) and transforms them into a simulated social media feed where AI personas debate the findings, cross-reference competing papers, cite figures, and surface the fault lines in the literature. Built specifically for ADHD-native learning: scroll-first, controversy-first, one finding per post.
 
 **The core insight:** you don't need to *read* papers to *absorb* a field. You need repeated, multi-angle exposure to the same claims through different lenses. That's what Ficino does, disguised as doomscrolling.
 
@@ -40,11 +40,11 @@ Ficino takes academic papers -- dense, unreadable, inaccessible -- and transform
 Upload PDFs --> Ingest & Chunk --> AI Personas Debate --> You Learn by Scrolling
 ```
 
-1. **Upload papers** -- drag-drop PDFs into your corpus
-2. **Automatic ingestion** -- extracts text (PyMuPDF or Vision fallback for tricky PDFs), detects sections, chunks intelligently, generates embeddings
-3. **Generate feed** -- five AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed
-4. **Cross-paper RAG** -- personas argue *across* papers, detecting contradictions and agreements
-5. **Interact** -- reply to personas, bookmark posts, explore paper summaries, trace claims back to source chunks
+1. **Upload papers**: drag-drop PDFs into your corpus
+2. **Automatic ingestion**: extracts text (PyMuPDF or Vision fallback for tricky PDFs), detects sections, chunks intelligently, generates embeddings
+3. **Generate feed**: five AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed
+4. **Cross-paper RAG**: personas argue *across* papers, detecting contradictions and agreements
+5. **Interact**: reply to personas, bookmark posts, explore paper summaries, trace claims back to source chunks
 
 ---
 
@@ -67,37 +67,37 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 ## Features
 
 ### Core Feed
-- **Twitter/X clone UI** -- three-column desktop layout, mobile-responsive with bottom nav
-- **Five post types** -- standalone posts, threads (expandable), quote-tweets, replies, figure posts
-- **Feed tabs** -- For You / Debates / Methods / Findings (client-side filtering by post category)
-- **Feed history** -- browse and reload past generated feeds
-- **Source reveal** -- tap to see the exact paper chunks each post is grounded in
+- **Twitter/X clone UI**: three-column desktop layout, mobile-responsive with bottom nav
+- **Five post types**: standalone posts, threads (expandable), quote-tweets, replies, figure posts
+- **Feed tabs**: For You / Debates / Methods / Findings (client-side filtering by post category)
+- **Feed history**: browse and reload past generated feeds
+- **Source reveal**: tap to see the exact paper chunks each post is grounded in
 
 ### Paper Intelligence (DMs)
-- **Paper summaries** -- tap a paper in Messages to get a structured TL;DR + 7-part breakdown
-- **Group chats** -- select multiple papers for cross-corpus synthesis (agreements, contradictions, gaps)
-- **Cached** -- summaries generate once, load instantly on return
+- **Paper summaries**: tap a paper in Messages to get a structured TL;DR + 7-part breakdown
+- **Group chats**: select multiple papers for cross-corpus synthesis (agreements, contradictions, gaps)
+- **Cached**: summaries generate once, load instantly on return
 
 ### Organization
-- **Workspaces** -- named research contexts (dissertation, conference paper, grant proposal)
-- **#Tags** -- hashtag-style paper tagging with corpus-scoped feed generation
+- **Workspaces**: named research contexts (dissertation, conference paper, grant proposal)
+- **#Tags**: hashtag-style paper tagging with corpus-scoped feed generation
 - **Desktop dropdown + mobile long-press** switcher for workspace management
 
 ### Interaction
-- **Reply to personas** -- multi-turn threaded conversations in Twitter/X reply style
-- **Bookmarks** -- snapshot-based, survives feed regeneration
-- **Figure lightbox** -- extracted figures rendered inline with expand-on-click
+- **Reply to personas**: multi-turn threaded conversations in Twitter/X reply style
+- **Bookmarks**: snapshot-based, survives feed regeneration
+- **Figure lightbox**: extracted figures rendered inline with expand-on-click
 
 ### Intelligence Layer
-- **Contradiction alerts** -- notified when a new paper contradicts existing corpus
-- **Disagreement spikes** -- flagged when feed generation produces unusual debate volume
-- **Reading gap nudges** -- prompted to go deeper on papers you've debated but not summarized
+- **Contradiction alerts**: notified when a new paper contradicts existing corpus
+- **Disagreement spikes**: flagged when feed generation produces unusual debate volume
+- **Reading gap nudges**: prompted to go deeper on papers you've debated but not summarized
 
 ### Configuration
-- **LLM provider switching** -- toggle between Ollama (local, free) and Claude/OpenAI APIs
-- **Model selection** -- pick from installed Ollama models via dropdown
-- **Persona controls** -- enable/disable personas, adjust temperature, tune post type weights
-- **Paper processing** -- extraction mode (auto/PyMuPDF/vision), chunk size, display options
+- **LLM provider switching**: toggle between Ollama (local, free) and Claude/OpenAI APIs
+- **Model selection**: pick from installed Ollama models via dropdown
+- **Persona controls**: enable/disable personas, adjust temperature, tune post type weights
+- **Paper processing**: extraction mode (auto/PyMuPDF/vision), chunk size, display options
 
 ---
 
@@ -263,7 +263,7 @@ ficino/
 
 ## Design Decisions
 
-**Why a Twitter/X clone?** Academic papers are impenetrable. The same attention mechanics that make Twitter addictive can make research absorbable -- scroll-first, controversy-first, one finding per post. ADHD-native learning disguised as doomscrolling.
+**Why a Twitter/X clone?** Academic papers are impenetrable. The same attention mechanics that make Twitter addictive can make research absorbable: scroll-first, controversy-first, one finding per post. ADHD-native learning disguised as doomscrolling.
 
 **Why five personas?** They map to real epistemic roles in academic discourse: the skeptic, the hype machine, the practitioner, the methodologist, the confused grad student. Together they create multi-angle exposure to the same claims.
 
@@ -271,7 +271,7 @@ ficino/
 
 **Why Ollama first?** Zero API cost during development. Switch to Claude/OpenAI for production with a single .env change.
 
-**Why section-aware chunking?** A methods chunk retrieved alongside a findings chunk creates confused personas. Section labels mean personas can focus on their domain -- methodology critiques come from methods chunks, hype posts come from findings chunks.
+**Why section-aware chunking?** A methods chunk retrieved alongside a findings chunk creates confused personas. Section labels mean personas can focus on their domain: methodology critiques come from methods chunks, hype posts come from findings chunks.
 
 ---
 
