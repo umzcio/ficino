@@ -38,7 +38,7 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
     <nav className="w-16 shrink-0 flex-col items-center pt-5 gap-0.5 border-r border-border hidden md:flex">
       <div className="mb-5">
         <img
-          src="/ficino/ficino-favicon.png"
+          src="/ficino/ficino-favicon-light.png"
           alt="ficino"
           className="w-9 h-9 rounded-[10px]"
         />
@@ -130,7 +130,7 @@ function FeedHeader({
       <div>
         <div className="flex items-center gap-2">
           <img
-            src="/ficino/ficino-favicon.png"
+            src="/ficino/ficino-favicon-light.png"
             alt="ficino"
             className="w-7 h-7 rounded-lg md:hidden"
           />
