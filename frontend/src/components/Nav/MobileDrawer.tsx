@@ -11,6 +11,7 @@ interface MobileDrawerProps {
     papers: Paper[]
     loading: boolean
     uploading: boolean
+    error: string | null
     upload: (file: File) => Promise<void>
     remove: (id: string) => void
     refresh: () => void
@@ -34,7 +35,7 @@ export function MobileDrawer({
       />
 
       {/* Drawer */}
-      <div role="dialog" aria-label="Corpus management" className="fixed top-0 left-0 bottom-0 w-[300px] max-w-[85vw] bg-bg z-50 overflow-y-auto animate-slide-right border-r border-border">
+      <div role="dialog" aria-modal="true" aria-label="Corpus management" className="fixed top-0 left-0 bottom-0 w-[300px] max-w-[85vw] bg-bg z-50 overflow-y-auto animate-slide-right border-r border-border">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
           <div className="flex items-center gap-2.5">
@@ -61,7 +62,7 @@ export function MobileDrawer({
 
         {/* Content */}
         <div className="p-4 space-y-4">
-          <PaperUpload onUpload={corpus.upload} uploading={corpus.uploading} />
+          <PaperUpload onUpload={corpus.upload} uploading={corpus.uploading} error={corpus.error} />
 
           <CorpusPanel
             papers={corpus.papers}

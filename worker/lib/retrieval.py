@@ -115,6 +115,20 @@ def retrieve_chunks(
     return results
 
 
+_retrieval_queries_cache: dict[str, str] | None = None
+
+
+def _get_retrieval_queries() -> dict[str, str]:
+    """Load persona retrieval queries from the database (cached per worker process)."""
+    global _retrieval_queries_cache
+    if _retrieval_queries_cache is None:
+        rows = fetch(
+            "SELECT key, retrieval_query FROM personas WHERE is_active = true"
+        )
+        _retrieval_queries_cache = {row["key"]: row["retrieval_query"] for row in rows}
+    return _retrieval_queries_cache
+
+
 def retrieve_for_persona(
     persona_key: str,
     paper_ids: list[str] | None = None,
@@ -124,13 +138,6 @@ def retrieve_for_persona(
 
     Each persona has a preferred section focus that influences the query.
     """
-    persona_queries: dict[str, str] = {
-        "skeptic": "study design methodology sample size limitations operationalization validity",
-        "hype": "key findings breakthrough results significant impact transformative novel",
-        "practitioner": "implementation practical applications real-world deployment institutional",
-        "methodologist": "statistical methods analysis framework measurement construct validity",
-        "gradstudent": "summary overview main argument thesis findings discussion implications",
-    }
-
-    query = persona_queries.get(persona_key, "key findings and methodology")
+    queries = _get_retrieval_queries()
+    query = queries.get(persona_key, "key findings and methodology")
     return retrieve_chunks(query, paper_ids=paper_ids, top_k=top_k)

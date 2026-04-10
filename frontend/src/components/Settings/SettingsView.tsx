@@ -3,8 +3,8 @@ import {
   Cpu, Users, Zap, FileText, Palette, AlertTriangle,
   Loader2, Check, ChevronDown
 } from 'lucide-react'
-import { PERSONAS, type PersonaKey } from '../../types'
 import { getOllamaModels, clearAllFeeds, clearAllSummaries } from '../../lib/api'
+import { usePersonas } from '../../hooks/usePersonas'
 
 interface SettingsViewProps {
   settings: Record<string, unknown>
@@ -155,6 +155,7 @@ function DangerButton({ label, onConfirm }: { label: string; onConfirm: () => vo
 }
 
 export function SettingsView({ settings, loading, onUpdate }: SettingsViewProps) {
+  const personas = usePersonas()
   const [ollamaModels, setOllamaModels] = useState<{
     llm: { name: string; size: string; family: string }[]
     embed: { name: string; size: string }[]
@@ -267,7 +268,7 @@ export function SettingsView({ settings, loading, onUpdate }: SettingsViewProps)
 
         {/* Persona Controls */}
         <Section icon={Users} title="Personas">
-          {(Object.entries(PERSONAS) as [PersonaKey, typeof PERSONAS[PersonaKey]][]).map(([key, p]) => (
+          {Object.entries(personas).map(([key, p]) => (
             <SettingRow key={key} label={p.name} description={p.handle}>
               <Toggle
                 checked={personasEnabled[key] !== false}

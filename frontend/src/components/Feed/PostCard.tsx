@@ -1,17 +1,27 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   MessageCircle, Repeat2, Heart, Bookmark,
   MoreHorizontal, FileText, ImageIcon, ZoomIn, X, Loader2
 } from 'lucide-react'
-import { PERSONAS, type FeedPost, type PersonaKey } from '../../types'
+import type { FeedPost } from '../../types'
 import { sendReply, getPostReplies, type ReplyMessage } from '../../lib/api'
+import { usePersonas } from '../../hooks/usePersonas'
 
 function FigureLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
       onClick={onClose}
       role="dialog"
+      aria-modal="true"
       aria-label="Figure lightbox"
     >
       <button
@@ -35,8 +45,9 @@ function formatNum(n: number): string {
   return n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
 }
 
-function Avatar({ persona }: { persona: PersonaKey }) {
-  const p = PERSONAS[persona]
+function Avatar({ persona }: { persona: string }) {
+  const personas = usePersonas()
+  const p = personas[persona]
   if (!p) return null
   return (
     <div
@@ -92,7 +103,8 @@ interface PostCardProps {
 }
 
 export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle }: PostCardProps) {
-  const p = PERSONAS[post.persona]
+  const personas = usePersonas()
+  const p = personas[post.persona]
   const [liked, setLiked] = useState(false)
   const [retweeted, setRetweeted] = useState(false)
   const bookmarked = !!bookmarkedId
@@ -146,7 +158,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
   }
 
   return (
-    <div
+    <article
       className="border-b border-border px-4 py-3.5 flex gap-3 hover:bg-bg-hover transition-colors cursor-pointer"
       style={{
         borderLeft: isFigure ? '3px solid #c8a96e30' : '3px solid transparent',
@@ -471,6 +483,6 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
           </div>
         )}
       </div>
-    </div>
+    </article>
   )
 }

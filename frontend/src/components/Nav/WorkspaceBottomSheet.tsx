@@ -25,7 +25,7 @@ export function WorkspaceBottomSheet({
       />
 
       {/* Sheet */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-bg border-t border-border rounded-t-2xl max-h-[70vh] overflow-y-auto animate-slide-up">
+      <div role="dialog" aria-modal="true" aria-label="Workspaces" className="fixed bottom-0 left-0 right-0 z-50 bg-bg border-t border-border rounded-t-2xl max-h-[70vh] overflow-y-auto animate-slide-up">
         {/* Drag handle */}
         <div className="flex justify-center pt-3 pb-2">
           <div className="w-10 h-1 rounded-full bg-border" />

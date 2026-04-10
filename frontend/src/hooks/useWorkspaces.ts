@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Workspace } from '../types'
-import { listWorkspaces, createWorkspace, deleteWorkspace } from '../lib/api'
+import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace } from '../lib/api'
 
 const ACTIVE_WORKSPACE_KEY = 'ficino_active_workspace'
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001'
@@ -49,10 +49,15 @@ export function useWorkspaces() {
     await refresh()
   }, [refresh])
 
+  const rename = useCallback(async (id: string, name: string) => {
+    await renameWorkspace(id, name)
+    await refresh()
+  }, [refresh])
+
   const active = workspaces.find((w) => w.id === activeId) || workspaces[0] || null
 
   // Only show workspace UI when there are 2+ workspaces
   const showWorkspaceUI = workspaces.length > 1
 
-  return { workspaces, active, activeId, loading, showWorkspaceUI, switchTo, create, remove, refresh }
+  return { workspaces, active, activeId, loading, showWorkspaceUI, switchTo, create, remove, rename, refresh }
 }

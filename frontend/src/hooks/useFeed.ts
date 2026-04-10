@@ -9,7 +9,7 @@ interface GeneratingMeta {
   postProgress?: string
 }
 
-export function useFeed() {
+export function useFeed(workspaceId?: string) {
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [feedId, setFeedId] = useState<string | null>(null)
   const [feedState, setFeedState] = useState<FeedState>('loading')
@@ -24,16 +24,19 @@ export function useFeed() {
     }
   }, [])
 
-  // Load most recent feed on mount
+  // Load most recent feed on mount or workspace change
   useEffect(() => {
     async function loadLatest() {
+      setFeedState('loading')
       try {
-        const feeds = await listFeeds()
+        const feeds = await listFeeds(workspaceId)
         if (feeds.length > 0 && feeds[0].posts.length > 0) {
           setPosts(feeds[0].posts as FeedPost[])
           setFeedId(feeds[0].id)
           setFeedState('complete')
         } else {
+          setPosts([])
+          setFeedId(null)
           setFeedState('idle')
         }
       } catch {
@@ -41,7 +44,7 @@ export function useFeed() {
       }
     }
     loadLatest()
-  }, [])
+  }, [workspaceId])
 
   const pollStatus = useCallback((taskId: string) => {
     // Use setTimeout chain instead of setInterval to avoid stacking

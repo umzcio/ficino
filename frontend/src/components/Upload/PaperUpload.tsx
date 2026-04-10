@@ -4,9 +4,10 @@ import { Upload, FileText, Loader2 } from 'lucide-react'
 interface PaperUploadProps {
   onUpload: (file: File) => Promise<void>
   uploading: boolean
+  error?: string | null
 }
 
-export function PaperUpload({ onUpload, uploading }: PaperUploadProps) {
+export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -94,6 +95,9 @@ export function PaperUpload({ onUpload, uploading }: PaperUploadProps) {
             </p>
           </div>
         </>
+      )}
+      {error && (
+        <p className="text-xs text-red-400 mt-2 text-center">{error}</p>
       )}
     </div>
   )

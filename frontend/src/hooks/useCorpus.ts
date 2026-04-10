@@ -80,8 +80,9 @@ export function useCorpus(workspaceId?: string) {
 
   const upload = useCallback(async (file: File) => {
     setUploading(true)
+    setError(null)
     try {
-      await uploadPaper(file)
+      await uploadPaper(file, workspaceId)
       // Immediately refresh and start polling
       const data = await refresh()
       if (data) {
@@ -93,7 +94,7 @@ export function useCorpus(workspaceId?: string) {
     } finally {
       setUploading(false)
     }
-  }, [refresh, schedulePoll])
+  }, [workspaceId, refresh, schedulePoll])
 
   const remove = useCallback(async (paperId: string) => {
     try {

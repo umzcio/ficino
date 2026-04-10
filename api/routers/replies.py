@@ -75,7 +75,7 @@ async def create_reply(
 
     # Get persona system prompt from DB
     persona_prompt = await db.fetchval(
-        "SELECT system_prompt FROM persona_prompts WHERE persona_key = $1 AND is_active = true",
+        "SELECT system_prompt FROM personas WHERE key = $1 AND is_active = true",
         body.persona_key,
     )
     if not persona_prompt:

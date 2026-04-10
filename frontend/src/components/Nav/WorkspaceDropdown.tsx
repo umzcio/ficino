@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Folder, Check, Plus } from 'lucide-react'
+import { ChevronDown, Folder, Check, Plus, Trash2, Pencil } from 'lucide-react'
 import type { Workspace } from '../../types'
 
 interface WorkspaceDropdownProps {
@@ -7,12 +7,16 @@ interface WorkspaceDropdownProps {
   active: Workspace | null
   onSwitch: (id: string) => void
   onCreate: (name: string) => void
+  onDelete: (id: string) => void
+  onRename: (id: string, name: string) => void
 }
 
-export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate }: WorkspaceDropdownProps) {
+export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDelete, onRename }: WorkspaceDropdownProps) {
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
   // Close on click outside
@@ -46,18 +50,58 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate }: Wo
             Workspaces
           </div>
           {workspaces.map((ws) => (
-            <button
-              key={ws.id}
-              onClick={() => { onSwitch(ws.id); setOpen(false) }}
-              className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors"
-            >
-              <Folder size={14} style={{ color: ws.id === active.id ? '#c8a96e' : '#555d6e' }} />
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] text-text truncate">{ws.name}</div>
-                <div className="text-[11px] text-text-muted">{ws.paper_count} papers</div>
-              </div>
-              {ws.id === active.id && <Check size={14} className="text-gold shrink-0" />}
-            </button>
+            <div key={ws.id} className="flex items-center group hover:bg-bg-hover transition-colors">
+              {renamingId === ws.id ? (
+                <div className="flex-1 px-3 py-2">
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && renameValue.trim()) {
+                        onRename(ws.id, renameValue.trim())
+                        setRenamingId(null)
+                      }
+                      if (e.key === 'Escape') setRenamingId(null)
+                    }}
+                    autoFocus
+                    className="w-full bg-transparent border border-border rounded px-2 py-1 text-xs text-text outline-none focus:border-gold/40"
+                  />
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => { onSwitch(ws.id); setOpen(false) }}
+                    className="flex-1 text-left px-3 py-2.5 flex items-center gap-2.5 bg-transparent border-none cursor-pointer"
+                  >
+                    <Folder size={14} style={{ color: ws.id === active.id ? '#c8a96e' : '#555d6e' }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] text-text truncate">{ws.name}</div>
+                      <div className="text-[11px] text-text-muted">{ws.paper_count} papers</div>
+                    </div>
+                    {ws.id === active.id && <Check size={14} className="text-gold shrink-0" />}
+                  </button>
+                  {ws.name !== 'Default' && (
+                    <div className="flex items-center gap-0.5 pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setRenamingId(ws.id); setRenameValue(ws.name) }}
+                        aria-label={`Rename ${ws.name}`}
+                        className="p-1 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
+                      >
+                        <Pencil size={12} className="text-text-muted" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(ws.id); setOpen(false) }}
+                        aria-label={`Delete ${ws.name}`}
+                        className="p-1 rounded hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
+                      >
+                        <Trash2 size={12} className="text-persona-skeptic" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           ))}
           <div className="border-t border-border">
             {creating ? (

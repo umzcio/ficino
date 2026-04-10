@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { Folder, Plus, FileText, Zap, Loader2, Trash2, Search, X } from 'lucide-react'
+import { Folder, Plus, FileText, Zap, Loader2, Trash2, Pencil, Search, X } from 'lucide-react'
 import type { Workspace, ActivityItem } from '../../types'
 import { getWorkspaceActivity, searchCorpus, type SearchResults } from '../../lib/api'
-import { PERSONAS, type PersonaKey } from '../../types'
+import { usePersonas } from '../../hooks/usePersonas'
 
 interface ExploreViewProps {
   workspaces: Workspace[]
@@ -10,6 +10,7 @@ interface ExploreViewProps {
   onSwitch: (id: string) => void
   onCreate: (name: string) => void
   onDelete: (id: string) => void
+  onRename: (id: string, name: string) => void
 }
 
 function timeAgo(dateStr: string): string {
@@ -122,6 +123,7 @@ function ActivityTimeline({ workspaceId }: { workspaceId: string }) {
 }
 
 function SearchBar() {
+  const personas = usePersonas()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResults | null>(null)
   const [searching, setSearching] = useState(false)
@@ -238,7 +240,7 @@ function SearchBar() {
                     Feed Posts ({results.posts.length})
                   </div>
                   {results.posts.map((p, i) => {
-                    const persona = PERSONAS[p.persona as PersonaKey]
+                    const persona = personas[p.persona]
                     return (
                       <div key={i} className="px-4 py-2.5 flex items-start gap-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
                         {persona && (
@@ -274,7 +276,7 @@ function SearchBar() {
   )
 }
 
-export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete }: ExploreViewProps) {
+export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete, onRename }: ExploreViewProps) {
   return (
     <div>
       {/* Header */}
@@ -326,13 +328,27 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                   {ws.last_activity && ` · ${timeAgo(ws.last_activity)}`}
                 </div>
               </div>
-              {ws.id !== activeId && ws.name !== 'Default' && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(ws.id) }}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-persona-skeptic/10 transition-all bg-transparent border-none cursor-pointer"
-                >
-                  <Trash2 size={14} className="text-persona-skeptic" />
-                </button>
+              {ws.name !== 'Default' && (
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const name = prompt('Rename workspace:', ws.name)
+                      if (name && name.trim()) onRename(ws.id, name.trim())
+                    }}
+                    aria-label={`Rename ${ws.name}`}
+                    className="p-1.5 rounded-lg hover:bg-gold/10 bg-transparent border-none cursor-pointer"
+                  >
+                    <Pencil size={14} className="text-text-muted" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(ws.id) }}
+                    aria-label={`Delete ${ws.name}`}
+                    className="p-1.5 rounded-lg hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
+                  >
+                    <Trash2 size={14} className="text-persona-skeptic" />
+                  </button>
+                </div>
               )}
             </button>
           ))}

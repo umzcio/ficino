@@ -1,11 +1,12 @@
-import { PERSONAS, type PersonaKey } from '../../types'
+import { usePersonas } from '../../hooks/usePersonas'
 
 interface PersonaPanelProps {
   enabledPersonas: Record<string, boolean>
 }
 
 export function PersonaPanel({ enabledPersonas }: PersonaPanelProps) {
-  const entries = (Object.entries(PERSONAS) as [PersonaKey, typeof PERSONAS[PersonaKey]][])
+  const personas = usePersonas()
+  const entries = Object.entries(personas)
     .filter(([key]) => enabledPersonas[key] !== false)
 
   return (

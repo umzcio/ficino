@@ -289,15 +289,18 @@ def generate_feed(
                 ]
 
                 # Assign category for tab filtering
+                # Every post must appear in at least one tab beyond "For You"
                 pt = post_data.get("post_type", post_type)
                 if pt in ("quote", "reply"):
                     post_data["category"] = "debates"
                 elif persona_key in ("skeptic", "methodologist"):
                     post_data["category"] = "methods"
-                elif persona_key in ("hype",) or pt == "figure":
+                elif persona_key in ("hype", "practitioner") or pt == "figure":
                     post_data["category"] = "findings"
+                elif persona_key == "gradstudent":
+                    post_data["category"] = "debates"
                 else:
-                    post_data["category"] = "general"
+                    post_data["category"] = "findings"
 
                 # Generate engagement numbers (synthetic for now)
                 post_data.setdefault("likes", random.randint(100, 5000))

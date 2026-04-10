@@ -23,6 +23,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { WorkspaceDropdown } from './components/Nav/WorkspaceDropdown'
 import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
 import { MobileDrawer } from './components/Nav/MobileDrawer'
+import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
 
 type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'settings'
 
@@ -112,6 +113,7 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
 
 function FeedHeader({
   paperCount,
+  totalPaperCount,
   activePersonaCount,
   onGenerate,
   generating,
@@ -120,6 +122,7 @@ function FeedHeader({
   workspaceProps,
 }: {
   paperCount: number
+  totalPaperCount: number
   activePersonaCount: number
   onGenerate: () => void
   generating: boolean
@@ -131,6 +134,8 @@ function FeedHeader({
     showUI: boolean
     onSwitch: (id: string) => void
     onCreate: (name: string) => void
+    onDelete: (id: string) => void
+    onRename: (id: string, name: string) => void
   }
 }) {
   return (
@@ -155,11 +160,16 @@ function FeedHeader({
               active={workspaceProps.active}
               onSwitch={workspaceProps.onSwitch}
               onCreate={workspaceProps.onCreate}
+              onDelete={workspaceProps.onDelete}
+              onRename={workspaceProps.onRename}
             />
           )}
           {workspaceProps?.showUI && <span>·</span>}
           <span>
-            {paperCount} paper{paperCount !== 1 ? 's' : ''} · {activePersonaCount} persona{activePersonaCount !== 1 ? 's' : ''} ·{' '}
+            {paperCount === totalPaperCount
+              ? `${paperCount} paper${paperCount !== 1 ? 's' : ''}`
+              : `${paperCount} of ${totalPaperCount} papers`
+            } · {activePersonaCount} persona{activePersonaCount !== 1 ? 's' : ''} ·{' '}
             {generating ? 'generating' : 'ready'}
           </span>
           {activeTag && (
@@ -187,10 +197,12 @@ function FeedHeader({
 function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) => void }) {
   const tabs = ['For You', 'Debates', 'Methods', 'Findings']
   return (
-    <div className="flex border-b border-border">
+    <div className="flex border-b border-border" role="tablist" aria-label="Feed filters">
       {tabs.map((tab, i) => (
         <button
           key={i}
+          role="tab"
+          aria-selected={active === i}
           onClick={() => onSelect(i)}
           className="flex-1 py-3.5 border-none bg-transparent cursor-pointer text-[15px] transition-all duration-150"
           style={{
@@ -223,7 +235,7 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
         <span className="text-text-muted text-[15px]">Search corpus...</span>
       </button>
 
-      <PaperUpload onUpload={corpus.upload} uploading={corpus.uploading} />
+      <PaperUpload onUpload={corpus.upload} uploading={corpus.uploading} error={corpus.error} />
 
       <CorpusPanel
         papers={corpus.papers}
@@ -245,9 +257,10 @@ export default function App() {
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [showWorkspaceSheet, setShowWorkspaceSheet] = useState(false)
   const [showMobileDrawer, setShowMobileDrawer] = useState(false)
+  const personas = usePersonasLoader()
   const ws = useWorkspaces()
   const corpus = useCorpus(ws.activeId)
-  const feed = useFeed()
+  const feed = useFeed(ws.activeId)
   const bm = useBookmarks()
   const appSettings = useSettings()
   const alertsHook = useAlerts()
@@ -261,7 +274,7 @@ export default function App() {
     : completePapers.length
 
   const handleGenerate = () => {
-    feed.generate(undefined, activeTag ? [activeTag] : undefined)
+    feed.generate(ws.activeId, activeTag ? [activeTag] : undefined)
   }
 
   useKeyboardShortcuts({
@@ -284,6 +297,7 @@ export default function App() {
             onSwitch={ws.switchTo}
             onCreate={(name) => ws.create(name)}
             onDelete={ws.remove}
+            onRename={ws.rename}
           />
         )
       case 'alerts':
@@ -312,6 +326,7 @@ export default function App() {
           <>
             <FeedHeader
               paperCount={filteredPaperCount}
+              totalPaperCount={corpus.papers.length}
               activePersonaCount={activePersonaCount}
               onGenerate={handleGenerate}
               generating={feed.feedState === 'generating'}
@@ -323,10 +338,12 @@ export default function App() {
                 showUI: ws.showWorkspaceUI,
                 onSwitch: ws.switchTo,
                 onCreate: (name) => ws.create(name),
+                onDelete: (id) => ws.remove(id),
+                onRename: (id, name) => ws.rename(id, name),
               }}
             />
             <FeedTabs active={activeTab} onSelect={setActiveTab} />
-            <FeedHistory currentFeedId={feed.feedId} onLoadFeed={feed.loadFeed} />
+            <FeedHistory currentFeedId={feed.feedId} onLoadFeed={feed.loadFeed} workspaceId={ws.activeId} />
             <FeedContent
               posts={feed.posts}
               feedId={feed.feedId}
@@ -343,36 +360,38 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-text">
-      <div className="max-w-[1050px] mx-auto flex min-h-screen">
-        <LeftNav active={activeView} onNavigate={setActiveView} alertCount={alertsHook.unreadCount} />
-        <main className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
-          {renderMainContent()}
-        </main>
-        <Sidebar corpus={corpus} activeTag={activeTag} onTagFilter={setActiveTag} enabledPersonas={enabledPersonas} onSearchClick={() => setActiveView('search')} />
-      </div>
-      <MobileBottomNav
-        active={activeView}
-        onNavigate={setActiveView}
-        onLongPressHome={() => setShowWorkspaceSheet(true)}
-      />
-      <MobileDrawer
-        open={showMobileDrawer}
-        onClose={() => setShowMobileDrawer(false)}
-        corpus={corpus}
-        enabledPersonas={enabledPersonas}
-        activeTag={activeTag}
-        onTagFilter={setActiveTag}
-      />
-      {showWorkspaceSheet && (
-        <WorkspaceBottomSheet
-          workspaces={ws.workspaces}
-          activeId={ws.activeId}
-          onSwitch={ws.switchTo}
-          onCreate={(name) => ws.create(name)}
-          onClose={() => setShowWorkspaceSheet(false)}
+    <PersonasProvider value={personas}>
+      <div className="min-h-screen bg-bg text-text">
+        <div className="max-w-[1050px] mx-auto flex min-h-screen">
+          <LeftNav active={activeView} onNavigate={setActiveView} alertCount={alertsHook.unreadCount} />
+          <main className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
+            {renderMainContent()}
+          </main>
+          <Sidebar corpus={corpus} activeTag={activeTag} onTagFilter={setActiveTag} enabledPersonas={enabledPersonas} onSearchClick={() => setActiveView('search')} />
+        </div>
+        <MobileBottomNav
+          active={activeView}
+          onNavigate={setActiveView}
+          onLongPressHome={() => setShowWorkspaceSheet(true)}
         />
-      )}
-    </div>
+        <MobileDrawer
+          open={showMobileDrawer}
+          onClose={() => setShowMobileDrawer(false)}
+          corpus={corpus}
+          enabledPersonas={enabledPersonas}
+          activeTag={activeTag}
+          onTagFilter={setActiveTag}
+        />
+        {showWorkspaceSheet && (
+          <WorkspaceBottomSheet
+            workspaces={ws.workspaces}
+            activeId={ws.activeId}
+            onSwitch={ws.switchTo}
+            onCreate={(name) => ws.create(name)}
+            onClose={() => setShowWorkspaceSheet(false)}
+          />
+        )}
+      </div>
+    </PersonasProvider>
   )
 }

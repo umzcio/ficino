@@ -6,6 +6,7 @@ import type { Feed } from '../../types'
 interface FeedHistoryProps {
   currentFeedId: string | null
   onLoadFeed: (feed: Feed) => void
+  workspaceId?: string
 }
 
 function timeAgo(dateStr: string): string {
@@ -18,13 +19,13 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-export function FeedHistory({ currentFeedId, onLoadFeed }: FeedHistoryProps) {
+export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHistoryProps) {
   const [feeds, setFeeds] = useState<Feed[]>([])
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
-    listFeeds().then(setFeeds).catch(() => {})
-  }, [currentFeedId]) // refresh when a new feed is generated
+    listFeeds(workspaceId).then(setFeeds).catch(() => {})
+  }, [currentFeedId, workspaceId]) // refresh when a new feed is generated or workspace changes
 
   const pastFeeds = feeds.filter((f) => f.posts.length > 0)
 

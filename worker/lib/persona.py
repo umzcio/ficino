@@ -23,46 +23,65 @@ POST_TYPE_WEIGHTS = {
     "figure": 0.10,
 }
 
-PERSONAS = {
-    "skeptic": {
-        "handle": "@skeptical_methods",
-        "name": "Methods Skeptic",
-        "initials": "MS",
-        "color": "#e85d4a",
-    },
-    "hype": {
-        "handle": "@ai_breakthroughs",
-        "name": "AI Breakthroughs",
-        "initials": "AB",
-        "color": "#f5a623",
-    },
-    "practitioner": {
-        "handle": "@real_world_ml",
-        "name": "Practitioner Pat",
-        "initials": "PP",
-        "color": "#4a9eff",
-    },
-    "methodologist": {
-        "handle": "@stats_nerd",
-        "name": "Stats Nerd",
-        "initials": "SN",
-        "color": "#a78bfa",
-    },
-    "gradstudent": {
-        "handle": "@phd_suffering",
-        "name": "PhD Candidate",
-        "initials": "PC",
-        "color": "#34d399",
-    },
-}
+_personas_cache: dict[str, dict[str, str]] | None = None
+
+
+def get_personas() -> dict[str, dict[str, str]]:
+    """Load all active personas from the database (cached per worker process)."""
+    global _personas_cache
+    if _personas_cache is None:
+        rows = fetch(
+            "SELECT key, handle, name, initials, color, system_prompt FROM personas WHERE is_active = true ORDER BY sort_order"
+        )
+        _personas_cache = {
+            row["key"]: {
+                "handle": row["handle"],
+                "name": row["name"],
+                "initials": row["initials"],
+                "color": row["color"],
+                "system_prompt": row["system_prompt"],
+            }
+            for row in rows
+        }
+    return _personas_cache
+
+
+# Backwards-compatible alias used throughout the codebase
+PERSONAS = None  # type: ignore[assignment]
+
+
+class _PersonasProxy:
+    """Lazy proxy so PERSONAS[key] loads from DB on first access."""
+
+    def __getitem__(self, key: str) -> dict[str, str]:
+        return get_personas()[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in get_personas()
+
+    def __iter__(self):
+        return iter(get_personas())
+
+    def items(self):
+        return get_personas().items()
+
+    def keys(self):
+        return get_personas().keys()
+
+    def values(self):
+        return get_personas().values()
+
+    def get(self, key: str, default=None):
+        return get_personas().get(key, default)
+
+
+PERSONAS = _PersonasProxy()  # type: ignore[assignment]
 
 
 def get_active_persona_prompts() -> dict[str, str]:
     """Fetch active persona system prompts from the database."""
-    rows = fetch(
-        "SELECT persona_key, system_prompt FROM persona_prompts WHERE is_active = true"
-    )
-    return {row["persona_key"]: row["system_prompt"] for row in rows}
+    personas = get_personas()
+    return {key: p["system_prompt"] for key, p in personas.items()}
 
 
 def _format_chunks_for_prompt(chunks: list[dict[str, object]]) -> str:

@@ -61,12 +61,22 @@ async def upload_paper(
     # Use provided workspace or default
     corpus_id = workspace_id or "00000000-0000-0000-0000-000000000001"
 
+    # Validate workspace exists
+    workspace_exists = await db.fetchrow("SELECT id FROM corpora WHERE id = $1", corpus_id)
+    if not workspace_exists:
+        os.remove(file_path)
+        raise HTTPException(status_code=400, detail=f"Workspace {corpus_id} not found")
+
     now = datetime.now(timezone.utc)
-    await db.execute(
-        """INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status, uploaded_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-        paper_id, stub_user_id, corpus_id, file.filename, file_path, "pending", now,
-    )
+    try:
+        await db.execute(
+            """INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status, uploaded_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            paper_id, stub_user_id, corpus_id, file.filename, file_path, "pending", now,
+        )
+    except asyncpg.ForeignKeyViolationError:
+        os.remove(file_path)
+        raise HTTPException(status_code=400, detail="Invalid workspace")
 
     logger.info("paper_uploaded", paper_id=paper_id, filename=file.filename, size=len(contents))
 
@@ -195,10 +205,28 @@ async def delete_paper(
     paper_id: str,
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
-    """Delete a paper and its associated chunks."""
-    result = await db.execute("DELETE FROM papers WHERE id = $1", paper_id)
-    if result == "DELETE 0":
+    """Delete a paper and its associated chunks, feeds, and alerts."""
+    # Get corpus_id before deleting so we can clean up feeds/alerts
+    row = await db.fetchrow("SELECT corpus_id FROM papers WHERE id = $1", paper_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
+
+    corpus_id = row["corpus_id"]
+
+    await db.execute("DELETE FROM papers WHERE id = $1", paper_id)
+
+    # If no papers remain in this workspace, clean up its feeds and alerts
+    if corpus_id:
+        remaining = await db.fetchval(
+            "SELECT COUNT(*) FROM papers WHERE corpus_id = $1", corpus_id
+        )
+        if remaining == 0:
+            await db.execute("DELETE FROM feeds WHERE corpus_id = $1", corpus_id)
+            await db.execute(
+                "DELETE FROM alerts WHERE user_id = $1",
+                "00000000-0000-0000-0000-000000000000",
+            )
+            logger.info("workspace_feeds_alerts_cleared", corpus_id=corpus_id)
 
     # Clean up uploaded file
     file_path = os.path.join(UPLOAD_DIR, f"{paper_id}.pdf")

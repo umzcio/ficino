@@ -18,10 +18,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // Papers
-export async function uploadPaper(file: File): Promise<Paper> {
+export async function uploadPaper(file: File, workspaceId?: string): Promise<Paper> {
   const formData = new FormData()
   formData.append('file', file)
-  return request<Paper>('/papers', { method: 'POST', body: formData })
+  const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return request<Paper>(`/papers${query}`, { method: 'POST', body: formData })
 }
 
 export async function listPapers(workspaceId?: string): Promise<Paper[]> {
@@ -69,8 +70,9 @@ export async function getFeed(feedId: string): Promise<Feed> {
   return request<Feed>(`/feed/${feedId}`)
 }
 
-export async function listFeeds(): Promise<Feed[]> {
-  return request<Feed[]>('/feed')
+export async function listFeeds(workspaceId?: string): Promise<Feed[]> {
+  const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return request<Feed[]>(`/feed${query}`)
 }
 
 // Replies
@@ -126,6 +128,19 @@ export async function markAllAlertsRead(): Promise<void> {
 
 export async function dismissAlert(id: string): Promise<void> {
   return request(`/alerts/${id}`, { method: 'DELETE' })
+}
+
+// Personas
+export interface PersonaData {
+  key: string
+  handle: string
+  name: string
+  initials: string
+  color: string
+}
+
+export async function listPersonas(): Promise<PersonaData[]> {
+  return request<PersonaData[]>('/personas')
 }
 
 // Settings

@@ -29,8 +29,14 @@ async def generate_feed(
 
     Returns task_id for polling and eventual feed_id.
     """
-    # Check we have at least one complete paper
-    count = await db.fetchval("SELECT COUNT(*) FROM papers WHERE status = 'complete'")
+    # Check we have at least one complete paper (scoped to workspace if provided)
+    if body.corpus_id:
+        count = await db.fetchval(
+            "SELECT COUNT(*) FROM papers WHERE status = 'complete' AND corpus_id = $1",
+            str(body.corpus_id),
+        )
+    else:
+        count = await db.fetchval("SELECT COUNT(*) FROM papers WHERE status = 'complete'")
     if count == 0:
         raise HTTPException(status_code=400, detail="No processed papers available. Upload and wait for processing to complete.")
 
@@ -109,14 +115,23 @@ async def get_feed(
 
 @router.get("", response_model=list[Feed])
 async def list_feeds(
+    workspace_id: str | None = None,
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[Feed]:
-    """List all generated feeds for the current user."""
-    rows = await db.fetch(
-        """SELECT id, user_id, corpus_id, tag_filter, posts,
-                  generated_at, generation_duration_ms, paper_count, post_count
-           FROM feeds ORDER BY generated_at DESC LIMIT 20"""
-    )
+    """List generated feeds, optionally filtered by workspace."""
+    if workspace_id:
+        rows = await db.fetch(
+            """SELECT id, user_id, corpus_id, tag_filter, posts,
+                      generated_at, generation_duration_ms, paper_count, post_count
+               FROM feeds WHERE corpus_id = $1 ORDER BY generated_at DESC LIMIT 20""",
+            workspace_id,
+        )
+    else:
+        rows = await db.fetch(
+            """SELECT id, user_id, corpus_id, tag_filter, posts,
+                      generated_at, generation_duration_ms, paper_count, post_count
+               FROM feeds ORDER BY generated_at DESC LIMIT 20"""
+        )
     feeds = []
     for row in rows:
         posts_data = row["posts"]
