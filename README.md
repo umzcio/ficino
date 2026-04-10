@@ -17,7 +17,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-beta-c8a96e?style=flat-square" alt="Beta" />
-  <img src="https://img.shields.io/badge/license-private-555d6e?style=flat-square" alt="Private" />
+  <img src="https://img.shields.io/badge/license-AGPL--v3-c8a96e?style=flat-square" alt="AGPL v3" />
   <img src="https://img.shields.io/badge/stack-React%20%7C%20FastAPI%20%7C%20Celery%20%7C%20pgvector-4a9eff?style=flat-square" alt="Stack" />
   <img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20Claude-34d399?style=flat-square" alt="LLM" />
 </p>
@@ -293,7 +293,9 @@ See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
 
 ## License
 
-Private. All rights reserved.
+[AGPL v3](LICENSE) — open source, self-host freely. If you run it as a service, you must open-source your changes.
+
+Commercial cloud hosting available at [ficino.ai](https://ficino.ai) (coming soon).
 
 ---
 
