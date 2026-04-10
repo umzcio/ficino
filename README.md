@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="frontend/public/ficino-favicon.png" alt="Ficino" width="120" />
+  <img src="frontend/public/ficino-logo.png" alt="Ficino" width="400" />
 </p>
-
-<h1 align="center">ficino</h1>
 
 <p align="center">
   <img src="https://img.shields.io/badge/ficino-AI_Academic_Discourse-c8a96e?style=for-the-badge&labelColor=080a0f" alt="Ficino" />
