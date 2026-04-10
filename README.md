@@ -292,6 +292,6 @@ Private. All rights reserved.
 ---
 
 <p align="center">
-  <em>"He didn't just read sources -- he made them argue with each other across centuries."</em><br/>
-  <sub>Named after Marsilio Ficino (1433-1499)</sub>
+  <em>"I love Plato in Iamblichus, I am full of admiration for him in Plotinus, I stand in awe of him in Dionysius."</em><br/>
+  <sub>-- Marsilio Ficino, Letters (Book XI, c. 1491)</sub>
 </p>
