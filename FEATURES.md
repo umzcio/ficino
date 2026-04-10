@@ -29,7 +29,7 @@ Tracking wild ideas, design decisions, and future features.
 - Could support follow-up questions (conversational RAG)
 - Builds on the existing hybrid search + chunk retrieval
 
-**Status**: Design phase. Paper-level summaries first, then group chats.
+**Status**: Built. Paper summaries and group chats are live. Ask Your Corpus (conversational RAG) is next.
 
 ---
 
@@ -78,15 +78,21 @@ Everything scopes to the active workspace:
 - Workspaces have a name only (no colors/icons for now — revisit if visual clutter becomes an issue)
 - DB already has a `corpora` table that maps to this concept
 
-**Status**: Designed. Ready to build.
+**Status**: Built. Workspaces, explore page, workspace switching, delete/rename all live.
 
 ---
 
 ## Planned Features (from build spec)
 
 - [ ] Auth & user management (Clerk)
-- [x] Corpus organization (tags, scoped generation)
+- [x] Corpus organization (tags, scoped generation, auto-tagging on upload)
 - [x] Feed history & bookmarks
+- [x] Post detail view (click-to-expand with thread context)
+- [x] Annotations (private notes on posts)
+- [x] Post actions menu (copy text, cite APA/MLA, annotations)
+- [x] Auto-generate on upload (configurable in settings)
+- [x] "What's happening" corpus panel (TL;DR headlines)
+- [x] Reply tracking (REPLIED badges, Threads tab in Messages)
 - [ ] Retrieval debug view (dev-only)
 - [ ] Rate limiting & cost controls
 - [ ] Production hardening (logging, Sentry, connection pooling, security headers)
@@ -153,7 +159,7 @@ _Drop ideas here. No commitment, just capture._
 - Alert generation runs post-ingestion and post-feed-generation (async, not blocking)
 - Dismissable — swipe or tap X
 
-**Status**: Designed. Contradiction alerts first (highest learning value), then emerging themes.
+**Status**: Built. Contradiction alerts, disagreement spikes, reading gaps, and stale corpus alerts are live.
 
 ---
 
@@ -176,7 +182,7 @@ _Drop ideas here. No commitment, just capture._
 - Your thinking layered on top of AI discourse
 - Annotations visible in bookmarks view
 
-**Status**: Reply to persona — built. Annotations — next.
+**Status**: Reply to persona — built. Annotations — built. Post detail view with thread navigation — built.
 
 ### Organic Persona Interjections
 
@@ -233,15 +239,15 @@ Essentially RLHF for your personal academic discourse engine. Nobody else is doi
 
 **"Cite this" is the killer feature here**: Reading a post about Rankin et al. 2023, hit cite, get a formatted citation. Bridges the gap between "scrolling the feed" and "writing your dissertation."
 
-**Status**: Designed. Build after search.
+**Status**: Built. Copy text, Cite (APA), Cite (MLA), and annotations are live. Remaining: regenerate single post, hide persona, debug view.
 
 ---
 
 - **Light mode**: Full light theme with inverted color system. Settings toggle already exists (shows "coming soon"). Need to define light palette, update all Tailwind theme vars, handle system preference detection (`prefers-color-scheme`), persist choice in settings DB
-- **Notification bell**: Alert when a newly uploaded paper contradicts something in your existing corpus
-- **Search**: Full-text search across all chunks with highlighted results
-- **Paper metadata extraction**: Auto-detect title, authors, year, DOI from PDF content
+- ~~**Notification bell**: Alert when a newly uploaded paper contradicts something in your existing corpus~~ **BUILT**
+- ~~**Search**: Full-text search across all chunks with highlighted results~~ **BUILT**
+- ~~**Paper metadata extraction**: Auto-detect title, authors, year, DOI from PDF content~~ **BUILT** (+ auto-tagging)
 - **Export feed**: Share a generated feed as a link or export as PDF/markdown
-- **Custom personas**: Let users create their own persona with a custom system prompt
+- **Custom personas**: Let users create their own persona with a custom system prompt (DB refactor makes this trivial — one INSERT)
 - **Reading lists**: Curated sequences of papers with guided discourse
 - **Citation graph**: Visual map of how papers in your corpus cite each other
