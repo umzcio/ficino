@@ -77,8 +77,9 @@ export async function listFeeds(workspaceId?: string): Promise<Feed[]> {
 
 // Replies
 export interface ReplyMessage {
-  role: 'user' | 'persona'
+  role: 'user' | 'persona' | 'interjection'
   content: string
+  persona?: string
 }
 
 export interface ReplyConversation {

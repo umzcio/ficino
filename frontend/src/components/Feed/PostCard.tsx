@@ -135,9 +135,10 @@ interface PostCardProps {
   onAnnotationSave?: (feedId: string, postIndex: number, body: string) => void
   onAnnotationDelete?: (feedId: string, postIndex: number) => void
   onPersonaClick?: (key: string) => void
+  autoOpenReply?: boolean
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick }: PostCardProps) {
+export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const [liked, setLiked] = useState(false)
@@ -217,6 +218,13 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
       setReplyLoading(false)
     }
   }
+
+  // Auto-open reply thread (e.g. when navigating from Threads tab)
+  useEffect(() => {
+    if (autoOpenReply && !replyOpen && feedId) {
+      handleOpenReply()
+    }
+  }, [autoOpenReply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <article
@@ -587,24 +595,40 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
               <div className="mb-3">
                 {replyMessages.map((msg, i) => {
                   const isUser = msg.role === 'user'
+                  const isInterjection = msg.role === 'interjection'
+                  const msgPersona = isInterjection && msg.persona ? personas[msg.persona] : p
+                  const displayName = isUser ? 'You' : (msgPersona?.name || p.name)
+                  const displayHandle = isUser ? '' : (msgPersona?.handle || p.handle)
+                  const displayColor = msgPersona?.color || p.color
+
                   return (
-                    <div key={i} className="flex gap-3 py-2.5" style={{ borderBottom: i < replyMessages.length - 1 ? '1px solid #1e2028' : 'none' }}>
+                    <div
+                      key={i}
+                      className="flex gap-3 py-2.5"
+                      style={{
+                        borderBottom: i < replyMessages.length - 1 ? '1px solid #1e2028' : 'none',
+                        borderLeft: isInterjection ? `2px solid ${displayColor}40` : undefined,
+                        paddingLeft: isInterjection ? '8px' : undefined,
+                      }}
+                    >
                       {/* Avatar */}
                       <div className="flex flex-col items-center">
                         {isUser ? (
                           <div className="w-8 h-8 rounded-full bg-gold/15 flex items-center justify-center text-[11px] font-bold text-gold shrink-0">
                             You
                           </div>
+                        ) : msgPersona?.avatar_url ? (
+                          <img src={msgPersona.avatar_url} alt={displayName} className="w-8 h-8 rounded-full shrink-0 object-cover" style={{ border: `1.5px solid ${displayColor}50` }} />
                         ) : (
                           <div
                             className="w-8 h-8 rounded-full shrink-0 overflow-hidden flex items-center justify-center text-[11px] font-bold"
                             style={{
-                              backgroundColor: p.avatar_url ? undefined : p.color + '22',
-                              border: `1.5px solid ${p.color}50`,
-                              color: p.color,
+                              backgroundColor: displayColor + '22',
+                              border: `1.5px solid ${displayColor}50`,
+                              color: displayColor,
                             }}
                           >
-                            {p.avatar_url ? <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" /> : p.initials}
+                            {msgPersona?.initials || p.initials}
                           </div>
                         )}
                         {i < replyMessages.length - 1 && (
@@ -615,14 +639,23 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <span className="text-[13px] font-bold text-text">
-                            {isUser ? 'You' : p.name}
+                            {displayName}
                           </span>
                           <span className="text-[13px] text-text-muted">
-                            {isUser ? '' : p.handle}
+                            {displayHandle}
                           </span>
+                          {isInterjection && (
+                            <span className="text-[10px] text-text-muted bg-bg-hover border border-border rounded px-1.5 py-px">
+                              jumped in
+                            </span>
+                          )}
                         </div>
                         <div className="text-[13px] text-text-muted mb-1">
-                          Replying to <span className="text-gold">{isUser ? p.handle : 'you'}</span>
+                          {isInterjection ? (
+                            <>Jumping into this thread</>
+                          ) : (
+                            <>Replying to <span className="text-gold">{isUser ? p.handle : 'you'}</span></>
+                          )}
                         </div>
                         <p className="text-[14px] text-text leading-relaxed whitespace-pre-wrap">
                           <InlineMd text={msg.content} />

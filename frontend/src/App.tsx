@@ -267,11 +267,13 @@ export default function App() {
   const [showWorkspaceSheet, setShowWorkspaceSheet] = useState(false)
   const [showMobileDrawer, setShowMobileDrawer] = useState(false)
   const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
+  const [autoOpenReply, setAutoOpenReply] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null)
   const [pendingPaperId, setPendingPaperId] = useState<string | null>(null)
   const setActiveView = (v: AppView) => {
     setSelectedPostIndex(null)
     setSelectedPersona(null)
+    setAutoOpenReply(false)
     setActiveViewRaw(v)
   }
   const feedScrollRef = useRef(0)
@@ -323,7 +325,9 @@ export default function App() {
                 const feedData = await getFeed(feedId)
                 feed.loadFeed(feedData)
                 setSelectedPostIndex(postIndex)
-                setActiveView('feed')
+                setAutoOpenReply(true)
+                setSelectedPersona(null)
+                setActiveViewRaw('feed')
               } catch {
                 // Feed may have been deleted
               }
@@ -386,8 +390,10 @@ export default function App() {
               postIndex={selectedPostIndex}
               posts={feed.posts}
               feedId={feed.feedId}
+              autoOpenReply={autoOpenReply}
               onBack={() => {
                 setSelectedPostIndex(null)
+                setAutoOpenReply(false)
                 requestAnimationFrame(() => {
                   document.querySelector('main')?.scrollTo(0, feedScrollRef.current)
                 })

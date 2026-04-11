@@ -223,8 +223,141 @@ ORIGINAL POST CONTEXT:
 
     logger.info("reply_generated", persona=body.persona_key, turns=len(existing_messages))
 
-    return {
+    # --- Organic interjection: after 3+ messages, another persona may jump in ---
+    interjection = None
+    user_turns = sum(1 for m in existing_messages if m["role"] == "user")
+    if user_turns >= 2:
+        try:
+            interjection = await _maybe_interject(
+                db, body.persona_key, existing_messages, body.post_content, chunks_text
+            )
+            if interjection:
+                existing_messages.append({
+                    "role": "interjection",
+                    "persona": interjection["persona_key"],
+                    "content": interjection["content"],
+                })
+                messages_json = json.dumps(existing_messages)
+                await db.execute(
+                    "UPDATE post_replies SET messages = $1, updated_at = NOW() WHERE id = $2",
+                    messages_json, reply_id,
+                )
+                logger.info("interjection_generated", persona=interjection["persona_key"])
+        except Exception as e:
+            logger.warn("interjection_failed", error=str(e))
+
+    result: dict[str, object] = {
         "id": reply_id,
         "messages": existing_messages,
         "latest_response": persona_response,
     }
+    if interjection:
+        result["interjection"] = interjection
+    return result
+
+
+async def _maybe_interject(
+    db: asyncpg.Connection,
+    current_persona: str,
+    messages: list[dict[str, str]],
+    post_content: str,
+    chunks_text: str,
+) -> dict[str, str] | None:
+    """Check if another persona should jump into the conversation."""
+    import random
+
+    # Get all active personas except the current one
+    rows = await db.fetch(
+        "SELECT key, name, handle, system_prompt, retrieval_query FROM personas WHERE is_active = true AND key != $1",
+        current_persona,
+    )
+    if not rows:
+        return None
+
+    # Build conversation text for topic matching
+    convo_text = " ".join(m["content"] for m in messages).lower()
+
+    # Score each persona by how many of their retrieval query terms appear in the conversation
+    candidates = []
+    for r in rows:
+        query_terms = [t.strip().lower() for t in r["retrieval_query"].split(",")]
+        hits = sum(1 for t in query_terms if t in convo_text)
+        if hits >= 2:
+            candidates.append({"row": r, "score": hits})
+
+    if not candidates:
+        return None
+
+    # Pick the best match, with some randomness (don't always interject)
+    if random.random() > 0.7:
+        return None
+
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    chosen = candidates[0]["row"]
+
+    # Build the interjection prompt
+    convo_summary = "\n".join(
+        f"{'User' if m['role'] == 'user' else m.get('persona', 'Persona')}: {m['content']}"
+        for m in messages[-4:]
+    )
+
+    interjection_system = f"""{chosen['system_prompt']}
+
+You are jumping into an existing conversation thread between a user and another persona. You saw this thread and couldn't resist weighing in because it touches your area of expertise.
+
+Rules:
+- Enter with an opinion, not a neutral observation. You have a take.
+- Acknowledge you're jumping in: "Sorry to butt in but..." or "I've been lurking on this thread and..." or "Okay I have to say something here..."
+- Keep it to 2-3 sentences. You're interjecting, not taking over.
+- Engage with what was ACTUALLY said, don't just restate the paper.
+- Do NOT use JSON. Respond naturally.
+
+{"PAPER CONTEXT:" + chr(10) + chunks_text if chunks_text else ""}"""
+
+    interjection_prompt = f"""This conversation is happening on a post about: {post_content[:200]}
+
+Recent thread:
+{convo_summary}
+
+Jump in with your perspective as {chosen['name']} ({chosen['handle']})."""
+
+    try:
+        if settings.llm_provider == "ollama":
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    f"{settings.ollama_base_url}/api/chat",
+                    json={
+                        "model": settings.ollama_llm_model,
+                        "messages": [
+                            {"role": "system", "content": interjection_system},
+                            {"role": "user", "content": interjection_prompt},
+                        ],
+                        "stream": False,
+                        "think": False,
+                        "options": {"temperature": 0.8, "num_predict": 256},
+                    },
+                )
+                resp.raise_for_status()
+                content = resp.json()["message"]["content"]
+                if not content and resp.json()["message"].get("thinking"):
+                    content = resp.json()["message"]["thinking"]
+        else:
+            import anthropic
+            client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+            resp = await client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=256,
+                system=interjection_system,
+                messages=[{"role": "user", "content": interjection_prompt}],
+            )
+            content = resp.content[0].text
+
+        return {
+            "persona_key": chosen["key"],
+            "name": chosen["name"],
+            "handle": chosen["handle"],
+            "content": content,
+        }
+    except Exception as e:
+        logger.warn("interjection_llm_failed", error=str(e))
+        return None

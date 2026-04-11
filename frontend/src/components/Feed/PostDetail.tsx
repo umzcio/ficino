@@ -15,6 +15,7 @@ interface PostDetailProps {
   getAnnotation?: (feedId: string, postIndex: number) => string | null
   onAnnotationSave?: (feedId: string, postIndex: number, body: string) => void
   onAnnotationDelete?: (feedId: string, postIndex: number) => void
+  autoOpenReply?: boolean
 }
 
 function findParentPost(
@@ -107,6 +108,7 @@ export function PostDetail({
   onBack, onNavigateToPost,
   isBookmarked, onBookmarkToggle,
   getAnnotation, onAnnotationSave, onAnnotationDelete,
+  autoOpenReply,
 }: PostDetailProps) {
   const personas = usePersonas()
 
@@ -153,6 +155,7 @@ export function PostDetail({
         annotation={feedId ? getAnnotation?.(feedId, postIndex) ?? null : null}
         onAnnotationSave={onAnnotationSave}
         onAnnotationDelete={onAnnotationDelete}
+        autoOpenReply={autoOpenReply}
       />
 
       {/* If quote post, make the quoted block navigable */}
