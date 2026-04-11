@@ -261,7 +261,7 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
 }
 
 export default function App() {
-  const [activeView, setActiveView] = useState<AppView>('feed')
+  const [activeView, setActiveViewRaw] = useState<AppView>('feed')
   const [activeTab, setActiveTab] = useState(0)
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [showWorkspaceSheet, setShowWorkspaceSheet] = useState(false)
@@ -269,6 +269,11 @@ export default function App() {
   const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null)
   const [pendingPaperId, setPendingPaperId] = useState<string | null>(null)
+  const setActiveView = (v: AppView) => {
+    setSelectedPostIndex(null)
+    setSelectedPersona(null)
+    setActiveViewRaw(v)
+  }
   const feedScrollRef = useRef(0)
   const personas = usePersonasLoader()
   const ws = useWorkspaces()
