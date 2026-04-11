@@ -109,6 +109,7 @@ def generate_feed(
     tag_filter: list[str] | None = None,
     user_id: str | None = None,
     num_posts: int = 12,
+    append_to_feed_id: str | None = None,
 ) -> dict[str, object]:
     """Full feed generation pipeline.
 
@@ -119,8 +120,16 @@ def generate_feed(
     4. Generate posts via LLM
     5. Store feed in database
     """
-    feed_id = str(uuid.uuid4())
-    log = logger.bind(feed_id=feed_id, task_id=self.request.id)
+    existing_posts: list[dict[str, object]] = []
+    if append_to_feed_id:
+        feed_id = append_to_feed_id
+        # Load existing posts from the feed
+        row = fetchrow("SELECT posts FROM feeds WHERE id = $1", feed_id)
+        if row and row["posts"]:
+            existing_posts = json.loads(row["posts"]) if isinstance(row["posts"], str) else row["posts"]
+    else:
+        feed_id = str(uuid.uuid4())
+    log = logger.bind(feed_id=feed_id, task_id=self.request.id, append=bool(append_to_feed_id))
     start_time = time.time()
 
     try:
@@ -226,6 +235,10 @@ def generate_feed(
             custom_weights=post_weights,
         )
         posts: list[dict[str, object]] = []
+        # For append mode, new posts can reference existing ones for quotes/replies
+        all_feed_posts = list(existing_posts) if existing_posts else []
+        id_offset = len(existing_posts)
+        time_offset = len(existing_posts) * 2
 
         for i, assignment in enumerate(plan):
             persona_key = assignment["persona"]
@@ -250,12 +263,14 @@ def generate_feed(
                 selected_figure = random.choice(available_figures)
 
             # Build the prompt
+            # For quotes/replies, include both existing feed posts and newly generated ones
+            reference_posts = all_feed_posts + posts if post_type in ("quote", "reply") else None
             user_prompt = persona_lib.build_post_prompt(
                 persona_key=persona_key,
                 post_type=post_type,
                 chunks=chunks,
                 contradictions=contradictions if post_type in ("quote", "reply") else None,
-                existing_posts=posts if post_type in ("quote", "reply") else None,
+                existing_posts=reference_posts,
                 figure=selected_figure,
             )
 
@@ -265,8 +280,8 @@ def generate_feed(
                 # Ensure required fields
                 post_data["persona"] = persona_key
                 post_data.setdefault("post_type", post_type)
-                post_data["id"] = i + 1
-                post_data["time"] = f"{(i + 1) * 2}m"
+                post_data["id"] = id_offset + i + 1
+                post_data["time"] = f"{time_offset + (i + 1) * 2}m"
 
                 # Override paper_ref with actual metadata (don't trust LLM citation)
                 if chunks:
@@ -321,20 +336,31 @@ def generate_feed(
 
         # --- Step 5: Store feed ---
         duration_ms = int((time.time() - start_time) * 1000)
-        posts_json = json.dumps(posts, default=str)
+        all_posts = existing_posts + posts
+        posts_json = json.dumps(all_posts, default=str)
 
-        execute(
-            """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-            feed_id,
-            user_id or "00000000-0000-0000-0000-000000000000",
-            corpus_id,
-            tag_filter,
-            posts_json,
-            len(paper_ids),
-            len(posts),
-            duration_ms,
-        )
+        if append_to_feed_id:
+            execute(
+                """UPDATE feeds SET posts = $1, post_count = $2, generation_duration_ms = generation_duration_ms + $3
+                   WHERE id = $4""",
+                posts_json,
+                len(all_posts),
+                duration_ms,
+                feed_id,
+            )
+        else:
+            execute(
+                """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                feed_id,
+                user_id or "00000000-0000-0000-0000-000000000000",
+                corpus_id,
+                tag_filter,
+                posts_json,
+                len(paper_ids),
+                len(all_posts),
+                duration_ms,
+            )
 
         log.info("feed_generation_complete",
                  feed_id=feed_id,
@@ -355,7 +381,7 @@ def generate_feed(
         return {
             "status": "complete",
             "feed_id": feed_id,
-            "post_count": len(posts),
+            "post_count": len(all_posts),
             "paper_count": len(paper_ids),
             "duration_ms": duration_ms,
         }

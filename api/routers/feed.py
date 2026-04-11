@@ -41,13 +41,16 @@ async def generate_feed(
         raise HTTPException(status_code=400, detail="No processed papers available. Upload and wait for processing to complete.")
 
     celery_app = _get_celery()
+    kwargs: dict[str, object] = {
+        "corpus_id": str(body.corpus_id) if body.corpus_id else None,
+        "tag_filter": body.tag_filter,
+        "user_id": "00000000-0000-0000-0000-000000000000",  # stub until auth
+    }
+    if body.append_to_feed_id:
+        kwargs["append_to_feed_id"] = body.append_to_feed_id
     task = celery_app.send_task(
         "tasks.persona_tasks.generate_feed",
-        kwargs={
-            "corpus_id": str(body.corpus_id) if body.corpus_id else None,
-            "tag_filter": body.tag_filter,
-            "user_id": "00000000-0000-0000-0000-000000000000",  # stub until auth
-        },
+        kwargs=kwargs,
         queue="persona",
     )
 

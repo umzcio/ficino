@@ -42,6 +42,7 @@ class FigurePost(PostBase):
 class FeedGenerateRequest(BaseModel):
     corpus_id: UUID | None = None
     tag_filter: list[str] | None = None
+    append_to_feed_id: str | None = None
 
 
 class Feed(BaseModel):

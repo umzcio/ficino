@@ -54,11 +54,11 @@ export interface FeedStatus {
   error?: string
 }
 
-export async function generateFeed(corpusId?: string, tagFilter?: string[]): Promise<GenerateResponse> {
+export async function generateFeed(corpusId?: string, tagFilter?: string[], appendToFeedId?: string): Promise<GenerateResponse> {
   return request<GenerateResponse>('/feed/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ corpus_id: corpusId, tag_filter: tagFilter }),
+    body: JSON.stringify({ corpus_id: corpusId, tag_filter: tagFilter, append_to_feed_id: appendToFeedId }),
   })
 }
 

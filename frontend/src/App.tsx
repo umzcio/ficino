@@ -444,6 +444,9 @@ export default function App() {
                 document.querySelector('main')?.scrollTo(0, 0)
               }}
               onPersonaClick={setSelectedPersona}
+              onGenerate={() => {
+                feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined)
+              }}
             />
           </>
         )

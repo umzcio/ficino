@@ -18,6 +18,7 @@ interface FeedProps {
   onAnnotationDelete?: (feedId: string, postIndex: number) => void
   onPostClick?: (postIndex: number) => void
   onPersonaClick?: (key: string) => void
+  onGenerate?: () => void
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -35,7 +36,7 @@ const TAB_CATEGORIES: Record<number, string | null> = {
   3: 'findings',   // Findings — hype + figure posts
 }
 
-export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick, onPersonaClick }: FeedProps) {
+export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick, onPersonaClick, onGenerate }: FeedProps) {
   const [repliedIndices, setRepliedIndices] = useState<Set<number>>(new Set())
 
   useEffect(() => {
@@ -117,7 +118,10 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
         )
       })}
       <div className="py-5 text-center">
-        <button className="bg-transparent border border-border rounded-[20px] text-gold px-6 py-2.5 cursor-pointer text-[15px] font-semibold hover:bg-gold/5 transition-colors">
+        <button
+          onClick={onGenerate}
+          className="bg-transparent border border-border rounded-[20px] text-gold px-6 py-2.5 cursor-pointer text-[15px] font-semibold hover:bg-gold/5 transition-colors"
+        >
           Generate more posts
         </button>
       </div>
