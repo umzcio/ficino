@@ -156,10 +156,28 @@ export interface PersonaData {
   name: string
   initials: string
   color: string
+  avatar_url?: string | null
+  bio?: string | null
 }
 
 export async function listPersonas(): Promise<PersonaData[]> {
   return request<PersonaData[]>('/personas')
+}
+
+export async function getPersonaStats(key: string): Promise<{ reply_threads: number }> {
+  return request(`/personas/${key}/stats`)
+}
+
+export async function getPersonaDm(key: string): Promise<{ messages: ReplyMessage[] }> {
+  return request(`/personas/${key}/dm`)
+}
+
+export async function sendPersonaDm(key: string, message: string): Promise<{ messages: ReplyMessage[]; latest_response: string }> {
+  return request(`/personas/${key}/dm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
 }
 
 // Citations

@@ -76,16 +76,16 @@ function ParentPostCard({ post, personas, onClick }: { post: FeedPost; personas:
       onClick={onClick}
     >
       <div className="flex flex-col items-center">
-        <div
-          className="w-[42px] h-[42px] rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold tracking-tight"
-          style={{
-            backgroundColor: p.color + '28',
-            border: `2px solid ${p.color}50`,
-            color: p.color,
-          }}
-        >
-          {p.initials}
-        </div>
+        {p.avatar_url ? (
+          <img src={p.avatar_url} alt={p.name} className="w-[42px] h-[42px] rounded-full shrink-0 object-cover" style={{ border: `2px solid ${p.color}50` }} />
+        ) : (
+          <div
+            className="w-[42px] h-[42px] rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold tracking-tight"
+            style={{ backgroundColor: p.color + '28', border: `2px solid ${p.color}50`, color: p.color }}
+          >
+            {p.initials}
+          </div>
+        )}
         <div className="w-0.5 flex-1 bg-border mt-1" />
       </div>
       <div className="flex-1 min-w-0">

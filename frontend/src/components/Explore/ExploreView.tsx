@@ -11,6 +11,9 @@ interface ExploreViewProps {
   onCreate: (name: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, name: string) => void
+  papers?: { id: string; title: string | null; status: string }[]
+  paperSummaries?: Map<string, string>
+  onPaperClick?: (paperId: string) => void
 }
 
 function timeAgo(dateStr: string): string {
@@ -244,16 +247,16 @@ function SearchBar() {
                     return (
                       <div key={i} className="px-4 py-2.5 flex items-start gap-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
                         {persona && (
-                          <div
-                            className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5"
-                            style={{
-                              backgroundColor: persona.color + '22',
-                              border: `1px solid ${persona.color}40`,
-                              color: persona.color,
-                            }}
-                          >
-                            {persona.initials}
-                          </div>
+                          persona.avatar_url ? (
+                            <img src={persona.avatar_url} alt={persona.name} className="w-6 h-6 rounded-full shrink-0 mt-0.5 object-cover" style={{ border: `1px solid ${persona.color}40` }} />
+                          ) : (
+                            <div
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5"
+                              style={{ backgroundColor: persona.color + '22', border: `1px solid ${persona.color}40`, color: persona.color }}
+                            >
+                              {persona.initials}
+                            </div>
+                          )
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="text-[11px] text-text-muted mb-0.5">
@@ -276,7 +279,7 @@ function SearchBar() {
   )
 }
 
-export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete, onRename }: ExploreViewProps) {
+export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete, onRename, papers, paperSummaries, onPaperClick }: ExploreViewProps) {
   return (
     <div>
       {/* Header */}
@@ -288,6 +291,37 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
       <div className="p-4 space-y-4">
         {/* Search */}
         <SearchBar />
+
+        {/* What's happening — paper headlines with TL;DRs */}
+        {papers && papers.filter(p => p.status === 'complete').length > 0 && (
+          <div className="bg-bg-hover border border-border rounded-2xl p-4">
+            <div className="text-[13px] font-bold text-gold tracking-widest uppercase mb-3">
+              What's happening
+            </div>
+            <div className="divide-y divide-border">
+              {papers.filter(p => p.status === 'complete').map((paper) => {
+                const tldr = paperSummaries?.get(paper.id)
+                return (
+                  <button
+                    key={paper.id}
+                    onClick={() => onPaperClick?.(paper.id)}
+                    className="w-full text-left py-2.5 bg-transparent border-none cursor-pointer hover:bg-bg transition-colors -mx-1 px-1 rounded-lg"
+                  >
+                    <div className="text-[13px] text-text font-semibold leading-snug">
+                      {paper.title || paper.id}
+                    </div>
+                    {tldr && (
+                      <p className="text-[12px] text-text-muted leading-snug mt-0.5 line-clamp-2">
+                        {tldr}
+                      </p>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Workspace grid */}
         <div className="space-y-3">
           <div className="text-[13px] font-bold text-gold tracking-widest uppercase">

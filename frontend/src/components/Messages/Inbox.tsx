@@ -134,16 +134,16 @@ export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: In
                   className="w-full text-left px-4 py-3 flex gap-3 items-start border-b border-border bg-transparent border-x-0 border-t-0 cursor-pointer hover:bg-bg-hover transition-colors"
                 >
                   {persona ? (
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0 mt-0.5"
-                      style={{
-                        backgroundColor: persona.color + '22',
-                        border: `1.5px solid ${persona.color}50`,
-                        color: persona.color,
-                      }}
-                    >
-                      {persona.initials}
-                    </div>
+                    persona.avatar_url ? (
+                      <img src={persona.avatar_url} alt={persona.name} className="w-10 h-10 rounded-full shrink-0 mt-0.5 object-cover" style={{ border: `1.5px solid ${persona.color}50` }} />
+                    ) : (
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0 mt-0.5"
+                        style={{ backgroundColor: persona.color + '22', border: `1.5px solid ${persona.color}50`, color: persona.color }}
+                      >
+                        {persona.initials}
+                      </div>
+                    )
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-persona-practitioner/10 flex items-center justify-center shrink-0 mt-0.5">
                       <MessageCircle size={18} className="text-persona-practitioner" />

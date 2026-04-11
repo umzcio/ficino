@@ -24,6 +24,7 @@ import { WorkspaceDropdown } from './components/Nav/WorkspaceDropdown'
 import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
 import { MobileDrawer } from './components/Nav/MobileDrawer'
 import { PostDetail } from './components/Feed/PostDetail'
+import { PersonaProfile } from './components/Personas/PersonaProfile'
 import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
 import { getFeed, getPaperTldrs } from './lib/api'
 import { useAnnotations } from './hooks/useAnnotations'
@@ -221,7 +222,7 @@ function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) 
   )
 }
 
-function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClick, paperSummaries, onPaperClick }: {
+function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClick, paperSummaries, onPaperClick, onPersonaClick }: {
   corpus: ReturnType<typeof useCorpus>
   activeTag: string | null
   onTagFilter: (tag: string | null) => void
@@ -229,6 +230,7 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
   onSearchClick: () => void
   paperSummaries?: Map<string, string>
   onPaperClick?: (paperId: string) => void
+  onPersonaClick?: (key: string) => void
 }) {
   return (
     <aside className="w-[260px] shrink-0 pt-3 pl-5 flex-col gap-3.5 hidden lg:flex">
@@ -253,7 +255,7 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
         onPaperClick={onPaperClick}
       />
 
-      <PersonaPanel enabledPersonas={enabledPersonas} />
+      <PersonaPanel enabledPersonas={enabledPersonas} onPersonaClick={onPersonaClick} />
     </aside>
   )
 }
@@ -265,6 +267,7 @@ export default function App() {
   const [showWorkspaceSheet, setShowWorkspaceSheet] = useState(false)
   const [showMobileDrawer, setShowMobileDrawer] = useState(false)
   const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
+  const [selectedPersona, setSelectedPersona] = useState<string | null>(null)
   const [pendingPaperId, setPendingPaperId] = useState<string | null>(null)
   const feedScrollRef = useRef(0)
   const personas = usePersonasLoader()
@@ -331,6 +334,12 @@ export default function App() {
             onCreate={(name) => ws.create(name)}
             onDelete={ws.remove}
             onRename={ws.rename}
+            papers={corpus.papers.map(p => ({ id: p.id, title: p.title, status: p.status }))}
+            paperSummaries={paperTldrs}
+            onPaperClick={(paperId) => {
+              setPendingPaperId(paperId)
+              setActiveView('messages')
+            }}
           />
         )
       case 'alerts':
@@ -355,6 +364,16 @@ export default function App() {
           />
         )
       default:
+        if (selectedPersona) {
+          return (
+            <PersonaProfile
+              personaKey={selectedPersona}
+              onBack={() => setSelectedPersona(null)}
+              posts={feed.posts}
+              feedId={feed.feedId}
+            />
+          )
+        }
         if (selectedPostIndex !== null && feed.posts[selectedPostIndex]) {
           return (
             <PostDetail
@@ -419,6 +438,7 @@ export default function App() {
                 setSelectedPostIndex(idx)
                 document.querySelector('main')?.scrollTo(0, 0)
               }}
+              onPersonaClick={setSelectedPersona}
             />
           </>
         )
@@ -444,6 +464,7 @@ export default function App() {
               setPendingPaperId(paperId)
               setActiveView('messages')
             }}
+            onPersonaClick={setSelectedPersona}
           />
         </div>
         <MobileBottomNav
@@ -458,6 +479,11 @@ export default function App() {
           enabledPersonas={enabledPersonas}
           activeTag={activeTag}
           onTagFilter={setActiveTag}
+          paperSummaries={paperTldrs}
+          onPaperClick={(paperId) => {
+            setPendingPaperId(paperId)
+            setActiveView('messages')
+          }}
         />
         {showWorkspaceSheet && (
           <WorkspaceBottomSheet

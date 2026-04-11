@@ -1,11 +1,20 @@
-"""Persona endpoints — single source of truth for persona metadata."""
+"""Persona endpoints — metadata, stats, and direct messages."""
+
+import json
 
 import asyncpg
-from fastapi import APIRouter, Depends
+import httpx
+import structlog
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
+from config import settings
 from db.connection import get_db
 
+logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/personas", tags=["personas"])
+
+STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 @router.get("")
@@ -14,7 +23,154 @@ async def list_personas(
 ) -> list[dict[str, object]]:
     """Return all active personas with metadata."""
     rows = await db.fetch(
-        """SELECT key, handle, name, initials, color
+        """SELECT key, handle, name, initials, color, avatar_url, bio
            FROM personas WHERE is_active = true ORDER BY sort_order"""
     )
     return [dict(r) for r in rows]
+
+
+@router.get("/{persona_key}/stats")
+async def get_persona_stats(
+    persona_key: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Get post/reply stats for a persona."""
+    # Count reply threads with this persona
+    thread_count = await db.fetchval(
+        "SELECT COUNT(*) FROM post_replies WHERE persona_key = $1",
+        persona_key,
+    )
+
+    return {
+        "persona_key": persona_key,
+        "reply_threads": thread_count or 0,
+    }
+
+
+class PersonaDmRequest(BaseModel):
+    message: str
+
+
+@router.get("/{persona_key}/dm")
+async def get_persona_dm(
+    persona_key: str,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Get DM conversation with a persona."""
+    row = await db.fetchrow(
+        "SELECT id, messages, updated_at FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
+        STUB_USER_ID, persona_key,
+    )
+    if not row:
+        return {"messages": [], "persona_key": persona_key}
+    messages = row["messages"]
+    if isinstance(messages, str):
+        messages = json.loads(messages)
+    return {"id": str(row["id"]), "messages": messages, "persona_key": persona_key}
+
+
+@router.post("/{persona_key}/dm")
+async def send_persona_dm(
+    persona_key: str,
+    body: PersonaDmRequest,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Send a DM to a persona. Persona responds grounded in the user's corpus."""
+    # Get existing conversation
+    row = await db.fetchrow(
+        "SELECT id, messages FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
+        STUB_USER_ID, persona_key,
+    )
+    existing: list[dict[str, str]] = []
+    dm_id = None
+    if row:
+        dm_id = str(row["id"])
+        existing = row["messages"]
+        if isinstance(existing, str):
+            existing = json.loads(existing)
+
+    existing.append({"role": "user", "content": body.message})
+
+    # Get persona prompt + bio
+    persona = await db.fetchrow(
+        "SELECT system_prompt, name, handle, bio FROM personas WHERE key = $1 AND is_active = true",
+        persona_key,
+    )
+    if not persona:
+        raise HTTPException(status_code=404, detail="Persona not found")
+
+    # Get corpus chunks for context (RAG)
+    chunks = await db.fetch(
+        """SELECT c.content, c.section, p.title AS paper_title
+           FROM chunks c JOIN papers p ON c.paper_id = p.id
+           WHERE p.status = 'complete'
+           ORDER BY random() LIMIT 10"""
+    )
+    chunks_text = "\n\n".join(
+        f"[{c['paper_title'] or 'Unknown'} — {c['section']}] {c['content'][:300]}"
+        for c in chunks
+    ) if chunks else ""
+
+    system = f"""{persona['system_prompt']}
+
+You are having a direct conversation with a user about their research corpus. Stay in character as {persona['name']} ({persona['handle']}).
+Be specific, cite papers when relevant. Keep replies conversational — 2-4 sentences.
+Do NOT use JSON formatting. Respond naturally.
+
+{"CORPUS CONTEXT:" + chr(10) + chunks_text if chunks_text else "No papers in corpus yet."}"""
+
+    llm_messages = [
+        {"role": "user" if m["role"] == "user" else "assistant", "content": m["content"]}
+        for m in existing
+    ]
+
+    # Call LLM
+    try:
+        if settings.llm_provider == "ollama":
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    f"{settings.ollama_base_url}/api/chat",
+                    json={
+                        "model": settings.ollama_llm_model,
+                        "messages": [{"role": "system", "content": system}, *llm_messages],
+                        "stream": False,
+                        "think": False,
+                        "options": {"temperature": 0.7, "num_predict": 512},
+                    },
+                )
+                resp.raise_for_status()
+                persona_response = resp.json()["message"]["content"]
+                if not persona_response and resp.json()["message"].get("thinking"):
+                    persona_response = resp.json()["message"]["thinking"]
+        else:
+            import anthropic
+            client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+            resp = await client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=512,
+                system=system,
+                messages=llm_messages,
+            )
+            persona_response = resp.content[0].text
+    except Exception as e:
+        logger.error("persona_dm_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to generate response")
+
+    existing.append({"role": "persona", "content": persona_response})
+
+    messages_json = json.dumps(existing)
+    if dm_id:
+        await db.execute(
+            "UPDATE persona_dms SET messages = $1, updated_at = NOW() WHERE id = $2",
+            messages_json, dm_id,
+        )
+    else:
+        row = await db.fetchrow(
+            """INSERT INTO persona_dms (user_id, persona_key, messages)
+               VALUES ($1, $2, $3) RETURNING id""",
+            STUB_USER_ID, persona_key, messages_json,
+        )
+        dm_id = str(row["id"])
+
+    logger.info("persona_dm_sent", persona=persona_key, turns=len(existing))
+    return {"id": dm_id, "messages": existing, "latest_response": persona_response}

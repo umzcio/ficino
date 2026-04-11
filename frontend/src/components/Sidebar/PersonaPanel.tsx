@@ -2,9 +2,10 @@ import { usePersonas } from '../../hooks/usePersonas'
 
 interface PersonaPanelProps {
   enabledPersonas: Record<string, boolean>
+  onPersonaClick?: (key: string) => void
 }
 
-export function PersonaPanel({ enabledPersonas }: PersonaPanelProps) {
+export function PersonaPanel({ enabledPersonas, onPersonaClick }: PersonaPanelProps) {
   const personas = usePersonas()
   const entries = Object.entries(personas)
     .filter(([key]) => enabledPersonas[key] !== false)
@@ -15,17 +16,21 @@ export function PersonaPanel({ enabledPersonas }: PersonaPanelProps) {
         Personas ({entries.length})
       </div>
       {entries.map(([key, p]) => (
-        <div key={key} className="flex items-center gap-2.5 py-1.5">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-            style={{
-              backgroundColor: p.color + '22',
-              border: `1.5px solid ${p.color}50`,
-              color: p.color,
-            }}
-          >
-            {p.initials}
-          </div>
+        <div
+          key={key}
+          className="flex items-center gap-2.5 py-1.5 cursor-pointer hover:bg-bg rounded-lg px-1 -mx-1 transition-colors"
+          onClick={() => onPersonaClick?.(key)}
+        >
+          {p.avatar_url ? (
+            <img src={p.avatar_url} alt={p.name} className="w-8 h-8 rounded-full shrink-0 object-cover" style={{ border: `1.5px solid ${p.color}50` }} />
+          ) : (
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+              style={{ backgroundColor: p.color + '22', border: `1.5px solid ${p.color}50`, color: p.color }}
+            >
+              {p.initials}
+            </div>
+          )}
           <div>
             <div className="text-[13px] text-text font-semibold">{p.name}</div>
             <div className="text-xs text-text-muted">{p.handle}</div>

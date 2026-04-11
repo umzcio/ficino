@@ -19,10 +19,13 @@ interface MobileDrawerProps {
   enabledPersonas: Record<string, boolean>
   activeTag: string | null
   onTagFilter: (tag: string | null) => void
+  paperSummaries?: Map<string, string>
+  onPaperClick?: (paperId: string) => void
 }
 
 export function MobileDrawer({
   open, onClose, corpus, enabledPersonas, activeTag, onTagFilter,
+  paperSummaries, onPaperClick,
 }: MobileDrawerProps) {
   if (!open) return null
 
@@ -71,6 +74,8 @@ export function MobileDrawer({
             onRefresh={corpus.refresh}
             activeTag={activeTag}
             onTagFilter={(tag) => { onTagFilter(tag); onClose() }}
+            paperSummaries={paperSummaries}
+            onPaperClick={onPaperClick ? (id) => { onPaperClick(id); onClose() } : undefined}
           />
 
           <PersonaPanel enabledPersonas={enabledPersonas} />

@@ -68,6 +68,16 @@ function Avatar({ persona }: { persona: string }) {
   const personas = usePersonas()
   const p = personas[persona]
   if (!p) return null
+  if (p.avatar_url) {
+    return (
+      <img
+        src={p.avatar_url}
+        alt={p.name}
+        className="w-[42px] h-[42px] rounded-full shrink-0 object-cover"
+        style={{ border: `2px solid ${p.color}50` }}
+      />
+    )
+  }
   return (
     <div
       className="w-[42px] h-[42px] rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold tracking-tight"
@@ -124,9 +134,10 @@ interface PostCardProps {
   annotation?: string | null
   onAnnotationSave?: (feedId: string, postIndex: number, body: string) => void
   onAnnotationDelete?: (feedId: string, postIndex: number) => void
+  onPersonaClick?: (key: string) => void
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete }: PostCardProps) {
+export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const [liked, setLiked] = useState(false)
@@ -220,8 +231,14 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
       <div className="flex-1 min-w-0">
         {/* Header */}
         <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-          <span className="font-bold text-[15px] text-text">{p.name}</span>
-          <span className="text-sm text-text-muted">{p.handle}</span>
+          <span
+            className="font-bold text-[15px] text-text hover:underline cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); onPersonaClick?.(post.persona) }}
+          >{p.name}</span>
+          <span
+            className="text-sm text-text-muted hover:underline cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); onPersonaClick?.(post.persona) }}
+          >{p.handle}</span>
           <span className="text-sm text-text-muted">·</span>
           <span className="text-sm text-text-muted">{post.time}</span>
           {post.post_type === 'thread' && post.thread_count && (
@@ -580,14 +597,14 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                           </div>
                         ) : (
                           <div
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+                            className="w-8 h-8 rounded-full shrink-0 overflow-hidden flex items-center justify-center text-[11px] font-bold"
                             style={{
-                              backgroundColor: p.color + '22',
+                              backgroundColor: p.avatar_url ? undefined : p.color + '22',
                               border: `1.5px solid ${p.color}50`,
                               color: p.color,
                             }}
                           >
-                            {p.initials}
+                            {p.avatar_url ? <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" /> : p.initials}
                           </div>
                         )}
                         {i < replyMessages.length - 1 && (

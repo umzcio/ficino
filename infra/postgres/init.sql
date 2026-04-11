@@ -201,6 +201,7 @@ CREATE TABLE personas (
   color TEXT NOT NULL,
   retrieval_query TEXT NOT NULL,
   system_prompt TEXT NOT NULL,
+  avatar_url TEXT,
   is_active BOOLEAN DEFAULT true,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),

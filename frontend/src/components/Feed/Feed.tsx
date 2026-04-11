@@ -17,6 +17,7 @@ interface FeedProps {
   onAnnotationSave?: (feedId: string, postIndex: number, body: string) => void
   onAnnotationDelete?: (feedId: string, postIndex: number) => void
   onPostClick?: (postIndex: number) => void
+  onPersonaClick?: (key: string) => void
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -34,7 +35,7 @@ const TAB_CATEGORIES: Record<number, string | null> = {
   3: 'findings',   // Findings — hype + figure posts
 }
 
-export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick }: FeedProps) {
+export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick, onPersonaClick }: FeedProps) {
   const [repliedIndices, setRepliedIndices] = useState<Set<number>>(new Set())
 
   useEffect(() => {
@@ -111,6 +112,7 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
             annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
             onAnnotationSave={onAnnotationSave}
             onAnnotationDelete={onAnnotationDelete}
+            onPersonaClick={onPersonaClick}
           />
         )
       })}
