@@ -278,7 +278,7 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
             onClick={() => onTagFilter(null)}
             className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
             style={{
-              color: activeTag === null ? '#080a0f' : '#8b92a5',
+              color: activeTag === null ? 'var(--color-bg)' : '#8b92a5',
               backgroundColor: activeTag === null ? '#c8a96e' : 'transparent',
               borderColor: activeTag === null ? '#c8a96e' : '#1e2028',
             }}
@@ -291,7 +291,7 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
               onClick={() => onTagFilter(activeTag === tag ? null : tag)}
               className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
               style={{
-                color: activeTag === tag ? '#080a0f' : '#c8a96e',
+                color: activeTag === tag ? 'var(--color-bg)' : '#c8a96e',
                 backgroundColor: activeTag === tag ? '#c8a96e' : 'transparent',
                 borderColor: activeTag === tag ? '#c8a96e' : '#c8a96e30',
               }}

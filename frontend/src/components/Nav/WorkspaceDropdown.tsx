@@ -74,7 +74,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                     onClick={() => { onSwitch(ws.id); setOpen(false) }}
                     className="flex-1 text-left px-3 py-2.5 flex items-center gap-2.5 bg-transparent border-none cursor-pointer"
                   >
-                    <Folder size={14} style={{ color: ws.id === active.id ? '#c8a96e' : '#555d6e' }} />
+                    <Folder size={14} style={{ color: ws.id === active.id ? '#c8a96e' : 'var(--color-tab-inactive)' }} />
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] text-text truncate">{ws.name}</div>
                       <div className="text-[11px] text-text-muted">{ws.paper_count} papers</div>

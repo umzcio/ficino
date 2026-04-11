@@ -141,7 +141,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId }: PersonaPro
           onClick={() => setTab('posts')}
           className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] transition-all"
           style={{
-            color: tab === 'posts' ? '#e8eaf0' : '#555d6e',
+            color: tab === 'posts' ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
             fontWeight: tab === 'posts' ? 700 : 400,
             borderBottom: tab === 'posts' ? `2px solid ${p.color}` : '2px solid transparent',
           }}
@@ -152,7 +152,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId }: PersonaPro
           onClick={() => setTab('dm')}
           className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] transition-all"
           style={{
-            color: tab === 'dm' ? '#e8eaf0' : '#555d6e',
+            color: tab === 'dm' ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
             fontWeight: tab === 'dm' ? 700 : 400,
             borderBottom: tab === 'dm' ? `2px solid ${p.color}` : '2px solid transparent',
           }}

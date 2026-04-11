@@ -47,7 +47,7 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
         <img
           src="/ficino/ficino-favicon-light.png"
           alt="ficino"
-          className="w-9 h-9 rounded-[10px]"
+          className="w-9 h-9 rounded-[10px] app-logo"
         />
       </div>
       {NAV_ITEMS.map(({ icon: Icon, view, label }) => (
@@ -58,7 +58,7 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
           aria-current={active === view ? 'page' : undefined}
           className="w-[46px] h-[46px] rounded-full border-none bg-transparent cursor-pointer flex items-center justify-center transition-all duration-100 hover:bg-gold/10 hover:text-gold relative"
           style={{
-            color: active === view ? '#e8eaf0' : '#7a8194',
+            color: active === view ? 'var(--color-nav-active)' : 'var(--color-nav-inactive)',
             backgroundColor: active === view ? 'rgba(200, 169, 110, 0.08)' : 'transparent',
           }}
         >
@@ -105,7 +105,7 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
           aria-label={label}
           aria-current={active === view ? 'page' : undefined}
           className="flex-1 flex flex-col items-center py-2.5 gap-0.5 bg-transparent border-none transition-colors"
-          style={{ color: active === view ? '#c8a96e' : '#7a8194' }}
+          style={{ color: active === view ? '#c8a96e' : 'var(--color-nav-inactive)' }}
         >
           <Icon size={22} strokeWidth={active === view ? 2.25 : 1.75} />
           <span className="text-[10px]">{label}</span>
@@ -149,7 +149,7 @@ function FeedHeader({
           <img
             src="/ficino/ficino-favicon-light.png"
             alt="ficino"
-            className="w-7 h-7 rounded-lg md:hidden cursor-pointer"
+            className="w-7 h-7 rounded-lg md:hidden cursor-pointer app-logo"
             onClick={onMobileLogoTap}
           />
           <span className="text-[22px] font-semibold text-text tracking-[0.015em]" style={{ fontFamily: "'Cormorant Garamond', serif", fontKerning: 'normal' }}>ficino</span>
@@ -210,7 +210,7 @@ function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) 
           onClick={() => onSelect(i)}
           className="flex-1 py-3.5 border-none bg-transparent cursor-pointer text-[15px] transition-all duration-150"
           style={{
-            color: active === i ? '#e8eaf0' : '#555d6e',
+            color: active === i ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
             fontWeight: active === i ? 700 : 400,
             borderBottom: active === i ? '2px solid #c8a96e' : '2px solid transparent',
           }}
@@ -291,6 +291,16 @@ export default function App() {
   useEffect(() => {
     getPaperTldrs().then((data) => setPaperTldrs(new Map(Object.entries(data)))).catch(() => {})
   }, [corpus.papers])
+
+  // Apply theme + display settings
+  useEffect(() => {
+    const theme = appSettings.settings.theme as string || 'dark'
+    document.documentElement.setAttribute('data-theme', theme)
+    const fontSize = appSettings.settings.font_size as string || 'normal'
+    document.documentElement.setAttribute('data-font-size', fontSize)
+    const spacing = appSettings.settings.post_spacing as string || 'comfortable'
+    document.documentElement.setAttribute('data-spacing', spacing)
+  }, [appSettings.settings.theme, appSettings.settings.font_size, appSettings.settings.post_spacing])
 
   const completePapers = corpus.papers.filter((p) => p.status === 'complete')
   const enabledPersonas = (appSettings.settings.personas_enabled || {}) as Record<string, boolean>

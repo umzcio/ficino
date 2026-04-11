@@ -45,7 +45,7 @@ export function MobileDrawer({
             <img
               src="/ficino/ficino-favicon-light.png"
               alt="ficino"
-              className="w-8 h-8 rounded-lg"
+              className="w-8 h-8 rounded-lg app-logo"
             />
             <span
               className="text-lg font-semibold text-text tracking-[0.015em]"

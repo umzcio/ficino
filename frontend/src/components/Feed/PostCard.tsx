@@ -428,11 +428,11 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                 <img
                   src={figSrc}
                   alt={post.figure_caption || 'Extracted figure'}
-                  className="w-full max-h-[400px] object-contain bg-[#0d0f14]"
+                  className="w-full max-h-[400px] object-contain bg-bg-hover"
                   loading="lazy"
                 />
               ) : (
-                <div className="h-[150px] flex items-center justify-center text-text-muted text-sm bg-[#0d0f14]">
+                <div className="h-[150px] flex items-center justify-center text-text-muted text-sm bg-bg-hover">
                   [Figure not available]
                 </div>
               )}
@@ -606,7 +606,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                       key={i}
                       className="flex gap-3 py-2.5"
                       style={{
-                        borderBottom: i < replyMessages.length - 1 ? '1px solid #1e2028' : 'none',
+                        borderBottom: i < replyMessages.length - 1 ? '1px solid var(--color-border)' : 'none',
                         borderLeft: isInterjection ? `2px solid ${displayColor}40` : undefined,
                         paddingLeft: isInterjection ? '8px' : undefined,
                       }}
@@ -709,7 +709,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                     onClick={handleSendReply}
                     disabled={!replyInput.trim() || replyLoading}
                     className="px-3.5 py-1.5 rounded-full text-[13px] font-bold border-none cursor-pointer disabled:opacity-30 transition-colors text-bg"
-                    style={{ background: replyInput.trim() ? 'linear-gradient(135deg, #c8a96e, #a07840)' : '#1e2028', color: replyInput.trim() ? '#080a0f' : '#555d6e' }}
+                    style={{ background: replyInput.trim() ? 'linear-gradient(135deg, #c8a96e, #a07840)' : 'var(--color-toggle-off)', color: replyInput.trim() ? '#080a0f' : 'var(--color-tab-inactive)' }}
                   >
                     Reply
                   </button>

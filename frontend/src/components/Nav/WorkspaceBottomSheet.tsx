@@ -58,7 +58,7 @@ export function WorkspaceBottomSheet({
                     : '#1e2028',
                 }}
               >
-                <Folder size={16} color={ws.id === activeId ? '#080a0f' : '#555d6e'} />
+                <Folder size={16} color={ws.id === activeId ? '#080a0f' : 'var(--color-tab-inactive)'} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[15px] font-semibold text-text">{ws.name}</div>

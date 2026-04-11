@@ -62,7 +62,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className="w-11 h-7 rounded-full border-none cursor-pointer transition-colors relative"
-      style={{ backgroundColor: checked ? '#c8a96e' : '#1e2028' }}
+      style={{ backgroundColor: checked ? '#c8a96e' : 'var(--color-toggle-off)' }}
     >
       <div
         className="rounded-full bg-white absolute top-[3px] transition-all"
@@ -379,7 +379,7 @@ export function SettingsView({ settings, loading, onUpdate }: SettingsViewProps)
               value={s.theme as string}
               options={[
                 { value: 'dark', label: 'Dark' },
-                { value: 'light', label: 'Light (coming soon)' },
+                { value: 'light', label: 'Light' },
               ]}
               onChange={(v) => onUpdate({ theme: v })}
             />

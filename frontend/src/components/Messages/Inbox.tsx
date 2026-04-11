@@ -60,7 +60,7 @@ export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: In
             onClick={() => setTab(key)}
             className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-all"
             style={{
-              color: tab === key ? '#e8eaf0' : '#555d6e',
+              color: tab === key ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
               fontWeight: tab === key ? 700 : 400,
               borderBottom: tab === key ? '2px solid #c8a96e' : '2px solid transparent',
             }}
