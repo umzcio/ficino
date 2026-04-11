@@ -93,6 +93,11 @@ Everything scopes to the active workspace:
 - [x] Auto-generate on upload (configurable in settings)
 - [x] "What's happening" corpus panel (TL;DR headlines)
 - [x] Reply tracking (REPLIED badges, Threads tab in Messages)
+- [x] Persona profiles (avatar, bio, post history, DMs)
+- [x] Persona DMs (corpus-grounded conversations with any persona)
+- [x] Organic persona interjections (other personas jump into reply threads)
+- [x] Light mode + font size + post spacing
+- [x] Append mode for feed generation ("Generate more posts")
 - [ ] Retrieval debug view (dev-only)
 - [ ] Rate limiting & cost controls
 - [ ] Production hardening (logging, Sentry, connection pooling, security headers)
@@ -250,7 +255,7 @@ Essentially RLHF for your personal academic discourse engine. Nobody else is doi
 
 ---
 
-- **Light mode**: Full light theme with inverted color system. Settings toggle already exists (shows "coming soon"). Need to define light palette, update all Tailwind theme vars, handle system preference detection (`prefers-color-scheme`), persist choice in settings DB
+- ~~**Light mode**: Full light theme with inverted color system~~ **BUILT** — warm white palette, CSS custom properties, instant toggle in Settings, logo inversion, font size + post spacing controls functional
 - ~~**Notification bell**: Alert when a newly uploaded paper contradicts something in your existing corpus~~ **BUILT**
 - ~~**Search**: Full-text search across all chunks with highlighted results~~ **BUILT**
 - ~~**Paper metadata extraction**: Auto-detect title, authors, year, DOI from PDF content~~ **BUILT** (+ auto-tagging)
