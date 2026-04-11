@@ -89,10 +89,14 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 
 ### Interaction
 - **Reply to personas**: multi-turn threaded conversations in Twitter/X reply style
+- **Organic interjections**: other personas jump into your reply threads when the topic touches their expertise
+- **Persona profiles**: click any persona name to view their profile with avatar, bio, posts, and DM
+- **Persona DMs**: message any persona directly — they respond in character, grounded in your corpus
 - **Post detail view**: click any post to see full thread context — parent posts, quoted originals, downstream responses
 - **Annotations**: private notes on any post via three-dots menu, visible in feed and bookmarks
 - **Cite this**: one-click APA/MLA citation generation from the three-dots menu, copied to clipboard
 - **Bookmarks**: snapshot-based, survives feed regeneration
+- **Append mode**: "Generate more posts" adds to the current feed instead of replacing it
 - **Figure lightbox**: extracted figures rendered inline with expand-on-click
 
 ### Intelligence Layer
@@ -105,6 +109,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Model selection**: pick from installed Ollama models via dropdown
 - **Persona controls**: enable/disable personas, adjust temperature, tune post type weights — personas stored in DB, zero-code to add new ones
 - **Paper processing**: extraction mode (auto/PyMuPDF/vision), chunk size, display options
+- **Light/dark mode**: instant theme switching with font size and post spacing controls
 
 ---
 
@@ -286,11 +291,11 @@ ficino/
 
 See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
 
-- Organic persona interjections (other personas jump into your reply threads naturally)
-- Like as training signal (RLHF-lite for your personal discourse engine)
-- Ask Your Corpus (conversational RAG Q&A in the DM view)
+- Like as training signal (RLHF-lite — your likes shape future feed generation)
+- Ask Your Corpus (conversational RAG Q&A beyond persona DMs)
 - Custom personas (user-created, one INSERT to the DB)
-- Light mode
+- Export feed (markdown/PDF for dissertation use)
+- Citation graph (visual map of inter-paper citations)
 - Auth & multi-user support
 - Production hardening for ficino.ai deployment
 
