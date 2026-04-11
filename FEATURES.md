@@ -198,7 +198,7 @@ Other personas jump into your reply threads naturally — not because you presse
 
 **Implementation**: After a user reply is saved (3+ turns), backend checks if another persona's expertise domain overlaps with the conversation topic (keyword/embedding match against persona query profiles from retrieval.py). If match score is high enough, generate an interjection with a "jumping in" style prompt. Add to the reply thread with a slight delay on the frontend (render after 2-3 seconds with a subtle animation).
 
-**Status**: Designed. Build after source reveal.
+**Status**: Built. Interjections trigger after 2+ user replies when another persona's expertise overlaps the conversation topic (~70% chance). Stored as `role: "interjection"` in the thread.
 
 ---
 
@@ -206,23 +206,30 @@ Other personas jump into your reply threads naturally — not because you presse
 
 **Concept**: Likes aren't vanity metrics — they're implicit feedback on post quality. Over time, builds a preference model for YOUR discourse style.
 
-### How it works
-- Each like is stored with full post context: persona, post type, retrieved chunks, section focus
-- Aggregated signals per persona: "User likes 80% of @stats_nerd posts but only 30% of @ai_breakthroughs"
-- Aggregated signals per post type: "User likes threads 3x more than standalone posts"
-- Aggregated by section: "User prefers posts about methodology over findings"
+### Phase 1: Real Likes
+- `user_likes` table: `user_id`, `feed_id`, `post_index`, `persona_key`, `post_type`, `created_at`
+- Swap the synthetic counter for a real toggle that persists
+- Show actual like count (single-user for now)
+- Like data stored with full context for later analysis
 
-### What it could influence
-- **Persona weights**: Personas with more likes get more posts in future generations
-- **Post type distribution**: Liked post types get higher weights
-- **Temperature tuning**: If liked posts tend to be from lower-temp generations, adjust
-- **Prompt refinement**: Extract patterns from liked posts to refine persona system prompts
-- **Retrieval feedback**: Liked posts' source chunks get boosted in future retrieval
+### Phase 2: Preference Aggregation
+- After N likes accumulate, compute preference signals:
+  - Per-persona hit rate: "you like 80% of stats_nerd posts but only 30% of hype posts"
+  - Per-post-type: "you like threads 3x more than standalone posts"
+  - Per-category: "methods posts get liked 2x more than findings"
+- Store as a preferences profile in `user_settings`
+- Weight annotated likes higher — a liked post with an annotation ("this changed my thinking about X") is a stronger learning signal than a drive-by like
+
+### Phase 3: Feedback Loop
+- `plan_feed_posts()` already takes `custom_weights` for post type distribution — feed the preference data in
+- Adjust persona distribution: liked personas get more posts in future generations
+- Boost retrieval for chunks similar to liked posts' sources
+- Key design decision: optimize for *learning*, not engagement. Posts that changed understanding > posts that confirmed existing beliefs
 
 ### The vision
 Essentially RLHF for your personal academic discourse engine. Nobody else is doing this — training an AI discourse model by simply liking the posts that helped you learn.
 
-**Status**: Concept. Requires like storage with full context (not just a counter), preference aggregation pipeline, and feedback loop into generation. Separate from the current synthetic engagement counters.
+**Status**: Designed. Phase 1 is quick (DB + toggle). Phase 2-3 require more thought on the preference model.
 
 ---
 
