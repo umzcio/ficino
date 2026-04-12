@@ -36,7 +36,9 @@ Everything below is live in production.
 ### Interaction
 | Feature | Description |
 |---------|-------------|
-| **Reply to personas** | Multi-turn threaded conversations on any post. Persona responds grounded in the same paper chunks |
+| **Reply to personas** | Multi-turn threaded conversations on any post. Persona responds grounded in the same paper chunks. Optimistic send, typing indicator with persona avatar |
+| **@Mention personas** | Type `@` in a reply → autocomplete dropdown with avatars. Tagged persona responds in character after the main persona's reply. Multiple mentions supported |
+| **Conductor mode (↻)** | Retweet button repurposed as persona router. Click ↻ on any post or reply message → pick a persona → they respond to that specific message. Orchestrate debates between personas without typing |
 | **Post detail view** | Click any post → full conversation context with parent posts, quoted originals, and downstream responses. Back button preserves scroll position |
 | **Annotations** | Private notes on any post via three-dots menu. Gold left-border display, inline editor with Ctrl+Enter save. Visible in feed, post detail, and bookmarks |
 | **Cite this** | One-click APA or MLA citation generation from the three-dots menu, copied to clipboard. Looks up full paper metadata from the DB |
@@ -106,6 +108,10 @@ Type a question in the DM view → RAG retrieval → direct answer with citation
 ### Custom Personas
 
 User-created personas with custom name, handle, color, system prompt, and retrieval query. The DB refactor makes this trivial — it's one INSERT to the `personas` table. Needs a frontend form in Settings.
+
+### Reply Actions *(remaining)*
+
+Like and bookmark on individual reply messages are cosmetic (no persistence). Wire to real storage with Phase 1 likes table.
 
 ### Post Actions Menu (remaining)
 

@@ -119,6 +119,21 @@ export async function sendReply(
   })
 }
 
+export async function sendZap(
+  feedId: string, postIndex: number, targetPersonaKey: string,
+  sourcePersonaKey: string, sourceMessage: string, postContent: string, paperRef: string | null,
+): Promise<{ messages: ReplyMessage[]; content: string }> {
+  return request('/replies/zap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      feed_id: feedId, post_index: postIndex, target_persona_key: targetPersonaKey,
+      source_persona_key: sourcePersonaKey, source_message: sourceMessage,
+      post_content: postContent, paper_ref: paperRef,
+    }),
+  })
+}
+
 // Alerts
 export interface AlertItem {
   id: string

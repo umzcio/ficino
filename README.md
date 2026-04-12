@@ -88,7 +88,9 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Desktop dropdown + mobile long-press** switcher for workspace management
 
 ### Interaction
-- **Reply to personas**: multi-turn threaded conversations in Twitter/X reply style
+- **Reply to personas**: multi-turn threaded conversations in Twitter/X reply style. Optimistic send with typing indicator
+- **@Mention personas**: type `@` in a reply to summon another persona. Autocomplete dropdown, targeted response in character
+- **Conductor mode**: retweet (↻) button on any post or reply message opens a persona picker — route any message to any persona for their take. Orchestrate multi-persona debates without typing
 - **Organic interjections**: other personas jump into your reply threads when the topic touches their expertise
 - **Persona profiles**: click any persona name to view their profile with avatar, bio, posts, and DM
 - **Persona DMs**: message any persona directly — they respond in character, grounded in your corpus
