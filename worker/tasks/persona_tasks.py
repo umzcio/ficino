@@ -15,7 +15,7 @@ from celery import Task
 from celery_app import app
 from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow, fetch
-from lib.settings import get_user_settings
+from lib.settings import apply_provider_settings, STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
 
@@ -133,18 +133,12 @@ def generate_feed(
     start_time = time.time()
 
     try:
-        # Load user settings
-        user_settings = get_user_settings()
+        # Load user settings and apply provider env vars
+        user_settings = apply_provider_settings()
         num_posts = user_settings.get("posts_per_generation", num_posts)
         enabled_personas = {k for k, v in user_settings.get("personas_enabled", {}).items() if v}
         temperature = user_settings.get("persona_temperature", 0.8)
         post_weights = user_settings.get("post_type_weights", persona_lib.POST_TYPE_WEIGHTS)
-
-        # Apply settings to environment for LLM client
-        if user_settings.get("llm_provider"):
-            os.environ["LLM_PROVIDER"] = str(user_settings["llm_provider"])
-        if user_settings.get("ollama_llm_model"):
-            os.environ["OLLAMA_LLM_MODEL"] = str(user_settings["ollama_llm_model"])
 
         log.info("settings_loaded",
                  num_posts=num_posts,
@@ -163,7 +157,7 @@ def generate_feed(
                 """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
                 feed_id,
-                user_id or "00000000-0000-0000-0000-000000000000",
+                user_id or STUB_USER_ID,
                 corpus_id,
                 tag_filter,
                 "[]",
@@ -275,7 +269,7 @@ def generate_feed(
             )
 
             try:
-                post_data = claude_client.generate_persona_post_sync(system_prompt, user_prompt)
+                post_data = claude_client.generate_persona_post_sync(system_prompt, user_prompt, temperature=temperature)
 
                 # Ensure required fields
                 post_data["persona"] = persona_key
@@ -353,7 +347,7 @@ def generate_feed(
                 """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
                 feed_id,
-                user_id or "00000000-0000-0000-0000-000000000000",
+                user_id or STUB_USER_ID,
                 corpus_id,
                 tag_filter,
                 posts_json,

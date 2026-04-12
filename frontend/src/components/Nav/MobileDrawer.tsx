@@ -43,7 +43,7 @@ export function MobileDrawer({
         <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
           <div className="flex items-center gap-2.5">
             <img
-              src="/ficino/ficino-favicon-light.png"
+              src={`${import.meta.env.BASE_URL}ficino-favicon-light.png`}
               alt="ficino"
               className="w-8 h-8 rounded-lg app-logo"
             />

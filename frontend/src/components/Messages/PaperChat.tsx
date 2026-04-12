@@ -22,26 +22,26 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  tldr: '#c8a96e',
-  intro: '#8b92a5',
-  question: '#4a9eff',
-  methods: '#a78bfa',
-  findings: '#34d399',
-  surprise: '#f5a623',
-  limitations: '#e85d4a',
-  implications: '#4a9eff',
-  figure: '#c8a96e',
-  summary: '#c8a96e',
+  tldr: 'var(--color-gold)',
+  intro: 'var(--color-text-mid)',
+  question: 'var(--color-persona-practitioner)',
+  methods: 'var(--color-persona-methodologist)',
+  findings: 'var(--color-persona-gradstudent)',
+  surprise: 'var(--color-persona-hype)',
+  limitations: 'var(--color-persona-skeptic)',
+  implications: 'var(--color-persona-practitioner)',
+  figure: 'var(--color-gold)',
+  summary: 'var(--color-gold)',
 }
 
 function MessageBubble({ message }: { message: SummaryMessage }) {
   const label = TYPE_LABELS[message.type] || message.type
-  const color = TYPE_COLORS[message.type] || '#c8a96e'
+  const color = TYPE_COLORS[message.type] || 'var(--color-gold)'
   const isTldr = message.type === 'tldr'
 
   if (isTldr) {
     return (
-      <div className="mx-4 my-2 p-4 rounded-xl border" style={{ backgroundColor: '#c8a96e0a', borderColor: '#c8a96e25' }}>
+      <div className="mx-4 my-2 p-4 rounded-xl border" style={{ backgroundColor: 'color-mix(in srgb, var(--color-gold) 4%, transparent)', borderColor: 'color-mix(in srgb, var(--color-gold) 15%, transparent)' }}>
         <span className="text-[11px] font-bold tracking-widest uppercase text-gold">TL;DR</span>
         <p className="text-[16px] text-text font-semibold leading-snug mt-1.5">
           {message.content}

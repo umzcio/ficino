@@ -54,11 +54,11 @@ export function WorkspaceBottomSheet({
                 className="w-9 h-9 rounded-xl flex items-center justify-center"
                 style={{
                   background: ws.id === activeId
-                    ? 'linear-gradient(135deg, #c8a96e, #a07840)'
-                    : '#1e2028',
+                    ? 'linear-gradient(135deg, var(--color-gold), var(--color-gold-dark))'
+                    : 'var(--color-border)',
                 }}
               >
-                <Folder size={16} color={ws.id === activeId ? '#080a0f' : 'var(--color-tab-inactive)'} />
+                <Folder size={16} color={ws.id === activeId ? 'var(--color-bg)' : 'var(--color-tab-inactive)'} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[15px] font-semibold text-text">{ws.name}</div>
@@ -106,7 +106,7 @@ export function WorkspaceBottomSheet({
                   }
                 }}
                 className="px-4 py-2.5 rounded-lg text-sm font-semibold text-bg border-none cursor-pointer"
-                style={{ background: 'linear-gradient(135deg, #c8a96e, #a07840)' }}
+                style={{ background: 'linear-gradient(135deg, var(--color-gold), var(--color-gold-dark))' }}
               >
                 Create
               </button>

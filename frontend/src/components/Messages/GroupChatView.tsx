@@ -9,12 +9,12 @@ interface GroupChatViewProps {
 }
 
 const ROLE_CONFIG: Record<string, { icon: typeof FileText; color: string; label: string }> = {
-  intro: { icon: FileText, color: '#c8a96e', label: 'Paper' },
-  finding: { icon: Zap, color: '#34d399', label: 'Finding' },
-  agreement: { icon: FileText, color: '#4a9eff', label: 'Agreement' },
-  contradiction: { icon: AlertTriangle, color: '#e85d4a', label: 'Tension' },
-  gap: { icon: HelpCircle, color: '#f5a623', label: 'Gap' },
-  summary: { icon: FileText, color: '#a78bfa', label: 'Synthesis' },
+  intro: { icon: FileText, color: 'var(--color-gold)', label: 'Paper' },
+  finding: { icon: Zap, color: 'var(--color-persona-gradstudent)', label: 'Finding' },
+  agreement: { icon: FileText, color: 'var(--color-persona-practitioner)', label: 'Agreement' },
+  contradiction: { icon: AlertTriangle, color: 'var(--color-persona-skeptic)', label: 'Tension' },
+  gap: { icon: HelpCircle, color: 'var(--color-persona-hype)', label: 'Gap' },
+  summary: { icon: FileText, color: 'var(--color-persona-methodologist)', label: 'Synthesis' },
 }
 
 function SynthesisMessage({ message }: { message: SummaryMessage }) {

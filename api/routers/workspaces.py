@@ -5,13 +5,11 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from constants import STUB_USER_ID, DEFAULT_WORKSPACE_ID
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
-
-STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
-DEFAULT_WORKSPACE_ID = "00000000-0000-0000-0000-000000000001"
 
 
 class WorkspaceCreate(BaseModel):

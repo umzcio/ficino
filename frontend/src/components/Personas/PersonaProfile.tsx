@@ -256,7 +256,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId }: PersonaPro
                 onClick={handleSendDm}
                 disabled={!dmInput.trim() || dmLoading}
                 className="w-10 h-10 rounded-full flex items-center justify-center border-none cursor-pointer disabled:opacity-30 transition-colors"
-                style={{ backgroundColor: p.color, color: '#080a0f' }}
+                style={{ backgroundColor: p.color, color: 'var(--color-bg)' }}
               >
                 {dmLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               </button>

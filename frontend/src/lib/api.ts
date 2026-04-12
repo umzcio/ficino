@@ -1,6 +1,6 @@
 import type { Paper, Feed, PaperConversation, PaperSummary, GroupChatPreview, GroupChat, Workspace, ActivityItem } from '../types'
 
-const API_BASE = '/ficino/api'
+const API_BASE = import.meta.env.VITE_API_BASE || '/ficino/api'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -341,8 +341,9 @@ export async function getPaperTldrs(): Promise<Record<string, string>> {
   return request<Record<string, string>>('/messages/papers/tldrs')
 }
 
-export async function listPaperConversations(): Promise<PaperConversation[]> {
-  return request<PaperConversation[]>('/messages/papers')
+export async function listPaperConversations(workspaceId?: string): Promise<PaperConversation[]> {
+  const qs = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return request<PaperConversation[]>(`/messages/papers${qs}`)
 }
 
 export async function getPaperSummary(paperId: string): Promise<PaperSummary> {

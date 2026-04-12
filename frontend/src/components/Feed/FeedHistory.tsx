@@ -52,7 +52,7 @@ export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHist
               onClick={() => { onLoadFeed(feed); setExpanded(false) }}
               className="w-full text-left px-3 py-2 rounded-lg flex items-center justify-between bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors"
               style={{
-                backgroundColor: feed.id === currentFeedId ? 'rgba(200, 169, 110, 0.08)' : undefined,
+                backgroundColor: feed.id === currentFeedId ? 'color-mix(in srgb, var(--color-gold) 8%, transparent)' : undefined,
               }}
             >
               <div>

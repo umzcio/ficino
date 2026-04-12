@@ -62,7 +62,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className="w-11 h-7 rounded-full border-none cursor-pointer transition-colors relative"
-      style={{ backgroundColor: checked ? '#c8a96e' : 'var(--color-toggle-off)' }}
+      style={{ backgroundColor: checked ? 'var(--color-gold)' : 'var(--color-toggle-off)' }}
     >
       <div
         className="rounded-full bg-white absolute top-[3px] transition-all"
@@ -109,6 +109,40 @@ function Slider({ value, min, max, step, onChange, label }: {
         className="flex-1 accent-gold h-1"
       />
       <span className="text-[13px] text-gold font-mono w-10 text-right">{label || value}</span>
+    </div>
+  )
+}
+
+function ApiKeyInput({ value, placeholder, onSave }: {
+  value: string
+  placeholder: string
+  onSave: (v: string) => void
+}) {
+  const [local, setLocal] = useState(value || '')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => { setLocal(value || '') }, [value])
+
+  const doSave = () => {
+    if (local !== (value || '')) {
+      onSave(local)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="password"
+        value={local}
+        placeholder={placeholder}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={doSave}
+        onKeyDown={(e) => { if (e.key === 'Enter') doSave() }}
+        className="bg-bg border border-border rounded-lg px-3 py-1.5 text-[13px] text-text w-48 focus:border-gold outline-none"
+      />
+      {saved && <Check size={14} className="text-persona-gradstudent" />}
     </div>
   )
 }
@@ -205,62 +239,119 @@ export function SettingsView({ settings, loading, onUpdate }: SettingsViewProps)
             />
           </SettingRow>
 
+          <SettingRow label="Vision Provider" description="Which AI handles PDF vision fallback and figure descriptions">
+            <Select
+              value={s.vision_provider as string}
+              options={[
+                { value: 'ollama', label: 'Ollama (local)' },
+                { value: 'api', label: 'Claude API' },
+              ]}
+              onChange={(v) => onUpdate({ vision_provider: v })}
+            />
+          </SettingRow>
+
           <SettingRow label="Embedding Provider" description="Which AI generates chunk embeddings">
             <Select
               value={s.embed_provider as string}
               options={[
                 { value: 'ollama', label: 'Ollama (local)' },
-                { value: 'api', label: 'OpenAI API' },
+                { value: 'voyage', label: 'Voyage AI' },
+                { value: 'openai', label: 'OpenAI' },
               ]}
               onChange={(v) => onUpdate({ embed_provider: v })}
             />
           </SettingRow>
 
+          {(s.llm_provider === 'api' || s.vision_provider === 'api') && (
+            <SettingRow label="Claude Model" description="Which Claude model to use for generation and vision">
+              <Select
+                value={(s.claude_model as string) || 'claude-sonnet-4-6'}
+                options={[
+                  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 (best)' },
+                  { value: 'claude-haiku-4-5', label: 'Haiku 4.5 (fast/cheap)' },
+                ]}
+                onChange={(v) => onUpdate({ claude_model: v })}
+              />
+            </SettingRow>
+          )}
+
+          {(s.llm_provider === 'api' || s.vision_provider === 'api') && (
+            <SettingRow label="Anthropic API Key" description="Required for Claude — saves on Enter or click away">
+              <ApiKeyInput
+                value={(s.anthropic_api_key as string) || ''}
+                placeholder="sk-ant-..."
+                onSave={(v) => onUpdate({ anthropic_api_key: v })}
+              />
+            </SettingRow>
+          )}
+
+          {s.embed_provider === 'voyage' && (
+            <SettingRow label="Voyage API Key" description="Required for Voyage embeddings — saves on Enter or click away">
+              <ApiKeyInput
+                value={(s.voyage_api_key as string) || ''}
+                placeholder="pa-..."
+                onSave={(v) => onUpdate({ voyage_api_key: v })}
+              />
+            </SettingRow>
+          )}
+
+          {s.embed_provider === 'openai' && (
+            <SettingRow label="OpenAI API Key" description="Required for OpenAI embeddings — saves on Enter or click away">
+              <ApiKeyInput
+                value={(s.openai_api_key as string) || ''}
+                placeholder="sk-..."
+                onSave={(v) => onUpdate({ openai_api_key: v })}
+              />
+            </SettingRow>
+          )}
+
           {s.llm_provider === 'ollama' && (
-            <>
-              <SettingRow
-                label="LLM Model"
-                description={loadingModels ? 'Loading models...' : `${ollamaModels.llm.length} models available`}
-              >
-                <Select
-                  value={s.ollama_llm_model as string}
-                  options={ollamaModels.llm.map((m) => ({
+            <SettingRow
+              label="Ollama LLM Model"
+              description={loadingModels ? 'Loading models...' : `${ollamaModels.llm.length} models available`}
+            >
+              <Select
+                value={s.ollama_llm_model as string}
+                options={ollamaModels.llm.map((m) => ({
+                  value: m.name,
+                  label: `${m.name} (${m.size})`,
+                }))}
+                onChange={(v) => onUpdate({ ollama_llm_model: v })}
+              />
+            </SettingRow>
+          )}
+
+          {s.embed_provider === 'ollama' && (
+            <SettingRow label="Ollama Embedding Model">
+              <Select
+                value={s.ollama_embed_model as string}
+                options={ollamaModels.embed.map((m) => ({
+                  value: m.name,
+                  label: `${m.name} (${m.size})`,
+                }))}
+                onChange={(v) => onUpdate({ ollama_embed_model: v })}
+              />
+            </SettingRow>
+          )}
+
+          {s.vision_provider === 'ollama' && (
+            <SettingRow label="Ollama Vision Model" description="Used for PDF fallback extraction and figure descriptions">
+              <Select
+                value={s.ollama_vision_model as string}
+                options={[
+                  { value: '', label: 'None' },
+                  ...ollamaModels.vision.map((m) => ({
                     value: m.name,
                     label: `${m.name} (${m.size})`,
-                  }))}
-                  onChange={(v) => onUpdate({ ollama_llm_model: v })}
-                />
-              </SettingRow>
-
-              <SettingRow label="Embedding Model">
-                <Select
-                  value={s.ollama_embed_model as string}
-                  options={ollamaModels.embed.map((m) => ({
-                    value: m.name,
-                    label: `${m.name} (${m.size})`,
-                  }))}
-                  onChange={(v) => onUpdate({ ollama_embed_model: v })}
-                />
-              </SettingRow>
-
-              <SettingRow label="Vision Model" description="Used for PDF fallback extraction and figure descriptions">
-                <Select
-                  value={s.ollama_vision_model as string}
-                  options={[
-                    { value: '', label: 'None' },
-                    ...ollamaModels.vision.map((m) => ({
-                      value: m.name,
-                      label: `${m.name} (${m.size})`,
-                    })),
-                  ]}
-                  onChange={(v) => onUpdate({ ollama_vision_model: v })}
-                />
-              </SettingRow>
-            </>
+                  })),
+                ]}
+                onChange={(v) => onUpdate({ ollama_vision_model: v })}
+              />
+            </SettingRow>
           )}
 
           <div className="text-[11px] text-persona-gradstudent bg-persona-gradstudent/8 border border-persona-gradstudent/20 rounded-lg px-3 py-2">
-            {s.llm_provider === 'ollama'
+            {s.llm_provider === 'ollama' && s.embed_provider === 'ollama' && s.vision_provider === 'ollama'
               ? 'Using local Ollama — no API credits consumed'
               : 'Using API providers — credits will be consumed per generation'}
           </div>

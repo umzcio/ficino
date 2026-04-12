@@ -21,6 +21,7 @@ from lib import (
     figure_describer,
 )
 from lib.db import execute, fetchrow, store_chunks_batch, store_figure
+from lib.settings import STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
 
@@ -70,11 +71,15 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
     Steps:
     1. Extract text (Marker → PyMuPDF → quality check → Vision fallback)
     2. Section-aware chunking
-    3. Generate embeddings (Ollama or OpenAI)
+    3. Generate embeddings (Ollama, Voyage, or OpenAI)
     4. Store chunks + embeddings in pgvector
     5. Extract and describe figures
     """
     log = logger.bind(paper_id=paper_id, task_id=self.request.id)
+
+    # Apply provider settings from DB (LLM, embed, API keys)
+    from lib.settings import apply_provider_settings, get_user_settings
+    user_settings = apply_provider_settings()
 
     try:
         # --- Step 1: Text extraction ---
@@ -82,37 +87,51 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         _update_paper_status(paper_id, "extracting")
         log.info("ingestion_step", step="extracting")
 
+        extraction_mode = user_settings.get("extraction_mode", "auto")
         extraction_path = "pymupdf_clean"
         markdown = ""
 
-        # Try Marker first if available
-        if marker_extractor.is_available():
-            try:
-                markdown = marker_extractor.extract_with_marker(file_path)
-                extraction_path = "marker_clean"
-            except Exception as e:
-                log.warn("marker_failed", error=str(e))
-                markdown = ""
-
-        # Fall back to PyMuPDF
-        if not markdown:
+        if extraction_mode == "vision":
+            # User forced vision-only extraction
+            if vision_extractor.is_available():
+                markdown = vision_extractor.extract_with_vision_sync(file_path)
+                extraction_path = "vision_forced"
+            else:
+                log.warn("vision_forced_but_unavailable_falling_back_to_pymupdf")
+                markdown = pdf_extractor.extract_text_pymupdf(file_path)
+        elif extraction_mode == "pymupdf":
+            # User forced PyMuPDF-only extraction
             markdown = pdf_extractor.extract_text_pymupdf(file_path)
-            extraction_path = "pymupdf_clean"
+            extraction_path = "pymupdf_forced"
+        else:
+            # Auto mode: Marker → PyMuPDF → quality check → vision fallback
+            if marker_extractor.is_available():
+                try:
+                    markdown = marker_extractor.extract_with_marker(file_path)
+                    extraction_path = "marker_clean"
+                except Exception as e:
+                    log.warn("marker_failed", error=str(e))
+                    markdown = ""
 
-        # --- Step 2: Quality check ---
+            if not markdown:
+                markdown = pdf_extractor.extract_text_pymupdf(file_path)
+                extraction_path = "pymupdf_clean"
+
+        # --- Step 2: Quality check (skip if user forced a mode) ---
         self.update_state(state="PROGRESS", meta={"step": "quality_checking", "paper_id": paper_id})
         log.info("ingestion_step", step="quality_checking")
 
-        is_good, reason = quality_check.check_extraction_quality(markdown)
+        if extraction_mode == "auto":
+            is_good, reason = quality_check.check_extraction_quality(markdown)
 
-        if not is_good:
-            log.warn("extraction_quality_failed", reason=reason)
-            if vision_extractor.is_available():
-                log.info("falling_back_to_vision")
-                markdown = vision_extractor.extract_with_vision_sync(file_path)
-                extraction_path = "vision_fallback"
-            else:
-                log.warn("no_vision_provider_available_using_raw_text")
+            if not is_good:
+                log.warn("extraction_quality_failed", reason=reason)
+                if vision_extractor.is_available():
+                    log.info("falling_back_to_vision")
+                    markdown = vision_extractor.extract_with_vision_sync(file_path)
+                    extraction_path = "vision_fallback"
+                else:
+                    log.warn("no_vision_provider_available_using_raw_text")
 
         # --- Step 2b: Metadata extraction ---
         self.update_state(state="PROGRESS", meta={"step": "metadata", "paper_id": paper_id})
@@ -149,7 +168,7 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         # Auto-tag from extracted metadata
         auto_tags = meta.get("tags", [])
         if auto_tags:
-            user_id = "00000000-0000-0000-0000-000000000000"
+            user_id = STUB_USER_ID
             for tag_name in auto_tags:
                 try:
                     tag = fetchrow(
@@ -175,7 +194,8 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         _update_paper_status(paper_id, "chunking")
         log.info("ingestion_step", step="chunking")
 
-        chunks = chunker.chunk_markdown(markdown)
+        chunk_max = user_settings.get("chunk_max_tokens", 800)
+        chunks = chunker.chunk_markdown(markdown, max_tokens=chunk_max)
         log.info("chunks_created", count=len(chunks))
 
         # --- Step 4: Embedding ---

@@ -1,7 +1,7 @@
 """Vision-based PDF extraction — page-by-page PDF to markdown.
 
 Fallback path for PDFs where primary extraction produces garbled output.
-Supports Claude Vision API and Ollama vision models (e.g., llava).
+Provider is selected via VISION_PROVIDER setting (ollama or api).
 """
 
 import asyncio
@@ -15,11 +15,6 @@ from lib.pdf_extractor import rasterize_page, get_page_count
 
 logger = structlog.get_logger(__name__)
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-
 VISION_SYSTEM_PROMPT = """You are an academic paper text extractor. Convert the page image into clean, structured markdown.
 
 Rules:
@@ -32,11 +27,23 @@ Rules:
 - If the page is blank or contains only a figure, say [blank page] or [Figure only: description]"""
 
 
+def _get_config() -> dict[str, str]:
+    """Read vision config from env at call time (supports runtime changes via settings)."""
+    return {
+        "vision_provider": os.getenv("VISION_PROVIDER", os.getenv("LLM_PROVIDER", "ollama")),
+        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_vision_model": os.getenv("OLLAMA_VISION_MODEL", ""),
+        "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+        "claude_model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
+    }
+
+
 def is_available() -> bool:
     """Check if vision extraction is available."""
-    if LLM_PROVIDER == "api" and ANTHROPIC_API_KEY:
+    cfg = _get_config()
+    if cfg["vision_provider"] == "api" and cfg["anthropic_api_key"]:
         return True
-    if LLM_PROVIDER == "ollama" and OLLAMA_VISION_MODEL:
+    if cfg["vision_provider"] == "ollama" and cfg["ollama_vision_model"]:
         return True
     return False
 
@@ -44,11 +51,12 @@ def is_available() -> bool:
 async def _extract_page_claude(page_image: bytes, page_num: int) -> str:
     """Extract text from a page image using Claude Vision."""
     import anthropic
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    cfg = _get_config()
+    client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"])
     image_b64 = base64.b64encode(page_image).decode("utf-8")
 
     response = await client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=cfg["claude_model"],
         max_tokens=4096,
         system=VISION_SYSTEM_PROMPT,
         messages=[{
@@ -64,13 +72,14 @@ async def _extract_page_claude(page_image: bytes, page_num: int) -> str:
 
 async def _extract_page_ollama(page_image: bytes, page_num: int) -> str:
     """Extract text from a page image using Ollama vision model."""
+    cfg = _get_config()
     image_b64 = base64.b64encode(page_image).decode("utf-8")
 
     async with httpx.AsyncClient(timeout=300.0) as client:
         resp = await client.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
+            f"{cfg['ollama_base_url']}/api/chat",
             json={
-                "model": OLLAMA_VISION_MODEL,
+                "model": cfg["ollama_vision_model"],
                 "messages": [
                     {"role": "system", "content": VISION_SYSTEM_PROMPT},
                     {"role": "user", "content": f"Extract all text from page {page_num} as structured markdown.",
@@ -85,9 +94,10 @@ async def _extract_page_ollama(page_image: bytes, page_num: int) -> str:
 
 async def extract_page(page_image: bytes, page_num: int) -> str:
     """Extract text from a single page image using the configured provider."""
-    if LLM_PROVIDER == "api" and ANTHROPIC_API_KEY:
+    cfg = _get_config()
+    if cfg["vision_provider"] == "api" and cfg["anthropic_api_key"]:
         return await _extract_page_claude(page_image, page_num)
-    elif LLM_PROVIDER == "ollama" and OLLAMA_VISION_MODEL:
+    elif cfg["vision_provider"] == "ollama" and cfg["ollama_vision_model"]:
         return await _extract_page_ollama(page_image, page_num)
     else:
         raise RuntimeError("No vision provider available")
@@ -98,8 +108,9 @@ async def extract_with_vision(file_path: str) -> str:
     if not is_available():
         raise RuntimeError("No vision provider available (set OLLAMA_VISION_MODEL or ANTHROPIC_API_KEY)")
 
+    cfg = _get_config()
     page_count = get_page_count(file_path)
-    logger.info("vision_extract_start", file_path=file_path, pages=page_count, provider=LLM_PROVIDER)
+    logger.info("vision_extract_start", file_path=file_path, pages=page_count, provider=cfg["vision_provider"])
 
     pages_markdown: list[str] = []
     for page_num in range(page_count):

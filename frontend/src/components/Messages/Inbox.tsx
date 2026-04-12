@@ -5,6 +5,7 @@ import { listPaperConversations, listGroupChats, listReplyConversations, type Re
 import { usePersonas } from '../../hooks/usePersonas'
 
 interface InboxProps {
+  workspaceId?: string
   onOpenPaper: (paperId: string) => void
   onOpenGroup: (groupId: string) => void
   onNewGroup: () => void
@@ -20,7 +21,7 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d`
 }
 
-export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: InboxProps) {
+export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: InboxProps) {
   const personas = usePersonas()
   const [tab, setTab] = useState<'papers' | 'groups' | 'threads'>('papers')
   const [papers, setPapers] = useState<PaperConversation[]>([])
@@ -31,14 +32,14 @@ export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: In
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const [p, g, t] = await Promise.all([listPaperConversations(), listGroupChats(), listReplyConversations()])
+      const [p, g, t] = await Promise.all([listPaperConversations(workspaceId), listGroupChats(), listReplyConversations()])
       setPapers(p)
       setGroups(g)
       setThreads(t)
       setLoading(false)
     }
     load()
-  }, [])
+  }, [workspaceId])
 
   return (
     <div>
@@ -62,7 +63,7 @@ export function Inbox({ onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: In
             style={{
               color: tab === key ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
               fontWeight: tab === key ? 700 : 400,
-              borderBottom: tab === key ? '2px solid #c8a96e' : '2px solid transparent',
+              borderBottom: tab === key ? '2px solid var(--color-gold)' : '2px solid transparent',
             }}
           >
             <Icon size={16} />

@@ -13,11 +13,11 @@ interface AlertsViewProps {
 }
 
 const ALERT_CONFIG: Record<string, { icon: typeof AlertTriangle; color: string; label: string }> = {
-  contradiction: { icon: AlertTriangle, color: '#e85d4a', label: 'Contradiction' },
-  disagreement_spike: { icon: GitBranch, color: '#f5a623', label: 'Debate Spike' },
-  reading_gap: { icon: BookOpen, color: '#4a9eff', label: 'Go Deeper' },
-  stale_paper: { icon: Clock, color: '#555d6e', label: 'Stale Paper' },
-  emerging_theme: { icon: GitBranch, color: '#a78bfa', label: 'Emerging Theme' },
+  contradiction: { icon: AlertTriangle, color: 'var(--color-persona-skeptic)', label: 'Contradiction' },
+  disagreement_spike: { icon: GitBranch, color: 'var(--color-persona-hype)', label: 'Debate Spike' },
+  reading_gap: { icon: BookOpen, color: 'var(--color-persona-practitioner)', label: 'Go Deeper' },
+  stale_paper: { icon: Clock, color: 'var(--color-tab-inactive)', label: 'Stale Paper' },
+  emerging_theme: { icon: GitBranch, color: 'var(--color-persona-methodologist)', label: 'Emerging Theme' },
 }
 
 function timeAgo(dateStr: string): string {
@@ -30,10 +30,11 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-function AlertCard({ alert, onMarkRead, onDismiss }: {
+function AlertCard({ alert, onMarkRead, onDismiss, onAction }: {
   alert: AlertItem
   onMarkRead: () => void
   onDismiss: () => void
+  onAction?: () => void
 }) {
   const config = ALERT_CONFIG[alert.type] || ALERT_CONFIG.contradiction
   const Icon = config.icon
@@ -41,8 +42,8 @@ function AlertCard({ alert, onMarkRead, onDismiss }: {
   return (
     <div
       className="px-4 py-3.5 flex gap-3 border-b border-border cursor-pointer hover:bg-bg-hover transition-colors"
-      style={{ backgroundColor: alert.read ? 'transparent' : 'rgba(200, 169, 110, 0.03)' }}
-      onClick={onMarkRead}
+      style={{ backgroundColor: alert.read ? 'transparent' : 'color-mix(in srgb, var(--color-gold) 3%, transparent)' }}
+      onClick={() => { onMarkRead(); onAction?.() }}
     >
       {/* Unread dot */}
       <div className="flex flex-col items-center pt-1.5 w-3 shrink-0">
@@ -76,6 +77,15 @@ function AlertCard({ alert, onMarkRead, onDismiss }: {
         <div className="text-[13px] text-text-mid leading-snug">
           {alert.body}
         </div>
+        {onAction && (
+          <div className="mt-1.5">
+            <span className="text-[11px] text-gold font-medium">
+              {alert.type === 'disagreement_spike' ? 'View feed →' :
+               alert.type === 'reading_gap' || alert.type === 'stale_paper' ? 'View paper →' :
+               alert.type === 'contradiction' ? 'View paper →' : ''}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Dismiss */}
@@ -90,8 +100,20 @@ function AlertCard({ alert, onMarkRead, onDismiss }: {
   )
 }
 
-export function AlertsView({ alerts, loading, onMarkRead, onMarkAllRead, onDismiss }: AlertsViewProps) {
+export function AlertsView({ alerts, loading, onMarkRead, onMarkAllRead, onDismiss, onNavigate }: AlertsViewProps) {
   const unread = alerts.filter((a) => !a.read).length
+
+  const getAlertAction = (alert: AlertItem) => {
+    if (!onNavigate) return undefined
+    const meta = alert.metadata || {}
+    if (alert.type === 'disagreement_spike' && meta.feed_id) {
+      return () => onNavigate('feed')
+    }
+    if ((alert.type === 'reading_gap' || alert.type === 'stale_paper' || alert.type === 'contradiction') && meta.paper_id) {
+      return () => onNavigate('messages')
+    }
+    return undefined
+  }
 
   return (
     <div>
@@ -132,6 +154,7 @@ export function AlertsView({ alerts, loading, onMarkRead, onMarkAllRead, onDismi
               alert={alert}
               onMarkRead={() => onMarkRead(alert.id)}
               onDismiss={() => onDismiss(alert.id)}
+              onAction={getAlertAction(alert)}
             />
           ))}
         </div>

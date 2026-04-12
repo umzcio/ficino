@@ -9,12 +9,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from config import settings as app_settings
+from constants import STUB_USER_ID
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
-
-STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 # Default settings object — all possible settings with defaults
 DEFAULTS = {
@@ -23,9 +22,12 @@ DEFAULTS = {
     "embed_provider": "ollama",
     "ollama_llm_model": "qwen3.5:latest",
     "ollama_embed_model": "bge-m3:latest",
+    "vision_provider": "ollama",
     "ollama_vision_model": "gemma4:latest",
+    "claude_model": "claude-sonnet-4-6",
     "anthropic_api_key": "",
     "openai_api_key": "",
+    "voyage_api_key": "",
 
     # Personas
     "personas_enabled": {
@@ -149,10 +151,6 @@ async def list_ollama_models() -> dict[str, list[dict[str, str]]]:
         logger.warn("ollama_models_fetch_failed", error=str(e))
         return {"llm": [], "embed": [], "vision": []}
 
-    # Allowed models (curated list)
-    ALLOWED_LLM = {"qwen3.5:latest", "gemma4:latest"}
-    ALLOWED_VISION = {"gemma4:latest"}
-
     llm_models = []
     embed_models = []
     vision_models = []
@@ -165,9 +163,12 @@ async def list_ollama_models() -> dict[str, list[dict[str, str]]]:
 
         if "embed" in name_lower or "bge" in name_lower or "nomic" in name_lower:
             embed_models.append(info)
-        elif name in ALLOWED_LLM:
+        else:
             llm_models.append(info)
-            if name in ALLOWED_VISION:
+            # Models with vision capabilities
+            details = m.get("details", {})
+            families = details.get("families", [])
+            if any("vision" in f.lower() for f in families) or "vision" in name_lower:
                 vision_models.append(info)
 
     return {"llm": llm_models, "embed": embed_models, "vision": vision_models}

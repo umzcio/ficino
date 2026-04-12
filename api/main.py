@@ -44,7 +44,7 @@ if settings.environment == "development":
 else:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["https://ficino.ai", "https://ficino.local"],
+        allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["*"],
@@ -66,7 +66,7 @@ app.include_router(users.router)
 app.include_router(workspaces.router)
 
 # Serve extracted figure images
-app.mount("/figures", StaticFiles(directory="/app/figures"), name="figures")
+app.mount("/figures", StaticFiles(directory=settings.figures_dir), name="figures")
 
 
 @app.get("/health")

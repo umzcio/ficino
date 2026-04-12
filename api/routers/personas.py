@@ -3,18 +3,17 @@
 import json
 
 import asyncpg
-import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings
+from constants import STUB_USER_ID
 from db.connection import get_db
+from services.llm import generate_response
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/personas", tags=["personas"])
-
-STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 @router.get("")
@@ -126,32 +125,9 @@ Do NOT use JSON formatting. Respond naturally.
 
     # Call LLM
     try:
-        if settings.llm_provider == "ollama":
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{settings.ollama_base_url}/api/chat",
-                    json={
-                        "model": settings.ollama_llm_model,
-                        "messages": [{"role": "system", "content": system}, *llm_messages],
-                        "stream": False,
-                        "think": False,
-                        "options": {"temperature": 0.7, "num_predict": 512},
-                    },
-                )
-                resp.raise_for_status()
-                persona_response = resp.json()["message"]["content"]
-                if not persona_response and resp.json()["message"].get("thinking"):
-                    persona_response = resp.json()["message"]["thinking"]
-        else:
-            import anthropic
-            client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-            resp = await client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=512,
-                system=system,
-                messages=llm_messages,
-            )
-            persona_response = resp.content[0].text
+        persona_response = await generate_response(
+            db, system=system, messages=llm_messages, max_tokens=512, temperature=0.7,
+        )
     except Exception as e:
         logger.error("persona_dm_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to generate response")

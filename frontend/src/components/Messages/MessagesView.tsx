@@ -9,12 +9,13 @@ type View =
   | { type: 'group'; groupId: string }
 
 interface MessagesViewProps {
+  workspaceId?: string
   onOpenThread?: (feedId: string, postIndex: number) => void
   initialPaperId?: string | null
   onInitialPaperConsumed?: () => void
 }
 
-export function MessagesView({ onOpenThread, initialPaperId, onInitialPaperConsumed }: MessagesViewProps = {}) {
+export function MessagesView({ workspaceId, onOpenThread, initialPaperId, onInitialPaperConsumed }: MessagesViewProps = {}) {
   const [view, setView] = useState<View>(
     initialPaperId ? { type: 'paper', paperId: initialPaperId } : { type: 'inbox' }
   )
@@ -46,6 +47,7 @@ export function MessagesView({ onOpenThread, initialPaperId, onInitialPaperConsu
 
   return (
     <Inbox
+      workspaceId={workspaceId}
       onOpenPaper={(paperId) => setView({ type: 'paper', paperId })}
       onOpenGroup={(groupId) => setView({ type: 'group', groupId })}
       onNewGroup={() => {

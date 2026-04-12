@@ -9,6 +9,7 @@ from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
 
 from config import settings
+from constants import STUB_USER_ID
 from db.connection import get_db
 from models.feed import Feed, FeedGenerateRequest
 
@@ -44,7 +45,7 @@ async def generate_feed(
     kwargs: dict[str, object] = {
         "corpus_id": str(body.corpus_id) if body.corpus_id else None,
         "tag_filter": body.tag_filter,
-        "user_id": "00000000-0000-0000-0000-000000000000",  # stub until auth
+        "user_id": STUB_USER_ID,  # stub until auth
     }
     if body.append_to_feed_id:
         kwargs["append_to_feed_id"] = body.append_to_feed_id

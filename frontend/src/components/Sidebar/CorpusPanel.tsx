@@ -15,14 +15,14 @@ interface CorpusPanelProps {
 }
 
 const STATUS_CONFIG: Record<PaperStatus, { label: string; color: string; icon?: 'loading' | 'done' | 'error' }> = {
-  pending:            { label: 'Pending',    color: '#555d6e', icon: 'loading' },
-  extracting:         { label: 'Extracting', color: '#f5a623', icon: 'loading' },
-  quality_checking:   { label: 'Checking',   color: '#f5a623', icon: 'loading' },
-  chunking:           { label: 'Chunking',   color: '#4a9eff', icon: 'loading' },
-  embedding:          { label: 'Embedding',  color: '#a78bfa', icon: 'loading' },
-  extracting_figures: { label: 'Figures',    color: '#a78bfa', icon: 'loading' },
-  complete:           { label: 'Ready',      color: '#34d399', icon: 'done' },
-  error:              { label: 'Error',      color: '#e85d4a', icon: 'error' },
+  pending:            { label: 'Pending',    color: 'var(--color-tab-inactive)', icon: 'loading' },
+  extracting:         { label: 'Extracting', color: 'var(--color-persona-hype)', icon: 'loading' },
+  quality_checking:   { label: 'Checking',   color: 'var(--color-persona-hype)', icon: 'loading' },
+  chunking:           { label: 'Chunking',   color: 'var(--color-persona-practitioner)', icon: 'loading' },
+  embedding:          { label: 'Embedding',  color: 'var(--color-persona-methodologist)', icon: 'loading' },
+  extracting_figures: { label: 'Figures',    color: 'var(--color-persona-methodologist)', icon: 'loading' },
+  complete:           { label: 'Ready',      color: 'var(--color-persona-gradstudent)', icon: 'done' },
+  error:              { label: 'Error',      color: 'var(--color-persona-skeptic)', icon: 'error' },
 }
 
 function StatusBadge({ status }: { status: PaperStatus }) {
@@ -278,9 +278,9 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
             onClick={() => onTagFilter(null)}
             className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
             style={{
-              color: activeTag === null ? 'var(--color-bg)' : '#8b92a5',
-              backgroundColor: activeTag === null ? '#c8a96e' : 'transparent',
-              borderColor: activeTag === null ? '#c8a96e' : '#1e2028',
+              color: activeTag === null ? 'var(--color-bg)' : 'var(--color-text-mid)',
+              backgroundColor: activeTag === null ? 'var(--color-gold)' : 'transparent',
+              borderColor: activeTag === null ? 'var(--color-gold)' : 'var(--color-border)',
             }}
           >
             All
@@ -291,9 +291,9 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
               onClick={() => onTagFilter(activeTag === tag ? null : tag)}
               className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
               style={{
-                color: activeTag === tag ? 'var(--color-bg)' : '#c8a96e',
-                backgroundColor: activeTag === tag ? '#c8a96e' : 'transparent',
-                borderColor: activeTag === tag ? '#c8a96e' : '#c8a96e30',
+                color: activeTag === tag ? 'var(--color-bg)' : 'var(--color-gold)',
+                backgroundColor: activeTag === tag ? 'var(--color-gold)' : 'transparent',
+                borderColor: activeTag === tag ? 'var(--color-gold)' : 'color-mix(in srgb, var(--color-gold) 19%, transparent)',
               }}
             >
               #{tag}

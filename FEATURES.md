@@ -116,6 +116,38 @@ The three-dots menu has Copy text, Cite (APA/MLA), and annotations. Still to add
 
 ---
 
+## Next Up (cont.)
+
+### PWA + Offline Mode
+
+Local-first architecture: generate feeds on your own machine, consume them anywhere — including offline on your phone during a five-hour flight.
+
+**Progressive Web App**
+- `manifest.json` (app name, icon, colors, full-screen launch)
+- Service worker via Vite PWA plugin (intercepts requests, serves cached data offline)
+- "Add to Home Screen" install prompt on iOS/Android — no App Store needed
+
+**Offline Data Layer**
+- IndexedDB cache for feeds, posts, threads, paper summaries, annotations, bookmarks
+- "Download workspace" button that aggressively pre-caches all content for a workspace
+- Sync action: pull latest data while online, available offline immediately after
+
+**Workflow**: upload papers + generate feeds on your laptop (Docker + Ollama). Open Ficino on your phone while on wifi — PWA caches everything. Airplane mode. Scroll.
+
+---
+
+## Distribution Model
+
+Ficino ships as a **self-hosted Docker Compose project** — the same model as Ollama, Immich, or Paperless-ngx.
+
+- No SaaS. No managing other people's data. No billing infrastructure.
+- Users run it on their own laptop, home server, or university VM
+- The PWA gives mobile access to their own instance
+- `git clone && docker compose up` is the install
+- AGPL license: self-host freely, cloud providers must open-source changes
+
+---
+
 ## Future
 
 Larger features that need more design work.

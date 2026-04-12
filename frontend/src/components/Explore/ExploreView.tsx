@@ -60,7 +60,7 @@ function NewWorkspaceInput({ onCreate }: { onCreate: (name: string) => void }) {
         <button
           onClick={() => { if (name.trim()) { onCreate(name.trim()); setName(''); setShowing(false) } }}
           className="px-3 py-1.5 rounded-lg text-xs font-semibold text-bg cursor-pointer border-none"
-          style={{ background: 'linear-gradient(135deg, #c8a96e, #a07840)' }}
+          style={{ background: 'linear-gradient(135deg, var(--color-gold), var(--color-gold-dark))' }}
         >
           Create
         </button>
@@ -107,7 +107,7 @@ function ActivityTimeline({ workspaceId }: { workspaceId: string }) {
         <div key={i} className="flex items-start gap-3 py-1.5">
           <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5"
             style={{
-              backgroundColor: a.type === 'paper_upload' ? '#4a9eff18' : '#34d39918',
+              backgroundColor: a.type === 'paper_upload' ? 'color-mix(in srgb, var(--color-persona-practitioner) 9%, transparent)' : 'color-mix(in srgb, var(--color-persona-gradstudent) 9%, transparent)',
             }}
           >
             {a.type === 'paper_upload'
@@ -334,19 +334,19 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
               onClick={() => onSwitch(ws.id)}
               className="w-full text-left p-4 rounded-2xl border flex items-start gap-3 bg-transparent cursor-pointer hover:bg-bg-hover transition-colors group"
               style={{
-                borderColor: ws.id === activeId ? '#c8a96e40' : '#1e2028',
-                backgroundColor: ws.id === activeId ? 'rgba(200, 169, 110, 0.04)' : undefined,
+                borderColor: ws.id === activeId ? 'color-mix(in srgb, var(--color-gold) 25%, transparent)' : 'var(--color-border)',
+                backgroundColor: ws.id === activeId ? 'color-mix(in srgb, var(--color-gold) 4%, transparent)' : undefined,
               }}
             >
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
                 style={{
                   background: ws.id === activeId
-                    ? 'linear-gradient(135deg, #c8a96e, #a07840)'
-                    : '#1e2028',
+                    ? 'linear-gradient(135deg, var(--color-gold), var(--color-gold-dark))'
+                    : 'var(--color-border)',
                 }}
               >
-                <Folder size={18} color={ws.id === activeId ? '#080a0f' : 'var(--color-tab-inactive)'} />
+                <Folder size={18} color={ws.id === activeId ? 'var(--color-bg)' : 'var(--color-tab-inactive)'} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

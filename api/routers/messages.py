@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings
+from constants import STUB_USER_ID
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -24,18 +25,31 @@ def _get_celery() -> Celery:
 
 @router.get("/papers")
 async def list_paper_conversations(
+    workspace_id: str | None = None,
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """List all papers with their summary status (DM inbox)."""
-    rows = await db.fetch(
-        """SELECT p.id, p.title, p.filename, p.authors, p.chunk_count, p.figure_count,
-                  p.uploaded_at, ps.id AS summary_id, ps.generated_at AS summary_generated_at,
-                  ps.messages
-           FROM papers p
-           LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
-           WHERE p.status = 'complete'
-           ORDER BY p.uploaded_at DESC"""
-    )
+    """List all papers with their summary status (DM inbox), scoped to workspace."""
+    if workspace_id:
+        rows = await db.fetch(
+            """SELECT p.id, p.title, p.filename, p.authors, p.chunk_count, p.figure_count,
+                      p.uploaded_at, ps.id AS summary_id, ps.generated_at AS summary_generated_at,
+                      ps.messages
+               FROM papers p
+               LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
+               WHERE p.status = 'complete' AND p.corpus_id = $1
+               ORDER BY p.uploaded_at DESC""",
+            workspace_id,
+        )
+    else:
+        rows = await db.fetch(
+            """SELECT p.id, p.title, p.filename, p.authors, p.chunk_count, p.figure_count,
+                      p.uploaded_at, ps.id AS summary_id, ps.generated_at AS summary_generated_at,
+                      ps.messages
+               FROM papers p
+               LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
+               WHERE p.status = 'complete'
+               ORDER BY p.uploaded_at DESC"""
+        )
     result = []
     for row in rows:
         messages = []
@@ -194,7 +208,7 @@ async def create_group_chat(
         raise HTTPException(status_code=400, detail="Need at least 2 papers for a group chat")
 
     synthesis_id = str(uuid.uuid4())
-    user_id = "00000000-0000-0000-0000-000000000000"  # stub until auth
+    user_id = STUB_USER_ID  # stub until auth
 
     celery_app = _get_celery()
     task = celery_app.send_task(

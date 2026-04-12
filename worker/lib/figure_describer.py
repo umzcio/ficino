@@ -1,6 +1,6 @@
 """Figure description and claim mapping using vision models.
 
-Supports Claude Vision API and Ollama vision models.
+Provider is selected via VISION_PROVIDER setting (ollama or api).
 If no vision model is available, returns empty descriptions.
 """
 
@@ -13,11 +13,6 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-
 FIGURE_PROMPT = """Analyze this figure from an academic paper. Provide:
 
 1. **Description**: A clear, concise description of what the figure shows.
@@ -28,22 +23,35 @@ DESCRIPTION: <description>
 CLAIM: <claim summary>"""
 
 
+def _get_config() -> dict[str, str]:
+    """Read vision config from env at call time (supports runtime changes via settings)."""
+    return {
+        "vision_provider": os.getenv("VISION_PROVIDER", os.getenv("LLM_PROVIDER", "ollama")),
+        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_vision_model": os.getenv("OLLAMA_VISION_MODEL", ""),
+        "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+        "claude_model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
+    }
+
+
 def is_available() -> bool:
     """Check if figure description is available."""
-    if LLM_PROVIDER == "api" and ANTHROPIC_API_KEY:
+    cfg = _get_config()
+    if cfg["vision_provider"] == "api" and cfg["anthropic_api_key"]:
         return True
-    if LLM_PROVIDER == "ollama" and OLLAMA_VISION_MODEL:
+    if cfg["vision_provider"] == "ollama" and cfg["ollama_vision_model"]:
         return True
     return False
 
 
 async def _describe_claude(image_bytes: bytes) -> str:
     import anthropic
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    cfg = _get_config()
+    client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"])
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
     response = await client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=cfg["claude_model"],
         max_tokens=1024,
         messages=[{
             "role": "user",
@@ -57,13 +65,14 @@ async def _describe_claude(image_bytes: bytes) -> str:
 
 
 async def _describe_ollama(image_bytes: bytes) -> str:
+    cfg = _get_config()
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
+            f"{cfg['ollama_base_url']}/api/chat",
             json={
-                "model": OLLAMA_VISION_MODEL,
+                "model": cfg["ollama_vision_model"],
                 "messages": [
                     {"role": "user", "content": FIGURE_PROMPT, "images": [image_b64]},
                 ],
@@ -100,9 +109,10 @@ async def describe_figure(image_bytes: bytes) -> dict[str, str]:
         logger.warn("no_vision_provider_for_figures")
         return {"description": "", "claim_summary": ""}
 
-    logger.info("figure_describe_start", provider=LLM_PROVIDER)
+    cfg = _get_config()
+    logger.info("figure_describe_start", provider=cfg["vision_provider"])
 
-    if LLM_PROVIDER == "api" and ANTHROPIC_API_KEY:
+    if cfg["vision_provider"] == "api" and cfg["anthropic_api_key"]:
         text = await _describe_claude(image_bytes)
     else:
         text = await _describe_ollama(image_bytes)

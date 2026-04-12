@@ -5,12 +5,11 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from constants import STUB_USER_ID
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/tags", tags=["tags"])
-
-STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 class TagCreate(BaseModel):

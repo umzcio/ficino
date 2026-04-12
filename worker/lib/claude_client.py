@@ -15,20 +15,20 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
-
-
 def _get_config() -> dict[str, str]:
     """Read LLM config from env at call time (supports runtime changes)."""
     return {
         "llm_provider": os.getenv("LLM_PROVIDER", "ollama"),
         "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
         "ollama_llm_model": os.getenv("OLLAMA_LLM_MODEL", "qwen3.5:latest"),
+        "claude_model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
     }
 
 
-async def _generate_ollama(system_prompt: str, user_prompt: str) -> str:
+async def _generate_ollama(
+    system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 1024,
+) -> str:
     """Generate text using Ollama."""
     cfg = _get_config()
     async with httpx.AsyncClient(timeout=300.0) as client:
@@ -42,7 +42,7 @@ async def _generate_ollama(system_prompt: str, user_prompt: str) -> str:
                 ],
                 "stream": False,
                 "think": False,  # Disable thinking mode (qwen3.5 etc.)
-                "options": {"temperature": 0.8, "num_predict": 1024},
+                "options": {"temperature": temperature, "num_predict": max_tokens},
             },
         )
         resp.raise_for_status()
@@ -54,27 +54,32 @@ async def _generate_ollama(system_prompt: str, user_prompt: str) -> str:
         return content
 
 
-async def _generate_claude(system_prompt: str, user_prompt: str) -> str:
+async def _generate_claude(
+    system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 1024,
+) -> str:
     """Generate text using Claude API."""
     import anthropic
     cfg = _get_config()
     client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"])
     response = await client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=1024,
+        model=cfg["claude_model"],
+        max_tokens=max_tokens,
+        temperature=temperature,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     )
     return response.content[0].text
 
 
-async def _generate(system_prompt: str, user_prompt: str) -> str:
+async def _generate(
+    system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 1024,
+) -> str:
     """Route to the configured LLM provider."""
     cfg = _get_config()
     if cfg["llm_provider"] == "ollama":
-        return await _generate_ollama(system_prompt, user_prompt)
+        return await _generate_ollama(system_prompt, user_prompt, temperature, max_tokens)
     elif cfg["llm_provider"] == "api" and cfg["anthropic_api_key"]:
-        return await _generate_claude(system_prompt, user_prompt)
+        return await _generate_claude(system_prompt, user_prompt, temperature, max_tokens)
     else:
         raise RuntimeError(f"No LLM provider available (LLM_PROVIDER={cfg['llm_provider']})")
 
@@ -125,14 +130,14 @@ def _parse_post_json(text: str) -> dict[str, object]:
 
 
 async def generate_persona_post(
-    system_prompt: str, user_prompt: str
+    system_prompt: str, user_prompt: str, temperature: float = 0.8,
 ) -> dict[str, object]:
     """Generate a structured persona post using the configured LLM.
 
     Returns dict matching the post schema.
     """
     logger.info("persona_post_generating", provider=_get_config()["llm_provider"])
-    text = await _generate(system_prompt, user_prompt)
+    text = await _generate(system_prompt, user_prompt, temperature=temperature)
     return _parse_post_json(text)
 
 
@@ -168,10 +173,10 @@ Respond with exactly one word: supports, contradicts, or extends
 
 
 def generate_persona_post_sync(
-    system_prompt: str, user_prompt: str
+    system_prompt: str, user_prompt: str, temperature: float = 0.8,
 ) -> dict[str, object]:
     """Synchronous wrapper for use in Celery tasks."""
-    return asyncio.run(generate_persona_post(system_prompt, user_prompt))
+    return asyncio.run(generate_persona_post(system_prompt, user_prompt, temperature=temperature))
 
 
 def classify_contradiction_sync(chunk_a: str, chunk_b: str) -> str:

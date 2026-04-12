@@ -10,13 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from redis import Redis
 
 from config import settings
+from constants import STUB_USER_ID, DEFAULT_WORKSPACE_ID
 from db.connection import get_db
 from models.paper import Paper
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/papers", tags=["papers"])
 
-UPLOAD_DIR = "/app/uploads"
+UPLOAD_DIR = settings.upload_dir
 
 
 def _get_redis() -> Redis:
@@ -48,18 +49,17 @@ async def upload_paper(
 
     # Create paper record in DB
     # For now use a stub user_id since auth isn't implemented yet
-    stub_user_id = "00000000-0000-0000-0000-000000000000"
 
     # Ensure stub user exists
-    existing = await db.fetchrow("SELECT id FROM users WHERE id = $1", stub_user_id)
+    existing = await db.fetchrow("SELECT id FROM users WHERE id = $1", STUB_USER_ID)
     if not existing:
         await db.execute(
             "INSERT INTO users (id, clerk_id, email) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-            stub_user_id, "stub", "stub@ficino.dev",
+            STUB_USER_ID, "stub", "stub@ficino.dev",
         )
 
     # Use provided workspace or default
-    corpus_id = workspace_id or "00000000-0000-0000-0000-000000000001"
+    corpus_id = workspace_id or DEFAULT_WORKSPACE_ID
 
     # Validate workspace exists
     workspace_exists = await db.fetchrow("SELECT id FROM corpora WHERE id = $1", corpus_id)
@@ -72,7 +72,7 @@ async def upload_paper(
         await db.execute(
             """INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status, uploaded_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            paper_id, stub_user_id, corpus_id, file.filename, file_path, "pending", now,
+            paper_id, STUB_USER_ID, corpus_id, file.filename, file_path, "pending", now,
         )
     except asyncpg.ForeignKeyViolationError:
         os.remove(file_path)
@@ -93,7 +93,7 @@ async def upload_paper(
 
     return Paper(
         id=uuid.UUID(paper_id),
-        user_id=uuid.UUID(stub_user_id),
+        user_id=uuid.UUID(STUB_USER_ID),
         filename=file.filename,
         status="pending",
         uploaded_at=now,
@@ -224,7 +224,7 @@ async def delete_paper(
             await db.execute("DELETE FROM feeds WHERE corpus_id = $1", corpus_id)
             await db.execute(
                 "DELETE FROM alerts WHERE user_id = $1",
-                "00000000-0000-0000-0000-000000000000",
+                STUB_USER_ID,
             )
             logger.info("workspace_feeds_alerts_cleared", corpus_id=corpus_id)
 

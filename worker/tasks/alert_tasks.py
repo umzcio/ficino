@@ -17,10 +17,9 @@ from celery_app import app
 from lib import claude_client
 from lib.db import execute, fetch, fetchrow
 from lib.retrieval import retrieve_chunks
+from lib.settings import STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
-
-STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 def _create_alert(

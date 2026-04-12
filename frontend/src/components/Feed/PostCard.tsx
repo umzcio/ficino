@@ -109,14 +109,14 @@ function ActionBtn({
       aria-pressed={active}
       className="flex items-center gap-[5px] px-2.5 py-1.5 rounded-[20px] text-[13px] flex-1 justify-center max-w-[80px] border-none bg-transparent cursor-pointer transition-all duration-100 hover:opacity-80"
       style={{
-        color: active ? color : '#71767b',
+        color: active ? color : 'var(--color-text-muted)',
         backgroundColor: active ? color + '15' : 'transparent',
       }}
     >
       <Icon
         size={16}
         strokeWidth={active ? 2.5 : 1.75}
-        fill={active && color === '#f91880' ? color : 'none'}
+        fill={active && color === 'var(--color-like)' ? color : 'none'}
       />
       <span>{formatNum(count)}</span>
     </button>
@@ -158,6 +158,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
   const [noteText, setNoteText] = useState(annotation || '')
   const inputRef = useRef<HTMLInputElement>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
+  const loadRequestRef = useRef(0)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -185,37 +186,61 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
   const isFigure = post.post_type === 'figure'
   const isThread = post.post_type === 'thread' && post.thread_posts && post.thread_posts.length > 0
   const paper = post.paper_ref
-  const figSrc = post.figure_url ? `/ficino/api${post.figure_url}` : ''
+  const apiBase = import.meta.env.VITE_API_BASE || '/ficino/api'
+  const figSrc = post.figure_url ? `${apiBase}${post.figure_url}` : ''
 
   const handleOpenReply = async () => {
-    setReplyOpen(!replyOpen)
-    if (!replyOpen && !repliesLoaded && feedId) {
+    const opening = !replyOpen
+    setReplyOpen(opening)
+    if (opening && !repliesLoaded && feedId) {
+      const requestId = ++loadRequestRef.current
       try {
         const data = await getPostReplies(feedId, postIndex)
-        setReplyMessages(data.messages)
-        setRepliesLoaded(true)
+        // Only apply if this is still the latest request (prevents race condition)
+        if (requestId === loadRequestRef.current) {
+          setReplyMessages(data.messages)
+          setRepliesLoaded(true)
+        }
       } catch {
-        // no existing replies, that's fine
-        setRepliesLoaded(true)
+        if (requestId === loadRequestRef.current) {
+          setRepliesLoaded(true)
+        }
       }
-      setTimeout(() => inputRef.current?.focus(), 100)
     }
   }
 
+  // Focus input after reply section renders
+  useEffect(() => {
+    if (replyOpen && repliesLoaded) {
+      requestAnimationFrame(() => inputRef.current?.focus())
+    }
+  }, [replyOpen, repliesLoaded])
+
   const handleSendReply = async () => {
     if (!replyInput.trim() || !feedId || replyLoading) return
+    const userMessage = replyInput.trim()
+    // Optimistic: show user's message immediately
+    setReplyMessages(prev => [...prev, { role: 'user', content: userMessage }])
+    setReplyInput('')
     setReplyLoading(true)
+    const requestId = ++loadRequestRef.current
     try {
       const data = await sendReply(
         feedId, postIndex, post.persona,
-        replyInput.trim(), post.content, paper || null,
+        userMessage, post.content, paper || null,
       )
-      setReplyMessages(data.messages)
-      setReplyInput('')
+      if (requestId === loadRequestRef.current) {
+        setReplyMessages(data.messages)
+      }
     } catch {
-      // ignore
+      // On error, remove the optimistic message
+      if (requestId === loadRequestRef.current) {
+        setReplyMessages(prev => prev.filter((_, i) => i < prev.length - 1))
+        setReplyInput(userMessage)
+      }
     } finally {
       setReplyLoading(false)
+      requestAnimationFrame(() => inputRef.current?.focus())
     }
   }
 
@@ -224,13 +249,13 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
     if (autoOpenReply && !replyOpen && feedId) {
       handleOpenReply()
     }
-  }, [autoOpenReply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autoOpenReply, feedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <article
       className="border-b border-border px-4 py-3.5 flex gap-3 hover:bg-bg-hover transition-colors cursor-pointer relative"
       style={{
-        borderLeft: isFigure ? '3px solid #c8a96e30' : '3px solid transparent',
+        borderLeft: isFigure ? '3px solid color-mix(in srgb, var(--color-gold) 19%, transparent)' : '3px solid transparent',
       }}
       onClick={onClick}
     >
@@ -560,11 +585,11 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
 
         {/* Actions */}
         <div className="flex -ml-2 mt-1">
-          <ActionBtn icon={MessageCircle} count={post.replies + replyMessages.length} color="#4a9eff" active={replyOpen} onClick={handleOpenReply} label="Replies" />
+          <ActionBtn icon={MessageCircle} count={post.replies + replyMessages.filter(m => m.role !== 'interjection').length} color="var(--color-persona-practitioner)" active={replyOpen} onClick={handleOpenReply} label="Replies" />
           <ActionBtn
             icon={Repeat2}
             count={post.retweets + (retweeted ? 1 : 0)}
-            color="#34d399"
+            color="var(--color-retweet)"
             active={retweeted}
             onClick={() => setRetweeted(!retweeted)}
             label="Repost"
@@ -572,7 +597,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
           <ActionBtn
             icon={Heart}
             count={post.likes + (liked ? 1 : 0)}
-            color="#f91880"
+            color="var(--color-like)"
             active={liked}
             onClick={() => setLiked(!liked)}
             label="Like"
@@ -580,7 +605,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
           <ActionBtn
             icon={Bookmark}
             count={post.bookmarks + (bookmarked ? 1 : 0)}
-            color="#c8a96e"
+            color="var(--color-gold)"
             active={bookmarked}
             onClick={() => onBookmarkToggle?.(post, postIndex)}
             label="Bookmark"
@@ -666,16 +691,20 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                 })}
                 {replyLoading && (
                   <div className="flex gap-3 py-2.5">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-                      style={{
-                        backgroundColor: p.color + '22',
-                        border: `1.5px solid ${p.color}50`,
-                        color: p.color,
-                      }}
-                    >
-                      {p.initials}
-                    </div>
+                    {p.avatar_url ? (
+                      <img src={p.avatar_url} alt={p.name} className="w-8 h-8 rounded-full shrink-0 object-cover" style={{ border: `1.5px solid ${p.color}50` }} />
+                    ) : (
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+                        style={{
+                          backgroundColor: p.color + '22',
+                          border: `1.5px solid ${p.color}50`,
+                          color: p.color,
+                        }}
+                      >
+                        {p.initials}
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 text-[13px] text-text-muted">
                       <Loader2 size={14} className="animate-spin" />
                       <span>{p.name} is typing...</span>
@@ -685,7 +714,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
               </div>
             )}
 
-            {/* Reply input — post-style compose */}
+            {/* Reply input */}
             <div className="flex gap-3 items-start">
               <div className="w-8 h-8 rounded-full bg-gold/15 flex items-center justify-center text-[11px] font-bold text-gold shrink-0 mt-0.5">
                 You
@@ -700,8 +729,8 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                     type="text"
                     value={replyInput}
                     onChange={(e) => setReplyInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSendReply() }}
-                    placeholder="Post your reply..."
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) handleSendReply() }}
+                    placeholder={replyLoading ? `Waiting for ${p.name}...` : 'Post your reply...'}
                     disabled={replyLoading}
                     className="flex-1 bg-transparent border-none text-[15px] text-text outline-none placeholder:text-text-muted disabled:opacity-50 py-1"
                   />
@@ -709,7 +738,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                     onClick={handleSendReply}
                     disabled={!replyInput.trim() || replyLoading}
                     className="px-3.5 py-1.5 rounded-full text-[13px] font-bold border-none cursor-pointer disabled:opacity-30 transition-colors text-bg"
-                    style={{ background: replyInput.trim() ? 'linear-gradient(135deg, #c8a96e, #a07840)' : 'var(--color-toggle-off)', color: replyInput.trim() ? '#080a0f' : 'var(--color-tab-inactive)' }}
+                    style={{ background: replyInput.trim() && !replyLoading ? 'linear-gradient(135deg, var(--color-gold), var(--color-gold-dark))' : 'var(--color-toggle-off)', color: replyInput.trim() && !replyLoading ? 'var(--color-bg)' : 'var(--color-tab-inactive)' }}
                   >
                     Reply
                   </button>

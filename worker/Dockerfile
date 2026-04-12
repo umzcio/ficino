@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--queues=ingestion,persona", "--concurrency=2"]
+CMD ["sh", "-c", "celery -A celery_app worker --loglevel=info --queues=ingestion,persona --concurrency=${CELERY_WORKER_CONCURRENCY:-2}"]
