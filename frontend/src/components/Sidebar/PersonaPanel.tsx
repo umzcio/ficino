@@ -8,7 +8,7 @@ interface PersonaPanelProps {
 export function PersonaPanel({ enabledPersonas, onPersonaClick }: PersonaPanelProps) {
   const personas = usePersonas()
   const entries = Object.entries(personas)
-    .filter(([key]) => enabledPersonas[key] !== false)
+    .filter(([key]) => key !== 'archivist' && enabledPersonas[key] !== false)
 
   return (
     <div className="bg-bg-hover border border-border rounded-2xl p-4">
