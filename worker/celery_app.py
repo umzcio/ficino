@@ -25,9 +25,10 @@ app.conf.update(
         "tasks.summary_tasks.*": {"queue": "persona"},
         "tasks.alert_tasks.*": {"queue": "persona"},
         "tasks.preference_tasks.*": {"queue": "persona"},
+        "tasks.archivist_tasks.*": {"queue": "persona"},
     },
 )
 
 app.conf.update(
-    include=["tasks.ingestion_tasks", "tasks.persona_tasks", "tasks.summary_tasks", "tasks.alert_tasks", "tasks.preference_tasks"],
+    include=["tasks.ingestion_tasks", "tasks.persona_tasks", "tasks.summary_tasks", "tasks.alert_tasks", "tasks.preference_tasks", "tasks.archivist_tasks"],
 )

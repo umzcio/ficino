@@ -55,6 +55,11 @@ DEFAULTS = {
     "chunk_max_tokens": 800,
     "show_extraction_badge": True,
 
+    # User profile
+    "user_display_name": "You",
+    "user_handle": "@you",
+    "user_avatar_url": "",
+
     # Display
     "theme": "dark",
     "font_size": "normal",  # small, normal, large

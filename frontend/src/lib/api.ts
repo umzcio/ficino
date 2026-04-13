@@ -256,6 +256,41 @@ export async function clearAllSummaries(): Promise<void> {
   return request('/settings/clear-summaries', { method: 'POST' })
 }
 
+// User Posts (Ask Your Corpus)
+export interface UserPost {
+  id: string
+  content: string
+  replies: { role: string; persona: string; content: string }[]
+  sources: { paper_title: string; section: string; content: string; score: number }[]
+  status: 'pending' | 'complete' | 'error'
+  created_at: string
+}
+
+export async function listUserPosts(workspaceId?: string): Promise<UserPost[]> {
+  const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return request<UserPost[]>(`/user-posts${query}`)
+}
+
+export async function createUserPost(content: string, corpusId?: string): Promise<{ id: string; task_id: string }> {
+  return request('/user-posts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, corpus_id: corpusId }),
+  })
+}
+
+export async function getUserPost(postId: string): Promise<UserPost> {
+  return request<UserPost>(`/user-posts/${postId}`)
+}
+
+export async function getUserPostStatus(postId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/user-posts/${postId}/status`)
+}
+
+export async function deleteUserPost(postId: string): Promise<void> {
+  return request(`/user-posts/${postId}`, { method: 'DELETE' })
+}
+
 // Search
 export interface SearchResults {
   query: string

@@ -25,8 +25,12 @@ import { WorkspaceDropdown } from './components/Nav/WorkspaceDropdown'
 import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
 import { MobileDrawer } from './components/Nav/MobileDrawer'
 import { PostDetail } from './components/Feed/PostDetail'
+import { ComposeBox } from './components/Feed/ComposeBox'
+import { UserPostCard } from './components/Feed/UserPostCard'
 import { PersonaProfile } from './components/Personas/PersonaProfile'
+import { UserProfile } from './components/Personas/UserProfile'
 import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
+import { useUserPosts } from './hooks/useUserPosts'
 import { getFeed, getPaperTldrs } from './lib/api'
 import { useAnnotations } from './hooks/useAnnotations'
 
@@ -284,6 +288,7 @@ export default function App() {
   const feed = useFeed(ws.activeId)
   const bm = useBookmarks()
   const notes = useAnnotations()
+  const userPosts = useUserPosts(ws.activeId)
   const appSettings = useSettings()
   const alertsHook = useAlerts()
 
@@ -385,6 +390,17 @@ export default function App() {
           />
         )
       default:
+        if (selectedPersona === '__user__') {
+          return (
+            <UserProfile
+              workspaceId={ws.activeId}
+              displayName={appSettings.settings?.user_display_name as string || 'You'}
+              handle={appSettings.settings?.user_handle as string || '@you'}
+              onBack={() => setSelectedPersona(null)}
+              onPersonaClick={setSelectedPersona}
+            />
+          )
+        }
         if (selectedPersona) {
           return (
             <PersonaProfile
@@ -444,6 +460,27 @@ export default function App() {
             />
             <FeedTabs active={activeTab} onSelect={setActiveTab} />
             <FeedHistory currentFeedId={feed.feedId} onLoadFeed={feed.loadFeed} workspaceId={ws.activeId} />
+            <ComposeBox
+              workspaceId={ws.activeId}
+              onPostCreated={userPosts.refresh}
+              userDisplayName={appSettings.settings?.user_display_name as string || 'You'}
+              userHandle={appSettings.settings?.user_handle as string || '@you'}
+              onUserClick={() => setSelectedPersona('__user__')}
+            />
+            {userPosts.posts.length > 0 && (
+              <div>
+                {userPosts.posts.map((up) => (
+                  <UserPostCard
+                    key={up.id}
+                    post={up}
+                    userDisplayName={appSettings.settings?.user_display_name as string || 'You'}
+                    userHandle={appSettings.settings?.user_handle as string || '@you'}
+                    onDeleted={userPosts.refresh}
+                    onPersonaClick={setSelectedPersona}
+                  />
+                ))}
+              </div>
+            )}
             <FeedContent
               posts={feed.posts}
               feedId={feed.feedId}

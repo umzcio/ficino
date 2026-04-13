@@ -38,6 +38,9 @@ DEFAULTS = {
     "auto_generate_on_upload": False,
     "extraction_mode": "auto",
     "chunk_max_tokens": 800,
+    "user_display_name": "You",
+    "user_handle": "@you",
+    "user_avatar_url": "",
 }
 
 # Settings keys that map directly to env vars

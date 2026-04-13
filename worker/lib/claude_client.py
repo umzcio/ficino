@@ -179,6 +179,13 @@ def generate_persona_post_sync(
     return asyncio.run(generate_persona_post(system_prompt, user_prompt, temperature=temperature))
 
 
+def generate_text_sync(
+    system_prompt: str, user_prompt: str, temperature: float = 0.7, max_tokens: int = 1024,
+) -> str:
+    """Synchronous wrapper that returns raw text (no JSON parsing). For Celery tasks."""
+    return asyncio.run(_generate(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens))
+
+
 def classify_contradiction_sync(chunk_a: str, chunk_b: str) -> str:
     """Synchronous wrapper for use in Celery tasks."""
     return asyncio.run(classify_contradiction(chunk_a, chunk_b))
