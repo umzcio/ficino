@@ -155,7 +155,16 @@ Larger features that need more design work.
 
 ### Export Feed
 
-Share a generated feed as a link or export as PDF/markdown. Bridges the gap between scrolling the feed and writing your dissertation.
+Start with **markdown export** — one click, downloads a `.md` file:
+
+- Feed metadata header (workspace, generation date, papers included)
+- Each post formatted with persona name, handle, content, paper reference
+- Bookmarked posts highlighted/marked
+- User annotations included inline below their posts
+- Sources as footnotes at the bottom (paper title, section, relevance score)
+- Reading list chapter exports include chapter number and cumulative paper context
+
+This is the 80/20 — gets content out in a format that works everywhere (Obsidian, Notion, Google Docs, plain text editors). PDF and shareable link versions can layer on top later, but the use case should drive which comes next: "share with advisor" → PDF, "collaborate with lab" → shareable link, "pull into my writing" → markdown is already enough.
 
 ### Citation Graph
 
