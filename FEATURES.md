@@ -91,6 +91,20 @@ Everything below is live in production.
 | **Persona controls** | Enable/disable personas, adjust temperature, tune post type weights |
 | **Paper processing** | Extraction mode (auto/PyMuPDF/vision), chunk size |
 
+### Tab-Specific Feed Generation
+| Feature | Description |
+|---------|-------------|
+| **Tab-focused generation** | Generating from Debates/Methods/Findings tabs produces tab-specific posts instead of balanced. Debates: 80% quotes+replies, all personas. Methods: skeptic+methodologist, 75% posts+threads. Findings: hype+practitioner, 25% figure posts |
+| **Additive** | Tab-specific posts append to the feed — For You always shows everything unchanged |
+
+### Reading Lists
+| Feature | Description |
+|---------|-------------|
+| **AI-ordered syllabi** | Create a reading list from workspace papers. The Archivist analyzes citation chains, conceptual dependencies, and publication dates to propose an optimal reading order with per-paper rationale |
+| **Interactive reordering** | AI proposes order, you adjust. Drag papers up/down to customize the sequence |
+| **Progressive chapters** | Each paper is a chapter. Generate chapters sequentially — Chapter 1 sees only Paper 1, Chapter 2 sees Papers 1-2. Personas in later chapters reference earlier papers, building cumulative discourse |
+| **Unlock progression** | Completing a chapter unlocks the next. Locked chapters shown but grayed out. Read completed chapters anytime |
+
 ---
 
 ## Next Up
@@ -139,10 +153,6 @@ Ficino ships as a **self-hosted Docker Compose project** — the same model as O
 
 Larger features that need more design work.
 
-### Tab-Specific Feed Generation
-
-Each tab (For You / Debates / Methods / Findings) triggers its own generation with different persona weights and section focus, instead of client-side filtering. 4x the LLM calls — expensive with API providers, fine with Ollama.
-
 ### Export Feed
 
 Share a generated feed as a link or export as PDF/markdown. Bridges the gap between scrolling the feed and writing your dissertation.
@@ -151,9 +161,6 @@ Share a generated feed as a link or export as PDF/markdown. Bridges the gap betw
 
 Visual map of how papers in your corpus cite each other. Surfaces structural relationships that text-based feeds can't show.
 
-### Reading Lists
-
-Curated sequences of papers with guided discourse. A structured path through a topic rather than a single feed.
 
 ---
 

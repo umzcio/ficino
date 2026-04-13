@@ -115,6 +115,11 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Reading gap nudges**: prompted to go deeper on papers you've debated but not summarized
 - **Stale corpus nudges**: reminded about papers sitting for 7+ days without any generated discourse
 
+### Reading Lists
+- **AI-ordered syllabi**: create a reading list — The Archivist proposes an optimal reading order with rationale based on citation chains and conceptual dependencies
+- **Progressive chapters**: each paper is a chapter. Generate chapters sequentially — later chapters reference earlier papers, building cumulative discourse
+- **Interactive reordering**: AI proposes, you adjust. Drag to customize the sequence
+
 ### Configuration
 - **LLM provider switching**: toggle between Ollama (local, free) and Claude/OpenAI APIs
 - **Model selection**: pick from installed Ollama models via dropdown
