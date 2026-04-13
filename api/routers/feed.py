@@ -49,6 +49,8 @@ async def generate_feed(
     }
     if body.append_to_feed_id:
         kwargs["append_to_feed_id"] = body.append_to_feed_id
+    if body.tab_focus:
+        kwargs["tab_focus"] = body.tab_focus
     task = celery_app.send_task(
         "tasks.persona_tasks.generate_feed",
         kwargs=kwargs,

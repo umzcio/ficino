@@ -316,9 +316,11 @@ export default function App() {
     ? completePapers.filter((p) => p.tags?.some((t) => t.name === activeTag)).length
     : completePapers.length
 
+  const TAB_FOCUS: Record<number, string | undefined> = { 0: undefined, 1: 'debates', 2: 'methods', 3: 'findings' }
+
   const handleGenerate = () => {
     setSelectedPostIndex(null)
-    feed.generate(ws.activeId, activeTag ? [activeTag] : undefined)
+    feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, undefined, TAB_FOCUS[activeTab])
   }
 
   useKeyboardShortcuts({
@@ -502,7 +504,7 @@ export default function App() {
               onReplyBookmark={(fid, postIdx, msgIdx, snapshot) => bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx)}
               isReplyBookmarked={(postIdx, msgIdx) => feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false}
               onGenerate={() => {
-                feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined)
+                feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined, TAB_FOCUS[activeTab])
               }}
             />
           </>

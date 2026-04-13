@@ -81,14 +81,14 @@ export function useFeed(workspaceId?: string) {
     timeoutRef.current = setTimeout(poll, 1000)
   }, [])
 
-  const generate = useCallback(async (corpusId?: string, tagFilter?: string[], appendToFeedId?: string) => {
+  const generate = useCallback(async (corpusId?: string, tagFilter?: string[], appendToFeedId?: string, tabFocus?: string) => {
     setFeedState('generating')
     setGeneratingMeta({})
     setError(null)
     stopPolling()
 
     try {
-      const { task_id } = await generateFeed(corpusId, tagFilter, appendToFeedId)
+      const { task_id } = await generateFeed(corpusId, tagFilter, appendToFeedId, tabFocus)
       pollStatus(task_id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start generation')

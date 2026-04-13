@@ -31,6 +31,8 @@ const STEP_LABELS: Record<string, string> = {
   generating: 'Generating persona posts...',
 }
 
+const TAB_NAMES = ['For You', 'Debates', 'Methods', 'Findings']
+
 // Tab index → category filter
 const TAB_CATEGORIES: Record<number, string | null> = {
   0: null,         // For You — show all
@@ -92,7 +94,7 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
     : posts
 
   if (filtered.length === 0 && posts.length > 0) {
-    const tabNames = ['For You', 'Debates', 'Methods', 'Findings']
+    const tabNames = TAB_NAMES
     return (
       <div className="flex flex-col items-center justify-center py-20 text-text-muted">
         <p className="text-sm">No {tabNames[activeTab]?.toLowerCase()} posts in this feed.</p>
@@ -142,7 +144,7 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
             onClick={onGenerate}
             className="bg-transparent border border-border rounded-[20px] text-gold px-6 py-2.5 cursor-pointer text-[15px] font-semibold hover:bg-gold/5 transition-colors"
           >
-            Generate more posts
+            {activeTab === 0 ? 'Generate more posts' : `Generate more ${TAB_NAMES[activeTab]?.toLowerCase()} posts`}
           </button>
         )}
       </div>

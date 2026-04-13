@@ -43,6 +43,7 @@ class FeedGenerateRequest(BaseModel):
     corpus_id: UUID | None = None
     tag_filter: list[str] | None = None
     append_to_feed_id: str | None = None
+    tab_focus: str | None = None  # "debates", "methods", "findings" — generates tab-specific posts
 
 
 class Feed(BaseModel):

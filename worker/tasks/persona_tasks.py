@@ -44,6 +44,32 @@ def _get_paper_ids_for_corpus(corpus_id: str | None, tag_filter: list[str] | Non
     return [str(row["id"]) for row in rows]
 
 
+def _get_tab_overrides(tab_focus: str, enabled_personas: set[str]) -> dict | None:
+    """Return persona and post-type weight overrides for tab-specific generation.
+
+    Each tab focuses on specific personas and post types while keeping
+    others available at reduced weight for variety.
+    """
+    if tab_focus == "debates":
+        # Heavy on quotes and replies, all personas (debates need disagreement)
+        personas = enabled_personas  # keep all — debates need diverse voices
+        weights = {"post": 0.10, "thread": 0.05, "quote": 0.40, "reply": 0.40, "figure": 0.05}
+    elif tab_focus == "methods":
+        # Skeptic and methodologist dominate, threads and posts
+        method_personas = {"skeptic", "methodologist"} & enabled_personas
+        personas = method_personas if method_personas else enabled_personas
+        weights = {"post": 0.40, "thread": 0.35, "quote": 0.10, "reply": 0.10, "figure": 0.05}
+    elif tab_focus == "findings":
+        # Hype and practitioner dominate, posts and figure analyses
+        findings_personas = {"hype", "practitioner"} & enabled_personas
+        personas = findings_personas if findings_personas else enabled_personas
+        weights = {"post": 0.35, "thread": 0.15, "quote": 0.15, "reply": 0.10, "figure": 0.25}
+    else:
+        return None
+
+    return {"personas": personas, "post_weights": weights}
+
+
 def _detect_contradictions(
     chunks: list[dict[str, object]], max_pairs: int = 5
 ) -> list[dict[str, object]]:
@@ -110,6 +136,7 @@ def generate_feed(
     user_id: str | None = None,
     num_posts: int = 12,
     append_to_feed_id: str | None = None,
+    tab_focus: str | None = None,
 ) -> dict[str, object]:
     """Full feed generation pipeline.
 
@@ -143,10 +170,21 @@ def generate_feed(
         # Load learned preferences from likes (Phase 2/3)
         preferences = user_settings.get("preferences")
 
+        # Tab-focused generation: override weights for specific tab
+        tab_category = None
+        if tab_focus:
+            tab_category = tab_focus
+            tab_overrides = _get_tab_overrides(tab_focus, enabled_personas)
+            if tab_overrides:
+                enabled_personas = tab_overrides["personas"]
+                post_weights = tab_overrides["post_weights"]
+                log.info("tab_focus_applied", tab=tab_focus, personas=list(enabled_personas), weights=post_weights)
+
         log.info("settings_loaded",
                  num_posts=num_posts,
                  personas=list(enabled_personas),
-                 temperature=temperature)
+                 temperature=temperature,
+                 tab_focus=tab_focus)
 
         # --- Step 1: Scope papers ---
         self.update_state(state="PROGRESS", meta={"step": "scoping", "feed_id": feed_id})
@@ -322,6 +360,10 @@ def generate_feed(
                     post_data["category"] = "debates"
                 else:
                     post_data["category"] = "findings"
+
+                # Tab-focused generation: override category
+                if tab_category:
+                    post_data["category"] = tab_category
 
                 # Generate engagement numbers (synthetic for now)
                 post_data.setdefault("likes", random.randint(100, 5000))
