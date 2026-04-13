@@ -256,6 +256,82 @@ export async function clearAllSummaries(): Promise<void> {
   return request('/settings/clear-summaries', { method: 'POST' })
 }
 
+// Reading Lists
+export interface ReadingListSummary {
+  id: string
+  name: string
+  paper_count: number
+  chapter_count: number
+  completed_chapters: number
+  created_at: string
+}
+
+export interface ReadingListPaper {
+  id: string
+  title: string
+  authors: string[]
+  year: number | null
+  rationale: string
+}
+
+export interface ReadingListChapter {
+  id: string
+  chapter_index: number
+  paper_ids: string[]
+  feed_id: string | null
+  status: 'locked' | 'unlocked' | 'complete'
+}
+
+export interface ReadingListDetail {
+  id: string
+  name: string
+  corpus_id: string | null
+  papers: ReadingListPaper[]
+  chapters: ReadingListChapter[]
+  created_at: string
+}
+
+export async function listReadingLists(workspaceId?: string): Promise<ReadingListSummary[]> {
+  const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return request<ReadingListSummary[]>(`/reading-lists${query}`)
+}
+
+export async function getReadingList(listId: string): Promise<ReadingListDetail> {
+  return request<ReadingListDetail>(`/reading-lists/${listId}`)
+}
+
+export async function createReadingList(name: string, corpusId?: string, paperIds?: string[]): Promise<{ id: string; task_id: string }> {
+  return request('/reading-lists', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, corpus_id: corpusId, paper_ids: paperIds }),
+  })
+}
+
+export async function reorderReadingList(listId: string, paperSequence: string[]): Promise<void> {
+  return request(`/reading-lists/${listId}/reorder`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paper_sequence: paperSequence }),
+  })
+}
+
+export async function applyReadingListOrdering(listId: string, orderedPapers: unknown[]): Promise<void> {
+  return request(`/reading-lists/${listId}/apply-ordering`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ordered_papers: orderedPapers }),
+  })
+}
+
+export async function generateChapter(listId: string, chapterIndex: number): Promise<{ task_id: string }> {
+  return request(`/reading-lists/${listId}/chapters/${chapterIndex}/generate`, { method: 'POST' })
+}
+
+export async function deleteReadingList(listId: string): Promise<void> {
+  return request(`/reading-lists/${listId}`, { method: 'DELETE' })
+}
+
 // User Posts (Ask Your Corpus)
 export interface UserPost {
   id: string

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
-  Zap, Loader2
+  Zap, Loader2, BookOpen
 } from 'lucide-react'
 import type { FeedPost } from './types'
 import { useCorpus } from './hooks/useCorpus'
@@ -33,14 +33,16 @@ import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
 import { useUserPosts } from './hooks/useUserPosts'
 import { getFeed, getPaperTldrs } from './lib/api'
 import { useAnnotations } from './hooks/useAnnotations'
+import { ReadingListsView } from './components/ReadingLists/ReadingListsView'
 
-type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'settings'
+type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'settings'
 
 const NAV_ITEMS: { icon: typeof Home; view: AppView; label: string }[] = [
   { icon: Home, view: 'feed', label: 'Home' },
   { icon: Search, view: 'search', label: 'Search' },
   { icon: Bell, view: 'alerts', label: 'Alerts' },
   { icon: Mail, view: 'messages', label: 'Messages' },
+  { icon: BookOpen, view: 'reading-lists', label: 'Reading Lists' },
   { icon: Bookmark, view: 'bookmarks', label: 'Saved' },
   { icon: Settings, view: 'settings', label: 'Settings' },
 ]
@@ -383,6 +385,8 @@ export default function App() {
         )
       case 'bookmarks':
         return <BookmarksView bookmarks={bm.bookmarks} loading={bm.loading} onRemove={bm.remove} getAnnotation={notes.getNote} onAnnotationSave={notes.save} onAnnotationDelete={notes.remove} />
+      case 'reading-lists':
+        return <ReadingListsView workspaceId={ws.activeId} />
       case 'settings':
         return (
           <SettingsView

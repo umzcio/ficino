@@ -211,6 +211,33 @@ CREATE TABLE user_likes (
 
 CREATE INDEX ON user_likes (user_id, feed_id);
 
+-- Reading lists (ordered paper sequences with guided discourse)
+CREATE TABLE reading_lists (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  corpus_id UUID REFERENCES corpora(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  paper_sequence UUID[] NOT NULL DEFAULT '{}',
+  rationale JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX ON reading_lists (user_id, corpus_id);
+
+-- Reading list chapters (progressive feed generation)
+CREATE TABLE reading_list_chapters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reading_list_id UUID REFERENCES reading_lists(id) ON DELETE CASCADE,
+  chapter_index INTEGER NOT NULL,
+  paper_ids UUID[] NOT NULL,
+  feed_id UUID REFERENCES feeds(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'locked',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(reading_list_id, chapter_index)
+);
+
+CREATE INDEX ON reading_list_chapters (reading_list_id, chapter_index);
+
 -- User posts (user-authored posts that The Archivist responds to)
 CREATE TABLE user_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
