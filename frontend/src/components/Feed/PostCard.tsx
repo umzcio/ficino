@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   MessageCircle, Repeat2, Heart, Bookmark,
   MoreHorizontal, FileText, ImageIcon, ZoomIn, X, Loader2,
-  RefreshCw, EyeOff, Bug
+  RefreshCw, EyeOff, Bug, Copy, Quote, StickyNote, Trash2
 } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, updateSettings, type ReplyMessage } from '../../lib/api'
@@ -125,6 +125,29 @@ function ActionBtn({
         fill={active && color === 'var(--color-like)' ? color : 'none'}
       />
       {count !== undefined && <span>{formatNum(count)}</span>}
+    </button>
+  )
+}
+
+function MenuItem({
+  icon: Icon, label, onClick, color, disabled, iconClassName,
+}: {
+  icon: typeof MessageCircle
+  label: string
+  onClick: (e: React.MouseEvent) => void
+  color?: string
+  disabled?: boolean
+  iconClassName?: string
+}) {
+  return (
+    <button
+      className="w-full flex items-center gap-3 text-left px-4 py-2.5 text-[14px] hover:bg-bg-hover bg-transparent border-none cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-default"
+      style={{ color: color || 'var(--color-text)' }}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon size={16} strokeWidth={1.75} className={`shrink-0 ${iconClassName || ''}`} style={{ color: color || 'var(--color-text-muted)' }} />
+      {label}
     </button>
   )
 }
@@ -381,112 +404,61 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} />
-                <div className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-lg py-1 min-w-[180px]">
-                  <button
-                    className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMenuOpen(false)
-                      const text = isThread && post.thread_posts
-                        ? post.thread_posts.join('\n\n')
-                        : post.content
-                      copyToClipboard(text, 'Post text')
-                    }}
-                  >
-                    Copy text
-                  </button>
+                <div className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[220px]">
+                  <MenuItem icon={Copy} label="Copy text" onClick={(e) => {
+                    e.stopPropagation(); setMenuOpen(false)
+                    const text = isThread && post.thread_posts ? post.thread_posts.join('\n\n') : post.content
+                    copyToClipboard(text, 'Post text')
+                  }} />
                   {post.sources && post.sources.length > 0 && (
                     <>
-                      <button
-                        className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
-                        onClick={(e) => { e.stopPropagation(); setMenuOpen(false); handleCite('apa') }}
-                      >
-                        Cite (APA)
-                      </button>
-                      <button
-                        className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
-                        onClick={(e) => { e.stopPropagation(); setMenuOpen(false); handleCite('mla') }}
-                      >
-                        Cite (MLA)
-                      </button>
+                      <MenuItem icon={Quote} label="Cite (APA)" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); handleCite('apa') }} />
+                      <MenuItem icon={Quote} label="Cite (MLA)" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); handleCite('mla') }} />
                     </>
                   )}
-                  <div className="border-t border-border my-1" />
-                  <button
-                    className="w-full text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMenuOpen(false)
-                      setNoteText(annotation || '')
-                      setNoteEditing(true)
-                      setTimeout(() => noteRef.current?.focus(), 50)
-                    }}
-                  >
-                    {annotation ? 'Edit note' : 'Add note'}
-                  </button>
+                  <div className="border-t border-border my-1.5 mx-3" />
+                  <MenuItem icon={StickyNote} label={annotation ? 'Edit note' : 'Add note'} onClick={(e) => {
+                    e.stopPropagation(); setMenuOpen(false)
+                    setNoteText(annotation || ''); setNoteEditing(true)
+                    setTimeout(() => noteRef.current?.focus(), 50)
+                  }} />
                   {annotation && (
-                    <button
-                      className="w-full text-left px-3 py-2 text-[13px] text-persona-skeptic hover:bg-bg-hover bg-transparent border-none cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setMenuOpen(false)
-                        if (feedId) onAnnotationDelete?.(feedId, postIndex)
-                      }}
-                    >
-                      Remove note
-                    </button>
+                    <MenuItem icon={Trash2} label="Remove note" color="var(--color-persona-skeptic)" onClick={(e) => {
+                      e.stopPropagation(); setMenuOpen(false)
+                      if (feedId) onAnnotationDelete?.(feedId, postIndex)
+                    }} />
                   )}
-                  <div className="border-t border-border my-1" />
-                  <button
-                    className="w-full flex items-center gap-2 text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer disabled:opacity-40"
+                  <div className="border-t border-border my-1.5 mx-3" />
+                  <MenuItem
+                    icon={RefreshCw}
+                    label={regenerating ? 'Regenerating...' : 'Regenerate'}
+                    iconClassName={regenerating ? 'animate-spin' : ''}
                     disabled={regenerating}
                     onClick={async (e) => {
-                      e.stopPropagation()
-                      setMenuOpen(false)
+                      e.stopPropagation(); setMenuOpen(false)
                       if (!feedId) return
                       setRegenerating(true)
                       try {
                         await regeneratePost(feedId, postIndex)
                         setToast('Regenerating post...')
-                        // Poll briefly then trigger refresh
                         setTimeout(() => { onPostRegenerated?.(); setRegenerating(false) }, 4000)
-                      } catch {
-                        setToast('Failed to regenerate')
-                        setRegenerating(false)
-                      }
+                      } catch { setToast('Failed to regenerate'); setRegenerating(false) }
                     }}
-                  >
-                    <RefreshCw size={13} className={regenerating ? 'animate-spin' : ''} />
-                    {regenerating ? 'Regenerating...' : 'Regenerate'}
-                  </button>
-                  <button
-                    className="w-full flex items-center gap-2 text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
-                    onClick={async (e) => {
-                      e.stopPropagation()
-                      setMenuOpen(false)
-                      try {
-                        await updateSettings({ personas_enabled: { [post.persona]: false } })
-                        setToast(`${p.name} hidden from future feeds`)
-                      } catch {
-                        setToast('Failed to update settings')
-                      }
-                    }}
-                  >
-                    <EyeOff size={13} />
-                    Hide {p.name}
-                  </button>
+                  />
+                  <MenuItem icon={EyeOff} label={`Hide ${p.name}`} onClick={async (e) => {
+                    e.stopPropagation(); setMenuOpen(false)
+                    try {
+                      await updateSettings({ personas_enabled: { [post.persona]: false } })
+                      setToast(`${p.name} hidden from future feeds`)
+                    } catch { setToast('Failed to update settings') }
+                  }} />
                   {import.meta.env.DEV && (
-                    <button
-                      className="w-full flex items-center gap-2 text-left px-3 py-2 text-[13px] text-text-muted hover:bg-bg-hover bg-transparent border-none cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setMenuOpen(false)
-                        setDebugOpen(!debugOpen)
-                      }}
-                    >
-                      <Bug size={13} />
-                      {debugOpen ? 'Hide debug' : 'Debug view'}
-                    </button>
+                    <>
+                      <div className="border-t border-border my-1.5 mx-3" />
+                      <MenuItem icon={Bug} label={debugOpen ? 'Hide debug' : 'Debug view'} color="var(--color-text-muted)" onClick={(e) => {
+                        e.stopPropagation(); setMenuOpen(false); setDebugOpen(!debugOpen)
+                      }} />
+                    </>
                   )}
                 </div>
               </>
