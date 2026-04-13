@@ -8,16 +8,17 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- Users
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  clerk_id TEXT UNIQUE NOT NULL,
+  clerk_id TEXT UNIQUE,
   email TEXT UNIQUE NOT NULL,
+  password_hash TEXT,
+  display_name TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   generation_count_today INTEGER DEFAULT 0,
   generation_reset_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Seed stub user and default workspace (until Clerk auth is implemented)
-INSERT INTO users (id, clerk_id, email) VALUES
-  ('00000000-0000-0000-0000-000000000000', 'stub', 'stub@ficino.dev');
+-- Stub user is created at startup by the API when AUTH_PROVIDER=none.
+-- No seed INSERT here — lifespan handler in main.py manages it.
 
 -- Corpora (named collections of papers per user)
 CREATE TABLE corpora (
@@ -27,8 +28,7 @@ CREATE TABLE corpora (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-INSERT INTO corpora (id, user_id, name) VALUES
-  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'Default');
+-- Default workspace is created at startup by the API when AUTH_PROVIDER=none.
 
 -- Papers
 CREATE TABLE papers (

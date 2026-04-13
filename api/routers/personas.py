@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 from services.llm import generate_response
 
@@ -53,12 +53,13 @@ class PersonaDmRequest(BaseModel):
 @router.get("/{persona_key}/dm")
 async def get_persona_dm(
     persona_key: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Get DM conversation with a persona."""
     row = await db.fetchrow(
         "SELECT id, messages, updated_at FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
-        STUB_USER_ID, persona_key,
+        user.id, persona_key,
     )
     if not row:
         return {"messages": [], "persona_key": persona_key}
@@ -72,13 +73,14 @@ async def get_persona_dm(
 async def send_persona_dm(
     persona_key: str,
     body: PersonaDmRequest,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Send a DM to a persona. Persona responds grounded in the user's corpus."""
     # Get existing conversation
     row = await db.fetchrow(
         "SELECT id, messages FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
-        STUB_USER_ID, persona_key,
+        user.id, persona_key,
     )
     existing: list[dict[str, str]] = []
     dm_id = None
@@ -144,7 +146,7 @@ Do NOT use JSON formatting. Respond naturally.
         row = await db.fetchrow(
             """INSERT INTO persona_dms (user_id, persona_key, messages)
                VALUES ($1, $2, $3) RETURNING id""",
-            STUB_USER_ID, persona_key, messages_json,
+            user.id, persona_key, messages_json,
         )
         dm_id = str(row["id"])
 

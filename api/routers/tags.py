@@ -5,7 +5,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -23,6 +23,7 @@ class PaperTagRequest(BaseModel):
 
 @router.get("")
 async def list_tags(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all tags with paper counts."""
@@ -33,7 +34,7 @@ async def list_tags(
            WHERE t.user_id = $1
            GROUP BY t.id, t.name
            ORDER BY t.name""",
-        STUB_USER_ID,
+        user.id,
     )
     return [
         {"id": str(row["id"]), "name": row["name"], "paper_count": row["paper_count"]}
@@ -44,6 +45,7 @@ async def list_tags(
 @router.post("", status_code=201)
 async def create_tag(
     body: TagCreate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Create a new tag."""
@@ -53,14 +55,14 @@ async def create_tag(
 
     existing = await db.fetchrow(
         "SELECT id FROM tags WHERE user_id = $1 AND name = $2",
-        STUB_USER_ID, name,
+        user.id, name,
     )
     if existing:
         return {"id": str(existing["id"]), "name": name}
 
     row = await db.fetchrow(
         "INSERT INTO tags (user_id, name) VALUES ($1, $2) RETURNING id",
-        STUB_USER_ID, name,
+        user.id, name,
     )
     logger.info("tag_created", name=name)
     return {"id": str(row["id"]), "name": name}
@@ -69,10 +71,11 @@ async def create_tag(
 @router.delete("/{tag_id}", status_code=204)
 async def delete_tag(
     tag_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Delete a tag."""
-    result = await db.execute("DELETE FROM tags WHERE id = $1 AND user_id = $2", tag_id, STUB_USER_ID)
+    result = await db.execute("DELETE FROM tags WHERE id = $1 AND user_id = $2", tag_id, user.id)
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Tag not found")
     logger.info("tag_deleted", tag_id=tag_id)
@@ -81,6 +84,7 @@ async def delete_tag(
 @router.post("/assign", status_code=201)
 async def assign_tag(
     body: PaperTagRequest,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Add a tag to a paper. Creates the tag if it doesn't exist."""
@@ -91,12 +95,12 @@ async def assign_tag(
     # Get or create tag
     tag = await db.fetchrow(
         "SELECT id FROM tags WHERE user_id = $1 AND name = $2",
-        STUB_USER_ID, name,
+        user.id, name,
     )
     if not tag:
         tag = await db.fetchrow(
             "INSERT INTO tags (user_id, name) VALUES ($1, $2) RETURNING id",
-            STUB_USER_ID, name,
+            user.id, name,
         )
 
     tag_id = str(tag["id"])

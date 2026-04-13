@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from config import settings as app_settings
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -73,12 +73,13 @@ class SettingsUpdate(BaseModel):
 
 @router.get("")
 async def get_settings(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Get current settings, merged with defaults."""
     row = await db.fetchrow(
         "SELECT settings FROM user_settings WHERE user_id = $1",
-        STUB_USER_ID,
+        user.id,
     )
 
     user_settings = {}
@@ -101,13 +102,14 @@ async def get_settings(
 @router.put("")
 async def update_settings(
     body: SettingsUpdate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Update settings. Partial updates supported — only send changed keys."""
     # Get existing
     row = await db.fetchrow(
         "SELECT settings FROM user_settings WHERE user_id = $1",
-        STUB_USER_ID,
+        user.id,
     )
 
     existing = {}
@@ -129,7 +131,7 @@ async def update_settings(
         """INSERT INTO user_settings (user_id, settings, updated_at)
            VALUES ($1, $2, NOW())
            ON CONFLICT (user_id) DO UPDATE SET settings = $2, updated_at = NOW()""",
-        STUB_USER_ID, settings_json,
+        user.id, settings_json,
     )
 
     logger.info("settings_updated", keys=list(body.settings.keys()))
@@ -181,10 +183,11 @@ async def list_ollama_models() -> dict[str, list[dict[str, str]]]:
 
 @router.post("/clear-feeds", status_code=200)
 async def clear_all_feeds(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Clear all generated feeds."""
-    await db.execute("DELETE FROM feeds WHERE user_id = $1", STUB_USER_ID)
+    await db.execute("DELETE FROM feeds WHERE user_id = $1", user.id)
     return {"status": "cleared"}
 
 

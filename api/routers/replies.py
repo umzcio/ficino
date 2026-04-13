@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings
-from constants import STUB_USER_ID
 from db.connection import get_db
 from services.llm import generate_response
 

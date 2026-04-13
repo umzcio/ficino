@@ -5,7 +5,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -18,6 +18,7 @@ class AnnotationUpsert(BaseModel):
 
 @router.get("")
 async def list_annotations(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all annotations for the current user."""
@@ -25,7 +26,7 @@ async def list_annotations(
         """SELECT id, feed_id, post_index, body, created_at, updated_at
            FROM annotations WHERE user_id = $1
            ORDER BY updated_at DESC""",
-        STUB_USER_ID,
+        user.id,
     )
     return [
         {
@@ -44,12 +45,13 @@ async def list_annotations(
 async def get_annotation(
     feed_id: str,
     post_index: int,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Get annotation for a specific post."""
     row = await db.fetchrow(
         "SELECT id, body, created_at, updated_at FROM annotations WHERE user_id = $1 AND feed_id = $2 AND post_index = $3",
-        STUB_USER_ID, feed_id, post_index,
+        user.id, feed_id, post_index,
     )
     if not row:
         raise HTTPException(status_code=404, detail="No annotation")
@@ -68,6 +70,7 @@ async def upsert_annotation(
     feed_id: str,
     post_index: int,
     body: AnnotationUpsert,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Create or update an annotation on a post."""
@@ -81,7 +84,7 @@ async def upsert_annotation(
            ON CONFLICT (user_id, feed_id, post_index)
            DO UPDATE SET body = $4, updated_at = NOW()
            RETURNING id, created_at, updated_at""",
-        STUB_USER_ID, feed_id, post_index, text,
+        user.id, feed_id, post_index, text,
     )
     logger.info("annotation_upserted", feed_id=feed_id, post_index=post_index)
     return {
@@ -98,12 +101,13 @@ async def upsert_annotation(
 async def delete_annotation(
     feed_id: str,
     post_index: int,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Delete an annotation."""
     result = await db.execute(
         "DELETE FROM annotations WHERE user_id = $1 AND feed_id = $2 AND post_index = $3",
-        STUB_USER_ID, feed_id, post_index,
+        user.id, feed_id, post_index,
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Annotation not found")

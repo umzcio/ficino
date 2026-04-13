@@ -2,12 +2,25 @@ import type { Paper, Feed, PaperConversation, PaperSummary, GroupChatPreview, Gr
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/ficino/api'
 
+// Auth token getter — set by AuthProvider when using supabase
+let _getAuthToken: (() => string | null) | null = null
+export function setAuthTokenGetter(fn: () => string | null) {
+  _getAuthToken = fn
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) }
+
+  // Inject auth token for supabase provider
+  const token = _getAuthToken?.()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      ...options?.headers,
-    },
+    headers,
+    credentials: 'include',  // Send cookies for basic auth
   })
   if (!res.ok) {
     const text = await res.text()

@@ -34,6 +34,8 @@ import { useUserPosts } from './hooks/useUserPosts'
 import { getFeed, getPaperTldrs } from './lib/api'
 import { useAnnotations } from './hooks/useAnnotations'
 import { ReadingListsView } from './components/ReadingLists/ReadingListsView'
+import { AuthProvider, useAuth } from './auth/AuthContext'
+import { LoginPage } from './auth/LoginPage'
 
 type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'settings'
 
@@ -267,7 +269,30 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
   )
 }
 
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { user, loading, provider } = useAuth()
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg flex items-center justify-center">
+        <Loader2 size={32} className="text-gold animate-spin" />
+      </div>
+    )
+  }
+  if (!user && provider !== 'none') return <LoginPage />
+  return <>{children}</>
+}
+
 export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate>
+        <AppContent />
+      </AuthGate>
+    </AuthProvider>
+  )
+}
+
+function AppContent() {
   const [activeView, setActiveViewRaw] = useState<AppView>('feed')
   const [activeTab, setActiveTab] = useState(0)
   const [activeTag, setActiveTag] = useState<string | null>(null)

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +33,7 @@ class ReadingListReorder(BaseModel):
 @router.get("")
 async def list_reading_lists(
     workspace_id: str | None = None,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List reading lists, optionally scoped to a workspace."""
@@ -41,14 +42,14 @@ async def list_reading_lists(
             """SELECT id, name, paper_sequence, rationale, created_at
                FROM reading_lists WHERE user_id = $1 AND corpus_id = $2
                ORDER BY created_at DESC""",
-            STUB_USER_ID, workspace_id,
+            user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
             """SELECT id, name, paper_sequence, rationale, created_at
                FROM reading_lists WHERE user_id = $1
                ORDER BY created_at DESC""",
-            STUB_USER_ID,
+            user.id,
         )
 
     results = []
@@ -80,12 +81,13 @@ async def list_reading_lists(
 @router.get("/{list_id}")
 async def get_reading_list(
     list_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Get a reading list with its chapters and paper details."""
     row = await db.fetchrow(
         "SELECT id, name, corpus_id, paper_sequence, rationale, created_at FROM reading_lists WHERE id = $1 AND user_id = $2",
-        list_id, STUB_USER_ID,
+        list_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Reading list not found")
@@ -150,6 +152,7 @@ async def get_reading_list(
 @router.post("", status_code=201)
 async def create_reading_list(
     body: ReadingListCreate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Create a reading list. Dispatches AI ordering if paper_ids provided."""
@@ -172,7 +175,7 @@ async def create_reading_list(
     row = await db.fetchrow(
         """INSERT INTO reading_lists (user_id, corpus_id, name, paper_sequence)
            VALUES ($1, $2, $3, $4) RETURNING id""",
-        STUB_USER_ID, body.corpus_id, body.name, paper_ids,
+        user.id, body.corpus_id, body.name, paper_ids,
     )
     list_id = str(row["id"])
 
@@ -200,12 +203,13 @@ async def create_reading_list(
 async def reorder_reading_list(
     list_id: str,
     body: ReadingListReorder,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Reorder papers in a reading list. Rebuilds chapters."""
     row = await db.fetchrow(
         "SELECT id FROM reading_lists WHERE id = $1 AND user_id = $2",
-        list_id, STUB_USER_ID,
+        list_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Reading list not found")
@@ -251,12 +255,13 @@ async def reorder_reading_list(
 async def apply_ai_ordering(
     list_id: str,
     body: dict,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Apply AI-proposed ordering to a reading list. Called after ordering task completes."""
     row = await db.fetchrow(
         "SELECT id FROM reading_lists WHERE id = $1 AND user_id = $2",
-        list_id, STUB_USER_ID,
+        list_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Reading list not found")
@@ -320,12 +325,13 @@ async def generate_chapter(
 @router.delete("/{list_id}", status_code=204)
 async def delete_reading_list(
     list_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Delete a reading list and its chapters."""
     result = await db.execute(
         "DELETE FROM reading_lists WHERE id = $1 AND user_id = $2",
-        list_id, STUB_USER_ID,
+        list_id, user.id,
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Reading list not found")

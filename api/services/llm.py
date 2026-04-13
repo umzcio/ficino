@@ -16,7 +16,7 @@ from constants import STUB_USER_ID
 logger = structlog.get_logger(__name__)
 
 
-async def get_llm_config(db: asyncpg.Connection) -> dict[str, str]:
+async def get_llm_config(db: asyncpg.Connection, user_id: str = "") -> dict[str, str]:
     """Load LLM config merged from env defaults + user DB settings."""
     config = {
         "llm_provider": env_settings.llm_provider,
@@ -28,7 +28,7 @@ async def get_llm_config(db: asyncpg.Connection) -> dict[str, str]:
 
     row = await db.fetchrow(
         "SELECT settings FROM user_settings WHERE user_id = $1",
-        STUB_USER_ID,
+        user_id or STUB_USER_ID,
     )
     if row:
         user = row["settings"]
@@ -47,9 +47,10 @@ async def generate_response(
     messages: list[dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.7,
+    user_id: str = "",
 ) -> str:
     """Generate an LLM response using the user's configured provider."""
-    cfg = await get_llm_config(db)
+    cfg = await get_llm_config(db, user_id=user_id)
 
     if cfg["llm_provider"] == "ollama":
         async with httpx.AsyncClient(timeout=120.0) as client:

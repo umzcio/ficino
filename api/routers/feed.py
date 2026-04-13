@@ -9,7 +9,7 @@ from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
 
 from config import settings
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 from models.feed import Feed, FeedGenerateRequest
 
@@ -24,6 +24,7 @@ def _get_celery() -> Celery:
 @router.post("/generate", status_code=202)
 async def generate_feed(
     body: FeedGenerateRequest,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Trigger feed generation for a corpus.
@@ -45,7 +46,7 @@ async def generate_feed(
     kwargs: dict[str, object] = {
         "corpus_id": str(body.corpus_id) if body.corpus_id else None,
         "tag_filter": body.tag_filter,
-        "user_id": STUB_USER_ID,  # stub until auth
+        "user_id": user.id,
     }
     if body.append_to_feed_id:
         kwargs["append_to_feed_id"] = body.append_to_feed_id

@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from redis import Redis
 
 from config import settings
-from constants import STUB_USER_ID, DEFAULT_WORKSPACE_ID
+from auth import AuthUser, get_current_user
+from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
 from models.paper import Paper
 
@@ -28,6 +29,7 @@ def _get_redis() -> Redis:
 async def upload_paper(
     file: UploadFile,
     workspace_id: str | None = None,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> Paper:
     """Upload a PDF paper for processing."""
@@ -47,17 +49,6 @@ async def upload_paper(
     with open(file_path, "wb") as f:
         f.write(contents)
 
-    # Create paper record in DB
-    # For now use a stub user_id since auth isn't implemented yet
-
-    # Ensure stub user exists
-    existing = await db.fetchrow("SELECT id FROM users WHERE id = $1", STUB_USER_ID)
-    if not existing:
-        await db.execute(
-            "INSERT INTO users (id, clerk_id, email) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-            STUB_USER_ID, "stub", "stub@ficino.dev",
-        )
-
     # Use provided workspace or default
     corpus_id = workspace_id or DEFAULT_WORKSPACE_ID
 
@@ -72,7 +63,7 @@ async def upload_paper(
         await db.execute(
             """INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status, uploaded_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            paper_id, STUB_USER_ID, corpus_id, file.filename, file_path, "pending", now,
+            paper_id, user.id, corpus_id, file.filename, file_path, "pending", now,
         )
     except asyncpg.ForeignKeyViolationError:
         os.remove(file_path)
@@ -93,7 +84,7 @@ async def upload_paper(
 
     return Paper(
         id=uuid.UUID(paper_id),
-        user_id=uuid.UUID(STUB_USER_ID),
+        user_id=uuid.UUID(user.id),
         filename=file.filename,
         status="pending",
         uploaded_at=now,
@@ -203,6 +194,7 @@ async def get_paper(
 @router.delete("/{paper_id}", status_code=204)
 async def delete_paper(
     paper_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Delete a paper and its associated chunks, feeds, and alerts."""
@@ -224,7 +216,7 @@ async def delete_paper(
             await db.execute("DELETE FROM feeds WHERE corpus_id = $1", corpus_id)
             await db.execute(
                 "DELETE FROM alerts WHERE user_id = $1",
-                STUB_USER_ID,
+                user.id,
             )
             logger.info("workspace_feeds_alerts_cleared", corpus_id=corpus_id)
 

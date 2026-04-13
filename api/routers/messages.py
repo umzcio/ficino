@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -201,6 +201,7 @@ async def list_group_chats(
 @router.post("/groups", status_code=202)
 async def create_group_chat(
     body: SynthesisCreateRequest,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Create a new corpus synthesis group chat."""
@@ -208,7 +209,7 @@ async def create_group_chat(
         raise HTTPException(status_code=400, detail="Need at least 2 papers for a group chat")
 
     synthesis_id = str(uuid.uuid4())
-    user_id = STUB_USER_ID  # stub until auth
+    user_id = user.id
 
     celery_app = _get_celery()
     task = celery_app.send_task(

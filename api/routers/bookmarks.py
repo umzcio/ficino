@@ -7,7 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -23,6 +23,7 @@ class BookmarkCreate(BaseModel):
 
 @router.get("")
 async def list_bookmarks(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all bookmarked posts for the current user, newest first."""
@@ -31,7 +32,7 @@ async def list_bookmarks(
            FROM bookmarks
            WHERE user_id = $1
            ORDER BY bookmarked_at DESC""",
-        STUB_USER_ID,
+        user.id,
     )
     results = []
     for row in rows:
@@ -52,13 +53,14 @@ async def list_bookmarks(
 @router.post("", status_code=201)
 async def create_bookmark(
     body: BookmarkCreate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Bookmark a post by saving a snapshot."""
     # Check if already bookmarked
     existing = await db.fetchrow(
         "SELECT id FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
-        STUB_USER_ID, body.feed_id, body.post_index, body.message_index,
+        user.id, body.feed_id, body.post_index, body.message_index,
     )
     if existing:
         return {"id": str(existing["id"]), "status": "already_bookmarked"}
@@ -67,7 +69,7 @@ async def create_bookmark(
     row = await db.fetchrow(
         """INSERT INTO bookmarks (user_id, feed_id, post_index, message_index, post_snapshot)
            VALUES ($1, $2, $3, $4, $5) RETURNING id""",
-        STUB_USER_ID, body.feed_id, body.post_index, body.message_index, snapshot_json,
+        user.id, body.feed_id, body.post_index, body.message_index, snapshot_json,
     )
     logger.info("bookmark_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
     return {"id": str(row["id"]), "status": "created"}
@@ -76,12 +78,13 @@ async def create_bookmark(
 @router.delete("/{bookmark_id}", status_code=204)
 async def delete_bookmark(
     bookmark_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Remove a bookmark."""
     result = await db.execute(
         "DELETE FROM bookmarks WHERE id = $1 AND user_id = $2",
-        bookmark_id, STUB_USER_ID,
+        bookmark_id, user.id,
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Bookmark not found")
@@ -93,10 +96,11 @@ async def delete_bookmark_by_post(
     feed_id: str,
     post_index: int,
     message_index: int = -1,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Remove a bookmark by feed_id + post_index + message_index."""
     await db.execute(
         "DELETE FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
-        STUB_USER_ID, feed_id, post_index, message_index,
+        user.id, feed_id, post_index, message_index,
     )

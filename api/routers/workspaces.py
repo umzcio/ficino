@@ -5,7 +5,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from constants import STUB_USER_ID, DEFAULT_WORKSPACE_ID
+from auth import AuthUser, get_current_user
+from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -22,6 +23,7 @@ class WorkspaceUpdate(BaseModel):
 
 @router.get("")
 async def list_workspaces(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all workspaces with paper/feed counts."""
@@ -36,7 +38,7 @@ async def list_workspaces(
            WHERE c.user_id = $1
            GROUP BY c.id
            ORDER BY last_activity DESC NULLS LAST""",
-        STUB_USER_ID,
+        user.id,
     )
     return [
         {
@@ -54,6 +56,7 @@ async def list_workspaces(
 @router.post("", status_code=201)
 async def create_workspace(
     body: WorkspaceCreate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Create a new workspace."""
@@ -63,7 +66,7 @@ async def create_workspace(
 
     row = await db.fetchrow(
         "INSERT INTO corpora (user_id, name) VALUES ($1, $2) RETURNING id",
-        STUB_USER_ID, name,
+        user.id, name,
     )
     logger.info("workspace_created", name=name)
     return {"id": str(row["id"]), "name": name}
@@ -73,6 +76,7 @@ async def create_workspace(
 async def update_workspace(
     workspace_id: str,
     body: WorkspaceUpdate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Rename a workspace."""
@@ -82,7 +86,7 @@ async def update_workspace(
 
     result = await db.execute(
         "UPDATE corpora SET name = $1 WHERE id = $2 AND user_id = $3",
-        name, workspace_id, STUB_USER_ID,
+        name, workspace_id, user.id,
     )
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -92,6 +96,7 @@ async def update_workspace(
 @router.delete("/{workspace_id}", status_code=204)
 async def delete_workspace(
     workspace_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Delete a workspace. Cannot delete the last workspace."""
@@ -99,7 +104,7 @@ async def delete_workspace(
         raise HTTPException(status_code=400, detail="Cannot delete the default workspace")
 
     count = await db.fetchval(
-        "SELECT COUNT(*) FROM corpora WHERE user_id = $1", STUB_USER_ID
+        "SELECT COUNT(*) FROM corpora WHERE user_id = $1", user.id
     )
     if count <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete your only workspace")
@@ -111,7 +116,7 @@ async def delete_workspace(
     )
     await db.execute(
         "DELETE FROM corpora WHERE id = $1 AND user_id = $2",
-        workspace_id, STUB_USER_ID,
+        workspace_id, user.id,
     )
     logger.info("workspace_deleted", workspace_id=workspace_id)
 

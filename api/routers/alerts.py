@@ -6,7 +6,7 @@ import asyncpg
 import structlog
 from fastapi import APIRouter, Depends
 
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -15,6 +15,7 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 @router.get("")
 async def list_alerts(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all non-dismissed alerts, newest first."""
@@ -24,7 +25,7 @@ async def list_alerts(
            WHERE user_id = $1 AND dismissed = false
            ORDER BY created_at DESC
            LIMIT 50""",
-        STUB_USER_ID,
+        user.id,
     )
     results = []
     for row in rows:
@@ -45,12 +46,13 @@ async def list_alerts(
 
 @router.get("/unread-count")
 async def get_unread_count(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, int]:
     """Get count of unread alerts."""
     count = await db.fetchval(
         "SELECT COUNT(*) FROM alerts WHERE user_id = $1 AND read = false AND dismissed = false",
-        STUB_USER_ID,
+        user.id,
     )
     return {"count": count}
 
@@ -58,24 +60,26 @@ async def get_unread_count(
 @router.put("/{alert_id}/read")
 async def mark_read(
     alert_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Mark an alert as read."""
     await db.execute(
         "UPDATE alerts SET read = true WHERE id = $1 AND user_id = $2",
-        alert_id, STUB_USER_ID,
+        alert_id, user.id,
     )
     return {"status": "ok"}
 
 
 @router.put("/read-all")
 async def mark_all_read(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Mark all alerts as read."""
     await db.execute(
         "UPDATE alerts SET read = true WHERE user_id = $1 AND dismissed = false",
-        STUB_USER_ID,
+        user.id,
     )
     return {"status": "ok"}
 
@@ -83,11 +87,12 @@ async def mark_all_read(
 @router.delete("/{alert_id}")
 async def dismiss_alert(
     alert_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Dismiss an alert (hide it permanently)."""
     await db.execute(
         "UPDATE alerts SET dismissed = true WHERE id = $1 AND user_id = $2",
-        alert_id, STUB_USER_ID,
+        alert_id, user.id,
     )
     return {"status": "ok"}

@@ -23,13 +23,14 @@ logger = structlog.get_logger(__name__)
 
 
 def _create_alert(
-    alert_type: str, title: str, body: str, metadata: dict | None = None
+    alert_type: str, title: str, body: str, metadata: dict | None = None, user_id: str | None = None
 ) -> None:
     """Insert an alert into the database."""
+    uid = user_id or STUB_USER_ID
     execute(
         """INSERT INTO alerts (user_id, alert_type, title, body, metadata)
            VALUES ($1, $2, $3, $4, $5)""",
-        STUB_USER_ID,
+        uid,
         alert_type,
         title,
         body,

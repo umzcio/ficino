@@ -1,39 +1,57 @@
 """User profile and corpus management endpoints."""
 
-from datetime import datetime, timezone
-from uuid import uuid4
-
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
-from models.user import User, UserUpdate
+from auth import AuthUser, get_current_user
+from db.connection import get_db
+from models.user import UserUpdate
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/me", response_model=User)
-async def get_current_user() -> User:
+@router.get("/me")
+async def get_current_user_profile(
+    user: AuthUser = Depends(get_current_user),
+    db=Depends(get_db),
+):
     """Return the authenticated user's profile."""
-    logger.info("user_me_stub")
-    return User(
-        id=uuid4(),
-        email="stub@ficino.dev",
-        display_name="Stub User",
-        corpora=[],
-        created_at=datetime.now(timezone.utc),
+    row = await db.fetchrow(
+        "SELECT id, email, display_name, created_at FROM users WHERE id = $1",
+        user.id,
     )
+    if not row:
+        raise HTTPException(404, "User not found")
+    return {
+        "id": str(row["id"]),
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "created_at": row["created_at"],
+    }
 
 
-@router.put("/me", response_model=User)
-async def update_current_user(body: UserUpdate) -> User:
+@router.put("/me")
+async def update_user_profile(
+    body: UserUpdate,
+    user: AuthUser = Depends(get_current_user),
+    db=Depends(get_db),
+):
     """Update the authenticated user's profile."""
-    logger.info("user_update_stub", updates=body.model_dump(exclude_unset=True))
-    return User(
-        id=uuid4(),
-        email="stub@ficino.dev",
-        display_name=body.display_name or "Stub User",
-        default_corpus_id=body.default_corpus_id,
-        corpora=[],
-        created_at=datetime.now(timezone.utc),
+    updates = body.model_dump(exclude_unset=True)
+    if "display_name" in updates:
+        await db.execute(
+            "UPDATE users SET display_name = $1 WHERE id = $2",
+            updates["display_name"],
+            user.id,
+        )
+    row = await db.fetchrow(
+        "SELECT id, email, display_name, created_at FROM users WHERE id = $1",
+        user.id,
     )
+    return {
+        "id": str(row["id"]),
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "created_at": row["created_at"],
+    }

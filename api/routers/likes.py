@@ -7,7 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +26,7 @@ class LikeCreate(BaseModel):
 @router.get("/feed/{feed_id}")
 async def list_likes_for_feed(
     feed_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Return liked post indices and reply message indices for this feed.
@@ -36,7 +37,7 @@ async def list_likes_for_feed(
     """
     rows = await db.fetch(
         "SELECT post_index, message_index FROM user_likes WHERE user_id = $1 AND feed_id = $2",
-        STUB_USER_ID, feed_id,
+        user.id, feed_id,
     )
     posts = []
     replies: dict[str, bool] = {}
@@ -51,12 +52,13 @@ async def list_likes_for_feed(
 @router.post("", status_code=201)
 async def create_like(
     body: LikeCreate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Like a post or reply message. Idempotent."""
     existing = await db.fetchrow(
         "SELECT id FROM user_likes WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
-        STUB_USER_ID, body.feed_id, body.post_index, body.message_index,
+        user.id, body.feed_id, body.post_index, body.message_index,
     )
     if existing:
         return {"id": str(existing["id"]), "status": "already_liked"}
@@ -64,7 +66,7 @@ async def create_like(
     row = await db.fetchrow(
         """INSERT INTO user_likes (user_id, feed_id, post_index, message_index, persona_key, post_type, category)
            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
-        STUB_USER_ID, body.feed_id, body.post_index, body.message_index,
+        user.id, body.feed_id, body.post_index, body.message_index,
         body.persona_key, body.post_type, body.category,
     )
     logger.info("like_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
@@ -76,12 +78,13 @@ async def delete_like(
     feed_id: str,
     post_index: int,
     message_index: int = -1,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Unlike a post or reply message."""
     result = await db.execute(
         "DELETE FROM user_likes WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
-        STUB_USER_ID, feed_id, post_index, message_index,
+        user.id, feed_id, post_index, message_index,
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Like not found")
@@ -90,12 +93,13 @@ async def delete_like(
 
 @router.get("/preferences")
 async def get_preferences(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Return computed preference profile from likes data."""
     row = await db.fetchrow(
         "SELECT settings FROM user_settings WHERE user_id = $1",
-        STUB_USER_ID,
+        user.id,
     )
     if row:
         settings = row["settings"]
@@ -107,7 +111,7 @@ async def get_preferences(
 
     likes = await db.fetch(
         "SELECT persona_key, post_type, category FROM user_likes WHERE user_id = $1",
-        STUB_USER_ID,
+        user.id,
     )
     total = len(likes)
     return {
@@ -122,11 +126,12 @@ async def get_preferences(
 
 @router.get("/stats")
 async def get_like_stats(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Quick stats on like activity."""
     total = await db.fetchval(
         "SELECT COUNT(*) FROM user_likes WHERE user_id = $1",
-        STUB_USER_ID,
+        user.id,
     )
     return {"total_likes": total}

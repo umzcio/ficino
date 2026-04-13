@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import settings
-from db.connection import close_pool, create_pool
+from constants import STUB_USER_ID, DEFAULT_WORKSPACE_ID
+from db.connection import close_pool, create_pool, get_db
 from routers import alerts as alerts_router, annotations, bookmarks, citations, feed, likes, messages, papers, personas, reading_lists, replies, search, settings as settings_router, tags, user_posts, users, workspaces
 
 logger = structlog.get_logger(__name__)
@@ -18,8 +19,26 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle: DB pool creation and teardown."""
-    logger.info("startup", environment=settings.environment)
-    await create_pool()
+    logger.info("startup", environment=settings.environment, auth_provider=settings.auth_provider)
+    pool = await create_pool()
+
+    # For AUTH_PROVIDER=none, ensure stub user + default workspace exist
+    if settings.auth_provider == "none":
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO users (id, clerk_id, email)
+                   VALUES ($1, 'stub', 'stub@ficino.dev')
+                   ON CONFLICT (id) DO NOTHING""",
+                STUB_USER_ID,
+            )
+            await conn.execute(
+                """INSERT INTO corpora (id, user_id, name)
+                   VALUES ($1, $2, 'Default')
+                   ON CONFLICT (id) DO NOTHING""",
+                DEFAULT_WORKSPACE_ID, STUB_USER_ID,
+            )
+        logger.info("stub_user_ensured")
+
     yield
     await close_pool()
     logger.info("shutdown")
@@ -36,7 +55,7 @@ app = FastAPI(
 if settings.environment == "development":
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -49,6 +68,17 @@ else:
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["*"],
     )
+
+# Auth provider discovery endpoint (unauthenticated)
+@app.get("/auth/provider")
+async def get_auth_provider() -> dict[str, str]:
+    """Return the configured auth provider. Frontend uses this to decide which login flow to show."""
+    return {"provider": settings.auth_provider}
+
+# Mount basic auth routes only when provider is basic
+if settings.auth_provider == "basic":
+    from auth.basic_routes import router as basic_auth_router
+    app.include_router(basic_auth_router)
 
 app.include_router(alerts_router.router)
 app.include_router(annotations.router)

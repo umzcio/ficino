@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     voyage_api_key: str = ""
     claude_model: str = "claude-sonnet-4-6"
 
+    # Auth
+    auth_provider: str = "none"  # "none", "basic", "supabase"
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_jwt_secret: str = ""
+    allow_registration: bool = True  # basic provider: allow new signups
+
     # App
     environment: str = "development"
     max_upload_size_mb: int = 50

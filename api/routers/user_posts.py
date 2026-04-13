@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings
-from constants import STUB_USER_ID
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +28,7 @@ class UserPostCreate(BaseModel):
 @router.get("")
 async def list_user_posts(
     workspace_id: str | None = None,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List user posts, optionally scoped to a workspace. Newest first."""
@@ -37,7 +38,7 @@ async def list_user_posts(
                FROM user_posts
                WHERE user_id = $1 AND corpus_id = $2
                ORDER BY created_at DESC LIMIT 50""",
-            STUB_USER_ID, workspace_id,
+            user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
@@ -45,7 +46,7 @@ async def list_user_posts(
                FROM user_posts
                WHERE user_id = $1
                ORDER BY created_at DESC LIMIT 50""",
-            STUB_USER_ID,
+            user.id,
         )
 
     results = []
@@ -70,13 +71,14 @@ async def list_user_posts(
 @router.get("/{post_id}")
 async def get_user_post(
     post_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Get a single user post with its Archivist reply."""
     row = await db.fetchrow(
         """SELECT id, content, replies, sources, status, created_at
            FROM user_posts WHERE id = $1 AND user_id = $2""",
-        post_id, STUB_USER_ID,
+        post_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -101,13 +103,14 @@ async def get_user_post(
 @router.post("", status_code=201)
 async def create_user_post(
     body: UserPostCreate,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Create a user post and dispatch The Archivist to respond."""
     row = await db.fetchrow(
         """INSERT INTO user_posts (user_id, corpus_id, content, status)
            VALUES ($1, $2, $3, 'pending') RETURNING id""",
-        STUB_USER_ID, body.corpus_id, body.content,
+        user.id, body.corpus_id, body.content,
     )
     post_id = str(row["id"])
 
@@ -131,12 +134,13 @@ async def create_user_post(
 @router.delete("/{post_id}", status_code=204)
 async def delete_user_post(
     post_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Delete a user post."""
     result = await db.execute(
         "DELETE FROM user_posts WHERE id = $1 AND user_id = $2",
-        post_id, STUB_USER_ID,
+        post_id, user.id,
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Post not found")

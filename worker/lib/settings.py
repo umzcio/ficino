@@ -59,11 +59,12 @@ _SETTINGS_TO_ENV = {
 }
 
 
-def get_user_settings() -> dict:
+def get_user_settings(user_id: str | None = None) -> dict:
     """Fetch and merge user settings with defaults."""
+    uid = user_id or STUB_USER_ID
     row = fetchrow(
         "SELECT settings FROM user_settings WHERE user_id = $1",
-        STUB_USER_ID,
+        uid,
     )
     user = {}
     if row:
@@ -80,13 +81,13 @@ def get_user_settings() -> dict:
     return merged
 
 
-def apply_provider_settings() -> dict:
+def apply_provider_settings(user_id: str | None = None) -> dict:
     """Load user settings and apply provider config to env vars.
 
     Call this at the start of any worker task that uses LLM or embeddings.
     Returns the merged settings dict.
     """
-    settings = get_user_settings()
+    settings = get_user_settings(user_id)
 
     for setting_key, env_var in _SETTINGS_TO_ENV.items():
         value = settings.get(setting_key)
