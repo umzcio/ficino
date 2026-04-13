@@ -647,11 +647,11 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                 <span className="text-text-muted">replying_to</span>
                 <span className="text-text">{post.replying_to}</span>
               </>}
-              {post.quoting && <>
+              {post.quoting_handle && <>
                 <span className="text-text-muted">quoting</span>
-                <span className="text-text">{post.quoting}</span>
+                <span className="text-text">{post.quoting_handle}</span>
               </>}
-              {(post as Record<string, unknown>).regenerated && <>
+              {'regenerated' in post && <>
                 <span className="text-text-muted">regenerated</span>
                 <span className="text-gold">true</span>
               </>}
