@@ -33,6 +33,14 @@ Everything below is live in production.
 | **Auto-tagging** | Papers automatically receive 2-3 topic tags during ingestion (piggybacks on the metadata extraction LLM call) |
 | **Metadata extraction** | Title, authors, year, DOI auto-detected from PDF content |
 
+### Ask Your Corpus
+| Feature | Description |
+|---------|-------------|
+| **User posts** | Compose box at the top of the feed. Type a question or thought — it appears in the timeline like any persona post |
+| **The Archivist** | A neutral 6th persona (`@the_archivist`) that responds to user posts with RAG-grounded answers. Hybrid retrieval (top 15 chunks), citation-rich, no persona voice — just accurate synthesis |
+| **User profile** | Click your avatar to view all your posts and Archivist replies. Configurable display name and handle in Settings |
+| **Source transparency** | Every Archivist reply includes expandable source chunks with relevance scores, just like persona posts |
+
 ### Interaction
 | Feature | Description |
 |---------|-------------|
@@ -88,10 +96,6 @@ Everything below is live in production.
 ## Next Up
 
 Features that are designed and ready to build.
-
-### Ask Your Corpus (Conversational RAG)
-
-Type a question in the DM view → RAG retrieval → direct answer with citations. Like DMing a research assistant who's read all your papers. Could support follow-up questions. Persona DMs are halfway there — this extends it beyond a single persona's lens.
 
 ### Custom Personas
 

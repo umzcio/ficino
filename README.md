@@ -62,8 +62,9 @@ Five AI personas with distinct epistemic styles, each grounded in RAG-retrieved 
 | `@real_world_ml` | **Practitioner Pat** | Asks "does this work outside R1 institutions?" |
 | `@stats_nerd` | **Stats Nerd** | Threads out methodology, flags construct validity |
 | `@phd_suffering` | **PhD Candidate** | Relatable confusion, asks the questions readers are afraid to ask |
+| `@the_archivist` | **The Archivist** | Neutral research assistant — answers your questions with citations, no persona voice |
 
-Each persona can be enabled/disabled and configured via Settings. You can reply to any persona and have a multi-turn conversation grounded in your paper content.
+Each persona can be enabled/disabled and configured via Settings. You can reply to any persona and have a multi-turn conversation grounded in your paper content. The Archivist responds to your own posts in the feed via the compose box.
 
 ---
 
@@ -80,6 +81,12 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Paper summaries**: tap a paper in Messages to get a structured TL;DR + 7-part breakdown
 - **Group chats**: select multiple papers for cross-corpus synthesis (agreements, contradictions, gaps)
 - **Cached**: summaries generate once, load instantly on return
+
+### Ask Your Corpus
+- **Compose box**: type a question at the top of the feed — your post appears in the timeline
+- **The Archivist**: neutral 6th persona that responds to your posts with RAG-grounded answers, hybrid retrieval (top 15 chunks), citation-rich
+- **User profile**: view all your posts and Archivist replies on your profile page
+- **Source transparency**: every Archivist reply includes expandable source chunks with relevance scores
 
 ### Organization
 - **Workspaces**: named research contexts (dissertation, conference paper, grant proposal)
