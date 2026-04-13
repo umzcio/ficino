@@ -1,6 +1,7 @@
 import { ArrowLeft } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { usePersonas, type PersonaMap } from '../../hooks/usePersonas'
+import { useLikes } from '../../hooks/useLikes'
 import { PostCard, InlineMd } from './PostCard'
 
 interface PostDetailProps {
@@ -111,6 +112,7 @@ export function PostDetail({
   autoOpenReply,
 }: PostDetailProps) {
   const personas = usePersonas()
+  const { isLiked, toggle: toggleLike } = useLikes(feedId)
 
   // Find parent post for replies
   const parent = post.replying_to
@@ -156,6 +158,8 @@ export function PostDetail({
         onAnnotationSave={onAnnotationSave}
         onAnnotationDelete={onAnnotationDelete}
         autoOpenReply={autoOpenReply}
+        liked={isLiked(postIndex)}
+        onLikeToggle={toggleLike}
       />
 
       {/* If quote post, make the quoted block navigable */}
@@ -200,6 +204,8 @@ export function PostDetail({
                 onAnnotationSave={onAnnotationSave}
                 onAnnotationDelete={onAnnotationDelete}
                 onClick={() => onNavigateToPost(di)}
+                liked={isLiked(di)}
+                onLikeToggle={toggleLike}
               />
             ))}
           </div>

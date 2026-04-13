@@ -322,6 +322,23 @@ export async function deleteBookmark(bookmarkId: string): Promise<void> {
   return request(`/bookmarks/${bookmarkId}`, { method: 'DELETE' })
 }
 
+// Likes
+export async function listLikesForFeed(feedId: string): Promise<number[]> {
+  return request<number[]>(`/likes/feed/${feedId}`)
+}
+
+export async function createLike(feedId: string, postIndex: number, personaKey?: string, postType?: string, category?: string): Promise<{ id: string }> {
+  return request('/likes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feed_id: feedId, post_index: postIndex, persona_key: personaKey, post_type: postType, category: category }),
+  })
+}
+
+export async function deleteLike(feedId: string, postIndex: number): Promise<void> {
+  return request(`/likes/feed/${feedId}/${postIndex}`, { method: 'DELETE' })
+}
+
 // Tags
 export async function listTags(): Promise<{ id: string; name: string; paper_count: number }[]> {
   return request('/tags')

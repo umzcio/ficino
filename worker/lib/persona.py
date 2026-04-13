@@ -302,19 +302,46 @@ def plan_feed_posts(
     num_posts: int = 12,
     enabled_personas: set[str] | None = None,
     custom_weights: dict[str, float] | None = None,
+    preferences: dict | None = None,
 ) -> list[dict[str, str]]:
     """Plan the sequence of posts for a feed generation.
 
     Returns a list of {persona, post_type} assignments that create
     a natural-feeling discourse timeline.
+
+    If preferences are provided (from Phase 2 like aggregation),
+    they are blended with the manual weights. The blend ratio is
+    controlled by PREFERENCE_BLEND in preference_tasks.
     """
     persona_keys = [k for k in PERSONAS if not enabled_personas or k in enabled_personas]
     if not persona_keys:
         persona_keys = list(PERSONAS.keys())
 
     weights_map = custom_weights or POST_TYPE_WEIGHTS
+
+    # Blend learned post-type preferences with manual weights
+    if preferences and preferences.get("has_signal"):
+        from tasks.preference_tasks import PREFERENCE_BLEND
+        learned_type_weights = preferences.get("post_type_weights", {})
+        if learned_type_weights:
+            weights_map = _blend_weights(weights_map, learned_type_weights, PREFERENCE_BLEND)
+            logger.info("preferences_blended_types", manual=custom_weights, learned=learned_type_weights, blended=weights_map)
+
     post_types = list(weights_map.keys())
     weights = list(weights_map.values())
+
+    # Build persona selection weights (uniform by default, biased by preferences)
+    persona_weights = {k: 1.0 for k in persona_keys}
+    if preferences and preferences.get("has_signal"):
+        from tasks.preference_tasks import PREFERENCE_BLEND
+        learned_persona = preferences.get("persona_weights", {})
+        if learned_persona:
+            # Build a uniform baseline
+            uniform = {k: 1.0 / len(persona_keys) for k in persona_keys}
+            blended = _blend_weights(uniform, learned_persona, PREFERENCE_BLEND)
+            # Only keep enabled personas
+            persona_weights = {k: blended.get(k, 0.01) for k in persona_keys}
+            logger.info("preferences_blended_personas", learned=learned_persona, blended=persona_weights)
 
     plan: list[dict[str, str]] = []
 
@@ -325,9 +352,37 @@ def plan_feed_posts(
 
     # Fill remaining with weighted random selection
     remaining = num_posts - len(plan)
+    p_keys = list(persona_weights.keys())
+    p_weights = list(persona_weights.values())
+
     for _ in range(remaining):
-        persona = random.choice(persona_keys)
+        persona = random.choices(p_keys, weights=p_weights, k=1)[0]
         post_type = random.choices(post_types, weights=weights, k=1)[0]
         plan.append({"persona": persona, "post_type": post_type})
 
     return plan
+
+
+def _blend_weights(
+    manual: dict[str, float],
+    learned: dict[str, float],
+    blend: float,
+) -> dict[str, float]:
+    """Blend manual and learned weights.
+
+    blend=0.0 → all manual, blend=1.0 → all learned.
+    Ensures all keys from manual remain, learned keys not in manual are added.
+    Result is normalized to sum to 1.0.
+    """
+    all_keys = set(manual) | set(learned)
+    blended = {}
+    for k in all_keys:
+        m = manual.get(k, 0.0)
+        l = learned.get(k, 0.0)
+        blended[k] = m * (1 - blend) + l * blend
+
+    # Normalize
+    total = sum(blended.values())
+    if total > 0:
+        blended = {k: round(v / total, 4) for k, v in blended.items()}
+    return blended

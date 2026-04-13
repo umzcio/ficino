@@ -15,6 +15,10 @@ CREATE TABLE users (
   generation_reset_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Seed stub user and default workspace (until Clerk auth is implemented)
+INSERT INTO users (id, clerk_id, email) VALUES
+  ('00000000-0000-0000-0000-000000000000', 'stub', 'stub@ficino.dev');
+
 -- Corpora (named collections of papers per user)
 CREATE TABLE corpora (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -22,6 +26,9 @@ CREATE TABLE corpora (
   name TEXT NOT NULL DEFAULT 'Default',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+INSERT INTO corpora (id, user_id, name) VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'Default');
 
 -- Papers
 CREATE TABLE papers (
@@ -184,6 +191,21 @@ CREATE TABLE alerts (
 );
 
 CREATE INDEX ON alerts (user_id, read, dismissed, created_at DESC);
+
+-- User likes (persistent like state for posts)
+CREATE TABLE user_likes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  feed_id UUID REFERENCES feeds(id) ON DELETE CASCADE,
+  post_index INTEGER NOT NULL,
+  persona_key TEXT,
+  post_type TEXT,
+  category TEXT,
+  liked_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, feed_id, post_index)
+);
+
+CREATE INDEX ON user_likes (user_id, feed_id);
 
 -- User settings (JSONB for flexibility)
 CREATE TABLE user_settings (

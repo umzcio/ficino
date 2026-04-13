@@ -12,7 +12,8 @@
 
 <p align="center">
   <strong>AI-powered academic discourse engine</strong><br/>
-  Transform dense research papers into a simulated social media feed where AI personas debate the findings.
+  Transform dense research papers into a simulated social media feed where AI personas debate the findings.<br/><br/>
+  <a href="https://ficino.ai">ficino.ai</a> · <a href="https://docs.ficino.ai">Docs</a> · <a href="https://github.com/umzcio/ficino/blob/main/FEATURES.md">Roadmap</a>
 </p>
 
 <p align="center">
@@ -105,6 +106,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Contradiction alerts**: notified when a new paper contradicts existing corpus
 - **Disagreement spikes**: flagged when feed generation produces unusual debate volume
 - **Reading gap nudges**: prompted to go deeper on papers you've debated but not summarized
+- **Stale corpus nudges**: reminded about papers sitting for 7+ days without any generated discourse
 
 ### Configuration
 - **LLM provider switching**: toggle between Ollama (local, free) and Claude/OpenAI APIs

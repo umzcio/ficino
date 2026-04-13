@@ -140,6 +140,9 @@ def generate_feed(
         temperature = user_settings.get("persona_temperature", 0.8)
         post_weights = user_settings.get("post_type_weights", persona_lib.POST_TYPE_WEIGHTS)
 
+        # Load learned preferences from likes (Phase 2/3)
+        preferences = user_settings.get("preferences")
+
         log.info("settings_loaded",
                  num_posts=num_posts,
                  personas=list(enabled_personas),
@@ -169,11 +172,15 @@ def generate_feed(
         self.update_state(state="PROGRESS", meta={"step": "retrieving", "feed_id": feed_id})
         log.info("feed_step", step="retrieving", papers=len(paper_ids))
 
-        # Get chunks for each enabled persona
+        # Get chunks for each enabled persona (with retrieval boost from liked papers)
+        liked_paper_titles = preferences.get("liked_paper_titles") if preferences and preferences.get("has_signal") else None
         all_chunks: dict[str, list[dict[str, object]]] = {}
         active_personas = {k: v for k, v in persona_lib.PERSONAS.items() if k in enabled_personas}
         for persona_key in active_personas:
-            chunks = retrieval.retrieve_for_persona(persona_key, paper_ids=paper_ids, top_k=10)
+            chunks = retrieval.retrieve_for_persona(
+                persona_key, paper_ids=paper_ids, top_k=10,
+                liked_paper_titles=liked_paper_titles,
+            )
             all_chunks[persona_key] = chunks
             log.info("persona_chunks_retrieved", persona=persona_key, chunks=len(chunks))
 
@@ -222,11 +229,12 @@ def generate_feed(
         # Get persona system prompts from DB
         system_prompts = persona_lib.get_active_persona_prompts()
 
-        # Plan the feed timeline with user settings
+        # Plan the feed timeline with user settings + learned preferences
         plan = persona_lib.plan_feed_posts(
             num_posts=num_posts,
             enabled_personas=enabled_personas,
             custom_weights=post_weights,
+            preferences=preferences,
         )
         posts: list[dict[str, object]] = []
         # For append mode, new posts can reference existing ones for quotes/replies
@@ -371,6 +379,15 @@ def generate_feed(
             )
         except Exception:
             log.warn("post_feed_alert_dispatch_failed")
+
+        # Recompute preferences from likes so next generation reflects latest signal
+        try:
+            app.send_task(
+                "tasks.preference_tasks.compute_preferences",
+                queue="persona",
+            )
+        except Exception:
+            log.warn("preference_recompute_dispatch_failed")
 
         return {
             "status": "complete",

@@ -135,11 +135,33 @@ def retrieve_for_persona(
     persona_key: str,
     paper_ids: list[str] | None = None,
     top_k: int = 10,
+    liked_paper_titles: list[str] | None = None,
 ) -> list[dict[str, object]]:
     """Retrieve chunks tailored for a specific persona's focus area.
 
     Each persona has a preferred section focus that influences the query.
+    If liked_paper_titles is provided (from Phase 3 training signal),
+    chunks from those papers get a score boost so they surface more often.
     """
     queries = _get_retrieval_queries()
     query = queries.get(persona_key, "key findings and methodology")
-    return retrieve_chunks(query, paper_ids=paper_ids, top_k=top_k)
+    results = retrieve_chunks(query, paper_ids=paper_ids, top_k=top_k * 2 if liked_paper_titles else top_k)
+
+    if liked_paper_titles and results:
+        # Boost scores for chunks from papers the user has liked posts about
+        liked_set = {t.lower() for t in liked_paper_titles}
+        for chunk in results:
+            title = (chunk.get("paper_title") or "").lower()
+            if any(liked in title or title in liked for liked in liked_set):
+                chunk["score"] = chunk["score"] * LIKED_PAPER_BOOST
+                chunk["boosted"] = True
+
+        # Re-sort by score and take top_k
+        results.sort(key=lambda c: c["score"], reverse=True)
+        results = results[:top_k]
+
+    return results
+
+
+# Score multiplier for chunks from papers the user has liked posts about
+LIKED_PAPER_BOOST = 1.25

@@ -61,6 +61,13 @@ Everything below is live in production.
 | **Tags** | Hashtag-style paper tagging with corpus-scoped feed generation. Manual + auto-generated |
 | **Search** | Full-text search across all chunks, papers, and generated posts with result grouping |
 
+### Like as Training Signal (RLHF-lite)
+| Feature | Description |
+|---------|-------------|
+| **Persistent likes** | Heart clicks stored in `user_likes` table with full context: persona, post type, category, feed, timestamp. Hearts persist across page reloads. Synthetic engagement counts preserved for social proof |
+| **Preference aggregation** | After 5+ likes, computes per-persona hit rate, per-post-type affinity, and per-category weighting. Annotated likes (like + note) weighted 2x as stronger learning signal. Stored in `user_settings.preferences`, recomputed after every feed generation |
+| **Adaptive feed generation** | Learned preferences blended with manual settings at 40/60 ratio. Liked personas get more posts, preferred post types weighted higher. Retrieval boosts chunks from papers user has liked posts about (1.25x score). Design principle: optimize for *learning*, not engagement |
+
 ### Configuration & Display
 | Feature | Description |
 |---------|-------------|
@@ -78,29 +85,6 @@ Everything below is live in production.
 
 Features that are designed and ready to build.
 
-### Like as Training Signal (RLHF-lite)
-
-Your likes become implicit feedback that shapes future feed generation. Three phases:
-
-**Phase 1 — Real Likes** *(quick)*
-- `user_likes` table with full context: persona, post type, feed, timestamp
-- Swap synthetic counters for a real persisted toggle
-- Like data stored for later analysis
-
-**Phase 2 — Preference Aggregation**
-- Compute preference signals after N likes accumulate:
-  - Per-persona hit rate ("you like 80% of stats_nerd but only 30% of hype")
-  - Per-post-type affinity ("threads liked 3x more than standalone posts")
-  - Per-category weighting ("methods > findings")
-- Weight annotated likes higher — a liked post with a note is a stronger learning signal
-- Store as preferences profile in `user_settings`
-
-**Phase 3 — Feedback Loop**
-- Feed preference data into `plan_feed_posts()` custom weights
-- Liked personas get more posts in future generations
-- Boost retrieval for chunks similar to liked posts' sources
-- Design principle: optimize for *learning*, not engagement
-
 ### Ask Your Corpus (Conversational RAG)
 
 Type a question in the DM view → RAG retrieval → direct answer with citations. Like DMing a research assistant who's read all your papers. Could support follow-up questions. Persona DMs are halfway there — this extends it beyond a single persona's lens.
@@ -111,7 +95,7 @@ User-created personas with custom name, handle, color, system prompt, and retrie
 
 ### Reply Actions *(remaining)*
 
-Like and bookmark on individual reply messages are cosmetic (no persistence). Wire to real storage with Phase 1 likes table.
+Like and bookmark on individual reply messages are cosmetic (no persistence). Wire to real storage using the `user_likes` table.
 
 ### Post Actions Menu (remaining)
 

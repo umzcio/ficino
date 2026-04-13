@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { FileText, Loader2, AlertCircle } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { getRepliedPostIndices } from '../../lib/api'
+import { useLikes } from '../../hooks/useLikes'
 import { PostCard } from './PostCard'
 
 interface FeedProps {
@@ -38,6 +39,7 @@ const TAB_CATEGORIES: Record<number, string | null> = {
 
 export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick, onPersonaClick, onGenerate }: FeedProps) {
   const [repliedIndices, setRepliedIndices] = useState<Set<number>>(new Set())
+  const { isLiked, toggle: toggleLike } = useLikes(feedId)
 
   useEffect(() => {
     if (feedId && feedState === 'complete') {
@@ -115,6 +117,8 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
             onAnnotationSave={onAnnotationSave}
             onAnnotationDelete={onAnnotationDelete}
             onPersonaClick={onPersonaClick}
+            liked={isLiked(originalIndex)}
+            onLikeToggle={toggleLike}
           />
         )
       })}

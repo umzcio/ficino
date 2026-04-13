@@ -141,12 +141,13 @@ interface PostCardProps {
   onAnnotationDelete?: (feedId: string, postIndex: number) => void
   onPersonaClick?: (key: string) => void
   autoOpenReply?: boolean
+  liked?: boolean
+  onLikeToggle?: (postIndex: number, personaKey: string, postType: string, category?: string) => void
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply }: PostCardProps) {
+export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
-  const [liked, setLiked] = useState(false)
   const bookmarked = !!bookmarkedId
   const [figureExpanded, setFigureExpanded] = useState(false)
   const [threadExpanded, setThreadExpanded] = useState(false)
@@ -690,7 +691,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
             count={post.likes + (liked ? 1 : 0)}
             color="var(--color-like)"
             active={liked}
-            onClick={() => setLiked(!liked)}
+            onClick={() => onLikeToggle?.(postIndex, post.persona, post.post_type, post.category)}
             label="Like"
           />
           <ActionBtn
