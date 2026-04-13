@@ -46,6 +46,9 @@ Everything below is live in production.
 | **Bookmarks** | Snapshot-based, survives feed regeneration |
 | **Reply tracking** | REPLIED badge on posts with conversations. "Threads" tab in Messages inbox for finding all your persona conversations |
 | **Reply actions** | Like and bookmark individual reply messages with full persistence. Hearts and bookmarks on reply messages survive page reloads. Liked replies feed into the preference aggregation system |
+| **Regenerate post** | Three-dots menu → Regenerate. Reruns a single post with the same persona and post type but fresh chunks. Worker task patches the feed JSONB in place |
+| **Hide persona** | Three-dots menu → Hide. One-click disable of a persona from future feed generations. Calls settings API to toggle persona off |
+| **Debug view** | Three-dots menu → Debug view (dev only, hidden in production). Shows post metadata (persona, type, category, feed_id, post_index) and full retrieved chunk details with relevance scores |
 
 ### Alerts
 | Feature | Description |
@@ -93,13 +96,6 @@ Type a question in the DM view → RAG retrieval → direct answer with citation
 ### Custom Personas
 
 User-created personas with custom name, handle, color, system prompt, and retrieval query. The DB refactor makes this trivial — it's one INSERT to the `personas` table. Needs a frontend form in Settings.
-
-### Post Actions Menu (remaining)
-
-The three-dots menu has Copy text, Cite (APA/MLA), and annotations. Still to add:
-- **Regenerate**: rerun a single post with the same persona and chunks
-- **Hide persona**: quick toggle to disable a persona (links to Settings)
-- **Debug view**: show the full prompt + retrieved chunks that generated the post (dev only)
 
 ---
 

@@ -75,6 +75,10 @@ export async function listFeeds(workspaceId?: string): Promise<Feed[]> {
   return request<Feed[]>(`/feed${query}`)
 }
 
+export async function regeneratePost(feedId: string, postIndex: number): Promise<{ task_id: string }> {
+  return request(`/feed/${feedId}/regenerate/${postIndex}`, { method: 'POST' })
+}
+
 // Replies
 export interface ReplyMessage {
   role: 'user' | 'persona' | 'interjection'

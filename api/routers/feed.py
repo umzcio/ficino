@@ -117,6 +117,29 @@ async def get_feed(
     )
 
 
+@router.post("/{feed_id}/regenerate/{post_index}", status_code=202)
+async def regenerate_post(
+    feed_id: str,
+    post_index: int,
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Regenerate a single post in a feed. Same persona and post type, fresh chunks."""
+    row = await db.fetchrow("SELECT post_count FROM feeds WHERE id = $1", feed_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    if post_index < 0 or post_index >= row["post_count"]:
+        raise HTTPException(status_code=400, detail="Post index out of range")
+
+    celery_app = _get_celery()
+    task = celery_app.send_task(
+        "tasks.persona_tasks.regenerate_post",
+        args=[feed_id, post_index],
+        queue="persona",
+    )
+    logger.info("regenerate_post_dispatched", feed_id=feed_id, post_index=post_index, task_id=task.id)
+    return {"task_id": task.id, "status": "queued"}
+
+
 @router.get("", response_model=list[Feed])
 async def list_feeds(
     workspace_id: str | None = None,

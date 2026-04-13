@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   MessageCircle, Repeat2, Heart, Bookmark,
-  MoreHorizontal, FileText, ImageIcon, ZoomIn, X, Loader2
+  MoreHorizontal, FileText, ImageIcon, ZoomIn, X, Loader2,
+  RefreshCw, EyeOff, Bug
 } from 'lucide-react'
 import type { FeedPost } from '../../types'
-import { sendReply, sendZap, getPostReplies, getCitation, type ReplyMessage } from '../../lib/api'
+import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, updateSettings, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 
 /** Lightweight inline markdown: **bold**, *italic*, `code`. No block elements. */
@@ -147,9 +148,10 @@ interface PostCardProps {
   onReplyLikeToggle?: (postIndex: number, messageIndex: number, personaKey?: string) => void
   onReplyBookmark?: (feedId: string, postIndex: number, messageIndex: number, snapshot: Record<string, unknown>) => void
   isReplyBookmarked?: (postIndex: number, messageIndex: number) => boolean
+  onPostRegenerated?: () => void
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked }: PostCardProps) {
+export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const bookmarked = !!bookmarkedId
@@ -172,6 +174,8 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
   const [mentionIdx, setMentionIdx] = useState(0)
   const [zapOpen, setZapOpen] = useState<number | null>(null) // index of message being zapped, -1 = post itself
   const [zapLoading, setZapLoading] = useState(false)
+  const [debugOpen, setDebugOpen] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const zapRef = useRef<HTMLDivElement>(null)
 
   // Close zap dropdown on click outside or Escape
@@ -432,6 +436,58 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                       Remove note
                     </button>
                   )}
+                  <div className="border-t border-border my-1" />
+                  <button
+                    className="w-full flex items-center gap-2 text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer disabled:opacity-40"
+                    disabled={regenerating}
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      if (!feedId) return
+                      setRegenerating(true)
+                      try {
+                        await regeneratePost(feedId, postIndex)
+                        setToast('Regenerating post...')
+                        // Poll briefly then trigger refresh
+                        setTimeout(() => { onPostRegenerated?.(); setRegenerating(false) }, 4000)
+                      } catch {
+                        setToast('Failed to regenerate')
+                        setRegenerating(false)
+                      }
+                    }}
+                  >
+                    <RefreshCw size={13} className={regenerating ? 'animate-spin' : ''} />
+                    {regenerating ? 'Regenerating...' : 'Regenerate'}
+                  </button>
+                  <button
+                    className="w-full flex items-center gap-2 text-left px-3 py-2 text-[13px] text-text hover:bg-bg-hover bg-transparent border-none cursor-pointer"
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      try {
+                        await updateSettings({ personas_enabled: { [post.persona]: false } })
+                        setToast(`${p.name} hidden from future feeds`)
+                      } catch {
+                        setToast('Failed to update settings')
+                      }
+                    }}
+                  >
+                    <EyeOff size={13} />
+                    Hide {p.name}
+                  </button>
+                  {import.meta.env.DEV && (
+                    <button
+                      className="w-full flex items-center gap-2 text-left px-3 py-2 text-[13px] text-text-muted hover:bg-bg-hover bg-transparent border-none cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMenuOpen(false)
+                        setDebugOpen(!debugOpen)
+                      }}
+                    >
+                      <Bug size={13} />
+                      {debugOpen ? 'Hide debug' : 'Debug view'}
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -589,6 +645,52 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                     <p className="text-text-muted leading-relaxed line-clamp-3">
                       {src.content}
                     </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Debug view (dev only) */}
+        {debugOpen && (
+          <div className="mb-2 border border-border rounded-lg p-3 bg-bg text-[11px] font-mono space-y-2" onClick={(e) => e.stopPropagation()}>
+            <div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold flex items-center gap-1.5 mb-1">
+              <Bug size={10} /> Post metadata
+            </div>
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+              <span className="text-text-muted">persona</span>
+              <span className="text-text">{post.persona}</span>
+              <span className="text-text-muted">post_type</span>
+              <span className="text-text">{post.post_type}</span>
+              <span className="text-text-muted">category</span>
+              <span className="text-text">{post.category}</span>
+              <span className="text-text-muted">paper_ref</span>
+              <span className="text-text truncate">{post.paper_ref || '—'}</span>
+              <span className="text-text-muted">post_index</span>
+              <span className="text-text">{postIndex}</span>
+              <span className="text-text-muted">feed_id</span>
+              <span className="text-text truncate">{feedId || '—'}</span>
+              {post.replying_to && <>
+                <span className="text-text-muted">replying_to</span>
+                <span className="text-text">{post.replying_to}</span>
+              </>}
+              {post.quoting && <>
+                <span className="text-text-muted">quoting</span>
+                <span className="text-text">{post.quoting}</span>
+              </>}
+              {(post as Record<string, unknown>).regenerated && <>
+                <span className="text-text-muted">regenerated</span>
+                <span className="text-gold">true</span>
+              </>}
+            </div>
+            {post.sources && post.sources.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-border">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-1">Retrieved chunks ({post.sources.length})</div>
+                {post.sources.map((src, si) => (
+                  <div key={si} className="mt-1 pl-2 border-l border-border">
+                    <div className="text-text-muted">[{si}] {src.paper_title} / {src.section} — score: {src.score}</div>
+                    <div className="text-text/60 line-clamp-2">{src.content}</div>
                   </div>
                 ))}
               </div>

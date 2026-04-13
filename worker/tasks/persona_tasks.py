@@ -402,3 +402,105 @@ def generate_feed(
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc)
         raise
+
+
+@app.task(name="tasks.persona_tasks.regenerate_post", bind=True)
+def regenerate_post(self: Task, feed_id: str, post_index: int) -> dict[str, object]:
+    """Regenerate a single post in an existing feed.
+
+    Keeps the same persona and post_type, retrieves fresh chunks,
+    generates a new post, and patches the feed JSONB in place.
+    """
+    log = logger.bind(feed_id=feed_id, post_index=post_index)
+    log.info("regenerate_post_start")
+
+    user_settings = apply_provider_settings()
+    temperature = user_settings.get("persona_temperature", 0.8)
+
+    # Load the existing feed
+    row = fetchrow("SELECT posts, corpus_id FROM feeds WHERE id = $1", feed_id)
+    if not row:
+        raise ValueError(f"Feed {feed_id} not found")
+
+    posts = row["posts"]
+    if isinstance(posts, str):
+        posts = json.loads(posts)
+
+    if post_index < 0 or post_index >= len(posts):
+        raise ValueError(f"Post index {post_index} out of range (feed has {len(posts)} posts)")
+
+    old_post = posts[post_index]
+    persona_key = old_post.get("persona")
+    post_type = old_post.get("post_type", "post")
+    corpus_id = str(row["corpus_id"]) if row["corpus_id"] else None
+
+    # Get paper IDs for this corpus
+    paper_ids = _get_paper_ids_for_corpus(corpus_id, None)
+    if not paper_ids:
+        raise ValueError("No papers in corpus")
+
+    # Retrieve fresh chunks for this persona
+    chunks = retrieval.retrieve_for_persona(persona_key, paper_ids=paper_ids, top_k=10)
+    if not chunks:
+        raise ValueError(f"No chunks retrieved for persona {persona_key}")
+
+    # Get system prompt
+    system_prompts = persona_lib.get_active_persona_prompts()
+    system_prompt = system_prompts.get(persona_key, f"You are {persona_key}")
+
+    # Build prompt (standalone — no quote/reply context for regeneration)
+    user_prompt = persona_lib.build_post_prompt(
+        persona_key=persona_key,
+        post_type=post_type if post_type in ("post", "thread", "figure") else "post",
+        chunks=chunks,
+    )
+
+    # Generate
+    post_data = claude_client.generate_persona_post_sync(system_prompt, user_prompt, temperature=temperature)
+
+    # Fill required fields
+    post_data["persona"] = persona_key
+    post_data.setdefault("post_type", post_type)
+    post_data["id"] = old_post.get("id", post_index + 1)
+    post_data["time"] = old_post.get("time", f"{post_index * 2}m")
+
+    if chunks:
+        post_data["paper_ref"] = persona_lib._build_short_cite(chunks[0])
+
+    post_data["sources"] = [
+        {
+            "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
+            "section": c.get("section", "unknown"),
+            "content": str(c.get("content", ""))[:300],
+            "score": round(float(c.get("score", 0)), 3),
+        }
+        for c in chunks[:5]
+    ]
+
+    # Assign category
+    pt = post_data.get("post_type", post_type)
+    if pt in ("quote", "reply"):
+        post_data["category"] = "debates"
+    elif persona_key in ("skeptic", "methodologist"):
+        post_data["category"] = "methods"
+    elif persona_key in ("hype", "practitioner") or pt == "figure":
+        post_data["category"] = "findings"
+    else:
+        post_data["category"] = "debates" if persona_key == "gradstudent" else "findings"
+
+    post_data.setdefault("likes", random.randint(100, 5000))
+    post_data.setdefault("retweets", random.randint(20, 1000))
+    post_data.setdefault("replies", random.randint(10, 500))
+    post_data.setdefault("bookmarks", random.randint(10, 900))
+    post_data["regenerated"] = True
+
+    # Patch the feed
+    posts[post_index] = post_data
+    posts_json = json.dumps(posts, default=str)
+    execute(
+        "UPDATE feeds SET posts = $1 WHERE id = $2",
+        posts_json, feed_id,
+    )
+
+    log.info("regenerate_post_complete", persona=persona_key, post_type=post_type)
+    return {"status": "complete", "feed_id": feed_id, "post_index": post_index}
