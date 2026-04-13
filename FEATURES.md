@@ -105,6 +105,14 @@ Everything below is live in production.
 | **Progressive chapters** | Each paper is a chapter. Generate chapters sequentially — Chapter 1 sees only Paper 1, Chapter 2 sees Papers 1-2. Personas in later chapters reference earlier papers, building cumulative discourse |
 | **Unlock progression** | Completing a chapter unlocks the next. Locked chapters shown but grayed out. Read completed chapters anytime |
 
+### Authentication
+| Feature | Description |
+|---------|-------------|
+| **Pluggable providers** | `AUTH_PROVIDER` env var selects auth mode: `none` (no login, self-hosted default), `basic` (email/password), `supabase` (JWT for production). Switch with one env change, no code changes |
+| **Basic auth** | bcrypt password hashing, Redis session storage (7-day sliding TTL), HTTP-only cookies. First user registration auto-allowed, subsequent controlled by `ALLOW_REGISTRATION` |
+| **Supabase auth** | JWT verification via `SUPABASE_JWT_SECRET`. Users auto-created in local DB on first login. Frontend uses `@supabase/supabase-js` for auth flows |
+| **Auth abstraction** | Single `get_current_user` FastAPI dependency replaces all user identity logic. Routes never know which provider is active. Frontend discovers provider via `GET /auth/provider` |
+
 ---
 
 ## Next Up
@@ -179,7 +187,7 @@ Required for ficino.ai public deployment.
 
 | Item | Status |
 |------|--------|
-| Auth & user management (Clerk) | Not started |
+| Auth & user management | **Shipped** — pluggable AUTH_PROVIDER (none/basic/supabase) |
 | Rate limiting & cost controls | Not started |
 | Retrieval debug view (dev only) | Not started |
 | Logging & error tracking (Sentry) | Not started |

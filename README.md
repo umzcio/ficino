@@ -127,6 +127,12 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Paper processing**: extraction mode (auto/PyMuPDF/vision), chunk size, display options
 - **Light/dark mode**: instant theme switching with font size and post spacing controls
 
+### Authentication
+- **Pluggable**: `AUTH_PROVIDER=none` (default, no login), `basic` (email/password), or `supabase` (JWT)
+- **Self-hosted**: `none` for single-user, `basic` for multi-user with bcrypt + Redis sessions
+- **Production**: `supabase` for ficino.ai with Supabase Auth + hosted Postgres
+- **One env change**: switch providers without code changes
+
 ---
 
 ## Tech Stack
@@ -204,7 +210,7 @@ cd ficino
 
 # Configure environment
 cp .env.example .env
-# Edit .env if needed (defaults work with local Ollama)
+# Edit .env if needed (defaults work with local Ollama + no auth)
 
 # Launch
 docker compose up -d
