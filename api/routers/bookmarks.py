@@ -17,6 +17,7 @@ router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 class BookmarkCreate(BaseModel):
     feed_id: str
     post_index: int
+    message_index: int = -1  # -1 = post-level, 0+ = reply message index
     post_snapshot: dict
 
 
@@ -26,7 +27,7 @@ async def list_bookmarks(
 ) -> list[dict[str, object]]:
     """List all bookmarked posts for the current user, newest first."""
     rows = await db.fetch(
-        """SELECT id, feed_id, post_index, post_snapshot, bookmarked_at
+        """SELECT id, feed_id, post_index, message_index, post_snapshot, bookmarked_at
            FROM bookmarks
            WHERE user_id = $1
            ORDER BY bookmarked_at DESC""",
@@ -41,6 +42,7 @@ async def list_bookmarks(
             "id": str(row["id"]),
             "feed_id": str(row["feed_id"]),
             "post_index": row["post_index"],
+            "message_index": row["message_index"],
             "post": snapshot,
             "bookmarked_at": row["bookmarked_at"],
         })
@@ -55,19 +57,19 @@ async def create_bookmark(
     """Bookmark a post by saving a snapshot."""
     # Check if already bookmarked
     existing = await db.fetchrow(
-        "SELECT id FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3",
-        STUB_USER_ID, body.feed_id, body.post_index,
+        "SELECT id FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
+        STUB_USER_ID, body.feed_id, body.post_index, body.message_index,
     )
     if existing:
         return {"id": str(existing["id"]), "status": "already_bookmarked"}
 
     snapshot_json = json.dumps(body.post_snapshot, default=str)
     row = await db.fetchrow(
-        """INSERT INTO bookmarks (user_id, feed_id, post_index, post_snapshot)
-           VALUES ($1, $2, $3, $4) RETURNING id""",
-        STUB_USER_ID, body.feed_id, body.post_index, snapshot_json,
+        """INSERT INTO bookmarks (user_id, feed_id, post_index, message_index, post_snapshot)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+        STUB_USER_ID, body.feed_id, body.post_index, body.message_index, snapshot_json,
     )
-    logger.info("bookmark_created", feed_id=body.feed_id, post_index=body.post_index)
+    logger.info("bookmark_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
     return {"id": str(row["id"]), "status": "created"}
 
 
@@ -90,10 +92,11 @@ async def delete_bookmark(
 async def delete_bookmark_by_post(
     feed_id: str,
     post_index: int,
+    message_index: int = -1,
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
-    """Remove a bookmark by feed_id + post_index."""
+    """Remove a bookmark by feed_id + post_index + message_index."""
     await db.execute(
-        "DELETE FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3",
-        STUB_USER_ID, feed_id, post_index,
+        "DELETE FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
+        STUB_USER_ID, feed_id, post_index, message_index,
     )

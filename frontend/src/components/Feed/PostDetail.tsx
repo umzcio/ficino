@@ -112,7 +112,7 @@ export function PostDetail({
   autoOpenReply,
 }: PostDetailProps) {
   const personas = usePersonas()
-  const { isLiked, toggle: toggleLike } = useLikes(feedId)
+  const { isLiked, isReplyLiked, toggle: toggleLike, toggleReply: toggleReplyLike } = useLikes(feedId)
 
   // Find parent post for replies
   const parent = post.replying_to
@@ -160,6 +160,8 @@ export function PostDetail({
         autoOpenReply={autoOpenReply}
         liked={isLiked(postIndex)}
         onLikeToggle={toggleLike}
+        isReplyLiked={isReplyLiked}
+        onReplyLikeToggle={toggleReplyLike}
       />
 
       {/* If quote post, make the quoted block navigable */}
@@ -206,6 +208,8 @@ export function PostDetail({
                 onClick={() => onNavigateToPost(di)}
                 liked={isLiked(di)}
                 onLikeToggle={toggleLike}
+                isReplyLiked={isReplyLiked}
+                onReplyLikeToggle={toggleReplyLike}
               />
             ))}
           </div>

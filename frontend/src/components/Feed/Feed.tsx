@@ -20,6 +20,8 @@ interface FeedProps {
   onPostClick?: (postIndex: number) => void
   onPersonaClick?: (key: string) => void
   onGenerate?: () => void
+  onReplyBookmark?: (feedId: string, postIndex: number, messageIndex: number, snapshot: Record<string, unknown>) => void
+  isReplyBookmarked?: (postIndex: number, messageIndex: number) => boolean
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -37,9 +39,9 @@ const TAB_CATEGORIES: Record<number, string | null> = {
   3: 'findings',   // Findings — hype + figure posts
 }
 
-export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick, onPersonaClick, onGenerate }: FeedProps) {
+export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick, onPersonaClick, onGenerate, onReplyBookmark, isReplyBookmarked }: FeedProps) {
   const [repliedIndices, setRepliedIndices] = useState<Set<number>>(new Set())
-  const { isLiked, toggle: toggleLike } = useLikes(feedId)
+  const { isLiked, isReplyLiked, toggle: toggleLike, toggleReply: toggleReplyLike } = useLikes(feedId)
 
   useEffect(() => {
     if (feedId && feedState === 'complete') {
@@ -119,6 +121,10 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
             onPersonaClick={onPersonaClick}
             liked={isLiked(originalIndex)}
             onLikeToggle={toggleLike}
+            isReplyLiked={isReplyLiked}
+            onReplyLikeToggle={toggleReplyLike}
+            onReplyBookmark={onReplyBookmark}
+            isReplyBookmarked={isReplyBookmarked}
           />
         )
       })}

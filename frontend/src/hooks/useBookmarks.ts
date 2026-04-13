@@ -28,14 +28,14 @@ export function useBookmarks() {
   }, [refresh])
 
   const toggle = useCallback(
-    async (feedId: string, postIndex: number, post: FeedPost) => {
+    async (feedId: string, postIndex: number, post: FeedPost, messageIndex: number = -1) => {
       const existing = bookmarks.find(
-        (b) => b.feed_id === feedId && b.post_index === postIndex
+        (b) => b.feed_id === feedId && b.post_index === postIndex && (b.message_index ?? -1) === messageIndex
       )
       if (existing) {
-        await deleteBookmarkByPost(feedId, postIndex)
+        await deleteBookmarkByPost(feedId, postIndex, messageIndex)
       } else {
-        await createBookmark(feedId, postIndex, post as unknown as Record<string, unknown>)
+        await createBookmark(feedId, postIndex, post as unknown as Record<string, unknown>, messageIndex)
       }
       await refresh()
     },
@@ -53,12 +53,21 @@ export function useBookmarks() {
   const isBookmarked = useCallback(
     (feedId: string, postIndex: number): string | null => {
       const found = bookmarks.find(
-        (b) => b.feed_id === feedId && b.post_index === postIndex
+        (b) => b.feed_id === feedId && b.post_index === postIndex && (b.message_index ?? -1) === -1
       )
       return found?.id ?? null
     },
     [bookmarks]
   )
 
-  return { bookmarks, loading, toggle, remove, isBookmarked, refresh }
+  const isReplyBookmarked = useCallback(
+    (feedId: string, postIndex: number, messageIndex: number): boolean => {
+      return bookmarks.some(
+        (b) => b.feed_id === feedId && b.post_index === postIndex && b.message_index === messageIndex
+      )
+    },
+    [bookmarks]
+  )
+
+  return { bookmarks, loading, toggle, remove, isBookmarked, isReplyBookmarked, refresh }
 }

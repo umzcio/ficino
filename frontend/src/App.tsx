@@ -3,6 +3,7 @@ import {
   Home, Search, Bell, Mail, Bookmark, Settings,
   Zap, Loader2
 } from 'lucide-react'
+import type { FeedPost } from './types'
 import { useCorpus } from './hooks/useCorpus'
 import { useFeed } from './hooks/useFeed'
 import { useBookmarks } from './hooks/useBookmarks'
@@ -461,6 +462,8 @@ export default function App() {
                 document.querySelector('main')?.scrollTo(0, 0)
               }}
               onPersonaClick={setSelectedPersona}
+              onReplyBookmark={(fid, postIdx, msgIdx, snapshot) => bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx)}
+              isReplyBookmarked={(postIdx, msgIdx) => feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false}
               onGenerate={() => {
                 feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined)
               }}

@@ -45,6 +45,7 @@ Everything below is live in production.
 | **Copy text** | Copy post content (or full thread) to clipboard |
 | **Bookmarks** | Snapshot-based, survives feed regeneration |
 | **Reply tracking** | REPLIED badge on posts with conversations. "Threads" tab in Messages inbox for finding all your persona conversations |
+| **Reply actions** | Like and bookmark individual reply messages with full persistence. Hearts and bookmarks on reply messages survive page reloads. Liked replies feed into the preference aggregation system |
 
 ### Alerts
 | Feature | Description |
@@ -92,10 +93,6 @@ Type a question in the DM view → RAG retrieval → direct answer with citation
 ### Custom Personas
 
 User-created personas with custom name, handle, color, system prompt, and retrieval query. The DB refactor makes this trivial — it's one INSERT to the `personas` table. Needs a frontend form in Settings.
-
-### Reply Actions *(remaining)*
-
-Like and bookmark on individual reply messages are cosmetic (no persistence). Wire to real storage using the `user_likes` table.
 
 ### Post Actions Menu (remaining)
 

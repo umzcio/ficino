@@ -119,15 +119,17 @@ CREATE TABLE feeds (
   post_count INTEGER
 );
 
--- Bookmarks
+-- Bookmarks (posts and reply messages)
+-- message_index = -1 means post-level bookmark, 0+ means reply message index
 CREATE TABLE bookmarks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   feed_id UUID REFERENCES feeds(id) ON DELETE CASCADE,
   post_index INTEGER NOT NULL,
+  message_index INTEGER NOT NULL DEFAULT -1,
   post_snapshot JSONB NOT NULL,
   bookmarked_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, feed_id, post_index)
+  UNIQUE(user_id, feed_id, post_index, message_index)
 );
 
 -- Annotations (private user notes on posts)
@@ -192,17 +194,19 @@ CREATE TABLE alerts (
 
 CREATE INDEX ON alerts (user_id, read, dismissed, created_at DESC);
 
--- User likes (persistent like state for posts)
+-- User likes (persistent like state for posts and reply messages)
+-- message_index = -1 means post-level like, 0+ means reply message index
 CREATE TABLE user_likes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   feed_id UUID REFERENCES feeds(id) ON DELETE CASCADE,
   post_index INTEGER NOT NULL,
+  message_index INTEGER NOT NULL DEFAULT -1,
   persona_key TEXT,
   post_type TEXT,
   category TEXT,
   liked_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, feed_id, post_index)
+  UNIQUE(user_id, feed_id, post_index, message_index)
 );
 
 CREATE INDEX ON user_likes (user_id, feed_id);

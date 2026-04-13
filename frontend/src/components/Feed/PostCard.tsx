@@ -143,9 +143,13 @@ interface PostCardProps {
   autoOpenReply?: boolean
   liked?: boolean
   onLikeToggle?: (postIndex: number, personaKey: string, postType: string, category?: string) => void
+  isReplyLiked?: (postIndex: number, messageIndex: number) => boolean
+  onReplyLikeToggle?: (postIndex: number, messageIndex: number, personaKey?: string) => void
+  onReplyBookmark?: (feedId: string, postIndex: number, messageIndex: number, snapshot: Record<string, unknown>) => void
+  isReplyBookmarked?: (postIndex: number, messageIndex: number) => boolean
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle }: PostCardProps) {
+export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const bookmarked = !!bookmarkedId
@@ -810,8 +814,28 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                               )}
                             </div>
                           )}
-                          <ActionBtn icon={Heart} color="var(--color-like)" onClick={() => {}} label="Like" />
-                          <ActionBtn icon={Bookmark} color="var(--color-gold)" onClick={() => {}} label="Bookmark" />
+                          <ActionBtn
+                            icon={Heart}
+                            color="var(--color-like)"
+                            active={isReplyLiked?.(postIndex, i) ?? false}
+                            onClick={() => onReplyLikeToggle?.(postIndex, i, isUser ? undefined : (msg.persona || post.persona))}
+                            label="Like"
+                          />
+                          <ActionBtn
+                            icon={Bookmark}
+                            color="var(--color-gold)"
+                            active={isReplyBookmarked?.(postIndex, i) ?? false}
+                            onClick={() => feedId && onReplyBookmark?.(feedId, postIndex, i, {
+                              role: msg.role,
+                              content: msg.content,
+                              persona: msg.persona || post.persona,
+                              persona_name: displayName,
+                              persona_handle: displayHandle,
+                              parent_post_persona: post.persona,
+                              parent_post_content: post.content?.slice(0, 200),
+                            })}
+                            label="Bookmark"
+                          />
                         </div>
                       </div>
                     </div>

@@ -2,57 +2,83 @@ import { useState, useEffect, useCallback } from 'react'
 import { listLikesForFeed, createLike, deleteLike } from '../lib/api'
 
 export function useLikes(feedId: string | null) {
-  const [likedIndices, setLikedIndices] = useState<Set<number>>(new Set())
+  const [likedPosts, setLikedPosts] = useState<Set<number>>(new Set())
+  const [likedReplies, setLikedReplies] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!feedId) return
     listLikesForFeed(feedId)
-      .then((indices) => setLikedIndices(new Set(indices)))
+      .then((data) => {
+        setLikedPosts(new Set(data.posts))
+        setLikedReplies(new Set(Object.keys(data.replies)))
+      })
       .catch(() => {/* ignore */})
   }, [feedId])
 
   const isLiked = useCallback(
-    (postIndex: number) => likedIndices.has(postIndex),
-    [likedIndices],
+    (postIndex: number) => likedPosts.has(postIndex),
+    [likedPosts],
+  )
+
+  const isReplyLiked = useCallback(
+    (postIndex: number, messageIndex: number) => likedReplies.has(`${postIndex}:${messageIndex}`),
+    [likedReplies],
   )
 
   const toggle = useCallback(
     async (postIndex: number, personaKey?: string, postType?: string, category?: string) => {
       if (!feedId) return
-      const wasLiked = likedIndices.has(postIndex)
+      const wasLiked = likedPosts.has(postIndex)
 
-      // Optimistic update
-      setLikedIndices((prev) => {
+      setLikedPosts((prev) => {
         const next = new Set(prev)
-        if (wasLiked) {
-          next.delete(postIndex)
-        } else {
-          next.add(postIndex)
-        }
+        if (wasLiked) next.delete(postIndex)
+        else next.add(postIndex)
         return next
       })
 
       try {
-        if (wasLiked) {
-          await deleteLike(feedId, postIndex)
-        } else {
-          await createLike(feedId, postIndex, personaKey, postType, category)
-        }
+        if (wasLiked) await deleteLike(feedId, postIndex)
+        else await createLike(feedId, postIndex, -1, personaKey, postType, category)
       } catch {
-        // Revert on failure
-        setLikedIndices((prev) => {
+        setLikedPosts((prev) => {
           const reverted = new Set(prev)
-          if (wasLiked) {
-            reverted.add(postIndex)
-          } else {
-            reverted.delete(postIndex)
-          }
+          if (wasLiked) reverted.add(postIndex)
+          else reverted.delete(postIndex)
           return reverted
         })
       }
     },
-    [feedId, likedIndices],
+    [feedId, likedPosts],
   )
 
-  return { isLiked, toggle }
+  const toggleReply = useCallback(
+    async (postIndex: number, messageIndex: number, personaKey?: string) => {
+      if (!feedId) return
+      const key = `${postIndex}:${messageIndex}`
+      const wasLiked = likedReplies.has(key)
+
+      setLikedReplies((prev) => {
+        const next = new Set(prev)
+        if (wasLiked) next.delete(key)
+        else next.add(key)
+        return next
+      })
+
+      try {
+        if (wasLiked) await deleteLike(feedId, postIndex, messageIndex)
+        else await createLike(feedId, postIndex, messageIndex, personaKey)
+      } catch {
+        setLikedReplies((prev) => {
+          const reverted = new Set(prev)
+          if (wasLiked) reverted.add(key)
+          else reverted.delete(key)
+          return reverted
+        })
+      }
+    },
+    [feedId, likedReplies],
+  )
+
+  return { isLiked, isReplyLiked, toggle, toggleReply }
 }

@@ -298,6 +298,7 @@ export interface BookmarkItem {
   id: string
   feed_id: string
   post_index: number
+  message_index?: number
   post: Record<string, unknown>
   bookmarked_at: string
 }
@@ -306,16 +307,16 @@ export async function listBookmarks(): Promise<BookmarkItem[]> {
   return request<BookmarkItem[]>('/bookmarks')
 }
 
-export async function createBookmark(feedId: string, postIndex: number, postSnapshot: Record<string, unknown>): Promise<{ id: string }> {
+export async function createBookmark(feedId: string, postIndex: number, postSnapshot: Record<string, unknown>, messageIndex: number = -1): Promise<{ id: string }> {
   return request('/bookmarks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ feed_id: feedId, post_index: postIndex, post_snapshot: postSnapshot }),
+    body: JSON.stringify({ feed_id: feedId, post_index: postIndex, message_index: messageIndex, post_snapshot: postSnapshot }),
   })
 }
 
-export async function deleteBookmarkByPost(feedId: string, postIndex: number): Promise<void> {
-  return request(`/bookmarks/post/${feedId}/${postIndex}`, { method: 'DELETE' })
+export async function deleteBookmarkByPost(feedId: string, postIndex: number, messageIndex: number = -1): Promise<void> {
+  return request(`/bookmarks/post/${feedId}/${postIndex}?message_index=${messageIndex}`, { method: 'DELETE' })
 }
 
 export async function deleteBookmark(bookmarkId: string): Promise<void> {
@@ -323,20 +324,25 @@ export async function deleteBookmark(bookmarkId: string): Promise<void> {
 }
 
 // Likes
-export async function listLikesForFeed(feedId: string): Promise<number[]> {
-  return request<number[]>(`/likes/feed/${feedId}`)
+export interface FeedLikes {
+  posts: number[]
+  replies: Record<string, boolean>  // "postIndex:messageIndex" → true
 }
 
-export async function createLike(feedId: string, postIndex: number, personaKey?: string, postType?: string, category?: string): Promise<{ id: string }> {
+export async function listLikesForFeed(feedId: string): Promise<FeedLikes> {
+  return request<FeedLikes>(`/likes/feed/${feedId}`)
+}
+
+export async function createLike(feedId: string, postIndex: number, messageIndex: number = -1, personaKey?: string, postType?: string, category?: string): Promise<{ id: string }> {
   return request('/likes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ feed_id: feedId, post_index: postIndex, persona_key: personaKey, post_type: postType, category: category }),
+    body: JSON.stringify({ feed_id: feedId, post_index: postIndex, message_index: messageIndex, persona_key: personaKey, post_type: postType, category: category }),
   })
 }
 
-export async function deleteLike(feedId: string, postIndex: number): Promise<void> {
-  return request(`/likes/feed/${feedId}/${postIndex}`, { method: 'DELETE' })
+export async function deleteLike(feedId: string, postIndex: number, messageIndex: number = -1): Promise<void> {
+  return request(`/likes/feed/${feedId}/${postIndex}?message_index=${messageIndex}`, { method: 'DELETE' })
 }
 
 // Tags
