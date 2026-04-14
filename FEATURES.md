@@ -191,5 +191,5 @@ Required for ficino.ai public deployment.
 | Rate limiting & cost controls | **Shipped** — Redis-based per-user rate limits on uploads (50/day), feed generation (20/day), user posts (30/day). Configurable via env. Skipped for AUTH_PROVIDER=none |
 | Retrieval debug view (dev only) | **Shipped** — three-dots menu → Debug view (dev builds only) |
 | Logging & error tracking | Deferred — structlog in place for container logs. Will pick a service (Sentry, Betterstack, or Supabase logs) when ficino.ai hosting stack is finalized |
-| Connection pooling optimization | Not started |
+| Connection pooling optimization | **Shipped** — Worker uses persistent asyncpg pool (min 2, max 10) with shared event loop. API pool unchanged (min 5, max 20). Eliminates per-query connection churn |
 | Security headers & CORS lockdown | **Shipped** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS + CSP in production, CORS locked to specific origins |
