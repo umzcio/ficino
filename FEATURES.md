@@ -189,7 +189,7 @@ Required for ficino.ai public deployment.
 |------|--------|
 | Auth & user management | **Shipped** — pluggable AUTH_PROVIDER (none/basic/supabase) |
 | Rate limiting & cost controls | Not started |
-| Retrieval debug view (dev only) | Not started |
+| Retrieval debug view (dev only) | **Shipped** — three-dots menu → Debug view (dev builds only) |
 | Logging & error tracking (Sentry) | Not started |
 | Connection pooling optimization | Not started |
-| Security headers & CORS lockdown | Not started |
+| Security headers & CORS lockdown | **Shipped** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS + CSP in production, CORS locked to specific origins |
