@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from config import settings
 from auth import AuthUser, get_current_user
+from auth.rate_limit import RateLimit
 from db.connection import get_db
 from models.feed import Feed, FeedGenerateRequest
 
@@ -26,6 +27,7 @@ async def generate_feed(
     body: FeedGenerateRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("feed_generation", settings.rate_limit_generations_per_day)),
 ) -> dict[str, str]:
     """Trigger feed generation for a corpus.
 

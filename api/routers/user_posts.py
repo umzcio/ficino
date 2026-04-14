@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from config import settings
 from auth import AuthUser, get_current_user
+from auth.rate_limit import RateLimit
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -105,6 +106,7 @@ async def create_user_post(
     body: UserPostCreate,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("user_post", settings.rate_limit_user_posts_per_day)),
 ) -> dict[str, str]:
     """Create a user post and dispatch The Archivist to respond."""
     row = await db.fetchrow(

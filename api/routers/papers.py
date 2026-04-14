@@ -11,6 +11,7 @@ from redis import Redis
 
 from config import settings
 from auth import AuthUser, get_current_user
+from auth.rate_limit import RateLimit
 from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
 from models.paper import Paper
@@ -31,6 +32,7 @@ async def upload_paper(
     workspace_id: str | None = None,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("paper_upload", settings.rate_limit_uploads_per_day)),
 ) -> Paper:
     """Upload a PDF paper for processing."""
     if not file.filename or not file.filename.lower().endswith(".pdf"):

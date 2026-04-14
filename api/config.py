@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     allow_registration: bool = True  # basic provider: allow new signups
 
+    # Rate limits (per user, per day — only enforced when AUTH_PROVIDER != none)
+    rate_limit_uploads_per_day: int = 50
+    rate_limit_generations_per_day: int = 20
+    rate_limit_user_posts_per_day: int = 30
+
     # App
     environment: str = "development"
     max_upload_size_mb: int = 50
