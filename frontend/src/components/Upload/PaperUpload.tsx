@@ -11,13 +11,15 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const handleFile = useCallback(
-    async (file: File) => {
-      if (!file.name.toLowerCase().endsWith('.pdf')) {
+  const handleFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const pdfs = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+      if (pdfs.length === 0) {
         alert('Only PDF files are accepted')
         return
       }
-      await onUpload(file)
+      // Upload all PDFs (each triggers its own ingestion)
+      await Promise.all(pdfs.map(f => onUpload(f)))
     },
     [onUpload]
   )
@@ -26,10 +28,9 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
     (e: React.DragEvent) => {
       e.preventDefault()
       setDragOver(false)
-      const file = e.dataTransfer.files[0]
-      if (file) handleFile(file)
+      if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files)
     },
-    [handleFile]
+    [handleFiles]
   )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -44,8 +45,10 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
   const handleClick = () => inputRef.current?.click()
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) handleFile(file)
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files)
+      e.target.value = '' // reset so same files can be re-selected
+    }
   }
 
   return (
@@ -63,12 +66,13 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
         }
       `}
     >
-      <label htmlFor="pdf-upload" className="sr-only">Upload PDF</label>
+      <label htmlFor="pdf-upload" className="sr-only">Upload PDFs</label>
       <input
         ref={inputRef}
         id="pdf-upload"
         type="file"
         accept=".pdf"
+        multiple
         onChange={handleInputChange}
         className="hidden"
       />
@@ -88,10 +92,10 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
           </div>
           <div className="text-center">
             <p className="text-sm font-medium text-text">
-              {dragOver ? 'Drop PDF here' : 'Upload a paper'}
+              {dragOver ? 'Drop PDFs here' : 'Upload papers'}
             </p>
             <p className="text-xs text-text-muted mt-1">
-              Drag & drop or click to browse
+              Drag & drop or click to browse — multiple files supported
             </p>
           </div>
         </>
