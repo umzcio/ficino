@@ -10,6 +10,7 @@ import { usePersonas } from '../../hooks/usePersonas'
 
 /** Lightweight inline markdown: **bold**, *italic*, `code`. No block elements. */
 export function InlineMd({ text }: { text: string }) {
+  if (!text) return null
   const parts: React.ReactNode[] = []
   // Split on **bold**, *italic*, and `code` patterns
   const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g
