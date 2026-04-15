@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
   Zap, Loader2, BookOpen
@@ -36,6 +36,11 @@ import { useAnnotations } from './hooks/useAnnotations'
 import { ReadingListsView } from './components/ReadingLists/ReadingListsView'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
+import { InstallButton, MobileInstallBanner } from './components/Nav/InstallPrompt'
+import { OnlineProvider, useIsOnline } from './lib/online-context'
+import { OfflineBanner } from './components/Nav/OfflineBanner'
+import { DownloadProgress } from './components/Nav/DownloadProgress'
+import { downloadWorkspace, getLastSync, type DownloadProgress as DlProgress } from './lib/workspace-download'
 
 type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'settings'
 
@@ -79,6 +84,9 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
           )}
         </button>
       ))}
+      <div className="mt-auto mb-4">
+        <InstallButton />
+      </div>
     </nav>
   )
 }
@@ -124,6 +132,15 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
   )
 }
 
+function formatSyncAgo(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 function FeedHeader({
   paperCount,
   totalPaperCount,
@@ -132,6 +149,8 @@ function FeedHeader({
   generating,
   activeTag,
   onMobileLogoTap,
+  isOnline,
+  syncTime,
   workspaceProps,
 }: {
   paperCount: number
@@ -141,6 +160,8 @@ function FeedHeader({
   generating: boolean
   activeTag: string | null
   onMobileLogoTap?: () => void
+  isOnline?: boolean
+  syncTime?: number | null
   workspaceProps?: {
     workspaces: import('./types').Workspace[]
     active: import('./types').Workspace | null
@@ -149,6 +170,7 @@ function FeedHeader({
     onCreate: (name: string) => void
     onDelete: (id: string) => void
     onRename: (id: string, name: string) => void
+    onDownload?: (id: string) => void
   }
 }) {
   return (
@@ -175,6 +197,7 @@ function FeedHeader({
               onCreate={workspaceProps.onCreate}
               onDelete={workspaceProps.onDelete}
               onRename={workspaceProps.onRename}
+              onDownload={workspaceProps.onDownload}
             />
           )}
           {workspaceProps?.showUI && <span>·</span>}
@@ -188,11 +211,16 @@ function FeedHeader({
           {activeTag && (
             <span className="ml-1 text-gold"> · #{activeTag}</span>
           )}
+          {syncTime && (
+            <span className={`ml-1 ${Date.now() - syncTime > 24 * 60 * 60 * 1000 ? 'text-persona-hype' : 'text-text-muted'}`}>
+              {' · '}synced {formatSyncAgo(syncTime)}
+            </span>
+          )}
         </div>
       </div>
       <button
         onClick={onGenerate}
-        disabled={generating || paperCount === 0}
+        disabled={generating || paperCount === 0 || isOnline === false}
         className="border-none rounded-[20px] text-bg px-3.5 py-2 cursor-pointer text-sm font-bold flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ background: 'linear-gradient(135deg, var(--color-gold), var(--color-gold-dark))' }}
       >
@@ -284,11 +312,13 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AuthGate>
-        <AppContent />
-      </AuthGate>
-    </AuthProvider>
+    <OnlineProvider>
+      <AuthProvider>
+        <AuthGate>
+          <AppContent />
+        </AuthGate>
+      </AuthProvider>
+    </OnlineProvider>
   )
 }
 
@@ -309,6 +339,7 @@ function AppContent() {
     setActiveViewRaw(v)
   }
   const feedScrollRef = useRef(0)
+  const isOnline = useIsOnline()
   const personas = usePersonasLoader()
   const ws = useWorkspaces()
   const corpus = useCorpus(ws.activeId)
@@ -320,6 +351,38 @@ function AppContent() {
   const alertsHook = useAlerts()
 
   const [paperTldrs, setPaperTldrs] = useState<Map<string, string>>(new Map())
+
+  // Workspace download state
+  const [dlProgress, setDlProgress] = useState<DlProgress | null>(null)
+  const [dlWorkspaceName, setDlWorkspaceName] = useState('')
+  const dlAbortRef = useRef<AbortController | null>(null)
+
+  const handleDownloadWorkspace = useCallback((workspaceId: string) => {
+    const wsName = ws.workspaces.find(w => w.id === workspaceId)?.name ?? 'Workspace'
+    setDlWorkspaceName(wsName)
+    const abort = new AbortController()
+    dlAbortRef.current = abort
+    setDlProgress({ step: 'Starting', current: 0, total: 1, done: false })
+    downloadWorkspace(workspaceId, setDlProgress, abort.signal)
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        console.error('Download failed:', err)
+        setDlProgress(null)
+      })
+  }, [ws.workspaces])
+
+  const handleCancelDownload = useCallback(() => {
+    dlAbortRef.current?.abort()
+    dlAbortRef.current = null
+    setDlProgress(null)
+  }, [])
+
+  const [workspaceSyncTime, setWorkspaceSyncTime] = useState<number | null>(null)
+  useEffect(() => {
+    if (ws.activeId) {
+      getLastSync(ws.activeId).then(setWorkspaceSyncTime)
+    }
+  }, [ws.activeId, dlProgress?.done])
 
   useEffect(() => {
     getPaperTldrs().then((data) => setPaperTldrs(new Map(Object.entries(data)))).catch(() => {})
@@ -418,6 +481,8 @@ function AppContent() {
             settings={appSettings.settings}
             loading={appSettings.loading}
             onUpdate={appSettings.update}
+            workspaces={ws.workspaces}
+            onDownloadWorkspace={handleDownloadWorkspace}
           />
         )
       default:
@@ -479,6 +544,8 @@ function AppContent() {
               generating={feed.feedState === 'generating'}
               activeTag={activeTag}
               onMobileLogoTap={() => setShowMobileDrawer(true)}
+              isOnline={isOnline}
+              syncTime={workspaceSyncTime}
               workspaceProps={{
                 workspaces: ws.workspaces,
                 active: ws.active,
@@ -487,8 +554,11 @@ function AppContent() {
                 onCreate: (name) => ws.create(name),
                 onDelete: (id) => ws.remove(id),
                 onRename: (id, name) => ws.rename(id, name),
+                onDownload: handleDownloadWorkspace,
               }}
             />
+            <OfflineBanner />
+            <MobileInstallBanner />
             <FeedTabs active={activeTab} onSelect={setActiveTab} />
             <FeedHistory currentFeedId={feed.feedId} onLoadFeed={feed.loadFeed} workspaceId={ws.activeId} />
             <ComposeBox
@@ -591,6 +661,12 @@ function AppContent() {
           />
         )}
       </div>
+      <DownloadProgress
+        progress={dlProgress}
+        workspaceName={dlWorkspaceName}
+        onClose={() => setDlProgress(null)}
+        onCancel={handleCancelDownload}
+      />
     </PersonasProvider>
   )
 }

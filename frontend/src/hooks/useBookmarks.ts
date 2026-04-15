@@ -7,6 +7,7 @@ import {
   deleteBookmark,
   type BookmarkItem,
 } from '../lib/api'
+import { cacheBookmarks, getCachedBookmarks } from '../lib/offline-cache'
 
 export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([])
@@ -15,9 +16,13 @@ export function useBookmarks() {
   const refresh = useCallback(async () => {
     try {
       const data = await listBookmarks()
+      cacheBookmarks(data).catch(() => {})
       setBookmarks(data)
     } catch {
-      // ignore
+      try {
+        const cached = await getCachedBookmarks()
+        if (cached.length > 0) setBookmarks(cached)
+      } catch { /* ignore */ }
     } finally {
       setLoading(false)
     }

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Folder, Check, Plus, Trash2, Pencil } from 'lucide-react'
+import { ChevronDown, Folder, Check, Plus, Trash2, Pencil, Download } from 'lucide-react'
 import type { Workspace } from '../../types'
 
 interface WorkspaceDropdownProps {
@@ -9,9 +9,10 @@ interface WorkspaceDropdownProps {
   onCreate: (name: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, name: string) => void
+  onDownload?: (id: string) => void
 }
 
-export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDelete, onRename }: WorkspaceDropdownProps) {
+export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDelete, onRename, onDownload }: WorkspaceDropdownProps) {
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -83,6 +84,15 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                   </button>
                   {ws.name !== 'Default' && (
                     <div className="flex items-center gap-0.5 pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {onDownload && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDownload(ws.id); setOpen(false) }}
+                          aria-label={`Download ${ws.name} for offline`}
+                          className="p-1 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
+                        >
+                          <Download size={12} className="text-text-muted" />
+                        </button>
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); setRenamingId(ws.id); setRenameValue(ws.name) }}
                         aria-label={`Rename ${ws.name}`}

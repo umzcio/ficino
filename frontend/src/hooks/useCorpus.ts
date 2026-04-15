@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Paper } from '../types'
 import { listPapers, uploadPaper, deletePaper } from '../lib/api'
+import { cachePapers, getCachedPapers } from '../lib/offline-cache'
 
 export function useCorpus(workspaceId?: string) {
   const [papers, setPapers] = useState<Paper[]>([])
@@ -21,10 +22,20 @@ export function useCorpus(workspaceId?: string) {
   const refresh = useCallback(async () => {
     try {
       const data = await listPapers(workspaceId)
+      cachePapers(data, workspaceId).catch(() => {})
       setPapers(data)
       setError(null)
       return data
     } catch (err) {
+      // Offline fallback
+      try {
+        const cached = await getCachedPapers(workspaceId)
+        if (cached.length > 0) {
+          setPapers(cached)
+          setError(null)
+          return cached
+        }
+      } catch { /* ignore */ }
       setError(err instanceof Error ? err.message : 'Failed to load papers')
       return null
     } finally {

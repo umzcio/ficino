@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getSettings, updateSettings } from '../lib/api'
+import { cacheSettings, getCachedSettings } from '../lib/offline-cache'
 
 export function useSettings() {
   const [settings, setSettings] = useState<Record<string, unknown>>({})
@@ -8,9 +9,13 @@ export function useSettings() {
   const refresh = useCallback(async () => {
     try {
       const data = await getSettings()
+      cacheSettings(data).catch(() => {})
       setSettings(data)
     } catch {
-      // ignore
+      try {
+        const cached = await getCachedSettings()
+        if (cached) setSettings(cached)
+      } catch { /* ignore */ }
     } finally {
       setLoading(false)
     }

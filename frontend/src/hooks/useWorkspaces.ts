@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Workspace } from '../types'
 import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace } from '../lib/api'
+import { cacheWorkspaces, getCachedWorkspaces } from '../lib/offline-cache'
 
 const ACTIVE_WORKSPACE_KEY = 'ficino_active_workspace'
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001'
@@ -15,6 +16,7 @@ export function useWorkspaces() {
   const refresh = useCallback(async () => {
     try {
       const data = await listWorkspaces()
+      cacheWorkspaces(data).catch(() => {})
       setWorkspaces(data)
       // If active workspace was deleted, fall back to first available
       if (data.length > 0 && !data.find((w) => w.id === activeId)) {
@@ -22,7 +24,10 @@ export function useWorkspaces() {
         localStorage.setItem(ACTIVE_WORKSPACE_KEY, data[0].id)
       }
     } catch {
-      // ignore
+      try {
+        const cached = await getCachedWorkspaces()
+        if (cached.length > 0) setWorkspaces(cached)
+      } catch { /* ignore */ }
     } finally {
       setLoading(false)
     }

@@ -133,13 +133,20 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Production**: `supabase` for ficino.ai with Supabase Auth + hosted Postgres
 - **One env change**: switch providers without code changes
 
+### PWA + Offline Mode
+- **Installable**: add to home screen on iOS/Android, standalone fullscreen app — no App Store
+- **Service worker**: Workbox precaches all static assets, runtime-caches figure images and Google Fonts
+- **IndexedDB offline data**: all hooks write through to IndexedDB on fetch, fall back to cache when offline
+- **Download workspace**: one-click pre-cache of an entire workspace (feeds, papers, summaries, figures) for airplane-mode reading
+- **Sync indicator**: "synced Xm ago" in feed header, amber warning when stale
+
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | React + Vite + TypeScript + TailwindCSS v4 |
+| **Frontend** | React + Vite + TypeScript + TailwindCSS v4 + PWA (Workbox + IndexedDB) |
 | **Backend API** | FastAPI (Python 3.11+), async, raw SQL with asyncpg |
 | **Workers** | Celery + Redis (ingestion, feed generation, alerts) |
 | **Database** | PostgreSQL + pgvector (hybrid vector + BM25 search) |
@@ -278,7 +285,7 @@ ficino/
 │   ├── src/
 │   │   ├── components/    # Feed, Messages, Explore, Settings, Alerts, Bookmarks
 │   │   ├── hooks/         # useCorpus, useFeed, useBookmarks, useWorkspaces, useAlerts, useSettings
-│   │   └── lib/api.ts     # API client
+│   │   └── lib/           # api.ts, offline-db.ts, offline-cache.ts, workspace-download.ts, pwa.ts
 │   └── Dockerfile
 ├── api/                   # FastAPI
 │   ├── routers/           # papers, feed, messages, replies, tags, workspaces, alerts, bookmarks, settings
@@ -313,12 +320,9 @@ ficino/
 
 See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
 
-- Like as training signal (RLHF-lite — your likes shape future feed generation)
-- Ask Your Corpus (conversational RAG Q&A beyond persona DMs)
 - Custom personas (user-created, one INSERT to the DB)
 - Export feed (markdown/PDF for dissertation use)
 - Citation graph (visual map of inter-paper citations)
-- Auth & multi-user support
 - Production hardening for ficino.ai deployment
 
 ---

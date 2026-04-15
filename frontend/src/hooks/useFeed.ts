@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { FeedPost } from '../types'
 import { generateFeed, getFeedStatus, getFeed, listFeeds } from '../lib/api'
+import { cacheFeeds, cacheFeed, getCachedFeeds } from '../lib/offline-cache'
 
 type FeedState = 'idle' | 'loading' | 'generating' | 'complete' | 'error'
 
@@ -30,6 +31,7 @@ export function useFeed(workspaceId?: string) {
       setFeedState('loading')
       try {
         const feeds = await listFeeds(workspaceId)
+        cacheFeeds(feeds, workspaceId).catch(() => {})
         if (feeds.length > 0 && feeds[0].posts.length > 0) {
           setPosts(feeds[0].posts as FeedPost[])
           setFeedId(feeds[0].id)
@@ -40,6 +42,16 @@ export function useFeed(workspaceId?: string) {
           setFeedState('idle')
         }
       } catch {
+        // Offline fallback: try IndexedDB
+        try {
+          const cached = await getCachedFeeds(workspaceId)
+          if (cached.length > 0 && cached[0].posts.length > 0) {
+            setPosts(cached[0].posts as FeedPost[])
+            setFeedId(cached[0].id)
+            setFeedState('complete')
+            return
+          }
+        } catch { /* ignore */ }
         setFeedState('idle')
       }
     }
@@ -60,6 +72,7 @@ export function useFeed(workspaceId?: string) {
           timeoutRef.current = setTimeout(poll, 2000)
         } else if (status.status === 'complete' && status.feed_id) {
           const feed = await getFeed(status.feed_id)
+          cacheFeed(feed).catch(() => {})
           setPosts(feed.posts as FeedPost[])
           setFeedId(status.feed_id)
           setFeedState('complete')

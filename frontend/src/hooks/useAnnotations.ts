@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { listAnnotations, upsertAnnotation, deleteAnnotation, type AnnotationItem } from '../lib/api'
+import { cacheAnnotations, getCachedAnnotations } from '../lib/offline-cache'
 
 export function useAnnotations() {
   const [annotations, setAnnotations] = useState<Map<string, AnnotationItem>>(new Map())
@@ -8,11 +9,19 @@ export function useAnnotations() {
   const refresh = useCallback(async () => {
     try {
       const data = await listAnnotations()
+      cacheAnnotations(data).catch(() => {})
       const map = new Map<string, AnnotationItem>()
       for (const a of data) map.set(`${a.feed_id}:${a.post_index}`, a)
       setAnnotations(map)
     } catch {
-      // ignore
+      try {
+        const cached = await getCachedAnnotations()
+        if (cached.length > 0) {
+          const map = new Map<string, AnnotationItem>()
+          for (const a of cached) map.set(`${a.feed_id}:${a.post_index}`, a)
+          setAnnotations(map)
+        }
+      } catch { /* ignore */ }
     } finally {
       setLoading(false)
     }

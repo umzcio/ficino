@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { listLikesForFeed, createLike, deleteLike } from '../lib/api'
+import { cacheLikes, getCachedLikes } from '../lib/offline-cache'
 
 export function useLikes(feedId: string | null) {
   const [likedPosts, setLikedPosts] = useState<Set<number>>(new Set())
@@ -9,10 +10,19 @@ export function useLikes(feedId: string | null) {
     if (!feedId) return
     listLikesForFeed(feedId)
       .then((data) => {
+        cacheLikes(feedId, data).catch(() => {})
         setLikedPosts(new Set(data.posts))
         setLikedReplies(new Set(Object.keys(data.replies)))
       })
-      .catch(() => {/* ignore */})
+      .catch(async () => {
+        try {
+          const cached = await getCachedLikes(feedId)
+          if (cached) {
+            setLikedPosts(new Set(cached.posts))
+            setLikedReplies(new Set(Object.keys(cached.replies)))
+          }
+        } catch { /* ignore */ }
+      })
   }, [feedId])
 
   const isLiked = useCallback(

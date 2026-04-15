@@ -113,6 +113,18 @@ Everything below is live in production.
 | **Supabase auth** | JWT verification via `SUPABASE_JWT_SECRET`. Users auto-created in local DB on first login. Frontend uses `@supabase/supabase-js` for auth flows |
 | **Auth abstraction** | Single `get_current_user` FastAPI dependency replaces all user identity logic. Routes never know which provider is active. Frontend discovers provider via `GET /auth/provider` |
 
+### PWA + Offline Mode
+| Feature | Description |
+|---------|-------------|
+| **Installable PWA** | Web app manifest with icons (192/512/maskable), standalone display mode. "Add to Home Screen" on iOS/Android — no App Store needed |
+| **Service worker** | Vite PWA plugin (Workbox). Precaches all static assets (JS, CSS, HTML, persona avatars). Runtime caching: CacheFirst for figure images and Google Fonts, StaleWhileRevalidate for font stylesheets. Auto-updates on new deployments |
+| **Install prompt** | Download button in desktop left nav. Dismissible banner on mobile with iOS "Add to Home Screen" instructions |
+| **IndexedDB cache** | 13-store typed schema (feeds, papers, bookmarks, annotations, likes, personas, workspaces, settings, userPosts, alerts, paperSummaries, groupChats, syncMeta). All hooks write through to IndexedDB on network success, fall back to cache when offline |
+| **Offline reading** | Full read-only access to cached feeds, papers, bookmarks, annotations, likes, and settings when offline. Offline banner auto-appears. Generate button and uploads disabled |
+| **Download workspace** | One-click download of an entire workspace: feeds, papers, bookmarks, annotations, likes, paper summaries, figure images. Progress modal with cancel support. Sync timestamp tracked per workspace |
+| **Offline & Storage settings** | Settings section showing cache size, per-workspace sync status, download/sync buttons, and clear offline data |
+| **Sync indicator** | "Synced Xm/Xh ago" in feed header metadata line. Amber warning when stale (>24h) |
+
 ---
 
 ## Next Up
@@ -122,26 +134,6 @@ Features that are designed and ready to build.
 ### Custom Personas
 
 User-created personas with custom name, handle, color, system prompt, and retrieval query. The DB refactor makes this trivial — it's one INSERT to the `personas` table. Needs a frontend form in Settings.
-
----
-
-## Next Up (cont.)
-
-### PWA + Offline Mode
-
-Local-first architecture: generate feeds on your own machine, consume them anywhere — including offline on your phone during a five-hour flight.
-
-**Progressive Web App**
-- `manifest.json` (app name, icon, colors, full-screen launch)
-- Service worker via Vite PWA plugin (intercepts requests, serves cached data offline)
-- "Add to Home Screen" install prompt on iOS/Android — no App Store needed
-
-**Offline Data Layer**
-- IndexedDB cache for feeds, posts, threads, paper summaries, annotations, bookmarks
-- "Download workspace" button that aggressively pre-caches all content for a workspace
-- Sync action: pull latest data while online, available offline immediately after
-
-**Workflow**: upload papers + generate feeds on your laptop (Docker + Ollama). Open Ficino on your phone while on wifi — PWA caches everything. Airplane mode. Scroll.
 
 ---
 

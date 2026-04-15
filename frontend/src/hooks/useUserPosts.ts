@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { listUserPosts, type UserPost } from '../lib/api'
+import { cacheUserPosts, getCachedUserPosts } from '../lib/offline-cache'
 
 export function useUserPosts(workspaceId: string | null) {
   const [posts, setPosts] = useState<UserPost[]>([])
@@ -8,9 +9,13 @@ export function useUserPosts(workspaceId: string | null) {
   const refresh = useCallback(async () => {
     try {
       const data = await listUserPosts(workspaceId || undefined)
+      cacheUserPosts(data, workspaceId || undefined).catch(() => {})
       setPosts(data)
     } catch {
-      // ignore
+      try {
+        const cached = await getCachedUserPosts(workspaceId || undefined)
+        if (cached.length > 0) setPosts(cached)
+      } catch { /* ignore */ }
     } finally {
       setLoading(false)
     }
