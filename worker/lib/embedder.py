@@ -74,8 +74,8 @@ async def _embed_voyage(texts: list[str], input_type: str = "document") -> list[
     cfg = _get_embed_config()
     all_embeddings: list[list[float]] = []
 
-    # Small batches (5) + 20s between to stay under 3 RPM / 10K TPM free tier
-    voyage_batch = 5
+    # Tier 1: 300 RPM / 1M TPM — batch 128 chunks, minimal delay
+    voyage_batch = 128
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         for i in range(0, len(texts), voyage_batch):
@@ -108,9 +108,9 @@ async def _embed_voyage(texts: list[str], input_type: str = "document") -> list[
             else:
                 resp.raise_for_status()
 
-            # Respect rate limit between batches
+            # Brief pause between batches to stay under 300 RPM
             if i + voyage_batch < len(texts):
-                await _asyncio.sleep(21)
+                await _asyncio.sleep(0.5)
 
     return all_embeddings
 
