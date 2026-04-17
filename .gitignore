@@ -1,5 +1,8 @@
-# Environment
+# Environment — both the non-sensitive .env and the sensitive .env.secrets
+# are gitignored. .env.example and .env.secrets.example are committed.
 .env
+.env.secrets
+.env.*.local
 
 # Python
 __pycache__/
@@ -23,6 +26,10 @@ figures/
 
 # Test artifacts
 tests/screenshots/
+tests/results/
+
+# Claude Code local config (per-user, not repo-wide)
+.claude/
 
 # IDE
 .vscode/

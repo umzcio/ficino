@@ -13,7 +13,9 @@ services:
     build: ./api
     container_name: ficino-api
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+      - .env.secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -37,7 +39,9 @@ services:
     build: ./worker
     container_name: ficino-worker
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+      - .env.secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
