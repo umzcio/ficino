@@ -5,7 +5,7 @@ import {
   RefreshCw, EyeOff, Bug, Copy, Quote, StickyNote, Trash2
 } from 'lucide-react'
 import type { FeedPost } from '../../types'
-import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, updateSettings, type ReplyMessage } from '../../lib/api'
+import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, deletePost, updateSettings, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 
 /** Lightweight inline markdown: **bold**, *italic*, `code`. No block elements. */
@@ -173,9 +173,10 @@ interface PostCardProps {
   onReplyBookmark?: (feedId: string, postIndex: number, messageIndex: number, snapshot: Record<string, unknown>) => void
   isReplyBookmarked?: (postIndex: number, messageIndex: number) => boolean
   onPostRegenerated?: () => void
+  onPostDeleted?: (postIndex: number) => void
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated }: PostCardProps) {
+export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated, onPostDeleted }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const bookmarked = !!bookmarkedId
@@ -200,6 +201,8 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
   const [zapLoading, setZapLoading] = useState(false)
   const [debugOpen, setDebugOpen] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const zapRef = useRef<HTMLDivElement>(null)
 
   // Close zap dropdown on click outside or Escape
@@ -453,6 +456,33 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                       setToast(`${p.name} hidden from future feeds`)
                     } catch { setToast('Failed to update settings') }
                   }} />
+                  <MenuItem
+                    icon={Trash2}
+                    label={deleting ? 'Deleting...' : confirmingDelete ? 'Click again to confirm' : 'Delete post'}
+                    color="var(--color-persona-skeptic)"
+                    disabled={deleting}
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      if (!feedId) return
+                      if (!confirmingDelete) {
+                        setConfirmingDelete(true)
+                        setTimeout(() => setConfirmingDelete(false), 3000)
+                        return
+                      }
+                      setDeleting(true)
+                      try {
+                        await deletePost(feedId, postIndex)
+                        setToast('Post deleted')
+                        setMenuOpen(false)
+                        setConfirmingDelete(false)
+                        onPostDeleted?.(postIndex)
+                      } catch {
+                        setToast('Failed to delete post')
+                      } finally {
+                        setDeleting(false)
+                      }
+                    }}
+                  />
                   {import.meta.env.DEV && (
                     <>
                       <div className="border-t border-border my-1.5 mx-3" />

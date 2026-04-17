@@ -43,6 +43,8 @@ const TAB_CATEGORIES: Record<number, string | null> = {
 
 export function FeedContent({ posts, feedId, feedState, generatingMeta, error, activeTab, isBookmarked, onBookmarkToggle, getAnnotation, onAnnotationSave, onAnnotationDelete, onPostClick, onPersonaClick, onGenerate, onReplyBookmark, isReplyBookmarked }: FeedProps) {
   const [repliedIndices, setRepliedIndices] = useState<Set<number>>(new Set())
+  // Track locally-deleted post indices for optimistic UI (persists until next feed reload)
+  const [deletedIndices, setDeletedIndices] = useState<Set<number>>(new Set())
   const { isLiked, isReplyLiked, toggle: toggleLike, toggleReply: toggleReplyLike } = useLikes(feedId)
 
   useEffect(() => {
@@ -88,10 +90,12 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
     )
   }
 
+  // Filter soft-deleted posts (server-side flag or optimistic local set) and apply tab filter
   const categoryFilter = TAB_CATEGORIES[activeTab] ?? null
+  const visible = posts.filter((p, idx) => !p.deleted && !deletedIndices.has(idx))
   const filtered = categoryFilter
-    ? posts.filter((p) => p.category === categoryFilter)
-    : posts
+    ? visible.filter((p) => p.category === categoryFilter)
+    : visible
 
   if (filtered.length === 0 && posts.length > 0) {
     const tabNames = TAB_NAMES
@@ -127,6 +131,7 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
             onReplyLikeToggle={toggleReplyLike}
             onReplyBookmark={onReplyBookmark}
             isReplyBookmarked={isReplyBookmarked}
+            onPostDeleted={(idx) => setDeletedIndices((prev) => new Set(prev).add(idx))}
           />
         )
       })}

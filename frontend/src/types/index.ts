@@ -55,6 +55,7 @@ export interface FeedPost {
   category?: 'general' | 'debates' | 'methods' | 'findings'
   thread_posts?: string[]
   sources?: { paper_title: string; section: string; content: string; score: number }[]
+  deleted?: boolean  // soft-deleted posts are filtered from display
 }
 
 // Workspaces

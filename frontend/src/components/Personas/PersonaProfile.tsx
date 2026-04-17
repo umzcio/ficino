@@ -59,7 +59,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
 
   if (!p) return null
 
-  const personaPosts = posts?.filter(post => post.persona === personaKey) || []
+  const personaPosts = posts?.filter(post => post.persona === personaKey && !post.deleted) || []
 
   return (
     <div>

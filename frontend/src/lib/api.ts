@@ -106,6 +106,10 @@ export async function regeneratePost(feedId: string, postIndex: number): Promise
   return request(`/feed/${feedId}/regenerate/${postIndex}`, { method: 'POST' })
 }
 
+export async function deletePost(feedId: string, postIndex: number): Promise<void> {
+  return request(`/feed/${feedId}/posts/${postIndex}`, { method: 'DELETE' })
+}
+
 // Replies
 export interface ReplyMessage {
   role: 'user' | 'persona' | 'interjection'

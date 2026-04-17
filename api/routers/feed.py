@@ -126,6 +126,36 @@ async def get_feed(
     )
 
 
+@router.delete("/{feed_id}/posts/{post_index}", status_code=204)
+async def delete_post(
+    feed_id: str,
+    post_index: int,
+    db: asyncpg.Connection = Depends(get_db),
+) -> None:
+    """Soft-delete a post in a feed by marking it `deleted: true` in the JSONB.
+
+    Preserves post_index stability so bookmarks, annotations, likes, and
+    reply conversations keyed by (feed_id, post_index) remain valid.
+    """
+    row = await db.fetchrow("SELECT posts FROM feeds WHERE id = $1", feed_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
+    posts = row["posts"]
+    if isinstance(posts, str):
+        posts = json.loads(posts)
+    if post_index < 0 or post_index >= len(posts):
+        raise HTTPException(status_code=400, detail="Post index out of range")
+
+    posts[post_index]["deleted"] = True
+
+    await db.execute(
+        "UPDATE feeds SET posts = $1 WHERE id = $2",
+        json.dumps(posts), feed_id,
+    )
+    logger.info("post_soft_deleted", feed_id=feed_id, post_index=post_index)
+
+
 @router.post("/{feed_id}/regenerate/{post_index}", status_code=202)
 async def regenerate_post(
     feed_id: str,

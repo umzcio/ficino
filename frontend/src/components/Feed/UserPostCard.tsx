@@ -18,6 +18,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
   const archivist = personas['archivist']
   const [status, setStatus] = useState(post.status)
   const [sourcesOpen, setSourcesOpen] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   // Poll for completion if pending
   useEffect(() => {
@@ -51,8 +52,16 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
             <span className="text-sm text-text-muted">·</span>
             <span className="text-sm text-text-muted">{timeAgo}</span>
             <button
-              className="ml-auto bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full text-text-muted hover:text-persona-skeptic transition-colors"
+              className={`ml-auto bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full transition-colors ${
+                confirmingDelete ? 'text-persona-skeptic' : 'text-text-muted hover:text-persona-skeptic'
+              }`}
+              title={confirmingDelete ? 'Click again to confirm' : 'Delete post'}
               onClick={async () => {
+                if (!confirmingDelete) {
+                  setConfirmingDelete(true)
+                  setTimeout(() => setConfirmingDelete(false), 3000)
+                  return
+                }
                 await deleteUserPost(post.id)
                 onDeleted?.()
               }}
