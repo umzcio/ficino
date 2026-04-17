@@ -26,7 +26,7 @@ export function BookmarksView({ bookmarks, loading, onRemove, getAnnotation, onA
     <div>
       {/* Header */}
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5">
-        <h1 className="text-xl font-bold text-text">Bookmarks</h1>
+        <h2 className="text-xl font-bold text-text">Bookmarks</h2>
         <p className="text-xs text-text-muted mt-0.5">
           {bookmarks.length} saved post{bookmarks.length !== 1 ? 's' : ''}
         </p>

@@ -131,9 +131,15 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
         prompt = PAPER_SUMMARY_PROMPT.format(title=title, chunks=chunks_text[:8000])
         result = claude_client.generate_persona_post_sync(PAPER_SUMMARY_SYSTEM, prompt)
 
-        # Result should be a list, but generate_persona_post_sync returns a dict
-        # Re-parse: the LLM should return a JSON array
-        raw_text = asyncio.run(claude_client._generate(PAPER_SUMMARY_SYSTEM, prompt))
+        # Result should be a list, but generate_persona_post_sync returns a dict.
+        # Re-parse: the LLM should return a JSON array. Explicit max_tokens=1536
+        # caps the generated length — summary should comfortably fit, and this
+        # guards against runaway output if the LLM gets chatty on a big corpus.
+        # generate_text_sync routes through the persistent loop in claude_client
+        # so httpx clients don't get GC'd on a dead loop (BUG-LIVE-06).
+        raw_text = claude_client.generate_text_sync(
+            PAPER_SUMMARY_SYSTEM, prompt, max_tokens=1536,
+        )
 
         import re
         cleaned = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
@@ -208,7 +214,8 @@ def generate_corpus_synthesis(
         self.update_state(state="PROGRESS", meta={"step": "synthesizing", "synthesis_id": synthesis_id})
 
         prompt = SYNTHESIS_PROMPT.format(paper_chunks=combined[:10000])
-        raw_text = asyncio.run(claude_client._generate(SYNTHESIS_SYSTEM, prompt))
+        # Via persistent-loop wrapper so httpx doesn't re-spin a loop per call.
+        raw_text = claude_client.generate_text_sync(SYNTHESIS_SYSTEM, prompt)
 
         import re
         cleaned = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()

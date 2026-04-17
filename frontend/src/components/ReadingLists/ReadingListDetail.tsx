@@ -128,7 +128,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
       <div>
         <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3">
           <div className="flex items-center gap-3">
-            <button onClick={() => setViewMode('overview')} className="bg-transparent border-none cursor-pointer text-text p-1 hover:bg-bg-hover rounded-full">
+            <button onClick={() => setViewMode('overview')} aria-label="Back to overview" className="bg-transparent border-none cursor-pointer text-text p-1 hover:bg-bg-hover rounded-full">
               <ArrowLeft size={20} />
             </button>
             <div>
@@ -195,7 +195,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
     <div>
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className="bg-transparent border-none cursor-pointer text-text p-1 hover:bg-bg-hover rounded-full">
+          <button onClick={onBack} aria-label="Back to reading lists" className="bg-transparent border-none cursor-pointer text-text p-1 hover:bg-bg-hover rounded-full">
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -243,6 +243,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
                 <button
                   onClick={() => handleMoveUp(i)}
                   disabled={i === 0}
+                  aria-label="Move up"
                   className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-0.5"
                 >
                   <GripVertical size={12} className="rotate-180" />
@@ -250,6 +251,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
                 <button
                   onClick={() => handleMoveDown(i)}
                   disabled={i === list.papers.length - 1}
+                  aria-label="Move down"
                   className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-0.5"
                 >
                   <GripVertical size={12} />

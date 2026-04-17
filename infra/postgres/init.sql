@@ -78,8 +78,10 @@ CREATE TABLE chunks (
   metadata JSONB DEFAULT '{}'
 );
 
--- IVFFlat index requires data to build (add later with migration when chunk count > 1000)
--- CREATE INDEX ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+-- Vector index for chunk embeddings lives in a separate migration
+-- (infra/postgres/add_hnsw_index.sql). HNSW is preferred over IVFFlat
+-- for corpora that grow incrementally; run that migration after
+-- init.sql on fresh installs and as a one-shot on existing DBs.
 CREATE INDEX ON chunks USING GIN (search_vector);
 
 CREATE OR REPLACE FUNCTION chunks_search_vector_trigger() RETURNS trigger AS $$

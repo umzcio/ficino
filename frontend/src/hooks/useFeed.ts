@@ -17,6 +17,10 @@ export function useFeed(workspaceId?: string) {
   const [generatingMeta, setGeneratingMeta] = useState<GeneratingMeta>({})
   const [error, setError] = useState<string | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks whether the component is still mounted so polling closures can
+  // bail out before calling setState on an unmounted component (avoids the
+  // "Can't perform a React state update on an unmounted component" warning).
+  const mountedRef = useRef(true)
 
   const stopPolling = useCallback(() => {
     if (timeoutRef.current) {
@@ -59,10 +63,14 @@ export function useFeed(workspaceId?: string) {
   }, [workspaceId])
 
   const pollStatus = useCallback((taskId: string) => {
-    // Use setTimeout chain instead of setInterval to avoid stacking
+    // Use setTimeout chain instead of setInterval to avoid stacking.
+    // Every setState is gated on `mountedRef.current` so a completion arriving
+    // after unmount doesn't fire a state update warning.
     async function poll() {
+      if (!mountedRef.current) return
       try {
         const status = await getFeedStatus(taskId)
+        if (!mountedRef.current) return
 
         if (status.status === 'generating' || status.status === 'started') {
           setGeneratingMeta({
@@ -72,6 +80,7 @@ export function useFeed(workspaceId?: string) {
           timeoutRef.current = setTimeout(poll, 2000)
         } else if (status.status === 'complete' && status.feed_id) {
           const feed = await getFeed(status.feed_id)
+          if (!mountedRef.current) return
           cacheFeed(feed).catch(() => {})
           setPosts(feed.posts as FeedPost[])
           setFeedId(status.feed_id)
@@ -86,8 +95,10 @@ export function useFeed(workspaceId?: string) {
         }
       } catch (err) {
         console.warn('Poll error:', err)
-        // Keep polling on transient errors
-        timeoutRef.current = setTimeout(poll, 3000)
+        if (mountedRef.current) {
+          // Keep polling on transient errors
+          timeoutRef.current = setTimeout(poll, 3000)
+        }
       }
     }
 
@@ -117,9 +128,15 @@ export function useFeed(workspaceId?: string) {
     setError(null)
   }, [stopPolling])
 
-  // Cleanup on unmount
+  // Cleanup on unmount — clear the pending timeout AND flip the mounted ref
+  // so any in-flight fetch resolving after unmount short-circuits before
+  // calling setState.
   useEffect(() => {
-    return () => stopPolling()
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      stopPolling()
+    }
   }, [stopPolling])
 
   return { posts, feedId, feedState, generatingMeta, error, generate, loadFeed }

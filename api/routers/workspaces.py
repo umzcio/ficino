@@ -124,17 +124,26 @@ async def delete_workspace(
 @router.get("/{workspace_id}/activity")
 async def get_workspace_activity(
     workspace_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """Get recent activity for a workspace."""
+    # Verify workspace belongs to user
+    owner = await db.fetchrow(
+        "SELECT id FROM corpora WHERE id = $1 AND user_id = $2",
+        workspace_id, user.id,
+    )
+    if not owner:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
     activities: list[dict[str, object]] = []
 
     # Recent paper uploads
     papers = await db.fetch(
         """SELECT id, title, filename, uploaded_at, status, chunk_count
-           FROM papers WHERE corpus_id = $1
+           FROM papers WHERE user_id = $2 AND corpus_id = $1
            ORDER BY uploaded_at DESC LIMIT 10""",
-        workspace_id,
+        workspace_id, user.id,
     )
     for p in papers:
         activities.append({
@@ -147,9 +156,9 @@ async def get_workspace_activity(
     # Recent feed generations
     feeds = await db.fetch(
         """SELECT id, post_count, paper_count, generated_at, generation_duration_ms
-           FROM feeds WHERE corpus_id = $1
+           FROM feeds WHERE user_id = $2 AND corpus_id = $1
            ORDER BY generated_at DESC LIMIT 10""",
-        workspace_id,
+        workspace_id, user.id,
     )
     for f in feeds:
         duration = f["generation_duration_ms"]

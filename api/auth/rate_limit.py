@@ -13,7 +13,7 @@ sliding window expiry. Returns 429 Too Many Requests when exceeded.
 
 import redis.asyncio as aioredis
 import structlog
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 from auth import AuthUser, get_current_user
 from config import settings
@@ -58,6 +58,46 @@ class RateLimit:
             raise HTTPException(
                 status_code=429,
                 detail=f"Rate limit exceeded: {self.max_requests} {self.key_prefix} per {self.window_seconds // 3600}h. Try again later.",
+            )
+
+        pipe = redis.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, self.window_seconds)
+        await pipe.execute()
+
+
+class IPRateLimit:
+    """IP-keyed rate limiter for unauthenticated endpoints like /auth/login.
+
+    Uses `X-Forwarded-For` (first hop) when present — Ficino runs behind an
+    nginx reverse proxy which sets that header. Falls back to
+    `request.client.host` if no proxy header is set.
+
+    Always active regardless of AUTH_PROVIDER, because its primary use is
+    protecting the auth endpoints themselves from brute-force.
+    """
+
+    def __init__(self, key_prefix: str, max_requests: int, window_seconds: int):
+        self.key_prefix = key_prefix
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+
+    async def __call__(self, request: Request) -> None:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            ip = forwarded.split(",")[0].strip()
+        else:
+            ip = request.client.host if request.client else "unknown"
+
+        redis = await _get_redis()
+        key = f"ratelimit:{self.key_prefix}:ip:{ip}"
+
+        current = await redis.get(key)
+        if current is not None and int(current) >= self.max_requests:
+            logger.warn("ip_rate_limit_exceeded", ip=ip, action=self.key_prefix, limit=self.max_requests)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many {self.key_prefix} attempts. Try again later.",
             )
 
         pipe = redis.pipeline()

@@ -284,7 +284,7 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
     <div>
       {/* Header */}
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5">
-        <h1 className="text-xl font-bold text-text">Explore</h1>
+        <h2 className="text-xl font-bold text-text">Explore</h2>
         <p className="text-xs text-text-muted mt-0.5">Search, workspaces & activity</p>
       </div>
 

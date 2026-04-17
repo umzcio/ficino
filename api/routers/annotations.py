@@ -2,9 +2,10 @@
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from db.connection import get_db
 
@@ -101,6 +102,7 @@ async def upsert_annotation(
 async def delete_annotation(
     feed_id: str,
     post_index: int,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -112,3 +114,10 @@ async def delete_annotation(
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Annotation not found")
     logger.info("annotation_deleted", feed_id=feed_id, post_index=post_index)
+
+    await record_audit(
+        db, request, user,
+        action="annotation.delete", resource_type="annotation", resource_id=feed_id,
+        metadata={"post_index": post_index},
+        status_code=204,
+    )

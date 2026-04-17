@@ -19,6 +19,14 @@ app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    # Explicit knobs so we're not relying on Celery defaults. Concurrency
+    # can also be set via CELERY_WORKER_CONCURRENCY env (see .env); defaults
+    # to CPU count if unset. broker_pool_limit caps Redis connections per
+    # worker process — the default (10) is fine but set explicitly to
+    # document intent.
+    worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", "2")),
+    worker_max_tasks_per_child=100,
+    broker_pool_limit=10,
     task_routes={
         "tasks.ingestion_tasks.*": {"queue": "ingestion"},
         "tasks.persona_tasks.*": {"queue": "persona"},

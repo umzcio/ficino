@@ -6,15 +6,17 @@ from datetime import datetime, timezone
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from redis import Redis
 
+from audit import record_audit
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
 from models.paper import Paper
+from signed_url import sign_resource
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/papers", tags=["papers"])
@@ -43,6 +45,10 @@ async def upload_paper(
     if len(contents) > settings.max_upload_size_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"File exceeds {settings.max_upload_size_mb}MB limit")
 
+    # Verify PDF magic bytes — an .pdf extension alone is trivially spoofable.
+    if not contents.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="File is not a valid PDF (magic bytes missing)")
+
     paper_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{paper_id}.pdf")
 
@@ -54,11 +60,15 @@ async def upload_paper(
     # Use provided workspace or default
     corpus_id = workspace_id or DEFAULT_WORKSPACE_ID
 
-    # Validate workspace exists
-    workspace_exists = await db.fetchrow("SELECT id FROM corpora WHERE id = $1", corpus_id)
+    # Validate workspace exists AND belongs to the caller — prevents uploading
+    # into someone else's workspace by guessing UUIDs.
+    workspace_exists = await db.fetchrow(
+        "SELECT id FROM corpora WHERE id = $1 AND user_id = $2",
+        corpus_id, user.id,
+    )
     if not workspace_exists:
         os.remove(file_path)
-        raise HTTPException(status_code=400, detail=f"Workspace {corpus_id} not found")
+        raise HTTPException(status_code=404, detail="Workspace not found")
 
     now = datetime.now(timezone.utc)
     try:
@@ -96,6 +106,7 @@ async def upload_paper(
 @router.get("", response_model=list[Paper])
 async def list_papers(
     workspace_id: str | None = None,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[Paper]:
     """List papers, optionally filtered by workspace."""
@@ -111,10 +122,10 @@ async def list_papers(
                FROM papers p
                LEFT JOIN paper_tags pt ON p.id = pt.paper_id
                LEFT JOIN tags t ON pt.tag_id = t.id
-               WHERE p.corpus_id = $1
+               WHERE p.user_id = $1 AND p.corpus_id = $2
                GROUP BY p.id
                ORDER BY p.uploaded_at DESC""",
-            workspace_id,
+            user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
@@ -128,8 +139,10 @@ async def list_papers(
                FROM papers p
                LEFT JOIN paper_tags pt ON p.id = pt.paper_id
                LEFT JOIN tags t ON pt.tag_id = t.id
+               WHERE p.user_id = $1
                GROUP BY p.id
-               ORDER BY p.uploaded_at DESC"""
+               ORDER BY p.uploaded_at DESC""",
+            user.id,
         )
     papers = []
     for row in rows:
@@ -161,6 +174,7 @@ async def list_papers(
 @router.get("/{paper_id}", response_model=Paper)
 async def get_paper(
     paper_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> Paper:
     """Get a specific paper by ID."""
@@ -168,8 +182,8 @@ async def get_paper(
         """SELECT id, user_id, corpus_id, title, authors, year, doi, filename,
                   status, extraction_path, error_message, chunk_count, figure_count,
                   uploaded_at, processed_at
-           FROM papers WHERE id = $1""",
-        paper_id,
+           FROM papers WHERE id = $1 AND user_id = $2""",
+        paper_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -196,16 +210,21 @@ async def get_paper(
 @router.delete("/{paper_id}", status_code=204)
 async def delete_paper(
     paper_id: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Delete a paper and its associated chunks, feeds, and alerts."""
-    # Get corpus_id before deleting so we can clean up feeds/alerts
-    row = await db.fetchrow("SELECT corpus_id FROM papers WHERE id = $1", paper_id)
+    # Get corpus_id + filename before deleting so we can clean up feeds/alerts
+    # and record them in the audit log.
+    row = await db.fetchrow(
+        "SELECT corpus_id, filename FROM papers WHERE id = $1", paper_id,
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
 
     corpus_id = row["corpus_id"]
+    filename = row["filename"]
 
     await db.execute("DELETE FROM papers WHERE id = $1", paper_id)
 
@@ -229,24 +248,44 @@ async def delete_paper(
 
     logger.info("paper_deleted", paper_id=paper_id)
 
+    await record_audit(
+        db, request, user,
+        action="paper.delete", resource_type="paper", resource_id=paper_id,
+        metadata={
+            "filename": filename,
+            "corpus_id": str(corpus_id) if corpus_id else None,
+        },
+        status_code=204,
+    )
+
 
 @router.get("/{paper_id}/figures")
 async def list_figures(
     paper_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List extracted figures for a paper."""
     rows = await db.fetch(
-        """SELECT id, page_number, image_path, extraction_type,
-                  description, claim_summary, figure_index
-           FROM figures WHERE paper_id = $1 ORDER BY figure_index""",
-        paper_id,
+        """SELECT f.id, f.page_number, f.image_path, f.extraction_type,
+                  f.description, f.claim_summary, f.figure_index
+           FROM figures f
+           JOIN papers p ON f.paper_id = p.id AND p.user_id = $2
+           WHERE f.paper_id = $1 ORDER BY f.figure_index""",
+        paper_id, user.id,
     )
+    # Each URL carries a fresh short-lived (10 min) HMAC token. The handler
+    # at GET /figures/{paper_id}/{figure_id} verifies the token AND that the
+    # paper belongs to the caller, so leaking the URL cannot outlive the TTL
+    # or cross-tenant.
     return [
         {
             "id": str(row["id"]),
             "page_number": row["page_number"],
-            "image_url": f"/figures/{paper_id}/{row['image_path'].split('/')[-1]}",
+            "image_url": (
+                f"/figures/{paper_id}/{row['id']}"
+                f"?token={sign_resource(str(row['id']))}"
+            ),
             "extraction_type": row["extraction_type"],
             "description": row["description"],
             "claim_summary": row["claim_summary"],

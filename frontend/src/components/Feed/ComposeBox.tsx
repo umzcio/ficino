@@ -33,12 +33,14 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
   return (
     <div className="border-b border-border px-4 py-3">
       <div className="flex gap-3">
-        <div
-          className="w-10 h-10 rounded-full bg-gold/15 flex items-center justify-center text-[12px] font-bold text-gold shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+        <button
+          type="button"
           onClick={onUserClick}
+          aria-label="View your profile"
+          className="w-10 h-10 rounded-full bg-gold/15 flex items-center justify-center text-[12px] font-bold text-gold shrink-0 cursor-pointer hover:opacity-80 transition-opacity border-none"
         >
           You
-        </div>
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-1">
             <span className="text-[14px] font-bold text-text">{userDisplayName}</span>
@@ -55,7 +57,8 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
               }
             }}
             placeholder="Ask your corpus anything..."
-            className="w-full bg-transparent border-none outline-none resize-none text-[15px] text-text placeholder:text-text-muted/50 leading-relaxed min-h-[44px] max-h-[120px]"
+            aria-label="Compose new post"
+            className="w-full bg-transparent border-none outline-none resize-none text-[15px] text-text placeholder:text-text-muted leading-relaxed min-h-[44px] max-h-[120px]"
             rows={1}
             disabled={loading}
           />

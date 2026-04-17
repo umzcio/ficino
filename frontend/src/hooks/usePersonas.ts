@@ -27,6 +27,10 @@ export function usePersonasLoader() {
           }
         } catch { /* ignore */ }
       })
+      // Belt-and-suspenders: swallow any promise that escapes the inner
+      // handlers so we never surface an unhandledrejection warning on a
+      // pure fetch-personas failure path. UI simply stays with its empty map.
+      .catch(() => {})
   }, [])
 
   return personas

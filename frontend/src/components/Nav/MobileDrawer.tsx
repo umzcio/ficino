@@ -1,7 +1,9 @@
+import { useRef } from 'react'
 import { X } from 'lucide-react'
 import { PaperUpload } from '../Upload/PaperUpload'
 import { CorpusPanel } from '../Sidebar/CorpusPanel'
 import { PersonaPanel } from '../Sidebar/PersonaPanel'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import type { Paper } from '../../types'
 
 interface MobileDrawerProps {
@@ -27,6 +29,9 @@ export function MobileDrawer({
   open, onClose, corpus, enabledPersonas, activeTag, onTagFilter,
   paperSummaries, onPaperClick,
 }: MobileDrawerProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(open, dialogRef)
+
   if (!open) return null
 
   return (
@@ -38,13 +43,13 @@ export function MobileDrawer({
       />
 
       {/* Drawer */}
-      <div role="dialog" aria-modal="true" aria-label="Corpus management" className="fixed top-0 left-0 bottom-0 w-[300px] max-w-[85vw] bg-bg z-50 overflow-y-auto animate-slide-right border-r border-border">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Corpus management" className="fixed top-0 left-0 bottom-0 w-[300px] max-w-[85vw] bg-bg z-50 overflow-y-auto animate-slide-right border-r border-border">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
           <div className="flex items-center gap-2.5">
             <img
               src={`${import.meta.env.BASE_URL}ficino-favicon-light.png`}
-              alt="ficino"
+              alt=""
               className="w-8 h-8 rounded-lg app-logo"
             />
             <span

@@ -4,10 +4,10 @@
   --color-bg: #080a0f;
   --color-bg-hover: #0d0f14;
   --color-border: #1e2028;
-  --color-gold: #c8a96e;
+  --color-gold: #dcbd86;          /* was #c8a96e — bumped for WCAG AA 4.5:1 on bg */
   --color-gold-dark: #a07840;
   --color-text: #e8eaf0;
-  --color-text-muted: #7a8194;
+  --color-text-muted: #9aa3b8;    /* was #7a8194 — bumped for WCAG AA on metadata text */
   --color-text-mid: #8b92a5;
   --color-text-secondary: #b0b8c8;
   --color-persona-skeptic: #e85d4a;
@@ -21,7 +21,7 @@
   --color-nav-active: #e8eaf0;
   --color-nav-inactive: #7a8194;
   --color-tab-active: #e8eaf0;
-  --color-tab-inactive: #555d6e;
+  --color-tab-inactive: #7a8699;  /* was #555d6e — bumped for WCAG AA 3:1 on bg (UI component) */
   --color-toggle-off: #1e2028;
 }
 
@@ -30,7 +30,7 @@
   --color-bg: #ffffff;
   --color-bg-hover: #f5f5f7;
   --color-border: #e0e2e8;
-  --color-gold: #9a7b3f;
+  --color-gold: #846227;          /* was #9a7b3f — darkened for WCAG AA on white */
   --color-gold-dark: #7a5e2e;
   --color-text: #1a1c22;
   --color-text-muted: #6b7280;
@@ -68,12 +68,12 @@ body {
 
 /* Focus indicators */
 :focus-visible {
-  outline: 2px solid var(--color-gold);
+  outline: 3px solid var(--color-gold);
   outline-offset: 2px;
 }
 
 button:focus-visible {
-  outline: 2px solid var(--color-gold);
+  outline: 3px solid var(--color-gold);
   outline-offset: 2px;
 }
 
@@ -84,6 +84,7 @@ button:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .animate-spin { animation: none !important; }
 }
 
 ::-webkit-scrollbar {

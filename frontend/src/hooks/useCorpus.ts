@@ -56,7 +56,7 @@ export function useCorpus(workspaceId?: string) {
       }
 
       const hasProcessing = data.some(
-        (p) => !['complete', 'error'].includes(p.status)
+        (p) => p.status && !['complete', 'error'].includes(p.status),
       )
 
       if (hasProcessing) {
@@ -78,7 +78,7 @@ export function useCorpus(workspaceId?: string) {
   // Start/stop polling based on paper states
   useEffect(() => {
     const hasProcessing = papers.some(
-      (p) => !['complete', 'error'].includes(p.status)
+      (p) => p.status && !['complete', 'error'].includes(p.status),
     )
 
     if (hasProcessing) {

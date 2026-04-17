@@ -89,4 +89,30 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Route-level chunks so the Feed bundle doesn't ship Messages,
+        // Reading Lists, Settings, Alerts, Personas code the user hasn't
+        // opened yet. Each chunk is loaded on demand by its nav entry.
+        // Saves ~50-120KB on first paint depending on how heavy each view
+        // has grown — revisit with a bundle-analyzer report after any
+        // significant view addition.
+        manualChunks: (id) => {
+          if (!id.includes('node_modules')) {
+            // Split our own components by major route
+            if (id.includes('/components/Messages/')) return 'route-messages'
+            if (id.includes('/components/ReadingLists/')) return 'route-reading-lists'
+            if (id.includes('/components/Settings/')) return 'route-settings'
+            if (id.includes('/components/Alerts/')) return 'route-alerts'
+            if (id.includes('/components/Personas/')) return 'route-personas'
+            if (id.includes('/components/Bookmarks/')) return 'route-bookmarks'
+            if (id.includes('/components/Explore/')) return 'route-explore'
+          }
+          // Let Vite handle vendor chunking automatically for node_modules
+          return undefined
+        },
+      },
+    },
+  },
 })

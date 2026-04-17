@@ -37,7 +37,7 @@ export function SettingsView({ settings, loading, onUpdate, workspaces, onDownlo
         <div className="px-4 py-3.5 flex items-center justify-between border-b border-border">
           {!searchOpen && (
             <div>
-              <h1 className="text-xl font-bold text-text">Settings</h1>
+              <h2 className="text-xl font-bold text-text">Settings</h2>
               <p className="text-xs text-text-muted mt-0.5">Configure Ficino's behavior</p>
             </div>
           )}
@@ -62,12 +62,17 @@ export function SettingsView({ settings, loading, onUpdate, workspaces, onDownlo
             onNavigate={(tab) => { setActiveTab(tab); setSearchQuery(''); setSearchOpen(false) }}
           />
         ) : (
-          <>
+          <div
+            role="tabpanel"
+            id={`settings-panel-${activeTab}`}
+            aria-labelledby={`settings-tab-${activeTab}`}
+            tabIndex={0}
+          >
             {activeTab === 'account' && <AccountTab settings={settings} onUpdate={onUpdate} />}
             {activeTab === 'ai' && <AITab settings={settings} onUpdate={onUpdate} />}
             {activeTab === 'content' && <ContentTab settings={settings} onUpdate={onUpdate} />}
             {activeTab === 'storage' && <StorageTab settings={settings} onUpdate={onUpdate} workspaces={workspaces} onDownloadWorkspace={onDownloadWorkspace} />}
-          </>
+          </div>
         )}
       </div>
     </div>

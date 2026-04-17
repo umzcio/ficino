@@ -60,6 +60,10 @@ async def _embed_openai(texts: list[str]) -> list[list[float]]:
         logger.info("openai_embedding_batch", start=i, count=len(batch))
         response = await client.embeddings.create(model=cfg["openai_model"], input=batch)
         all_embeddings.extend([item.embedding for item in response.data])
+        # Throttle between batches so a 10k-chunk ingestion doesn't burst
+        # past OpenAI's TPM / RPM caps. Mirrors the Voyage pattern above.
+        if i + BATCH_SIZE < len(texts):
+            await asyncio.sleep(1.0)
 
     return all_embeddings
 
@@ -149,9 +153,29 @@ async def embed_single(text: str, *, input_type: str = "document") -> list[float
     return results[0]
 
 
+# Shared persistent event loop for the embedder's sync wrappers — `asyncio.run()`
+# creates a fresh loop on every call, which (a) tears down httpx's internal
+# connection pool each time and (b) stacks ominously with Celery's own
+# loop-lifecycle management. One long-lived loop + a thread lock matches the
+# pattern already used in lib/db.py.
+import threading
+
+_embed_loop: asyncio.AbstractEventLoop | None = None
+_embed_loop_lock = threading.Lock()
+
+
+def _run_on_embed_loop(coro):
+    """Execute an async coroutine on the embedder's persistent loop."""
+    global _embed_loop
+    with _embed_loop_lock:
+        if _embed_loop is None or _embed_loop.is_closed():
+            _embed_loop = asyncio.new_event_loop()
+        return _embed_loop.run_until_complete(coro)
+
+
 def embed_texts_sync(texts: list[str], *, input_type: str = "document") -> list[list[float]]:
     """Synchronous wrapper for use in Celery tasks."""
-    return asyncio.run(embed_texts(texts, input_type=input_type))
+    return _run_on_embed_loop(embed_texts(texts, input_type=input_type))
 
 
 def embed_single_sync(text: str, *, input_type: str = "query") -> list[float]:
@@ -159,4 +183,4 @@ def embed_single_sync(text: str, *, input_type: str = "query") -> list[float]:
 
     Defaults to 'query' since embed_single_sync is used for retrieval.
     """
-    return asyncio.run(embed_single(text, input_type=input_type))
+    return _run_on_embed_loop(embed_single(text, input_type=input_type))

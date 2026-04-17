@@ -96,6 +96,7 @@ function AddTagInput({ paperId, onDone }: { paperId: string; onDone: () => void 
       ) : (
         <button
           onClick={handleSubmit}
+          aria-label="Add tag"
           className="bg-transparent border-none cursor-pointer p-0 text-gold hover:text-gold/80"
         >
           <CheckCircle size={12} />
@@ -156,6 +157,11 @@ function PaperCard({
           ) : paper.status === 'error' ? (
             <div className="mt-1">
               <StatusBadge status={paper.status} />
+              {paper.error_message && (
+                <p className="text-[11px] text-persona-skeptic/80 mt-1 leading-snug">
+                  {paper.error_message}
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-[12px] text-text-muted mt-0.5">

@@ -29,29 +29,56 @@ def _get_config() -> dict[str, str]:
 async def _generate_ollama(
     system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 1024,
 ) -> str:
-    """Generate text using Ollama."""
+    """Generate text using Ollama with exponential backoff on transient failures.
+
+    Connection errors (Ollama down / restarting) and 5xx responses are retried
+    with backoff 2s → 6s → 18s. Non-retryable errors (4xx, JSON parse) bubble
+    immediately. Keeps the per-attempt timeout at 300s so a slow model that
+    actually responds isn't cut off.
+    """
     cfg = _get_config()
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(
-            f"{cfg['ollama_base_url']}/api/chat",
-            json={
-                "model": cfg["ollama_llm_model"],
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "stream": False,
-                "think": False,  # Disable thinking mode (qwen3.5 etc.)
-                "options": {"temperature": temperature, "num_predict": max_tokens},
-            },
-        )
-        resp.raise_for_status()
-        msg = resp.json()["message"]
-        # Some models put content in 'thinking' field when think mode is on
-        content = msg.get("content", "")
-        if not content and msg.get("thinking"):
-            content = msg["thinking"]
-        return content
+    payload = {
+        "model": cfg["ollama_llm_model"],
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+        "think": False,  # Disable thinking mode (qwen3.5 etc.)
+        "options": {"temperature": temperature, "num_predict": max_tokens},
+    }
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                resp = await client.post(
+                    f"{cfg['ollama_base_url']}/api/chat", json=payload,
+                )
+                if 500 <= resp.status_code < 600:
+                    # Server-side transient — retryable
+                    raise httpx.HTTPStatusError(
+                        f"ollama 5xx: {resp.status_code}",
+                        request=resp.request, response=resp,
+                    )
+                resp.raise_for_status()
+                msg = resp.json()["message"]
+                content = msg.get("content", "")
+                if not content and msg.get("thinking"):
+                    content = msg["thinking"]
+                return content
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as e:
+            last_exc = e
+            if attempt == 2:
+                break
+            wait = 2 * (3 ** attempt)  # 2s, 6s, (18s if a 4th attempt existed)
+            logger.warn(
+                "ollama_transient_error_retrying",
+                attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
+            )
+            await asyncio.sleep(wait)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def _generate_claude(
@@ -125,7 +152,14 @@ def _parse_post_json(text: str) -> dict[str, object]:
     content = cleaned if cleaned else text
     # Strip any remaining markdown/code artifacts
     content = re.sub(r'```.*?```', '', content, flags=re.DOTALL).strip()
-    logger.warn("post_json_parse_failed", response_preview=content[:200])
+    # Log only shape info — the response can contain partial user-paper content
+    # or PII echoed back from chunks. Keep debugging possible without leaking
+    # content into host logs.
+    logger.warn(
+        "post_json_parse_failed",
+        response_length=len(content),
+        response_type=type(content).__name__,
+    )
     return {"post_type": "post", "content": content}
 
 
@@ -146,13 +180,20 @@ async def classify_contradiction(chunk_a: str, chunk_b: str) -> str:
 
     Returns one of: 'supports', 'contradicts', 'extends'.
     """
+    from lib.sanitize import fence_untrusted
+
+    # Both passages are extracted PDF content — fence them so a hostile
+    # document can't pivot the classifier into following embedded instructions.
+    fenced_a = fence_untrusted(chunk_a)
+    fenced_b = fence_untrusted(chunk_b)
+
     prompt = f"""Compare these two passages from academic papers and classify their relationship.
 
 PASSAGE A:
-{chunk_a}
+{fenced_a}
 
 PASSAGE B:
-{chunk_b}
+{fenced_b}
 
 Respond with exactly one word: supports, contradicts, or extends
 
@@ -172,20 +213,39 @@ Respond with exactly one word: supports, contradicts, or extends
     return "extends"
 
 
+# Persistent event loop for all sync wrappers in this module. Same pattern
+# as lib/db.py and lib/embedder.py — avoids `asyncio.run()` creating a
+# fresh loop per call, which left httpx connections getting GC'd on a
+# dead loop and surfacing `RuntimeError('Event loop is closed')` in the
+# worker's "Task exception was never retrieved" warnings (BUG-LIVE-06).
+import threading
+
+_llm_loop: asyncio.AbstractEventLoop | None = None
+_llm_loop_lock = threading.Lock()
+
+
+def _run_on_llm_loop(coro):
+    global _llm_loop
+    with _llm_loop_lock:
+        if _llm_loop is None or _llm_loop.is_closed():
+            _llm_loop = asyncio.new_event_loop()
+        return _llm_loop.run_until_complete(coro)
+
+
 def generate_persona_post_sync(
     system_prompt: str, user_prompt: str, temperature: float = 0.8,
 ) -> dict[str, object]:
     """Synchronous wrapper for use in Celery tasks."""
-    return asyncio.run(generate_persona_post(system_prompt, user_prompt, temperature=temperature))
+    return _run_on_llm_loop(generate_persona_post(system_prompt, user_prompt, temperature=temperature))
 
 
 def generate_text_sync(
     system_prompt: str, user_prompt: str, temperature: float = 0.7, max_tokens: int = 1024,
 ) -> str:
     """Synchronous wrapper that returns raw text (no JSON parsing). For Celery tasks."""
-    return asyncio.run(_generate(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens))
+    return _run_on_llm_loop(_generate(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens))
 
 
 def classify_contradiction_sync(chunk_a: str, chunk_b: str) -> str:
     """Synchronous wrapper for use in Celery tasks."""
-    return asyncio.run(classify_contradiction(chunk_a, chunk_b))
+    return _run_on_llm_loop(classify_contradiction(chunk_a, chunk_b))

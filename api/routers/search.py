@@ -1,20 +1,31 @@
 """Search across papers, chunks, and feed posts."""
 
 import json
+import os
 
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, Query
 
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/search", tags=["search"])
 
 
+# Feature flag (2.20). When true, post search hits the normalized feed_posts
+# table via tsvector — O(log n) indexed search. When false, falls back to
+# the legacy in-memory JSONB scan. Default true after backfill verified
+# parity; flip back to "false" by setting the env var if the new path
+# misbehaves.
+SEARCH_USE_NORMALIZED_POSTS = os.getenv("SEARCH_USE_NORMALIZED_POSTS", "true").lower() == "true"
+
+
 @router.get("")
 async def search(
     q: str = Query(..., min_length=1, description="Search query"),
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Search across papers, chunks, and feed posts.
@@ -32,14 +43,14 @@ async def search(
     paper_rows = await db.fetch(
         """SELECT id, title, filename, authors, year, status, chunk_count
            FROM papers
-           WHERE status = 'complete' AND (
+           WHERE user_id = $2 AND status = 'complete' AND (
              title ILIKE $1
              OR filename ILIKE $1
              OR EXISTS (SELECT 1 FROM unnest(authors) a WHERE a ILIKE $1)
            )
            ORDER BY uploaded_at DESC
            LIMIT 10""",
-        f"%{query}%",
+        f"%{query}%", user.id,
     )
     papers = [
         {
@@ -58,11 +69,11 @@ async def search(
                   p.title AS paper_title, p.filename AS paper_filename,
                   ts_rank(c.search_vector, plainto_tsquery('english', $1)) AS rank
            FROM chunks c
-           JOIN papers p ON c.paper_id = p.id
+           JOIN papers p ON c.paper_id = p.id AND p.user_id = $2
            WHERE c.search_vector @@ plainto_tsquery('english', $1)
            ORDER BY rank DESC
            LIMIT 15""",
-        query,
+        query, user.id,
     )
     chunks = [
         {
@@ -76,35 +87,71 @@ async def search(
         for r in chunk_rows
     ]
 
-    # Search feed posts by content
-    feed_rows = await db.fetch(
-        "SELECT id, posts, generated_at, post_count FROM feeds ORDER BY generated_at DESC LIMIT 20"
-    )
-    matching_posts = []
-    query_lower = query.lower()
-    for feed in feed_rows:
-        posts_data = feed["posts"]
-        if isinstance(posts_data, str):
-            posts_data = json.loads(posts_data)
-        for i, post in enumerate(posts_data):
-            content = str(post.get("content", "")).lower()
-            paper_ref = str(post.get("paper_ref", "")).lower()
-            if query_lower in content or query_lower in paper_ref:
-                matching_posts.append({
-                    "feed_id": str(feed["id"]),
-                    "post_index": i,
-                    "persona": post.get("persona"),
-                    "post_type": post.get("post_type"),
-                    "content": str(post.get("content", ""))[:200],
-                    "paper_ref": post.get("paper_ref"),
-                    "generated_at": feed["generated_at"],
-                })
-                if len(matching_posts) >= 10:
-                    break
-        if len(matching_posts) >= 10:
-            break
+    # Search feed posts — prefer the normalized feed_posts tsvector path
+    # when the flag is on. Fall back to the legacy JSONB scan otherwise.
+    if SEARCH_USE_NORMALIZED_POSTS:
+        post_rows = await db.fetch(
+            """SELECT fp.feed_id, fp.post_index, fp.persona, fp.post_type,
+                      fp.content_text, fp.paper_ref, f.generated_at,
+                      ts_rank(fp.search_vector, plainto_tsquery('english', $1)) AS rank
+               FROM feed_posts fp
+               JOIN feeds f ON fp.feed_id = f.id AND f.user_id = $2
+               WHERE NOT fp.deleted
+                 AND fp.search_vector @@ plainto_tsquery('english', $1)
+               ORDER BY rank DESC, f.generated_at DESC
+               LIMIT 10""",
+            query, user.id,
+        )
+        matching_posts = [
+            {
+                "feed_id": str(r["feed_id"]),
+                "post_index": r["post_index"],
+                "persona": r["persona"],
+                "post_type": r["post_type"],
+                "content": (r["content_text"] or "")[:200],
+                "paper_ref": r["paper_ref"],
+                "generated_at": r["generated_at"],
+                "rank": round(float(r["rank"]), 4),
+            }
+            for r in post_rows
+        ]
+    else:
+        # Legacy path: in-memory JSONB scan. Kept behind the flag so we can
+        # flip back if the tsvector path regresses. Remove once the new
+        # path has been verified in production for a release cycle.
+        feed_rows = await db.fetch(
+            "SELECT id, posts, generated_at, post_count FROM feeds WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 20",
+            user.id,
+        )
+        matching_posts = []
+        query_lower = query.lower()
+        for feed in feed_rows:
+            posts_data = feed["posts"]
+            if isinstance(posts_data, str):
+                posts_data = json.loads(posts_data)
+            for i, post in enumerate(posts_data):
+                content = str(post.get("content", "")).lower()
+                paper_ref = str(post.get("paper_ref", "")).lower()
+                if query_lower in content or query_lower in paper_ref:
+                    matching_posts.append({
+                        "feed_id": str(feed["id"]),
+                        "post_index": i,
+                        "persona": post.get("persona"),
+                        "post_type": post.get("post_type"),
+                        "content": str(post.get("content", ""))[:200],
+                        "paper_ref": post.get("paper_ref"),
+                        "generated_at": feed["generated_at"],
+                    })
+                    if len(matching_posts) >= 10:
+                        break
+            if len(matching_posts) >= 10:
+                break
 
-    logger.info("search_complete", papers=len(papers), chunks=len(chunks), posts=len(matching_posts))
+    logger.info(
+        "search_complete",
+        papers=len(papers), chunks=len(chunks), posts=len(matching_posts),
+        post_path="normalized" if SEARCH_USE_NORMALIZED_POSTS else "jsonb_scan",
+    )
 
     return {
         "query": query,

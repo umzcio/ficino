@@ -3,7 +3,10 @@ import { listAnnotations, upsertAnnotation, deleteAnnotation, type AnnotationIte
 import { cacheAnnotations, getCachedAnnotations } from '../lib/offline-cache'
 
 export function useAnnotations() {
-  const [annotations, setAnnotations] = useState<Map<string, AnnotationItem>>(new Map())
+  // ReadonlyMap signals to callers that they must NOT mutate this Map directly
+  // (React won't re-render on in-place .set / .delete — state must round-trip
+  // through setAnnotations with a new Map instance).
+  const [annotations, setAnnotations] = useState<ReadonlyMap<string, AnnotationItem>>(new Map())
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {

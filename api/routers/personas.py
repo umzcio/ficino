@@ -1,8 +1,10 @@
 """Persona endpoints — metadata, stats, and direct messages."""
 
+import asyncio
 import json
 
 import asyncpg
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -130,9 +132,24 @@ Do NOT use JSON formatting. Respond naturally.
         persona_response = await generate_response(
             db, system=system, messages=llm_messages, max_tokens=512, temperature=0.7,
         )
+    except asyncio.TimeoutError as e:
+        logger.warn("persona_dm_failed", error=str(e), reason="timeout")
+        raise HTTPException(status_code=504, detail="LLM request timed out. Try again.")
+    except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+        logger.warn("persona_dm_failed", error=str(e), reason="llm_unreachable")
+        raise HTTPException(status_code=503, detail="LLM provider unreachable. Try again in a moment.")
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        logger.warn("persona_dm_failed", error=str(e), reason="llm_http_error", upstream_status=status)
+        if 400 <= status < 500:
+            raise HTTPException(status_code=502, detail="LLM provider rejected our request.")
+        raise HTTPException(status_code=503, detail="LLM provider error. Try again in a moment.")
+    except (ValueError, KeyError, TypeError) as e:
+        logger.warn("persona_dm_failed", error=str(e), reason="bad_input")
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)[:200]}")
     except Exception as e:
-        logger.error("persona_dm_failed", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to generate response")
+        logger.error("persona_dm_failed", error=str(e), error_type=type(e).__name__)
+        raise HTTPException(status_code=500, detail="Internal error. See server logs.")
 
     existing.append({"role": "persona", "content": persona_response})
 

@@ -15,9 +15,72 @@ from celery import Task
 from celery_app import app
 from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow, fetch
+from lib.post_validation import validate_post_shape
 from lib.settings import apply_provider_settings, STUB_USER_ID
+from lib.signed_url import sign_resource
+
+# TTL for signed figure URLs embedded in persisted feed posts. Feeds are
+# browsed for hours/days after generation, so the 10-minute default would
+# cause visible 403s. 24h is long enough to feel permanent to a user but
+# still bounds the blast radius of a leaked URL compared to the old
+# unauthenticated StaticFiles mount.
+FIGURE_URL_TTL_SECONDS = 86400
 
 logger = structlog.get_logger(__name__)
+
+# Synthetic engagement-metric ranges. Used in both the first-generation
+# pipeline (generate_feed) and the single-post regenerate path so both
+# sources agree. Not cosmetically random across the two — any future
+# tuning lands in one place. Mirrored in api/constants.py for reference.
+ENGAGEMENT_RANGES: dict[str, tuple[int, int]] = {
+    "likes": (100, 5000),
+    "retweets": (20, 1000),
+    "replies": (10, 500),
+    "bookmarks": (10, 900),
+}
+
+
+def _apply_engagement_defaults(post_data: dict[str, object]) -> None:
+    """Attach synthetic like/retweet/reply/bookmark counts to a post if absent."""
+    for field, (lo, hi) in ENGAGEMENT_RANGES.items():
+        post_data.setdefault(field, random.randint(lo, hi))
+
+
+def _write_feed_posts_index(feed_id: str, posts_slice: list[dict], base_index: int) -> None:
+    """Sync feed_posts search index for a slice of posts.
+
+    Each row is UPSERTed on (feed_id, post_index) so retries and append-mode
+    writes are safe. Called AFTER the feeds.posts JSONB is committed — the
+    JSONB remains the source of truth; feed_posts is a secondary search
+    index that can be rebuilt via infra/postgres/backfill_feed_posts.py
+    if it drifts. The caller wraps this in try/except so an index failure
+    doesn't lose the feed itself.
+    """
+    for i, p in enumerate(posts_slice):
+        post_index = base_index + i
+        content_text = str(p.get("content", ""))[:10000]  # guard against absurd length
+        execute(
+            """INSERT INTO feed_posts
+               (feed_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+               ON CONFLICT (feed_id, post_index) DO UPDATE SET
+                 content_text = EXCLUDED.content_text,
+                 persona = EXCLUDED.persona,
+                 post_type = EXCLUDED.post_type,
+                 category = EXCLUDED.category,
+                 paper_ref = EXCLUDED.paper_ref,
+                 data = EXCLUDED.data,
+                 deleted = EXCLUDED.deleted""",
+            feed_id,
+            post_index,
+            content_text,
+            p.get("persona"),
+            p.get("post_type"),
+            p.get("category"),
+            p.get("paper_ref"),
+            json.dumps(p, default=str),
+            bool(p.get("deleted", False)),
+        )
 
 
 def _get_paper_ids_for_corpus(corpus_id: str | None, tag_filter: list[str] | None) -> list[str]:
@@ -113,7 +176,14 @@ def _detect_contradictions(
                 "relationship": relationship,
             })
         except Exception as e:
-            logger.warn("contradiction_classify_failed", error=str(e))
+            # Log type + message so operator can tell a rate-limit from a
+            # parse error from a connection refusal. Still swallow so a
+            # single bad pair doesn't kill the whole contradiction pass.
+            logger.warn(
+                "contradiction_classify_failed",
+                error_type=type(e).__name__,
+                error=str(e)[:200],
+            )
 
     # Only return actual contradictions/supports (not just extends)
     interesting = [c for c in contradictions if c["relationship"] in ("contradicts", "supports")]
@@ -155,6 +225,23 @@ def generate_feed(
         row = fetchrow("SELECT posts FROM feeds WHERE id = $1", feed_id)
         if row and row["posts"]:
             existing_posts = json.loads(row["posts"]) if isinstance(row["posts"], str) else row["posts"]
+        # Idempotency guard: Celery retries reuse the same task_id. If a prior
+        # attempt of this same task already appended its posts, return early
+        # rather than double-appending. Each generated post is tagged with
+        # `_task_id` below so we can detect this on retry.
+        if any(
+            isinstance(p, dict) and p.get("_task_id") == self.request.id
+            for p in existing_posts
+        ):
+            logger.info("generate_feed_idempotent_skip",
+                        feed_id=feed_id, task_id=self.request.id,
+                        existing_post_count=len(existing_posts))
+            return {
+                "feed_id": feed_id,
+                "post_count": len(existing_posts),
+                "duration_ms": 0,
+                "idempotent": True,
+            }
     else:
         feed_id = str(uuid.uuid4())
     log = logger.bind(feed_id=feed_id, task_id=self.request.id, append=bool(append_to_feed_id))
@@ -252,12 +339,20 @@ def generate_feed(
                WHERE f.paper_id = ANY($1)""",
             paper_ids,
         )
+        # Signed with a 24h TTL because these URLs are persisted into feed
+        # posts and rendered by the frontend long after generation. When a
+        # token eventually expires the figure endpoint will 403 — the
+        # frontend can recover by re-fetching GET /papers/{paper_id}/figures
+        # to get a fresh short-lived token.
         available_figures = [
             {
                 "id": str(r["id"]),
                 "paper_id": str(r["paper_id"]),
                 "page_number": r["page_number"],
-                "image_url": f"/figures/{r['paper_id']}/{r['image_path'].split('/')[-1]}",
+                "image_url": (
+                    f"/figures/{r['paper_id']}/{r['id']}"
+                    f"?token={sign_resource(str(r['id']), ttl=FIGURE_URL_TTL_SECONDS)}"
+                ),
                 "description": r["description"] or "",
                 "claim_summary": r["claim_summary"] or "",
                 "figure_index": r["figure_index"],
@@ -316,9 +411,14 @@ def generate_feed(
             # Note: assignment["persona"] is the current post's persona; this block
             # only fires when the caller restricted generation to one persona.
             if len(plan) > 1 and len({a["persona"] for a in plan}) == 1 and len(chunks) >= 3:
+                # Rotate chunk window per post so persona-scoped multi-post
+                # generation doesn't repeat itself. Explicit max_start handles
+                # the edge case where len(chunks) == window_size (no rotation
+                # possible — just use all chunks once).
                 window_size = max(3, len(chunks) // len(plan))
-                start = (i * window_size) % max(1, len(chunks) - window_size + 1)
-                chunks = chunks[start:start + window_size] or chunks[:window_size]
+                max_start = max(0, len(chunks) - window_size)
+                start = (i * window_size) % (max_start + 1) if max_start > 0 else 0
+                chunks = chunks[start:start + window_size]
 
             # Pick figure BEFORE prompt if this is a figure post
             selected_figure = None
@@ -338,13 +438,22 @@ def generate_feed(
             )
 
             try:
-                post_data = claude_client.generate_persona_post_sync(system_prompt, user_prompt, temperature=temperature)
+                persona_temp = persona_lib.get_personas().get(persona_key, {}).get("temperature")
+                call_temp = persona_temp if persona_temp is not None else temperature
+                post_data = claude_client.generate_persona_post_sync(system_prompt, user_prompt, temperature=call_temp)
 
                 # Ensure required fields
                 post_data["persona"] = persona_key
                 post_data.setdefault("post_type", post_type)
-                post_data["id"] = id_offset + i + 1
-                post_data["time"] = f"{time_offset + (i + 1) * 2}m"
+                # ID is based on the count of successfully-appended posts, not the
+                # loop index — when `continue` skips a failed generation, we don't
+                # want to leave a gap or (in append mode after prior skips) collide
+                # with existing IDs.
+                post_data["id"] = id_offset + len(posts) + 1
+                post_data["time"] = f"{time_offset + (len(posts) + 1) * 2}m"
+                # Idempotency marker so a Celery retry of the same task can
+                # detect and skip already-appended work. See guard at task entry.
+                post_data["_task_id"] = self.request.id
 
                 # Override paper_ref with actual metadata (don't trust LLM citation)
                 if chunks:
@@ -389,10 +498,12 @@ def generate_feed(
                     post_data["category"] = tab_category
 
                 # Generate engagement numbers (synthetic for now)
-                post_data.setdefault("likes", random.randint(100, 5000))
-                post_data.setdefault("retweets", random.randint(20, 1000))
-                post_data.setdefault("replies", random.randint(10, 500))
-                post_data.setdefault("bookmarks", random.randint(10, 900))
+                _apply_engagement_defaults(post_data)
+
+                # Soft-validate shape before storage so malformed LLM output
+                # doesn't end up in feeds.posts JSONB (2.31). Mutates in place
+                # with placeholder values + warn log on drift; never drops.
+                validate_post_shape(post_data, persona_key=persona_key)
 
                 posts.append(post_data)
                 log.info("post_generated", post=i+1, persona=persona_key, type=post_data.get("post_type"))
@@ -427,6 +538,21 @@ def generate_feed(
                 len(paper_ids),
                 len(all_posts),
                 duration_ms,
+            )
+
+        # Sync feed_posts search index (2.19 / 2.20). Only write the NEW
+        # posts — append mode starts at base_index = len(existing_posts),
+        # initial generation starts at 0. Failure is non-fatal: JSONB is
+        # the source of truth; the backfill script can re-hydrate the index.
+        try:
+            base_index = len(existing_posts) if append_to_feed_id else 0
+            _write_feed_posts_index(feed_id, posts, base_index)
+        except Exception as e:
+            log.warn(
+                "feed_posts_index_sync_failed",
+                feed_id=feed_id,
+                error_type=type(e).__name__,
+                error=str(e)[:200],
             )
 
         log.info("feed_generation_complete",
@@ -499,6 +625,15 @@ def regenerate_post(self: Task, feed_id: str, post_index: int) -> dict[str, obje
     post_type = old_post.get("post_type", "post")
     corpus_id = str(row["corpus_id"]) if row["corpus_id"] else None
 
+    # 3.8: guard against a malformed post that's missing its persona tag —
+    # otherwise persona_key stays None and downstream prompts end up with
+    # `f"You are {None}"`. Either a stored post predates the Literal-typed
+    # models, or the LLM dropped the field. Fail loudly rather than generate.
+    if not persona_key or not isinstance(persona_key, str):
+        raise ValueError(
+            f"Post at feed {feed_id} index {post_index} has no persona — cannot regenerate"
+        )
+
     # Get paper IDs for this corpus
     paper_ids = _get_paper_ids_for_corpus(corpus_id, None)
     if not paper_ids:
@@ -521,7 +656,9 @@ def regenerate_post(self: Task, feed_id: str, post_index: int) -> dict[str, obje
     )
 
     # Generate
-    post_data = claude_client.generate_persona_post_sync(system_prompt, user_prompt, temperature=temperature)
+    persona_temp = persona_lib.get_personas().get(persona_key, {}).get("temperature")
+    call_temp = persona_temp if persona_temp is not None else temperature
+    post_data = claude_client.generate_persona_post_sync(system_prompt, user_prompt, temperature=call_temp)
 
     # Fill required fields
     post_data["persona"] = persona_key
@@ -553,10 +690,8 @@ def regenerate_post(self: Task, feed_id: str, post_index: int) -> dict[str, obje
     else:
         post_data["category"] = "debates" if persona_key == "gradstudent" else "findings"
 
-    post_data.setdefault("likes", random.randint(100, 5000))
-    post_data.setdefault("retweets", random.randint(20, 1000))
-    post_data.setdefault("replies", random.randint(10, 500))
-    post_data.setdefault("bookmarks", random.randint(10, 900))
+    _apply_engagement_defaults(post_data)
+    validate_post_shape(post_data, persona_key=persona_key)
     post_data["regenerated"] = True
 
     # Patch the feed
@@ -566,6 +701,16 @@ def regenerate_post(self: Task, feed_id: str, post_index: int) -> dict[str, obje
         "UPDATE feeds SET posts = $1 WHERE id = $2",
         posts_json, feed_id,
     )
+
+    # Sync the feed_posts search index row for this post_index.
+    try:
+        _write_feed_posts_index(feed_id, [post_data], post_index)
+    except Exception as e:
+        log.warn(
+            "feed_posts_index_sync_failed",
+            feed_id=feed_id, post_index=post_index,
+            error_type=type(e).__name__, error=str(e)[:200],
+        )
 
     log.info("regenerate_post_complete", persona=persona_key, post_type=post_type)
     return {"status": "complete", "feed_id": feed_id, "post_index": post_index}

@@ -6,7 +6,6 @@ from typing import AsyncGenerator
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -14,8 +13,9 @@ from starlette.responses import Response
 
 from config import settings
 from constants import STUB_USER_ID, DEFAULT_WORKSPACE_ID
+from csrf import CsrfMiddleware
 from db.connection import close_pool, create_pool, get_db
-from routers import alerts as alerts_router, annotations, bookmarks, citations, feed, likes, messages, papers, personas, reading_lists, replies, search, settings as settings_router, tags, user_posts, users, workspaces
+from routers import alerts as alerts_router, annotations, bookmarks, citations, feed, figures as figures_router, likes, messages, papers, personas, reading_lists, replies, search, settings as settings_router, tags, user_posts, users, workspaces
 
 logger = structlog.get_logger(__name__)
 
@@ -59,19 +59,32 @@ app = FastAPI(
 if settings.environment == "development":
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"],
+        allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000", "https://ficino.local"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 else:
+    # Production: restrict allow_headers to what the frontend actually sends.
+    # Wildcard allow_headers + credentials=true is unsafe per the CORS spec
+    # and can enable request-smuggling-style tricks on misbehaving proxies.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["*"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Requested-With",
+            "Accept",
+            "X-CSRF-Token",
+        ],
     )
+
+# CSRF double-submit cookie protection.
+# Order: CORS (preflight) → CSRF (reject bad state-changers) → SecurityHeaders.
+app.add_middleware(CsrfMiddleware)
 
 # Security headers
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -109,6 +122,7 @@ app.include_router(personas.router)
 app.include_router(replies.router)
 app.include_router(search.router)
 app.include_router(feed.router)
+app.include_router(figures_router.router)
 app.include_router(messages.router)
 app.include_router(settings_router.router)
 app.include_router(reading_lists.router)
@@ -116,10 +130,6 @@ app.include_router(tags.router)
 app.include_router(user_posts.router)
 app.include_router(users.router)
 app.include_router(workspaces.router)
-
-# Serve extracted figure images
-app.mount("/figures", StaticFiles(directory=settings.figures_dir), name="figures")
-
 
 @app.get("/health")
 async def health() -> dict[str, str]:

@@ -50,6 +50,7 @@ export function ContentTab({ settings: s, onUpdate }: Props) {
 
         <SettingRow label="Auto-generate on Upload" description="Generate feed when a new paper finishes processing">
           <Toggle
+            label="Auto-generate on Upload"
             checked={s.auto_generate_on_upload as boolean}
             onChange={(v) => onUpdate({ auto_generate_on_upload: v })}
           />
@@ -85,6 +86,7 @@ export function ContentTab({ settings: s, onUpdate }: Props) {
 
         <SettingRow label="Show Extraction Badge" description="Display extraction path (pymupdf/vision) in corpus panel">
           <Toggle
+            label="Show Extraction Badge"
             checked={s.show_extraction_badge as boolean}
             onChange={(v) => onUpdate({ show_extraction_badge: v })}
           />

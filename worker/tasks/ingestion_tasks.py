@@ -220,6 +220,16 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         figure_dir = os.path.join("/app/figures", paper_id)
         figures = pdf_extractor.extract_figures(file_path, figure_dir)
 
+        # 3.5 telemetry: count stored vs failed so ops can detect vision-
+        # provider degradation before it silently wipes all figures. Threshold
+        # alerting (50%-fail-rate, etc.) is a follow-up once we have baseline
+        # data from production — this emits the raw counts under a stable
+        # structlog event key so whatever aggregator the ops team picks can
+        # derive rate windows.
+        figures_attempted = len(figures)
+        figures_stored = 0
+        figures_failed_by_type: dict[str, int] = {}
+
         for fig in figures:
             try:
                 with open(str(fig["image_path"]), "rb") as f:
@@ -234,8 +244,42 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
                     claim_summary=desc["claim_summary"],
                     figure_index=int(fig["figure_index"]),
                 )
+                figures_stored += 1
             except Exception as e:
-                log.warn("figure_store_failed", figure=str(fig.get("image_path")), error=str(e))
+                err_type = type(e).__name__
+                figures_failed_by_type[err_type] = figures_failed_by_type.get(err_type, 0) + 1
+                log.warn(
+                    "figure_store_failed",
+                    figure=str(fig.get("image_path")),
+                    error_type=err_type,
+                    error=str(e)[:200],
+                )
+
+        # Emit a single event per paper summarizing the run. Consumers can
+        # filter on event="figure_extraction_summary" and track failure_rate
+        # over time.
+        failure_rate = (
+            (figures_attempted - figures_stored) / figures_attempted
+            if figures_attempted > 0 else 0.0
+        )
+        log.info(
+            "figure_extraction_summary",
+            paper_id=paper_id,
+            attempted=figures_attempted,
+            stored=figures_stored,
+            failed=figures_attempted - figures_stored,
+            failure_rate=round(failure_rate, 3),
+            failed_by_type=figures_failed_by_type,
+        )
+        # Loud warning if MOST figures failed — vision provider likely down
+        # or wrong model. This one log line is the actionable alert.
+        if figures_attempted >= 3 and figures_stored == 0:
+            log.error(
+                "figure_extraction_total_failure",
+                paper_id=paper_id,
+                attempted=figures_attempted,
+                failed_by_type=figures_failed_by_type,
+            )
 
         # --- Complete ---
         _update_paper_status(

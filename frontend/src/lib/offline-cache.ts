@@ -28,9 +28,11 @@ export async function networkFirst<T>(
 export async function cacheFeeds(feeds: Feed[], workspaceId?: string) {
   const db = await getDB()
   const tx = db.transaction('feeds', 'readwrite')
-  for (const f of feeds) {
-    await tx.store.put({ ...f, workspaceId })
-  }
+  // Queue all puts without awaiting each sequentially — an in-loop await
+  // on tx.store.put() can yield the event loop before the last put commits,
+  // letting tx.done race. Promise.all keeps the transaction open until every
+  // put's request is registered, then tx.done guarantees the commit.
+  await Promise.all(feeds.map((f) => tx.store.put({ ...f, workspaceId })))
   await tx.done
 }
 
@@ -52,9 +54,7 @@ export async function getCachedFeeds(workspaceId?: string): Promise<Feed[]> {
 export async function cachePapers(papers: Paper[], workspaceId?: string) {
   const db = await getDB()
   const tx = db.transaction('papers', 'readwrite')
-  for (const p of papers) {
-    await tx.store.put({ ...p, workspaceId })
-  }
+  await Promise.all(papers.map((p) => tx.store.put({ ...p, workspaceId })))
   await tx.done
 }
 
@@ -88,10 +88,22 @@ export async function getCachedBookmarks(): Promise<BookmarkItem[]> {
 export async function cacheAnnotations(annotations: AnnotationItem[]) {
   const db = await getDB()
   const tx = db.transaction('annotations', 'readwrite')
-  await tx.store.clear()
-  for (const a of annotations) {
-    await tx.store.put({ ...a, _key: `${a.feed_id}:${a.post_index}` })
-  }
+
+  // Upsert pattern: put all incoming records (put overwrites by key), then
+  // delete keys that no longer appear in the new set. Avoids the clear-then-put
+  // race where a failed put mid-loop leaves IndexedDB empty.
+  const newKeys = new Set(annotations.map((a) => `${a.feed_id}:${a.post_index}`))
+  const existingKeys = await tx.store.getAllKeys()
+
+  const ops: Promise<unknown>[] = [
+    ...annotations.map((a) =>
+      tx.store.put({ ...a, _key: `${a.feed_id}:${a.post_index}` }),
+    ),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 

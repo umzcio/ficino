@@ -91,9 +91,13 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
         )
         log.info("archivist_chunks_retrieved", chunks=len(chunks))
 
-        # Format chunks for the prompt
+        # Format chunks for the prompt. Chunk content is untrusted PDF text;
+        # fence each block so a hostile document can't rewrite the system prompt.
+        from lib.sanitize import fence_untrusted
+
         chunks_text = "\n\n".join(
-            f"[{c.get('paper_title', 'Unknown')} — {c.get('section', 'unknown')}]\n{c['content']}"
+            f"[{c.get('paper_title', 'Unknown')} — {c.get('section', 'unknown')}]\n"
+            f"{fence_untrusted(str(c['content']))}"
             for c in chunks
         ) if chunks else "No relevant passages found in the corpus."
 

@@ -26,6 +26,7 @@ def _get_celery() -> Celery:
 @router.get("/papers")
 async def list_paper_conversations(
     workspace_id: str | None = None,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all papers with their summary status (DM inbox), scoped to workspace."""
@@ -36,9 +37,9 @@ async def list_paper_conversations(
                       ps.messages
                FROM papers p
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
-               WHERE p.status = 'complete' AND p.corpus_id = $1
+               WHERE p.status = 'complete' AND p.user_id = $1 AND p.corpus_id = $2
                ORDER BY p.uploaded_at DESC""",
-            workspace_id,
+            user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
@@ -47,8 +48,9 @@ async def list_paper_conversations(
                       ps.messages
                FROM papers p
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
-               WHERE p.status = 'complete'
-               ORDER BY p.uploaded_at DESC"""
+               WHERE p.status = 'complete' AND p.user_id = $1
+               ORDER BY p.uploaded_at DESC""",
+            user.id,
         )
     result = []
     for row in rows:
@@ -73,12 +75,15 @@ async def list_paper_conversations(
 
 @router.get("/papers/tldrs")
 async def get_paper_tldrs(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Return paper_id → TL;DR mapping for all completed summaries."""
     rows = await db.fetch(
-        """SELECT paper_id, messages FROM paper_summaries
-           WHERE status = 'complete' AND messages != '[]'"""
+        """SELECT ps.paper_id, ps.messages FROM paper_summaries ps
+           JOIN papers p ON ps.paper_id = p.id AND p.user_id = $1
+           WHERE ps.status = 'complete' AND ps.messages != '[]'""",
+        user.id,
     )
     result: dict[str, str] = {}
     for row in rows:
@@ -94,13 +99,14 @@ async def get_paper_tldrs(
 @router.get("/papers/{paper_id}")
 async def get_paper_summary(
     paper_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Get or trigger generation of a paper summary."""
-    # Check paper exists
+    # Check paper exists and belongs to user
     paper = await db.fetchrow(
-        "SELECT id, title, filename, authors FROM papers WHERE id = $1 AND status = 'complete'",
-        paper_id,
+        "SELECT id, title, filename, authors FROM papers WHERE id = $1 AND user_id = $2 AND status = 'complete'",
+        paper_id, user.id,
     )
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found or not processed")
@@ -177,12 +183,14 @@ class SynthesisCreateRequest(BaseModel):
 
 @router.get("/groups")
 async def list_group_chats(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all corpus synthesis group chats."""
     rows = await db.fetch(
         """SELECT id, name, paper_ids, messages, generated_at
-           FROM corpus_syntheses ORDER BY generated_at DESC"""
+           FROM corpus_syntheses WHERE user_id = $1 ORDER BY generated_at DESC""",
+        user.id,
     )
     result = []
     for row in rows:
@@ -225,12 +233,13 @@ async def create_group_chat(
 @router.get("/groups/{synthesis_id}")
 async def get_group_chat(
     synthesis_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Get a corpus synthesis group chat."""
     row = await db.fetchrow(
-        "SELECT id, name, paper_ids, messages, generated_at FROM corpus_syntheses WHERE id = $1",
-        synthesis_id,
+        "SELECT id, name, paper_ids, messages, generated_at FROM corpus_syntheses WHERE id = $1 AND user_id = $2",
+        synthesis_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Group chat not found")

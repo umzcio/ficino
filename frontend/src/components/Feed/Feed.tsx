@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { FileText, Loader2, AlertCircle } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { getRepliedPostIndices } from '../../lib/api'
@@ -46,6 +46,21 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
   // Track locally-deleted post indices for optimistic UI (persists until next feed reload)
   const [deletedIndices, setDeletedIndices] = useState<Set<number>>(new Set())
   const { isLiked, isReplyLiked, toggle: toggleLike, toggleReply: toggleReplyLike } = useLikes(feedId)
+
+  // Stable handler identities so PostCard's React.memo comparator can
+  // actually skip re-renders. Per-post closures (onClick, which captures
+  // `originalIndex`) can't be hoisted without changing PostCard's prop
+  // shape — those stay inline and rely on the memo's explicit prop check.
+  const handleBookmarkToggle = useCallback(
+    (p: FeedPost, idx: number) => {
+      if (feedId) onBookmarkToggle(feedId, idx, p)
+    },
+    [feedId, onBookmarkToggle],
+  )
+  const handlePostDeleted = useCallback(
+    (idx: number) => setDeletedIndices((prev) => new Set(prev).add(idx)),
+    [],
+  )
 
   useEffect(() => {
     if (feedId && feedState === 'complete') {
@@ -109,32 +124,35 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
 
   return (
     <div>
-      {filtered.map((post, i) => {
-        const originalIndex = posts.indexOf(post)
-        return (
-          <PostCard
-            key={post.id ?? i}
-            post={post}
-            feedId={feedId}
-            postIndex={originalIndex}
-            bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
-            onBookmarkToggle={(p, idx) => feedId && onBookmarkToggle(feedId, idx, p)}
-            onClick={() => onPostClick?.(originalIndex)}
-            hasUserReply={repliedIndices.has(originalIndex)}
-            annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
-            onAnnotationSave={onAnnotationSave}
-            onAnnotationDelete={onAnnotationDelete}
-            onPersonaClick={onPersonaClick}
-            liked={isLiked(originalIndex)}
-            onLikeToggle={toggleLike}
-            isReplyLiked={isReplyLiked}
-            onReplyLikeToggle={toggleReplyLike}
-            onReplyBookmark={onReplyBookmark}
-            isReplyBookmarked={isReplyBookmarked}
-            onPostDeleted={(idx) => setDeletedIndices((prev) => new Set(prev).add(idx))}
-          />
-        )
-      })}
+      <ol role="feed" className="list-none p-0 m-0">
+        {filtered.map((post, i) => {
+          const originalIndex = posts.indexOf(post)
+          return (
+            <li key={post.id ?? i} className="list-none">
+              <PostCard
+                post={post}
+                feedId={feedId}
+                postIndex={originalIndex}
+                bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
+                onBookmarkToggle={handleBookmarkToggle}
+                onClick={() => onPostClick?.(originalIndex)}
+                hasUserReply={repliedIndices.has(originalIndex)}
+                annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
+                onAnnotationSave={onAnnotationSave}
+                onAnnotationDelete={onAnnotationDelete}
+                onPersonaClick={onPersonaClick}
+                liked={isLiked(originalIndex)}
+                onLikeToggle={toggleLike}
+                isReplyLiked={isReplyLiked}
+                onReplyLikeToggle={toggleReplyLike}
+                onReplyBookmark={onReplyBookmark}
+                isReplyBookmarked={isReplyBookmarked}
+                onPostDeleted={handlePostDeleted}
+              />
+            </li>
+          )
+        })}
+      </ol>
       <div className="py-5 text-center">
         {feedState === 'generating' ? (
           <div className="flex flex-col items-center gap-2 py-4">

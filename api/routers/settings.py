@@ -193,8 +193,12 @@ async def clear_all_feeds(
 
 @router.post("/clear-summaries", status_code=200)
 async def clear_all_summaries(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Clear all paper summaries (forces regeneration)."""
-    await db.execute("DELETE FROM paper_summaries")
+    await db.execute(
+        "DELETE FROM paper_summaries WHERE paper_id IN (SELECT id FROM papers WHERE user_id = $1)",
+        user.id,
+    )
     return {"status": "cleared"}

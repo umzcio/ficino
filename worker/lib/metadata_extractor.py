@@ -68,10 +68,32 @@ async def extract_metadata(text: str) -> dict[str, object]:
             data = json.loads(match.group(0))
             tags_raw = data.get("tags", [])
             tags = [str(t).strip().lower() for t in tags_raw if t and str(t).strip()] if isinstance(tags_raw, list) else []
+
+            # Validate year: must be a plausible publication year. An LLM
+            # hallucinated "year: 21" or "year: 30000" should drop to None.
+            year: int | None = None
+            raw_year = data.get("year")
+            if raw_year:
+                try:
+                    y = int(raw_year)
+                    if 1800 <= y <= 2100:
+                        year = y
+                    else:
+                        logger.warn("metadata_year_out_of_range", year=y)
+                except (TypeError, ValueError):
+                    logger.warn("metadata_year_unparseable", raw=str(raw_year)[:30])
+
+            # Validate authors: must be a list of strings.
+            authors_raw = data.get("authors")
+            if isinstance(authors_raw, list):
+                authors = [str(a).strip() for a in authors_raw if a and str(a).strip()]
+            else:
+                authors = []
+
             result = {
                 "title": data.get("title") if data.get("title") else None,
-                "authors": data.get("authors") if isinstance(data.get("authors"), list) else [],
-                "year": int(data["year"]) if data.get("year") else None,
+                "authors": authors,
+                "year": year,
                 "doi": data.get("doi") if data.get("doi") and data["doi"] != "null" else None,
                 "tags": tags[:3],
             }
@@ -88,6 +110,22 @@ async def extract_metadata(text: str) -> dict[str, object]:
     return {"title": None, "authors": [], "year": None, "doi": None, "tags": []}
 
 
+# Persistent event loop to avoid the repeated-asyncio.run() + httpx-GC race
+# that surfaces as `RuntimeError('Event loop is closed')` in worker logs.
+import threading as _threading
+
+_meta_loop: asyncio.AbstractEventLoop | None = None
+_meta_loop_lock = _threading.Lock()
+
+
+def _run_on_meta_loop(coro):
+    global _meta_loop
+    with _meta_loop_lock:
+        if _meta_loop is None or _meta_loop.is_closed():
+            _meta_loop = asyncio.new_event_loop()
+        return _meta_loop.run_until_complete(coro)
+
+
 def extract_metadata_sync(text: str) -> dict[str, object]:
     """Synchronous wrapper for use in Celery tasks."""
-    return asyncio.run(extract_metadata(text))
+    return _run_on_meta_loop(extract_metadata(text))

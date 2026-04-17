@@ -55,6 +55,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
               className={`ml-auto bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full transition-colors ${
                 confirmingDelete ? 'text-persona-skeptic' : 'text-text-muted hover:text-persona-skeptic'
               }`}
+              aria-label={confirmingDelete ? 'Click again to confirm delete' : 'Delete post'}
               title={confirmingDelete ? 'Click again to confirm' : 'Delete post'}
               onClick={async () => {
                 if (!confirmingDelete) {

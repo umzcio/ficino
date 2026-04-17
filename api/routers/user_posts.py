@@ -151,12 +151,13 @@ async def delete_user_post(
 @router.get("/{post_id}/status")
 async def get_user_post_status(
     post_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Check status of archivist response generation."""
     row = await db.fetchrow(
-        "SELECT status, task_id FROM user_posts WHERE id = $1",
-        post_id,
+        "SELECT status, task_id FROM user_posts WHERE id = $1 AND user_id = $2",
+        post_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Post not found")

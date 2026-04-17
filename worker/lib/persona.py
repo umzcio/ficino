@@ -42,15 +42,26 @@ POST_TYPE_WEIGHTS = {
     "figure": 0.10,
 }
 
+import time
+
 _personas_cache: dict[str, dict[str, str]] | None = None
+_personas_cache_time: float = 0.0
+_PERSONAS_CACHE_TTL_SECONDS = 3600  # 1h — persona prompts rarely change; this
+                                    # bounds staleness without hammering the DB.
 
 
 def get_personas() -> dict[str, dict[str, str]]:
-    """Load all active personas from the database (cached per worker process)."""
-    global _personas_cache
-    if _personas_cache is None:
+    """Load all active personas from the database.
+
+    Cached per worker process with an hour TTL so persona-prompt edits
+    made through the admin / SQL show up within an hour without needing
+    to restart every worker.
+    """
+    global _personas_cache, _personas_cache_time
+    now = time.monotonic()
+    if _personas_cache is None or (now - _personas_cache_time) > _PERSONAS_CACHE_TTL_SECONDS:
         rows = fetch(
-            "SELECT key, handle, name, initials, color, system_prompt FROM personas WHERE is_active = true ORDER BY sort_order"
+            "SELECT key, handle, name, initials, color, system_prompt, temperature FROM personas WHERE is_active = true ORDER BY sort_order"
         )
         _personas_cache = {
             row["key"]: {
@@ -59,10 +70,23 @@ def get_personas() -> dict[str, dict[str, str]]:
                 "initials": row["initials"],
                 "color": row["color"],
                 "system_prompt": row["system_prompt"],
+                "temperature": row["temperature"],  # may be None = fall back to user setting
             }
             for row in rows
         }
+        _personas_cache_time = now
     return _personas_cache
+
+
+def invalidate_personas_cache() -> None:
+    """Force the next get_personas() call to refetch from the DB.
+
+    Call this after programmatic persona mutations so changes are visible
+    immediately (e.g. admin endpoints, migrations).
+    """
+    global _personas_cache, _personas_cache_time
+    _personas_cache = None
+    _personas_cache_time = 0.0
 
 
 # Backwards-compatible alias used throughout the codebase
@@ -121,16 +145,24 @@ def _build_short_cite(chunk: dict[str, object]) -> str:
 
 
 def _format_chunks_for_prompt(chunks: list[dict[str, object]]) -> str:
-    """Format retrieved chunks into a readable context block for the LLM."""
+    """Format retrieved chunks into a readable context block for the LLM.
+
+    Chunk content comes from extracted PDFs and must be treated as untrusted.
+    We fence each block with `<untrusted>…</untrusted>` and strip role markers
+    so a hostile document can't reshape the persona prompt.
+    """
+    from lib.sanitize import fence_untrusted
+
     parts: list[str] = []
     for i, chunk in enumerate(chunks):
         paper_ref = chunk.get("paper_title") or chunk.get("paper_filename", "Unknown")
         cite = _build_short_cite(chunk)
         section = chunk.get("section", "unknown")
 
+        fenced = fence_untrusted(str(chunk["content"]))
         parts.append(
             f"[Source {i+1}: {paper_ref} (cite as: {cite}) — Section: {section}]\n"
-            f"{chunk['content']}\n"
+            f"{fenced}\n"
         )
     return "\n---\n".join(parts)
 

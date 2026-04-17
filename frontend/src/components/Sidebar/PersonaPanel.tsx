@@ -16,10 +16,13 @@ export function PersonaPanel({ enabledPersonas, onPersonaClick }: PersonaPanelPr
         Personas ({entries.length})
       </div>
       {entries.map(([key, p]) => (
-        <div
+        <button
           key={key}
-          className="flex items-center gap-2.5 py-1.5 cursor-pointer hover:bg-bg rounded-lg px-1 -mx-1 transition-colors"
+          type="button"
+          role="menuitem"
+          aria-label={p.name}
           onClick={() => onPersonaClick?.(key)}
+          className="w-full text-left flex items-center gap-2.5 py-1.5 cursor-pointer hover:bg-bg rounded-lg px-1 -mx-1 transition-colors border-none bg-transparent"
         >
           {p.avatar_url ? (
             <img src={p.avatar_url} alt={p.name} className="w-8 h-8 rounded-full shrink-0 object-cover" style={{ border: `1.5px solid ${p.color}50` }} />
@@ -35,7 +38,7 @@ export function PersonaPanel({ enabledPersonas, onPersonaClick }: PersonaPanelPr
             <div className="text-[13px] text-text font-semibold">{p.name}</div>
             <div className="text-xs text-text-muted">{p.handle}</div>
           </div>
-        </div>
+        </button>
       ))}
       {entries.length === 0 && (
         <p className="text-xs text-text-muted py-2 text-center">All personas disabled</p>

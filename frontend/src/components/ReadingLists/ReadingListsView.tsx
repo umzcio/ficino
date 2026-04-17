@@ -57,7 +57,7 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
   return (
     <div>
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5">
-        <h1 className="text-[20px] font-bold text-text">Reading Lists</h1>
+        <h2 className="text-[20px] font-bold text-text">Reading Lists</h2>
         <p className="text-[13px] text-text-muted mt-0.5">Curated paper sequences with guided discourse</p>
       </div>
 
@@ -70,7 +70,7 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             placeholder="New reading list name..."
-            className="flex-1 bg-bg-hover border border-border rounded-lg px-3 py-2 text-[14px] text-text placeholder:text-text-muted/50 outline-none focus:border-gold/40 transition-colors"
+            className="flex-1 bg-bg-hover border border-border rounded-lg px-3 py-2 text-[14px] text-text placeholder:text-text-muted outline-none focus:border-gold/40 transition-colors"
             disabled={creating}
           />
           <button
@@ -114,6 +114,7 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
                 </div>
               </div>
               <button
+                aria-label={`Delete ${list.name}`}
                 className="p-1.5 text-text-muted hover:text-persona-skeptic bg-transparent border-none cursor-pointer rounded-full hover:bg-bg-hover transition-colors"
                 onClick={(e) => { e.stopPropagation(); handleDelete(list.id) }}
               >

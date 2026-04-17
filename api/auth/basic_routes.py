@@ -7,11 +7,13 @@ and Redis for session storage.
 import bcrypt
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from audit import record_audit
 from auth.models import AuthUser
 from auth.providers import create_session, delete_session, get_user_basic
+from auth.rate_limit import IPRateLimit
 from config import settings
 from db.connection import get_db
 
@@ -27,8 +29,10 @@ class AuthRequest(BaseModel):
 @router.post("/register", status_code=201)
 async def register(
     body: AuthRequest,
+    request: Request,
     response: Response,
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(IPRateLimit("register", 3, 3600)),
 ) -> dict[str, str]:
     """Register a new user. First user is always allowed. After that, controlled by ALLOW_REGISTRATION."""
     # Check if registration is allowed
@@ -41,8 +45,9 @@ async def register(
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    # Hash password
-    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+    # Hash password with explicit cost factor — pin the work factor to avoid
+    # surprise drops if the library default changes in a future version.
+    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt(rounds=12)).decode()
 
     # Create user
     row = await db.fetchrow(
@@ -58,18 +63,32 @@ async def register(
         user_id,
     )
 
-    # Create session
+    # Create session. Cookie is marked Secure in non-development environments
+    # so browsers refuse to send it over HTTP; safe under the local dev HTTP
+    # setup because ENVIRONMENT=development there.
     token = await create_session(user_id)
     response.set_cookie(
         key="ficino_session",
         value=token,
         httponly=True,
         samesite="lax",
+        secure=settings.environment != "development",
         max_age=604800,  # 7 days
         path="/",
     )
 
     logger.info("user_registered", user_id=user_id, email=body.email)
+
+    # Build an AuthUser for the audit record — this endpoint doesn't use
+    # Depends(get_current_user) since the user doesn't exist yet.
+    new_user = AuthUser(id=user_id, email=body.email)
+    await record_audit(
+        db, request, new_user,
+        action="user.register", resource_type="user", resource_id=user_id,
+        metadata={"email": body.email},
+        status_code=201,
+    )
+
     return {"status": "registered", "user_id": user_id}
 
 
@@ -78,6 +97,7 @@ async def login(
     body: AuthRequest,
     response: Response,
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(IPRateLimit("login", 5, 900)),
 ) -> dict[str, str]:
     """Login with email and password."""
     row = await db.fetchrow(
@@ -97,6 +117,7 @@ async def login(
         value=token,
         httponly=True,
         samesite="lax",
+        secure=settings.environment != "development",
         max_age=604800,
         path="/",
     )
@@ -107,13 +128,27 @@ async def login(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     user: AuthUser = Depends(get_user_basic),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
-    """Logout — delete session and clear cookie."""
-    # We can't easily get the token from the dependency, so clear the cookie
+    """Logout — delete the server-side session and clear the cookie."""
+    # Read the token directly from the request so we can invalidate the
+    # Redis session — not just the client cookie. Without this step a stolen
+    # token stays valid until its 7-day TTL expires.
+    token = request.cookies.get("ficino_session")
+    if token:
+        await delete_session(token)
     response.delete_cookie("ficino_session", path="/")
     logger.info("user_logged_out", user_id=user.id)
+
+    await record_audit(
+        db, request, user,
+        action="user.logout", resource_type="user", resource_id=user.id,
+        status_code=200,
+    )
+
     return {"status": "logged_out"}
 
 

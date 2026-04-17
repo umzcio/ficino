@@ -5,9 +5,10 @@ import json
 import asyncpg
 import structlog
 from celery import Celery
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from audit import record_audit
 from config import settings
 from auth import AuthUser, get_current_user
 from db.connection import get_db
@@ -96,7 +97,8 @@ async def get_reading_list(
     if isinstance(rationale, str):
         rationale = json.loads(rationale)
 
-    # Get paper details in sequence order
+    # Get paper details in sequence order. Guard against an empty sequence
+    # so the SQL below doesn't produce `WHERE id IN ()` which Postgres rejects.
     paper_ids = [str(p) for p in (row["paper_sequence"] or [])]
     papers = []
     if paper_ids:
@@ -156,13 +158,33 @@ async def create_reading_list(
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Create a reading list. Dispatches AI ordering if paper_ids provided."""
+    # If a corpus_id is supplied, verify it belongs to the caller before using it.
+    if body.corpus_id:
+        owned_corpus = await db.fetchrow(
+            "SELECT id FROM corpora WHERE id = $1 AND user_id = $2",
+            body.corpus_id, user.id,
+        )
+        if not owned_corpus:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
     # Get paper IDs
     if body.paper_ids:
+        # Verify every paper in the explicit list belongs to the caller.
+        # Using ANY($1::uuid[]) keeps this a single round-trip.
+        owned_count = await db.fetchval(
+            "SELECT COUNT(*) FROM papers WHERE id = ANY($1::uuid[]) AND user_id = $2",
+            body.paper_ids, user.id,
+        )
+        if owned_count != len(body.paper_ids):
+            raise HTTPException(
+                status_code=404,
+                detail="One or more papers not found",
+            )
         paper_ids = body.paper_ids
     elif body.corpus_id:
         rows = await db.fetch(
-            "SELECT id FROM papers WHERE corpus_id = $1 AND status = 'complete' ORDER BY uploaded_at",
-            body.corpus_id,
+            "SELECT id FROM papers WHERE corpus_id = $1 AND user_id = $2 AND status = 'complete' ORDER BY uploaded_at",
+            body.corpus_id, user.id,
         )
         paper_ids = [str(r["id"]) for r in rows]
     else:
@@ -260,7 +282,7 @@ async def apply_ai_ordering(
 ) -> dict[str, str]:
     """Apply AI-proposed ordering to a reading list. Called after ordering task completes."""
     row = await db.fetchrow(
-        "SELECT id FROM reading_lists WHERE id = $1 AND user_id = $2",
+        "SELECT id, paper_sequence FROM reading_lists WHERE id = $1 AND user_id = $2",
         list_id, user.id,
     )
     if not row:
@@ -271,6 +293,17 @@ async def apply_ai_ordering(
         raise HTTPException(status_code=400, detail="No ordering data")
 
     new_sequence = [p["paper_id"] for p in ordered_papers]
+
+    # The ordering must be a permutation of the list's existing papers —
+    # a bad client (or a malicious one) shouldn't be able to inject foreign
+    # paper IDs via this endpoint.
+    existing_set = {str(p) for p in (row["paper_sequence"] or [])}
+    if set(new_sequence) != existing_set:
+        raise HTTPException(
+            status_code=400,
+            detail="Ordering must be a permutation of the existing paper list",
+        )
+
     rationale_json = json.dumps(ordered_papers)
 
     await db.execute(
@@ -298,9 +331,18 @@ async def apply_ai_ordering(
 async def generate_chapter(
     list_id: str,
     chapter_index: int,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Generate the feed for a chapter. Chapter must be unlocked or complete."""
+    # Verify the reading list belongs to the user
+    list_owner = await db.fetchrow(
+        "SELECT id FROM reading_lists WHERE id = $1 AND user_id = $2",
+        list_id, user.id,
+    )
+    if not list_owner:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
     chapter = await db.fetchrow(
         """SELECT id, status FROM reading_list_chapters
            WHERE reading_list_id = $1 AND chapter_index = $2""",
@@ -325,6 +367,7 @@ async def generate_chapter(
 @router.delete("/{list_id}", status_code=204)
 async def delete_reading_list(
     list_id: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -335,3 +378,9 @@ async def delete_reading_list(
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Reading list not found")
+
+    await record_audit(
+        db, request, user,
+        action="reading_list.delete", resource_type="reading_list", resource_id=list_id,
+        status_code=204,
+    )

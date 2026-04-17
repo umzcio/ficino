@@ -18,11 +18,6 @@ export function useWorkspaces() {
       const data = await listWorkspaces()
       cacheWorkspaces(data).catch(() => {})
       setWorkspaces(data)
-      // If active workspace was deleted, fall back to first available
-      if (data.length > 0 && !data.find((w) => w.id === activeId)) {
-        setActiveId(data[0].id)
-        localStorage.setItem(ACTIVE_WORKSPACE_KEY, data[0].id)
-      }
     } catch {
       try {
         const cached = await getCachedWorkspaces()
@@ -31,16 +26,30 @@ export function useWorkspaces() {
     } finally {
       setLoading(false)
     }
-  }, [activeId])
+  }, [])  // Stable identity — do NOT depend on activeId here or the effect below loops.
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
+  // Fallback handling in a separate effect so the refresh callback doesn't
+  // need to depend on activeId. If the active workspace was deleted server-side,
+  // pick the first available one.
+  useEffect(() => {
+    if (workspaces.length > 0 && !workspaces.find((w) => w.id === activeId)) {
+      const fallback = workspaces[0].id
+      setActiveId(fallback)
+      localStorage.setItem(ACTIVE_WORKSPACE_KEY, fallback)
+    }
+  }, [workspaces, activeId])
+
   const switchTo = useCallback((id: string) => {
     setActiveId(id)
     localStorage.setItem(ACTIVE_WORKSPACE_KEY, id)
-  }, [])
+    // Trigger a refetch so workspace-scoped consumers (papers, feeds,
+    // settings) see fresh data. refresh's stable identity prevents a loop.
+    refresh()
+  }, [refresh])
 
   const create = useCallback(async (name: string) => {
     const result = await createWorkspace(name)

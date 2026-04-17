@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Folder, Check, Plus, X } from 'lucide-react'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import type { Workspace } from '../../types'
 
 interface WorkspaceBottomSheetProps {
@@ -15,6 +16,8 @@ export function WorkspaceBottomSheet({
 }: WorkspaceBottomSheetProps) {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(true, dialogRef)
 
   return (
     <>
@@ -25,7 +28,7 @@ export function WorkspaceBottomSheet({
       />
 
       {/* Sheet */}
-      <div role="dialog" aria-modal="true" aria-label="Workspaces" className="fixed bottom-0 left-0 right-0 z-50 bg-bg border-t border-border rounded-t-2xl max-h-[70vh] overflow-y-auto animate-slide-up">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Workspaces" className="fixed bottom-0 left-0 right-0 z-50 bg-bg border-t border-border rounded-t-2xl max-h-[70vh] overflow-y-auto animate-slide-up">
         {/* Drag handle */}
         <div className="flex justify-center pt-3 pb-2">
           <div className="w-10 h-1 rounded-full bg-border" />
@@ -36,6 +39,7 @@ export function WorkspaceBottomSheet({
           <h2 className="text-lg font-bold text-text">Workspaces</h2>
           <button
             onClick={onClose}
+            aria-label="Close workspaces"
             className="w-8 h-8 rounded-full flex items-center justify-center bg-transparent border-none cursor-pointer hover:bg-bg-hover"
           >
             <X size={18} className="text-text-muted" />

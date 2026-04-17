@@ -2,9 +2,10 @@
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from db.connection import get_db
 
@@ -71,6 +72,7 @@ async def create_tag(
 @router.delete("/{tag_id}", status_code=204)
 async def delete_tag(
     tag_id: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -79,6 +81,12 @@ async def delete_tag(
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Tag not found")
     logger.info("tag_deleted", tag_id=tag_id)
+
+    await record_audit(
+        db, request, user,
+        action="tag.delete", resource_type="tag", resource_id=tag_id,
+        status_code=204,
+    )
 
 
 @router.post("/assign", status_code=201)
@@ -91,6 +99,14 @@ async def assign_tag(
     name = body.tag_name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+
+    # Verify the paper belongs to the caller — prevents tagging other users' papers
+    owned_paper = await db.fetchrow(
+        "SELECT id FROM papers WHERE id = $1 AND user_id = $2",
+        body.paper_id, user.id,
+    )
+    if not owned_paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
 
     # Get or create tag
     tag = await db.fetchrow(
@@ -118,27 +134,41 @@ async def assign_tag(
 async def unassign_tag(
     paper_id: str,
     tag_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Remove a tag from a paper."""
     await db.execute(
-        "DELETE FROM paper_tags WHERE paper_id = $1 AND tag_id = $2",
-        paper_id, tag_id,
+        """DELETE FROM paper_tags
+           WHERE paper_id = $1 AND tag_id = $2
+             AND paper_id IN (SELECT id FROM papers WHERE user_id = $3)
+             AND tag_id IN (SELECT id FROM tags WHERE user_id = $3)""",
+        paper_id, tag_id, user.id,
     )
     logger.info("tag_unassigned", paper_id=paper_id, tag_id=tag_id)
+
+    await record_audit(
+        db, request, user,
+        action="tag.unassign", resource_type="paper", resource_id=paper_id,
+        metadata={"tag_id": tag_id},
+        status_code=204,
+    )
 
 
 @router.get("/paper/{paper_id}")
 async def get_paper_tags(
     paper_id: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, str]]:
     """Get all tags for a paper."""
     rows = await db.fetch(
         """SELECT t.id, t.name FROM tags t
            JOIN paper_tags pt ON t.id = pt.tag_id
+           JOIN papers p ON pt.paper_id = p.id AND p.user_id = $2
            WHERE pt.paper_id = $1
            ORDER BY t.name""",
-        paper_id,
+        paper_id, user.id,
     )
     return [{"id": str(row["id"]), "name": row["name"]} for row in rows]

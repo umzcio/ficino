@@ -1,14 +1,20 @@
 """Feed and Post data models."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 
+# Matches the TypeScript union in frontend/src/types/index.ts:40 —
+# keep these lists in sync so the API contract is uniformly typed.
+PostType = Literal["post", "thread", "quote", "reply", "figure"]
+
+
 class PostBase(BaseModel):
     persona: str
-    post_type: str  # post, thread, quote, reply, figure
+    post_type: PostType
     content: str
     paper_ref: str | None = None
     likes: int = 0
@@ -18,23 +24,23 @@ class PostBase(BaseModel):
 
 
 class ThreadPost(PostBase):
-    post_type: str = "thread"
+    post_type: Literal["thread"] = "thread"
     thread_count: int = 1
 
 
 class QuotePost(PostBase):
-    post_type: str = "quote"
+    post_type: Literal["quote"] = "quote"
     quoting_handle: str | None = None
     quoting_content: str | None = None
 
 
 class ReplyPost(PostBase):
-    post_type: str = "reply"
+    post_type: Literal["reply"] = "reply"
     replying_to: str | None = None
 
 
 class FigurePost(PostBase):
-    post_type: str = "figure"
+    post_type: Literal["figure"] = "figure"
     figure_id: UUID | None = None
     figure_caption: str | None = None
 

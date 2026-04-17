@@ -63,33 +63,45 @@ export interface FicinoDB extends DBSchema {
 
 let dbPromise: Promise<IDBPDatabase<FicinoDB>> | null = null
 
+// Schema version. Bump on any structural change so `upgrade()` runs against
+// older local databases — otherwise returning users who first opened the app
+// at version N won't see later stores or indexes. Current:
+//   v1: initial stores + by-workspace indexes
+//   v2: (reserved) future schema changes land here with explicit migrations
+const DB_VERSION = 2
+
 export function getDB(): Promise<IDBPDatabase<FicinoDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<FicinoDB>('ficino-offline', 1, {
-      upgrade(db) {
-        const feeds = db.createObjectStore('feeds', { keyPath: 'id' })
-        feeds.createIndex('by-workspace', 'workspaceId')
+    dbPromise = openDB<FicinoDB>('ficino-offline', DB_VERSION, {
+      upgrade(db, oldVersion) {
+        // v0 → v1: create all stores and indexes
+        if (oldVersion < 1) {
+          const feeds = db.createObjectStore('feeds', { keyPath: 'id' })
+          feeds.createIndex('by-workspace', 'workspaceId')
 
-        const papers = db.createObjectStore('papers', { keyPath: 'id' })
-        papers.createIndex('by-workspace', 'workspaceId')
+          const papers = db.createObjectStore('papers', { keyPath: 'id' })
+          papers.createIndex('by-workspace', 'workspaceId')
 
-        db.createObjectStore('paperSummaries', { keyPath: 'paper_id' })
-        db.createObjectStore('groupChats', { keyPath: 'id' })
+          db.createObjectStore('paperSummaries', { keyPath: 'paper_id' })
+          db.createObjectStore('groupChats', { keyPath: 'id' })
 
-        const bookmarks = db.createObjectStore('bookmarks', { keyPath: 'id' })
-        bookmarks.createIndex('by-feed', 'feed_id')
+          const bookmarks = db.createObjectStore('bookmarks', { keyPath: 'id' })
+          bookmarks.createIndex('by-feed', 'feed_id')
 
-        db.createObjectStore('annotations', { keyPath: '_key' })
-        db.createObjectStore('likes', { keyPath: 'feedId' })
-        db.createObjectStore('personas', { keyPath: 'key' })
-        db.createObjectStore('workspaces', { keyPath: 'id' })
-        db.createObjectStore('settings', { keyPath: '_key' })
+          db.createObjectStore('annotations', { keyPath: '_key' })
+          db.createObjectStore('likes', { keyPath: 'feedId' })
+          db.createObjectStore('personas', { keyPath: 'key' })
+          db.createObjectStore('workspaces', { keyPath: 'id' })
+          db.createObjectStore('settings', { keyPath: '_key' })
 
-        const userPosts = db.createObjectStore('userPosts', { keyPath: 'id' })
-        userPosts.createIndex('by-workspace', 'workspaceId')
+          const userPosts = db.createObjectStore('userPosts', { keyPath: 'id' })
+          userPosts.createIndex('by-workspace', 'workspaceId')
 
-        db.createObjectStore('alerts', { keyPath: 'id' })
-        db.createObjectStore('syncMeta', { keyPath: 'storeName' })
+          db.createObjectStore('alerts', { keyPath: 'id' })
+          db.createObjectStore('syncMeta', { keyPath: 'storeName' })
+        }
+        // v1 → v2: no-op for now — schema is stable. Placeholder block so
+        // the next structural change just adds `if (oldVersion < 3) { ... }`.
       },
     })
   }

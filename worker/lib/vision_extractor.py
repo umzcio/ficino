@@ -124,6 +124,22 @@ async def extract_with_vision(file_path: str) -> str:
     return full_markdown
 
 
+# Persistent event loop to avoid the asyncio.run() + httpx-GC race —
+# same pattern as the other worker/lib sync wrappers. BUG-LIVE-06.
+import threading as _threading
+
+_vision_loop: asyncio.AbstractEventLoop | None = None
+_vision_loop_lock = _threading.Lock()
+
+
+def _run_on_vision_loop(coro):
+    global _vision_loop
+    with _vision_loop_lock:
+        if _vision_loop is None or _vision_loop.is_closed():
+            _vision_loop = asyncio.new_event_loop()
+        return _vision_loop.run_until_complete(coro)
+
+
 def extract_with_vision_sync(file_path: str) -> str:
     """Synchronous wrapper for use in Celery tasks."""
-    return asyncio.run(extract_with_vision(file_path))
+    return _run_on_vision_loop(extract_with_vision(file_path))

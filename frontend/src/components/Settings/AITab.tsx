@@ -168,6 +168,7 @@ export function AITab({ settings: s, onUpdate }: Props) {
         {Object.entries(personas).map(([key, p]) => (
           <SettingRow key={key} label={p.name} description={p.handle}>
             <Toggle
+              label={p.name}
               checked={personasEnabled[key] !== false}
               onChange={(v) => onUpdate({
                 personas_enabled: { ...personasEnabled, [key]: v },

@@ -112,23 +112,51 @@ def propose_ordering(self: Task, paper_ids: list[str], corpus_id: str | None = N
         # Parse JSON response
         ordering = _parse_ordering_json(response)
 
-        # Merge with paper metadata
+        # Validate that the LLM returned exactly the papers we asked about.
+        # Hallucinated paper_ids would silently get "Unknown" metadata and
+        # end up in the user's reading list — we'd rather loudly reject and
+        # fall back to input-order than ship phantom entries.
         paper_meta = {p["paper_id"]: p for p in papers_context}
-        result = []
-        for item in ordering:
-            pid = item.get("paper_id", "")
-            meta = paper_meta.get(pid, {})
-            result.append({
-                "paper_id": pid,
-                "position": item.get("position", 0),
-                "rationale": item.get("rationale", ""),
-                "title": meta.get("title", "Unknown"),
-                "authors": meta.get("authors", "Unknown"),
-                "year": meta.get("year", "Unknown"),
-            })
+        input_ids = set(paper_meta.keys())
+        returned_ids = {item.get("paper_id", "") for item in ordering}
 
-        # Sort by position
-        result.sort(key=lambda x: x["position"])
+        if returned_ids != input_ids:
+            missing = input_ids - returned_ids
+            extra = returned_ids - input_ids
+            log.warn(
+                "propose_ordering_id_mismatch",
+                missing=list(missing)[:5],
+                extra=list(extra)[:5],
+                input_count=len(input_ids),
+                returned_count=len(returned_ids),
+            )
+            # Fall back to input order with empty rationale rather than
+            # trusting a partial or padded LLM response.
+            result = [
+                {
+                    "paper_id": p["paper_id"],
+                    "position": idx,
+                    "rationale": "",
+                    "title": p.get("title", "Unknown"),
+                    "authors": p.get("authors", "Unknown"),
+                    "year": p.get("year", "Unknown"),
+                }
+                for idx, p in enumerate(papers_context)
+            ]
+        else:
+            result = []
+            for item in ordering:
+                pid = item["paper_id"]
+                meta = paper_meta[pid]
+                result.append({
+                    "paper_id": pid,
+                    "position": item.get("position", 0),
+                    "rationale": item.get("rationale", ""),
+                    "title": meta.get("title", "Unknown"),
+                    "authors": meta.get("authors", "Unknown"),
+                    "year": meta.get("year", "Unknown"),
+                })
+            result.sort(key=lambda x: x["position"])
 
         duration_ms = int((time.time() - start) * 1000)
         log.info("propose_ordering_complete", duration_ms=duration_ms, papers=len(result))

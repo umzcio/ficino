@@ -8,13 +8,33 @@ export function setAuthTokenGetter(fn: () => string | null) {
   _getAuthToken = fn
 }
 
+// Read the CSRF token the server set in a JS-readable cookie.
+// Returns null when no cookie is present (dev mode with AUTH_PROVIDER=none
+// or before the first GET response has landed). In those cases the server
+// middleware either bypasses CSRF or the upcoming GET will set the cookie.
+function getCsrfToken(): string | null {
+  const match = document.cookie.match(/(?:^|; )ficino_csrf=([^;]+)/)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) }
+  let headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) }
 
   // Inject auth token for supabase provider
   const token = _getAuthToken?.()
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
+  }
+
+  // Attach CSRF token on mutating requests when we have one. The server-side
+  // middleware is skipped under AUTH_PROVIDER=none, so a missing token here
+  // doesn't break single-user dev.
+  const method = (options?.method || (options?.body ? 'POST' : 'GET')).toUpperCase()
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    const csrf = getCsrfToken()
+    if (csrf) {
+      headers = { ...headers, 'X-CSRF-Token': csrf }
+    }
   }
 
   const res = await fetch(`${API_BASE}${path}`, {

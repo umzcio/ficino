@@ -3,6 +3,8 @@
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
+import asyncpg
+
 from auth import AuthUser, get_current_user
 from db.connection import get_db
 from models.user import UserUpdate
@@ -55,3 +57,18 @@ async def update_user_profile(
         "display_name": row["display_name"],
         "created_at": row["created_at"],
     }
+
+
+@router.get("/me/audit-log")
+async def list_my_audit_log(
+    limit: int = 100,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[dict]:
+    """Return the authenticated user's audit log, most recent first."""
+    rows = await db.fetch(
+        """SELECT id, action, resource_type, resource_id, metadata, ip, status_code, created_at
+           FROM audit_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2""",
+        user.id, min(max(limit, 1), 500),
+    )
+    return [dict(r) for r in rows]

@@ -84,6 +84,14 @@ async def _describe_ollama(image_bytes: bytes) -> str:
 
 
 def _parse_description(text: str) -> dict[str, str]:
+    """Parse `DESCRIPTION:` / `CLAIM:` blocks from a vision model's response.
+
+    Returns empty strings when the expected labels aren't present — the
+    caller logs + skips the figure. We deliberately do NOT fall back to
+    `text[:500]` the way we used to, because that raw vision output later
+    flows into persona prompts, and a malformed response (or one that's
+    actually an instruction payload) would ride along unchecked.
+    """
     description = ""
     claim = ""
     for line in text.split("\n"):
@@ -92,10 +100,21 @@ def _parse_description(text: str) -> dict[str, str]:
             description = line[len("DESCRIPTION:"):].strip()
         elif line.startswith("CLAIM:"):
             claim = line[len("CLAIM:"):].strip()
-    if not description:
-        description = text[:500]
-    if not claim:
-        claim = description[:200]
+
+    # Light sanity bounds. Vision models sometimes emit enormous single lines;
+    # truncate to protect downstream prompt size.
+    description = description[:1000]
+    claim = claim[:400]
+
+    if not description or not claim:
+        logger.warn(
+            "figure_description_unparseable",
+            has_description=bool(description),
+            has_claim=bool(claim),
+            preview=text[:120],
+        )
+        return {"description": "", "claim_summary": ""}
+
     return {"description": description, "claim_summary": claim}
 
 
@@ -120,6 +139,22 @@ async def describe_figure(image_bytes: bytes) -> dict[str, str]:
     return _parse_description(text)
 
 
+# Persistent event loop for the sync wrapper — prevents httpx GC on a
+# dead loop (see BUG-LIVE-06 in phase2 playwright report).
+import threading as _threading
+
+_figure_loop: asyncio.AbstractEventLoop | None = None
+_figure_loop_lock = _threading.Lock()
+
+
+def _run_on_figure_loop(coro):
+    global _figure_loop
+    with _figure_loop_lock:
+        if _figure_loop is None or _figure_loop.is_closed():
+            _figure_loop = asyncio.new_event_loop()
+        return _figure_loop.run_until_complete(coro)
+
+
 def describe_figure_sync(image_bytes: bytes) -> dict[str, str]:
     """Synchronous wrapper for use in Celery tasks."""
-    return asyncio.run(describe_figure(image_bytes))
+    return _run_on_figure_loop(describe_figure(image_bytes))

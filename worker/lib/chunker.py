@@ -176,10 +176,16 @@ def chunk_markdown(markdown: str, max_tokens: int = 800) -> list[dict[str, objec
     """
     sections = _detect_sections(markdown)
 
-    # Fallback: if section detection is poor, treat as one section
-    if len(sections) < 3:
-        logger.warn("chunker_few_sections", count=len(sections))
+    # Fallback: only treat as one un-titled blob when section detection found
+    # NOTHING. A paper with even one detected header (e.g. just "Methods")
+    # gives downstream personas more to work with than losing the label.
+    # Previous threshold of <3 was over-aggressive and stripped structure
+    # from short papers / preprints.
+    if not sections:
+        logger.warn("chunker_no_sections_detected", fallback="untitled")
         sections = [("untitled", markdown)]
+    elif len(sections) < 3:
+        logger.info("chunker_few_sections", count=len(sections))
 
     all_chunks: list[dict[str, object]] = []
     chunk_index = 0

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { memo, useState, useRef, useEffect } from 'react'
 import {
   MessageCircle, Repeat2, Heart, Bookmark,
   MoreHorizontal, FileText, ImageIcon, ZoomIn, X, Loader2,
@@ -7,6 +7,7 @@ import {
 import type { FeedPost } from '../../types'
 import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, deletePost, updateSettings, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 /** Lightweight inline markdown: **bold**, *italic*, `code`. No block elements. */
 export function InlineMd({ text }: { text: string }) {
@@ -29,6 +30,9 @@ export function InlineMd({ text }: { text: string }) {
 }
 
 function FigureLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useFocusTrap(true, ref)
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -39,6 +43,7 @@ function FigureLightbox({ src, alt, onClose }: { src: string; alt: string; onClo
 
   return (
     <div
+      ref={ref}
       className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
       onClick={onClose}
       role="dialog"
@@ -142,6 +147,7 @@ function MenuItem({
 }) {
   return (
     <button
+      role="menuitem"
       className="w-full flex items-center gap-3 text-left px-4 py-2.5 text-[14px] hover:bg-bg-hover bg-transparent border-none cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-default"
       style={{ color: color || 'var(--color-text)' }}
       disabled={disabled}
@@ -176,7 +182,7 @@ interface PostCardProps {
   onPostDeleted?: (postIndex: number) => void
 }
 
-export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated, onPostDeleted }: PostCardProps) {
+function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated, onPostDeleted }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const bookmarked = !!bookmarkedId
@@ -400,6 +406,8 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
           <div className="ml-auto relative">
             <button
               aria-label="More options"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
               className="bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full"
               onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
             >
@@ -408,7 +416,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} />
-                <div className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[220px]">
+                <div role="menu" className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[220px]">
                   <MenuItem icon={Copy} label="Copy text" onClick={(e) => {
                     e.stopPropagation(); setMenuOpen(false)
                     const text = isThread && post.thread_posts ? post.thread_posts.join('\n\n') : post.content
@@ -947,7 +955,7 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                   )
                 })}
                 {(replyLoading || zapLoading) && (
-                  <div className="flex gap-3 py-2.5">
+                  <div role="status" aria-live="polite" aria-atomic="true" className="flex gap-3 py-2.5">
                     <div
                       className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
                       style={{
@@ -980,6 +988,16 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                     <input
                       ref={inputRef}
                       type="text"
+                      aria-label={`Reply to ${p.name}`}
+                      role="combobox"
+                      aria-expanded={mentionQuery !== null && mentionFiltered.length > 0}
+                      aria-controls="mention-listbox"
+                      aria-autocomplete="list"
+                      aria-activedescendant={
+                        mentionQuery !== null && mentionFiltered.length > 0 && mentionIdx >= 0
+                          ? `mention-option-${mentionIdx}`
+                          : undefined
+                      }
                       value={replyInput}
                       onChange={(e) => {
                         setReplyInput(e.target.value)
@@ -1029,11 +1047,18 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                   </div>
                   {/* @mention autocomplete dropdown */}
                   {mentionQuery !== null && mentionFiltered.length > 0 && (
-                    <div className="absolute bottom-full left-0 mb-1 w-64 bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20">
+                    <ul
+                      role="listbox"
+                      id="mention-listbox"
+                      className="absolute bottom-full left-0 mb-1 w-64 bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20 list-none p-0 m-0"
+                    >
                       {mentionFiltered.map((mp, i) => (
-                        <button
+                        <li
                           key={mp.personaKey}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-left border-none cursor-pointer transition-colors"
+                          role="option"
+                          id={`mention-option-${i}`}
+                          aria-selected={i === mentionIdx}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-left cursor-pointer transition-colors list-none"
                           style={{ backgroundColor: i === mentionIdx ? 'var(--color-bg-hover)' : 'transparent' }}
                           onMouseEnter={() => setMentionIdx(i)}
                           onMouseDown={(e) => { e.preventDefault(); insertMention(mp) }}
@@ -1049,9 +1074,9 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
                             <div className="text-[13px] font-bold text-text">{mp.name}</div>
                             <div className="text-[11px] text-text-muted">{mp.handle}</div>
                           </div>
-                        </button>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   )}
                 </div>
               </div>
@@ -1062,10 +1087,36 @@ export function PostCard({ post, feedId, postIndex = 0, bookmarkedId, onBookmark
 
       {/* Toast */}
       {toast && (
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-gold text-bg text-[12px] font-semibold px-3 py-1.5 rounded-lg shadow-lg z-40 whitespace-nowrap">
+        <div role="status" aria-live="polite" aria-atomic="true" className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-gold text-bg text-[12px] font-semibold px-3 py-1.5 rounded-lg shadow-lg z-40 whitespace-nowrap">
           {toast}
         </div>
       )}
     </article>
   )
 }
+
+/**
+ * Re-render only when data or flags that PostCard visibly depends on change.
+ *
+ * Callback identity is intentionally NOT in the comparator — Feed.tsx passes
+ * inline arrow functions for onBookmarkToggle/onClick/onPostDeleted that
+ * change every render. Including them would defeat the memo.
+ *
+ * Reference equality on `post` works because the feed array is rebuilt only
+ * when the server returns new post data; an intermediate `posts.filter(...)`
+ * preserves the underlying object refs.
+ */
+function arePostsEqual(prev: PostCardProps, next: PostCardProps): boolean {
+  return (
+    prev.post === next.post &&
+    prev.feedId === next.feedId &&
+    prev.postIndex === next.postIndex &&
+    prev.liked === next.liked &&
+    prev.bookmarkedId === next.bookmarkedId &&
+    prev.hasUserReply === next.hasUserReply &&
+    prev.annotation === next.annotation &&
+    prev.autoOpenReply === next.autoOpenReply
+  )
+}
+
+export const PostCard = memo(PostCardImpl, arePostsEqual)

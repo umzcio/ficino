@@ -4,6 +4,7 @@ import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
+from auth import AuthUser, get_current_user
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -63,12 +64,13 @@ def _format_mla(title: str, authors: list[str], year: int | None, doi: str | Non
 async def cite_by_title(
     title: str,
     format: str = "apa",
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Generate a formatted citation by paper title (fuzzy match)."""
     row = await db.fetchrow(
-        "SELECT title, authors, year, doi FROM papers WHERE title ILIKE $1 LIMIT 1",
-        f"%{title[:80]}%",
+        "SELECT title, authors, year, doi FROM papers WHERE user_id = $2 AND title ILIKE $1 LIMIT 1",
+        f"%{title[:80]}%", user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")

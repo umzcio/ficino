@@ -121,7 +121,7 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
           } : undefined}
           aria-label={label}
           aria-current={active === view ? 'page' : undefined}
-          className="flex-1 flex flex-col items-center py-2.5 gap-0.5 bg-transparent border-none transition-colors"
+          className="flex-1 flex flex-col items-center py-3 gap-0.5 bg-transparent border-none transition-colors min-h-[48px]"
           style={{ color: active === view ? 'var(--color-gold)' : 'var(--color-nav-inactive)' }}
         >
           <Icon size={22} strokeWidth={active === view ? 2.25 : 1.75} />
@@ -177,12 +177,18 @@ function FeedHeader({
     <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5 flex items-center justify-between">
       <div>
         <div className="flex items-center gap-2">
-          <img
-            src={`${import.meta.env.BASE_URL}ficino-favicon-light.png`}
-            alt="ficino"
-            className="w-7 h-7 rounded-lg md:hidden cursor-pointer app-logo"
+          <button
+            type="button"
+            aria-label="Open menu"
             onClick={onMobileLogoTap}
-          />
+            className="bg-transparent border-none p-0 cursor-pointer md:hidden"
+          >
+            <img
+              src={`${import.meta.env.BASE_URL}ficino-favicon-light.png`}
+              alt=""
+              className="w-7 h-7 rounded-lg app-logo"
+            />
+          </button>
           <span className="text-[22px] font-semibold text-text tracking-[0.015em]" style={{ fontFamily: "'Cormorant Garamond', serif", fontKerning: 'normal' }}>ficino</span>
           <span className="text-[11px] text-gold bg-gold/10 border border-gold/20 rounded px-1.5 py-0.5 font-semibold tracking-wider">
             BETA
@@ -237,14 +243,29 @@ function FeedHeader({
 
 function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) => void }) {
   const tabs = ['For You', 'Debates', 'Methods', 'Findings']
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    let next = active
+    if (e.key === 'ArrowRight') next = (active + 1) % tabs.length
+    else if (e.key === 'ArrowLeft') next = (active - 1 + tabs.length) % tabs.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = tabs.length - 1
+    else return
+    e.preventDefault()
+    onSelect(next)
+    tabRefs.current[next]?.focus()
+  }
   return (
     <div className="flex border-b border-border" role="tablist" aria-label="Feed filters">
       {tabs.map((tab, i) => (
         <button
           key={i}
+          ref={(el) => { tabRefs.current[i] = el }}
           role="tab"
           aria-selected={active === i}
+          tabIndex={active === i ? 0 : -1}
           onClick={() => onSelect(i)}
+          onKeyDown={handleKeyDown}
           className="flex-1 py-3.5 border-none bg-transparent cursor-pointer text-[15px] transition-all duration-150"
           style={{
             color: active === i ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
@@ -617,9 +638,10 @@ function AppContent() {
   return (
     <PersonasProvider value={personas}>
       <div className="min-h-screen bg-bg text-text">
+        <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-bg focus:text-text focus:border focus:border-gold focus:px-3 focus:py-1.5 focus:rounded">Skip to main content</a>
         <div className="max-w-[1050px] mx-auto flex min-h-screen">
           <LeftNav active={activeView} onNavigate={setActiveView} alertCount={alertsHook.unreadCount} />
-          <main className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
+          <main id="main" className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
             {renderMainContent()}
           </main>
           <Sidebar

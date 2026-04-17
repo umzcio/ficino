@@ -44,11 +44,12 @@ export function SettingRow({ label, description, children }: {
   )
 }
 
-export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className="w-11 h-7 rounded-full border-none cursor-pointer transition-colors relative"
       style={{ backgroundColor: checked ? 'var(--color-gold)' : 'var(--color-toggle-off)' }}
