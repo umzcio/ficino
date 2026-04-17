@@ -388,6 +388,16 @@ def generate_feed(
         id_offset = len(existing_posts)
         time_offset = len(existing_posts) * 2
 
+        # Count how many slots each persona holds in this plan. Used below
+        # to decide whether chunk-window rotation is warranted for this
+        # persona's slots, and to track which slot-within-persona we're on.
+        persona_slot_counts: dict[str, int] = {}
+        for a in plan:
+            persona_slot_counts[a["persona"]] = persona_slot_counts.get(a["persona"], 0) + 1
+        # Running index of THIS persona's appearances as we walk the plan.
+        # Maps persona_key → 0, 1, 2, ... as we encounter each slot.
+        persona_slot_cursor: dict[str, int] = {}
+
         for i, assignment in enumerate(plan):
             persona_key = assignment["persona"]
             post_type = assignment["post_type"]
@@ -405,19 +415,20 @@ def generate_feed(
                 log.warn("no_chunks_for_persona", persona=persona_key)
                 continue
 
-            # Chunk diversity for persona-scoped multi-post generation:
-            # rotate/slice chunks so each post sees a different window, preventing
-            # "3 posts about the same mechanism" repetition.
-            # Note: assignment["persona"] is the current post's persona; this block
-            # only fires when the caller restricted generation to one persona.
-            if len(plan) > 1 and len({a["persona"] for a in plan}) == 1 and len(chunks) >= 3:
-                # Rotate chunk window per post so persona-scoped multi-post
-                # generation doesn't repeat itself. Explicit max_start handles
-                # the edge case where len(chunks) == window_size (no rotation
-                # possible — just use all chunks once).
-                window_size = max(3, len(chunks) // len(plan))
+            # Chunk-window rotation: if this persona appears 2+ times in the
+            # plan, each of their slots sees a DIFFERENT window of retrieved
+            # chunks. Without this, the Skeptic's 3 slots all run against
+            # the same top-K chunks and produce near-identical takes — the
+            # temperature alone doesn't diverge the output enough. Applies
+            # to both mixed feeds (prior code only fired for single-persona
+            # plans) and the "Get their take" path.
+            my_slot_count = persona_slot_counts[persona_key]
+            my_slot_index = persona_slot_cursor.get(persona_key, 0)
+            persona_slot_cursor[persona_key] = my_slot_index + 1
+            if my_slot_count > 1 and len(chunks) >= 3:
+                window_size = max(3, len(chunks) // my_slot_count)
                 max_start = max(0, len(chunks) - window_size)
-                start = (i * window_size) % (max_start + 1) if max_start > 0 else 0
+                start = (my_slot_index * window_size) % (max_start + 1) if max_start > 0 else 0
                 chunks = chunks[start:start + window_size]
 
             # Pick figure BEFORE prompt if this is a figure post
