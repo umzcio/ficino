@@ -504,6 +504,9 @@ function AppContent() {
               onBack={() => setSelectedPersona(null)}
               posts={feed.posts}
               feedId={feed.feedId}
+              onGenerateTake={(personaKey) => feed.generate(ws.activeId, undefined, feed.feedId || undefined, undefined, personaKey, 3)}
+              generating={feed.feedState === 'generating'}
+              canGenerate={corpus.papers.length > 0 && isOnline}
             />
           )
         }

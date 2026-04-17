@@ -45,7 +45,7 @@ Upload PDFs --> Ingest & Chunk --> AI Personas Debate --> You Learn by Scrolling
 
 1. **Upload papers**: drag-drop PDFs into your corpus
 2. **Automatic ingestion**: extracts text (PyMuPDF or Vision fallback for tricky PDFs), detects sections, chunks intelligently, generates embeddings
-3. **Generate feed**: five AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed
+3. **Generate feed**: six AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed
 4. **Cross-paper RAG**: personas argue *across* papers, detecting contradictions and agreements
 5. **Interact**: reply to personas, bookmark posts, explore paper summaries, trace claims back to source chunks
 
@@ -53,7 +53,7 @@ Upload PDFs --> Ingest & Chunk --> AI Personas Debate --> You Learn by Scrolling
 
 ## Personas
 
-Five AI personas with distinct epistemic styles, each grounded in RAG-retrieved paper content. Persona prompts are engineered from research on science communication, the replication crisis, and academic social media discourse -- each persona's "moves" map to documented behaviors from credible practitioners in their archetype (Gelman, Mollick, Bik, etc.).
+Six AI personas with distinct epistemic styles, each grounded in RAG-retrieved paper content. Persona prompts are engineered from research on science communication, the replication crisis, and academic social media discourse -- each persona's "moves" map to documented behaviors from credible practitioners in their archetype (Gelman, Mollick, Bik, Veritasium, etc.).
 
 | Handle | Name | Style |
 |--------|------|-------|
@@ -62,6 +62,7 @@ Five AI personas with distinct epistemic styles, each grounded in RAG-retrieved 
 | `@real_world_ml` | **Practitioner Pat** | Asks "does this work outside R1 institutions?" |
 | `@stats_nerd` | **Stats Nerd** | Threads out methodology, flags construct validity |
 | `@phd_suffering` | **PhD Candidate** | Relatable confusion, asks the questions readers are afraid to ask |
+| `@big_if_true` | **The Amplifier** | Narrativist — names the mechanism, imports frameworks, lands a reframe. Think Veritasium or Tim Urban on Twitter |
 | `@the_archivist` | **The Archivist** | Neutral research assistant — answers your questions with citations, no persona voice |
 
 Each persona can be enabled/disabled and configured via Settings. You can reply to any persona and have a multi-turn conversation grounded in your paper content. The Archivist responds to your own posts in the feed via the compose box.
@@ -101,6 +102,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Conductor mode**: retweet (↻) button on any post or reply message opens a persona picker — route any message to any persona for their take. Orchestrate multi-persona debates without typing
 - **Organic interjections**: other personas jump into your reply threads when the topic touches their expertise
 - **Persona profiles**: click any persona name to view their profile with avatar, bio, posts, and DM
+- **Get their take**: on any persona's profile, click "Get their take" to generate 3 new posts from that persona on your current corpus — appended to the active feed
 - **Persona DMs**: message any persona directly — they respond in character, grounded in your corpus
 - **Post detail view**: click any post to see full thread context — parent posts, quoted originals, downstream responses
 - **Annotations**: private notes on any post via three-dots menu, visible in feed and bookmarks
@@ -306,7 +308,7 @@ ficino/
 
 **Why a Twitter/X clone?** Academic papers are impenetrable. The same attention mechanics that make Twitter addictive can make research absorbable: scroll-first, controversy-first, one finding per post. ADHD-native learning disguised as doomscrolling.
 
-**Why five personas?** They map to real epistemic roles in academic discourse: the skeptic, the hype machine, the practitioner, the methodologist, the confused grad student. Together they create multi-angle exposure to the same claims.
+**Why six personas?** They map to real epistemic roles in academic discourse: the skeptic, the hype machine, the practitioner, the methodologist, the confused grad student, and the narrativist. Together they create multi-angle exposure to the same claims.
 
 **Why pgvector with hybrid search?** Keeps everything in one database, one query language. At our scale (~4,000 vectors), pgvector handles this trivially. Hybrid search catches both semantic similarity and exact term matches (author names, technical vocabulary).
 

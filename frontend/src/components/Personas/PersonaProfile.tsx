@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, MessageCircle, Loader2, Send } from 'lucide-react'
+import { ArrowLeft, Loader2, Send, MessagesSquare } from 'lucide-react'
 import { usePersonas } from '../../hooks/usePersonas'
 import { getPersonaStats, getPersonaDm, sendPersonaDm, type ReplyMessage } from '../../lib/api'
 import type { FeedPost } from '../../types'
@@ -10,9 +10,12 @@ interface PersonaProfileProps {
   onBack: () => void
   posts?: FeedPost[]
   feedId?: string | null
+  onGenerateTake?: (personaKey: string) => void
+  generating?: boolean
+  canGenerate?: boolean
 }
 
-export function PersonaProfile({ personaKey, onBack, posts, feedId }: PersonaProfileProps) {
+export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTake, generating, canGenerate }: PersonaProfileProps) {
   const personas = usePersonas()
   const p = personas[personaKey]
   const [tab, setTab] = useState<'posts' | 'dm'>('posts')
@@ -98,19 +101,28 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId }: PersonaPro
             <div className="text-xl font-bold text-text">{p.name}</div>
             <div className="text-[15px] text-text-muted">{p.handle}</div>
           </div>
-          {/* DM button */}
-          <button
-            onClick={() => setTab('dm')}
-            className="mt-1 w-10 h-10 rounded-full flex items-center justify-center border cursor-pointer hover:bg-bg-hover transition-colors"
-            style={{
-              borderColor: p.color + '40',
-              backgroundColor: tab === 'dm' ? p.color + '15' : 'transparent',
-              color: p.color,
-            }}
-            aria-label={`Message ${p.name}`}
-          >
-            <MessageCircle size={18} />
-          </button>
+          {/* Get their take button — generates 3 posts from this persona, appended to current feed */}
+          {onGenerateTake && (
+            <button
+              onClick={() => onGenerateTake(personaKey)}
+              disabled={generating || !canGenerate}
+              className="mt-1 px-4 py-2 rounded-full flex items-center gap-1.5 border cursor-pointer hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-[13px] font-semibold"
+              style={{
+                borderColor: p.color + '40',
+                backgroundColor: p.color + '10',
+                color: p.color,
+              }}
+              aria-label={`Get a take from ${p.name}`}
+              title={canGenerate ? `Generate 3 posts from ${p.name} on your corpus` : 'Upload papers first'}
+            >
+              {generating ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <MessagesSquare size={14} />
+              )}
+              <span>{generating ? 'Generating...' : 'Get their take'}</span>
+            </button>
+          )}
         </div>
 
         {/* Bio */}

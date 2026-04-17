@@ -44,6 +44,8 @@ class FeedGenerateRequest(BaseModel):
     tag_filter: list[str] | None = None
     append_to_feed_id: str | None = None
     tab_focus: str | None = None  # "debates", "methods", "findings" — generates tab-specific posts
+    persona_key: str | None = None  # when set, generate posts only from this persona
+    num_posts: int | None = None  # override default post count (used with persona_key for profile "get their take")
 
 
 class Feed(BaseModel):

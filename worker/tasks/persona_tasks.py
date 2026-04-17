@@ -137,6 +137,7 @@ def generate_feed(
     num_posts: int = 12,
     append_to_feed_id: str | None = None,
     tab_focus: str | None = None,
+    persona_key: str | None = None,
 ) -> dict[str, object]:
     """Full feed generation pipeline.
 
@@ -162,13 +163,25 @@ def generate_feed(
     try:
         # Load user settings and apply provider env vars
         user_settings = apply_provider_settings()
-        num_posts = user_settings.get("posts_per_generation", num_posts)
+        # User's posts_per_generation applies to normal feed gen, but not to persona-scoped
+        # "Get their take" requests which pass an explicit small num_posts
+        if not persona_key:
+            num_posts = user_settings.get("posts_per_generation", num_posts)
         enabled_personas = {k for k, v in user_settings.get("personas_enabled", {}).items() if v}
         temperature = user_settings.get("persona_temperature", 0.8)
         post_weights = user_settings.get("post_type_weights", persona_lib.POST_TYPE_WEIGHTS)
 
         # Load learned preferences from likes (Phase 2/3)
         preferences = user_settings.get("preferences")
+
+        # Persona-scoped generation: restrict to one persona (used for "Get their take" on profile)
+        if persona_key:
+            enabled_personas = {persona_key}
+            # Override post-type weights: favor threads (rhythm needs space),
+            # allow quotes, some standalone, no replies (nothing from-scratch to reply to),
+            # no figures (needs specific figure chunks which aren't guaranteed here)
+            post_weights = {"thread": 0.60, "quote": 0.25, "post": 0.15, "reply": 0.0, "figure": 0.0}
+            log.info("persona_scoped_generation", persona=persona_key, num_posts=num_posts, weights=post_weights)
 
         # Tab-focused generation: override weights for specific tab
         tab_category = None
@@ -296,6 +309,16 @@ def generate_feed(
             if not chunks:
                 log.warn("no_chunks_for_persona", persona=persona_key)
                 continue
+
+            # Chunk diversity for persona-scoped multi-post generation:
+            # rotate/slice chunks so each post sees a different window, preventing
+            # "3 posts about the same mechanism" repetition.
+            # Note: assignment["persona"] is the current post's persona; this block
+            # only fires when the caller restricted generation to one persona.
+            if len(plan) > 1 and len({a["persona"] for a in plan}) == 1 and len(chunks) >= 3:
+                window_size = max(3, len(chunks) // len(plan))
+                start = (i * window_size) % max(1, len(chunks) - window_size + 1)
+                chunks = chunks[start:start + window_size] or chunks[:window_size]
 
             # Pick figure BEFORE prompt if this is a figure post
             selected_figure = None

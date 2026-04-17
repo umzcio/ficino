@@ -146,6 +146,19 @@ CREATE TABLE annotations (
 
 CREATE INDEX ON annotations (user_id, feed_id);
 
+-- Persona DMs (one conversation per user+persona, messages as JSONB array)
+CREATE TABLE persona_dms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  persona_key TEXT NOT NULL REFERENCES personas(key) ON DELETE CASCADE,
+  messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, persona_key)
+);
+
+CREATE INDEX ON persona_dms (user_id, persona_key);
+
 -- Paper summaries (individual DMs — paper talks to you)
 CREATE TABLE paper_summaries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
