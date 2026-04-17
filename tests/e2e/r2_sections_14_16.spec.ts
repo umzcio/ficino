@@ -31,6 +31,7 @@ test.describe('R2 Section 14: Settings', () => {
   })
 
   test('R2-S14-02: LLM Provider section with Ollama and Claude API options', async ({ page }) => {
+    await page.getByRole('tab', { name: 'AI' }).click()
     const section = page.locator('div:has(> div:has-text("LLM Provider"))').first()
     await expect(section).toBeVisible()
     const providerSelect = section.locator('select').first()
@@ -42,6 +43,7 @@ test.describe('R2 Section 14: Settings', () => {
   })
 
   test('R2-S14-03: Personas section with toggles', async ({ page }) => {
+    await page.getByRole('tab', { name: 'AI' }).click()
     const personasHeader = page.locator('span:has-text("Personas")').filter({ hasText: /^Personas$/ })
     await expect(personasHeader.first()).toBeVisible()
     const toggles = page.locator('button[role="switch"]')
@@ -52,6 +54,7 @@ test.describe('R2 Section 14: Settings', () => {
   })
 
   test('R2-S14-04: Feed Generation section with sliders and reset', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Content' }).click()
     await expect(page.locator('span:has-text("Feed Generation")').first()).toBeVisible()
     await expect(page.locator('text=Posts per Generation')).toBeVisible()
     for (const label of ['Posts', 'Threads', 'Quotes', 'Replies', 'Figures']) {
@@ -62,6 +65,7 @@ test.describe('R2 Section 14: Settings', () => {
   })
 
   test('R2-S14-05: Paper Processing section', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Content' }).click()
     await expect(page.locator('span:has-text("Paper Processing")').first()).toBeVisible()
     await expect(page.locator('text=Extraction Mode')).toBeVisible()
     await expect(page.locator('text=Chunk Size')).toBeVisible()
@@ -70,6 +74,7 @@ test.describe('R2 Section 14: Settings', () => {
   })
 
   test('R2-S14-06: Display section', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Account' }).click()
     await expect(page.locator('span:has-text("Display")').filter({ hasText: /^Display$/ }).first()).toBeVisible()
     await expect(page.locator('text=Theme')).toBeVisible()
     await expect(page.locator('text=Font Size')).toBeVisible()
@@ -78,6 +83,7 @@ test.describe('R2 Section 14: Settings', () => {
   })
 
   test('R2-S14-07: Danger Zone with destructive actions', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Storage' }).click()
     await page.locator('span:has-text("Danger Zone")').first().scrollIntoViewIfNeeded()
     await expect(page.locator('span:has-text("Danger Zone")').first()).toBeVisible()
     await expect(page.locator('text=Clear All Feeds')).toBeVisible()

@@ -402,12 +402,18 @@ test.describe('Section 18 – Accessibility Retest', () => {
     });
     console.log(`Elements with focus ring: ${withRing}/${focusResults.length}`);
 
-    // Check if gold color is present in outline or shadow
+    // Check if gold color is present in outline or shadow.
+    // Dark-mode gold is #dcbd86 = rgb(220, 189, 134); light-mode is #846227 = rgb(132, 98, 39).
+    // Was #c8a96e = rgb(200, 169, 110) pre-Phase 1 — kept those substrings for back-compat.
     const goldFocusCount = focusResults.filter(r =>
-      r.outlineColor.includes('200') || r.outlineColor.includes('168') ||
-      r.outlineColor.includes('110') || r.outlineColor.includes('c8a96e') ||
-      r.boxShadow.includes('200') || r.boxShadow.includes('168') ||
-      r.boxShadow.includes('c8a96e')
+      r.outlineColor.includes('220') || r.outlineColor.includes('189') ||
+      r.outlineColor.includes('134') || r.outlineColor.includes('dcbd86') ||
+      r.outlineColor.includes('132') || r.outlineColor.includes('846227') ||
+      r.outlineColor.includes('200') || r.outlineColor.includes('110') ||
+      r.outlineColor.includes('c8a96e') ||
+      r.boxShadow.includes('220') || r.boxShadow.includes('189') ||
+      r.boxShadow.includes('dcbd86') ||
+      r.boxShadow.includes('200') || r.boxShadow.includes('c8a96e')
     ).length;
     console.log(`Elements with gold-colored focus indicator: ${goldFocusCount}`);
 

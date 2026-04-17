@@ -61,7 +61,7 @@ test.describe('Section 1: Paper Upload & Ingestion', () => {
     expect(count).toBeGreaterThanOrEqual(1)
     // The label should have sr-only class (screen reader only)
     const firstLabel = label.first()
-    await expect(firstLabel).toHaveText('Upload PDF')
+    await expect(firstLabel).toHaveText('Upload PDFs')
   })
 
   test('S1-04: PaperUpload error display area exists (BUG-008 fix verification)', async ({ page }) => {
@@ -297,8 +297,9 @@ test.describe('Section 3: Feed Tabs', () => {
 
     const borderBottom = await forYouTab.evaluate(el => getComputedStyle(el).borderBottomColor)
     console.log(`Active tab border-bottom-color: ${borderBottom}`)
-    // Should be gold (#c8a96e → rgb(200, 169, 110))
-    expect(borderBottom).toContain('200')
+    // Should be gold. Dark-mode token is --color-gold: #dcbd86 → rgb(220, 189, 134).
+    // Was #c8a96e → rgb(200, 169, 110) before Phase 1 contrast fix.
+    expect(borderBottom).toContain('220')
 
     await page.screenshot({ path: ssPath('r2_s3_active_tab_style'), fullPage: false })
   })
@@ -339,7 +340,7 @@ test.describe('Section 3: Feed Tabs', () => {
     expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(650)
 
     const borderColor = await methodsTab.evaluate(el => getComputedStyle(el).borderBottomColor)
-    expect(borderColor).toContain('200') // gold
+    expect(borderColor).toContain('220') // gold rgb(220,189,134) = #dcbd86
 
     // For You should be inactive
     const forYouTab = page.locator('button[role="tab"]', { hasText: 'For You' })

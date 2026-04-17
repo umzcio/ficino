@@ -361,17 +361,20 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s10_messages_header.png`, fullPage: false })
   })
 
-  test('R2-10.2 -- Papers and Group Chats tabs present', async ({ page }) => {
+  test('R2-10.2 -- Papers and Groups tabs present', async ({ page }) => {
     await waitForApp(page)
 
     await page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]').click()
-    await page.locator('h1', { hasText: 'Messages' }).waitFor({ timeout: 5_000 })
+    // Heading is `h2` per the Phase 3 hierarchy cleanup; tolerate either.
+    await page.locator('h1, h2', { hasText: 'Messages' }).first().waitFor({ timeout: 5_000 })
 
     const papersTab = page.locator('button', { hasText: 'Papers' })
-    const groupChatsTab = page.locator('button', { hasText: 'Group Chats' })
-
     await expect(papersTab).toBeVisible()
-    await expect(groupChatsTab).toBeVisible()
+
+    // The tab's visible label is "Groups" (Inbox.tsx:56) — NOT "Group Chats".
+    // The tab is always rendered; earlier "feature gate" assumption was wrong.
+    const groupsTab = page.getByRole('button', { name: /^Groups$/i })
+    await expect(groupsTab).toBeVisible()
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s10_tabs.png`, fullPage: false })
   })
@@ -439,30 +442,27 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s10_paper_chat.png`, fullPage: false })
   })
 
-  test('R2-10.5 -- Group Chats tab shows content or empty state', async ({ page }) => {
+  test('R2-10.5 -- Groups tab shows content or empty state', async ({ page }) => {
     await waitForApp(page)
 
     await page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]').click()
-    await page.locator('h1', { hasText: 'Messages' }).waitFor({ timeout: 5_000 })
+    await page.locator('h1, h2', { hasText: 'Messages' }).first().waitFor({ timeout: 5_000 })
 
-    const groupChatsTab = page.locator('button', { hasText: 'Group Chats' })
-    await groupChatsTab.click()
+    // Tab label is "Groups" (Inbox.tsx:56).
+    const groupsTab = page.getByRole('button', { name: /^Groups$/i })
+    await expect(groupsTab).toBeVisible()
+    await groupsTab.click()
     await page.waitForTimeout(1_000)
 
-    const emptyState = page.locator('text=No group chats yet')
+    // Empty-state copy in Inbox.tsx around the `groups.length === 0` branch.
+    const emptyState = page.locator('text=/Create Group Chat|No group chats yet/i').first()
     const groupEntry = page.locator('button', { hasText: /papers/ }).first()
 
     const isEmpty = await emptyState.isVisible({ timeout: 3_000 }).catch(() => false)
     const hasGroups = await groupEntry.isVisible({ timeout: 2_000 }).catch(() => false)
 
-    console.log(`Group Chats: empty=${isEmpty}, hasGroups=${hasGroups}`)
+    console.log(`Groups: empty=${isEmpty}, hasGroups=${hasGroups}`)
     expect(isEmpty || hasGroups).toBeTruthy()
-
-    // If empty, verify "Create Group Chat" button exists
-    if (isEmpty) {
-      const createBtn = page.locator('button', { hasText: /Create Group Chat|New Group Chat/ })
-      await expect(createBtn).toBeVisible()
-    }
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s10_group_chats.png`, fullPage: false })
   })

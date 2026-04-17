@@ -242,7 +242,7 @@ test.describe('R2 Section 6: Reply to Persona', () => {
     await expect(replyingTo).toBeVisible()
 
     // Verify input
-    const replyInput = page.locator('input[placeholder="Post your reply..."]').first()
+    const replyInput = page.locator('input[placeholder^="Post your reply"]').first()
     await expect(replyInput).toBeVisible()
 
     // Verify Reply button

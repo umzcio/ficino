@@ -11,7 +11,12 @@ export default defineConfig({
   use: {
     baseURL: 'https://ficino.local/ficino',
     ignoreHTTPSErrors: true,
-    screenshot: 'on',
+    // 'on' captures a screenshot after every test (pass or fail). That's
+    // expensive on disk and fragile for the Generate flow which holds an
+    // SSE connection open for ~28s (BUG-LIVE-02) — the teardown snapshot
+    // hangs until the test timeout. only-on-failure keeps debugging signal
+    // without the fragility.
+    screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     viewport: { width: 1280, height: 800 },
   },
