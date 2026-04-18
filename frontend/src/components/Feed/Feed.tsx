@@ -92,6 +92,13 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
       setRepliedIndices(new Set())
     }
   }, [feedId, feedState])
+
+  // deletedIndices is keyed to post-indices in the CURRENT feed — switching
+  // feeds must reset it, or a delete on feed A hides whatever post happens
+  // to sit at the same index in feed B.
+  useEffect(() => {
+    setDeletedIndices(new Set())
+  }, [feedId])
   // If generating with no existing posts, show full-screen spinner. The
   // whole block is a live region so SR users hear step changes — doubly
   // important under prefers-reduced-motion where `.animate-spin` is

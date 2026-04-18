@@ -1,195 +1,315 @@
-# FICINO_REVIEW.md — Round 7
+# Ficino Code Review — Round 8
 
-Focused code review. Severity floor: HIGH/CRITICAL only. Per-agent cap: 10. Six parallel sub-agents (security, bugs, perf, a11y, llm-safety, deps) + native Playwright on the deployed site at `https://ficino.local/ficino`.
+Commit: `de63aaa` (post round-7 fixes)
+Date: 2026-04-18
+Scope: HIGH/CRITICAL only, per-agent cap 10, 6 parallel sub-agents + Playwright.
 
-## Executive summary
+## Executive Summary
 
-| Severity | Count |
-|---|---|
-| CRITICAL | 2 |
-| HIGH | 10 |
-| **Total** | **12** |
+- **Critical**: 0
+- **High**: 23
+- **Playwright failures**: 0
 
-Below the 15-30 target band. Codebase has already absorbed rounds 1-6 (most IDOR, rate-limit, and a11y polish already closed); what's left is mostly correctness edge cases and cost-control gaps.
-
-A11y and dependency audits returned empty — no AA blockers on core flows, no HIGH/CRITICAL CVEs with an exploit path in how Ficino uses its deps (`pip-audit` clean on api + worker, `npm audit --omit=dev` reports 0 vulns across 19 prod packages).
+Prior rounds (1–7) closed the easy wins on raw security (path traversal, IDOR,
+SSRF, JWT fail-closed, CSRF, signed URLs), the obvious perf wins (HNSW index,
+useMemo stable keys, jsonb_set feed appends), and the easy a11y polish. Round 8
+yields what remains: residual prompt-injection vectors in persona prompts,
+multi-tenant leaks that only activate when `AUTH_PROVIDER != none`, a handful of
+concurrent-write bugs that clobber user data, and four inbox/dashboard endpoints
+that ship megabytes of JSONB only to slice them to 100-character previews.
 
 ### Top 3 beta blockers
 
-1. **CRIT-1 — Every figure in production 404s.** `api/routers/figures.py:44` strips the `<paper_id>/` subdir with `os.path.basename`; files are written by the worker to `/app/figures/<paper_id>/<name>.png` but the handler resolves to `/app/figures/<name>.png`. Verified live: file exists on the subdir path, absent on the flat path.
-2. **CRIT-2 — Supabase auth bypass on missing secret.** `supabase_jwt_secret` defaults to `""` (config.py:33) and `jwt.decode(token, "", algorithms=["HS256"])` accepts any attacker-forged HS256 token signed with empty key. An operator deploying `AUTH_PROVIDER=supabase` without setting the secret gets silent account takeover.
-3. **HIGH-1 — Retry poisons the corpus.** `chunks` has no `UNIQUE (paper_id, chunk_index)` (init.sql:68-80), so any Celery retry of `process_paper` after the chunk insert step duplicates the entire paper's embeddings, degrading search quality and doubling HNSW storage.
+1. **Multi-tenant auth leaks** (#4, #5, #6). Three separate spots hardcode
+   `STUB_USER_ID` or race on the `user_settings` blob. Under `AUTH_PROVIDER=basic`
+   or `supabase` these silently misroute feeds, preferences, and settings across
+   users. Single-user deploys are unaffected — so tests miss it, and it lights
+   up the moment a second user signs in.
+2. **Whole-array JSONB overwrite on append paths** (#7, #8, #9). Zap-response,
+   persona-DM, and figure ingestion all do read-modify-write on JSONB columns
+   without `||` concat or `ON CONFLICT` — classic "my message disappeared"
+   report that's hard to reproduce because it only fires under concurrent writes.
+3. **Inbox-tab payload bloat** (#12, #13, #14, #15). Four Inbox / App.tsx
+   endpoints select full `messages` JSONB (multi-turn LLM transcripts) for every
+   row, with no LIMIT, and the consumer only uses `messages[0]` / `messages[-1]`
+   and `length`. At 200 papers the first tap on Inbox transfers ~10MB.
+
+---
 
 ## Critical
 
-### CRIT-1 — `api/routers/figures.py:44` — flat path strip 404s every figure
+_None this round._
 
-`os.path.basename(row["image_path"])` drops `<paper_id>/` from stored path. Worker writes to `/app/figures/<paper_id>/fig_pN_K.png` (`worker/lib/pdf_extractor.py:275`, `ingestion_tasks.py:241`). Handler reconstructs `Path(figures_dir) / filename` which resolves to `/app/figures/fig_pN_K.png` — nonexistent.
-
-Verified live: `ls /app/figures/3ad58fb9-.../fig_p18_0.png` → exists; `ls /app/figures/fig_p18_0.png` → no such file.
-
-Quote (figures.py:44,47):
-```python
-filename = os.path.basename(row["image_path"])
-...
-full_path = Path(settings.figures_dir).resolve() / filename
-```
-
-**Fix:** Resolve with the paper subdir: `full_path = (Path(settings.figures_dir).resolve() / paper_id / filename).resolve()`, then keep the existing `relative_to(base)` escape check. Also sanitize `paper_id` and `filename` for `..` before the join.
-
-### CRIT-2 — `api/auth/providers.py:112-117` + `api/config.py:33` — empty JWT secret accepts forged tokens
-
-`jwt.decode(token, settings.supabase_jwt_secret, algorithms=["HS256"], audience="authenticated")` where `settings.supabase_jwt_secret: str = ""` validates any HS256 token signed with the empty string. The handler then upserts on `clerk_id`, which ON CONFLICT maps an attacker-chosen `sub` to any existing local user.
-
-Quote (providers.py:112-115):
-```python
-payload = jwt.decode(
-    token,
-    settings.supabase_jwt_secret,
-    algorithms=["HS256"],
-```
-
-**Fix:** Fail-closed at startup. In `main.py` lifespan (or `auth/__init__.py`), raise when `auth_provider == "supabase"` and `supabase_jwt_secret` is empty — same pattern used by `signed_url._resolve_signing_key`.
+---
 
 ## High
 
-### HIGH-1 — `infra/postgres/init.sql:68-80` — missing `UNIQUE (paper_id, chunk_index)` on chunks
+| # | Category | File : Line | Finding |
+|---|---|---|---|
+| 1 | Prompt injection | `worker/lib/persona.py:185` | Paper title / section / cite unfenced in source header — bypasses `<untrusted>` fence |
+| 2 | Prompt injection | `worker/lib/persona.py:196-202` | Contradiction content (`content_a/b`, `paper_a/b`) interpolated raw |
+| 3 | Prompt injection | `worker/lib/persona.py:343-362` | Figure desc/claim/paper_ref unfenced; `paper_ref` inside JSON template not `json.dumps`'d |
+| 4 | Multi-tenant | `worker/tasks/reading_list_tasks.py:320` | Chapter feeds hardcode `STUB_USER_ID` → real users get 404 |
+| 5 | Multi-tenant | `worker/tasks/persona_tasks.py:627` + `preference_tasks.py:42` | `compute_preferences` dispatched without user_id → every tenant collapses onto stub |
+| 6 | Multi-tenant | `worker/tasks/preference_tasks.py:174-194` + `api/routers/settings.py:131-193` | Read-modify-write race on `user_settings.settings` JSONB |
+| 7 | Concurrent write | `api/routers/replies.py:608-613` | `zap_response` whole-array overwrite; clobbers concurrent `create_reply` turns |
+| 8 | Concurrent write | `api/routers/personas.py:193-198` | `send_persona_dm` whole-array overwrite on `persona_dms.messages` |
+| 9 | Concurrent write | `infra/postgres/init.sql:106-116` + `worker/lib/db.py:229-236` | `figures` table no UNIQUE + plain INSERT → duplicate rows on retry |
+| 10 | Frontend state | `frontend/src/components/Feed/Feed.tsx:64,146` | `deletedIndices` not reset on feedId change → wrong posts hidden on feed switch |
+| 11 | Frontend state | `frontend/src/hooks/useFeed.ts:96` | `cacheFeed` called without `workspaceId` → fresh feed invisible offline |
+| 12 | Payload bloat | `api/routers/messages.py:34-54` | `list_paper_conversations` ships full `ps.messages` JSONB, no LIMIT |
+| 13 | Payload bloat | `api/routers/messages.py:76-96` | `get_paper_tldrs` ships full `ps.messages` to slice only `messages[0]` |
+| 14 | Payload bloat | `api/routers/replies.py:92-99` | `list_conversations` ships full `pr.messages` JSONB, no LIMIT |
+| 15 | Payload bloat | `api/routers/messages.py:216-220` | `list_group_chats` ships full synthesis transcripts, no LIMIT |
+| 16 | N+1 | `api/routers/reading_lists.py:62-69` | Two sequential `fetchval` calls per row; 10 lists = 21 round trips |
+| 17 | LLM robustness | `worker/lib/embedder.py:128-141` | Embeddings not length/dim-checked; Voyage ordering not enforced → HNSW misalignment |
+| 18 | LLM cost | `worker/lib/vision_extractor.py:65,123` + `figure_describer.py:61` | Claude Vision: no page cap, no per-user spend cap, max_tokens=4096 → ~$2.5k/user/day attack |
+| 19 | LLM robustness | `worker/lib/embedder.py:37-67` | Ollama embed has no retry; single blip aborts 500-chunk ingestion |
+| 20 | LLM robustness | `worker/lib/vision_extractor.py:97` | Ollama vision returns empty content silently → paper marked complete with 0 chunks |
+| 21 | A11y (WCAG 4.1.2) | `frontend/src/components/Settings/primitives.tsx:65-138` | Select/Slider/ApiKeyInput native controls have no `aria-labelledby` — blocks Settings for SR users |
+| 22 | A11y (WCAG 4.1.3) | `frontend/src/auth/LoginPage.tsx:65-69` | Login error not announced (no `role="alert"`) |
+| 23 | A11y (WCAG 4.1.3) | `frontend/src/components/Feed/ComposeBox.tsx:18-31` | Post failure silently swallowed — no visible or SR error |
 
-`process_paper` has `max_retries=2`; any exception after `store_chunks_batch` (e.g. transient DB error on the final status update at `ingestion_tasks.py:309-314`) re-runs the pipeline and re-inserts every chunk. No dedupe key on the table → duplicate embeddings silently poison HNSW and tsvector search.
+### Prompt injection (persona prompts)
 
-Quote (init.sql:68-80): `CREATE TABLE chunks (...chunk_index INTEGER NOT NULL, ...)` — no UNIQUE.
+Attacker = a user's own uploaded PDF (or a paper the user pulls into their
+corpus). The `fence_untrusted()` pattern is applied to the chunk **body** but
+not to metadata fields interpolated around it. Under multi-user auth these also
+become cross-tenant because contradiction sampling and figure extraction pull
+across papers.
 
-**Fix:** Migration: `ALTER TABLE chunks ADD CONSTRAINT chunks_paper_chunk_idx_uq UNIQUE (paper_id, chunk_index)`. Then change `worker/lib/db.py:189-193` to `INSERT ... ON CONFLICT (paper_id, chunk_index) DO UPDATE SET ...`. Also emit `DELETE FROM chunks WHERE paper_id = $1` at the top of the chunking stage so a retry starts clean.
+1. **HIGH — Unfenced paper title / section / cite in persona source header.**
+   File: `worker/lib/persona.py:185`. The header `[Source N: {paper_ref} (cite
+   as: {cite}) — Section: {section}]` sits *outside* the `<untrusted>…</untrusted>`
+   fence that wraps `content`. All three values come from PDF-extracted metadata
+   — a crafted title like `Foo</untrusted>\n\nSYSTEM: ...` breaks the fence for
+   every downstream chunk.
+   Fix: wrap each of `paper_ref`, `cite`, and `section` in `fence_untrusted(...)`
+   at line 185, or strip `<`, `>`, `\n`, and fence tokens before interpolation.
 
-### HIGH-2 — `worker/lib/settings.py:119-123` — per-user LLM keys race via `os.environ`
+2. **HIGH — Unfenced contradiction content.**
+   File: `worker/lib/persona.py:196-202` (`_format_contradictions`). `content_a`,
+   `content_b`, `paper_a`, `paper_b` are all interpolated raw into the prompt.
+   A PDF that lands in a cross-paper contradiction pair injects 150 chars of
+   attacker text verbatim as instructions.
+   Fix: apply `fence_untrusted` to every interpolated value in the f-string.
 
-`apply_provider_settings` writes each user's API keys to `os.environ`; `claude_client.py:25`, `embedder.py:24-26`, `figure_describer.py:32` re-read env at call time. Concurrent Celery tasks for different users overwrite each other's keys → user A's Claude call billed to user B.
+3. **HIGH — Unfenced figure-post prompt + JSON-template injection.**
+   File: `worker/lib/persona.py:343-362`. `fig_desc` and `fig_claim` come from
+   the vision model reading attacker-controlled figure images; `fig_paper` is a
+   PDF-extracted title. All three are interpolated raw. Worse, line 362 puts
+   `"paper_ref": "{fig_paper}"` *inside* the JSON template shown to the LLM — a
+   title like `X", "content": "PWNED` breaks out of the string and redirects the
+   model's structured output.
+   Fix: `fence_untrusted` on `fig_desc`, `fig_claim`, `fig_paper` at lines
+   351-353; at line 362 use `"paper_ref": {json.dumps(fig_paper)}` (no surrounding
+   quotes) or replace with a neutral placeholder.
 
-Quote (settings.py:119-123): `with _env_lock: ... os.environ[env_var] = str(value)` — lock covers the apply, not the downstream read.
+### Multi-tenant auth leaks (activate under AUTH_PROVIDER=basic|supabase)
 
-**Fix:** Thread a config dict (or `contextvars.ContextVar`) through the client callers. `apply_provider_settings` returns a resolved config object; each LLM/embed client takes `config=` explicitly rather than reading `os.getenv` at call time.
+4. **HIGH — Chapter feeds hardcoded to STUB_USER_ID.**
+   File: `worker/tasks/reading_list_tasks.py:320`. Reading-list chapters insert
+   `feeds.user_id = STUB_USER_ID`. Real users opening chapters get 404 because
+   `get_feed` scopes by `user_id`.
+   Fix: thread `user_id` from `api/routers/reading_lists.py:380` into the
+   Celery task kwargs; use it in the INSERT. `STUB_USER_ID` only as a fallback.
 
-### HIGH-3 — `api/routers/papers.py:86-89` — blocking file I/O stalls the event loop
+5. **HIGH — `compute_preferences` dispatched without user_id.**
+   File: `worker/tasks/persona_tasks.py:627-630` (dispatch) and
+   `worker/tasks/preference_tasks.py:42` (`uid = user_id or STUB_USER_ID`). Every
+   tenant's preferences collapse onto `STUB_USER_ID`'s `user_settings` row.
+   Fix: pass `kwargs={"user_id": effective_user_id}` in the `send_task` call
+   at line 627.
 
-`with open(file_path, "wb") as f: f.write(contents)` inside `async def upload_paper` for up to 50MB. Single upload blocks every other in-flight API request on the same uvicorn worker for the duration of the write. `os.path.exists` / `os.remove` on the delete path are the same shape.
+6. **HIGH — Read-modify-write race on `user_settings.settings` JSONB.**
+   Files: `worker/tasks/preference_tasks.py:174-194` and
+   `api/routers/settings.py:131-193`. Both sides read the full JSONB, mutate in
+   Python, write the whole blob back. A PUT that arrives during a preference
+   recompute loses either the user's theme/persona toggle or the freshly
+   computed preferences.
+   Fix: use `jsonb_set(settings, '{preferences}', $2::jsonb, true)` on the
+   worker side, and `jsonb_set` per touched key in the router.
 
-Quote (papers.py:87-89):
-```python
-with open(file_path, "wb") as f:
-    f.write(contents)
-```
+### Concurrent-write clobber
 
-**Fix:** `await asyncio.to_thread(_write_bytes, file_path, contents)` or use `aiofiles`. Same for `os.makedirs`, `os.path.exists`, `os.remove` in the delete path.
+7. **HIGH — `zap_response` whole-array overwrite.**
+   File: `api/routers/replies.py:608-613`. Reads `post_replies.messages`,
+   appends locally, writes `SET messages = $1`. A concurrent `create_reply`
+   (which does `messages || $1::jsonb` correctly) loses turns when a zap fires
+   during reply generation. Common trigger: the conductor UI while the main
+   reply is streaming.
+   Fix: mirror `create_reply`'s pattern — `SET messages = messages || $1::jsonb`
+   with only the new interjection turn(s).
 
-### HIGH-4 — `worker/tasks/persona_tasks.py:759-764` — `regenerate_post` read-modify-write without lock or user scope
+8. **HIGH — `send_persona_dm` whole-array overwrite.**
+   File: `api/routers/personas.py:193-198`. Same shape as #7, on `persona_dms`.
+   Double-tap send, flaky-network resend, or two tabs clobber each other's turns.
+   Fix: `SET messages = messages || $1::jsonb` with only the appended turns.
 
-Reads `feeds.posts`, mutates one index in Python, writes whole JSONB back with `UPDATE feeds SET posts = $1 WHERE id = $2`. Two concurrent regenerates (or regenerate racing an `append_to_feed_id` generate) lose one update. UPDATE also lacks the `user_id = $N` scope the SELECT uses, so a buggy dispatcher could write any feed by id.
+9. **HIGH — `figures` table missing UNIQUE + `store_figure` missing ON CONFLICT.**
+   Files: `infra/postgres/init.sql:106-116` (no unique key),
+   `worker/lib/db.py:229-236` (plain INSERT). `process_paper` has
+   `max_retries=2`; any error *after* figures start storing (e.g. a blip on the
+   final `_update_paper_status("complete")`) causes re-extraction and duplicate
+   `figures` rows — plus wasted vision-LLM spend.
+   Fix: add `UNIQUE (paper_id, figure_index)` via a new migration; switch
+   `store_figure` to `INSERT ... ON CONFLICT (paper_id, figure_index) DO UPDATE
+   SET description, claim_summary, image_path, extraction_type, processed_at`.
 
-Quote (persona_tasks.py:759-764):
-```python
-posts[post_index] = post_data
-posts_json = json.dumps(posts, default=str)
-await conn.execute("UPDATE feeds SET posts = $1 WHERE id = $2", posts_json, feed_id)
-```
+### Frontend state
 
-**Fix:** Either wrap in `SELECT ... FOR UPDATE` inside a tx, or use `jsonb_set` (same pattern as `api/routers/feed.py:173-186` for `delete_post`). Add `AND user_id = $3` to the UPDATE.
+10. **HIGH — `Feed.tsx` `deletedIndices` not reset on feed switch.**
+    File: `frontend/src/components/Feed/Feed.tsx:64,146`. `useState(new Set())`
+    never clears when `feedId` changes. Delete post index 3 on feed A, switch to
+    feed B — feed B's post at index 3 is also hidden until reload.
+    Fix: `useEffect(() => setDeletedIndices(new Set()), [feedId])`.
 
-### HIGH-5 — `api/routers/replies.py:189-433` — `create_reply` RMW drops concurrent replies
+11. **HIGH — `cacheFeed` called without workspaceId.**
+    File: `frontend/src/hooks/useFeed.ts:96`. The freshly-generated feed is
+    cached with `workspaceId: undefined`. `getCachedFeeds(workspaceId)` uses the
+    `by-workspace` IDB index and never returns it — the feed is invisible
+    offline until a server refetch re-caches it with the right key.
+    Fix: `cacheFeed(feed, workspaceId).catch(() => {})` — `useFeed` already has
+    `workspaceId` in scope.
 
-`create_reply` SELECTs `post_replies.messages`, appends in-memory, then overwrites the full JSONB. Double-submit or two-tab scenario: both POSTs read the same base, the later-resolving write wins, the earlier user message + persona response vanish.
+### Payload bloat / N+1
 
-Quote (replies.py:189-192, 430-433):
-```python
-row = await db.fetchrow("SELECT id, messages FROM post_replies WHERE feed_id = $1 AND post_index = $2", ...)
-...
-await db.execute("UPDATE post_replies SET messages = $1, updated_at = NOW() WHERE id = $2", messages_json, reply_id)
-```
+12. **HIGH — `list_paper_conversations` ships full `messages` JSONB, no LIMIT.**
+    File: `api/routers/messages.py:34-54`. Inbox tab → `listPaperConversations()`
+    → full multi-turn summary transcripts (~10-50KB each) for every paper in the
+    workspace, no LIMIT. At 200 papers = 2-10MB per tab-open. Handler only uses
+    `messages[-1]["content"][:80]` and `len(messages)`.
+    Fix: project in SQL — `jsonb_array_length(ps.messages) AS msg_count,
+    (ps.messages->-1->>'content') AS last_msg`; add `LIMIT 200`.
 
-**Fix:** Serialize via `SELECT ... FOR UPDATE` inside a transaction, or move to append-style: `UPDATE post_replies SET messages = messages || $1::jsonb WHERE id = $2`.
+13. **HIGH — `get_paper_tldrs` ships full `messages` JSONB to slice `messages[0]`.**
+    File: `api/routers/messages.py:76-96`. Called from `App.tsx:449-451` on mount
+    and every time `completePaperIdsKey` changes (i.e., each ingestion
+    completion during a session). Handler uses only
+    `messages[0].get("content", "")[:200]`.
+    Fix: `SELECT ps.paper_id, (ps.messages->0->>'content') AS tldr FROM
+    paper_summaries ps JOIN papers p ON ps.paper_id = p.id AND p.user_id = $1
+    WHERE ps.status = 'complete' AND jsonb_array_length(ps.messages) > 0`.
 
-### HIGH-6 — `frontend/src/components/Messages/PaperChat.tsx:91-97` — polling ignores `status === 'error'` → infinite spinner
+14. **HIGH — `list_conversations` (replies inbox) ships full `messages` JSONB, no LIMIT.**
+    File: `api/routers/replies.py:92-99`. Same pattern — `SELECT ... pr.messages
+    ... ORDER BY pr.updated_at DESC` with no LIMIT. 100 threads × 10 turns × ~1KB
+    = ~1MB per call. Consumer (replies.py:109-114) only truncates to 100 chars.
+    Fix: project `jsonb_array_length(pr.messages) AS msg_count` plus two lateral
+    subqueries for last_user and last_persona; add `LIMIT 100`.
+    `post_replies_updated_at_idx` already covers the ORDER BY.
 
-Poll handler only breaks on `complete`; any other status (including the server's `error` branch at `api/routers/messages.py:196-198`) reschedules the poll. User sees a forever-spinning summary with no recourse. The backend-side retry has already given up, but the UI keeps trying.
+15. **HIGH — `list_group_chats` ships full synthesis JSONB, no LIMIT.**
+    File: `api/routers/messages.py:216-220`. Corpus synthesis transcripts can be
+    very long (multi-paper output). No LIMIT, full JSONB, consumer only uses
+    last message and length.
+    Fix: same shape as #12 — project the slice, add `LIMIT 50`.
 
-Quote (PaperChat.tsx:91-97):
-```tsx
-if (status.status === 'complete') {
-  const updated = await getPaperSummary(paperId)
-  setSummary(updated)
-  setLoading(false)
-} else {
-  timeoutRef.current = setTimeout(poll, 2000)
-}
-```
+16. **HIGH — `list_reading_lists` N+1 count queries.**
+    File: `api/routers/reading_lists.py:62-69`. Two sequential `fetchval` calls
+    per row (total chapters + completed chapters). `ReadingListsView` refreshes
+    on mount and after every create/delete. 10 lists = 21 round trips; 30 = 61.
+    Fix: one aggregate query — `LEFT JOIN reading_list_chapters + COUNT(*) +
+    COUNT(*) FILTER (WHERE status='complete') + GROUP BY rl.id`.
 
-**Fix:** Add `else if (status.status === 'error') { setSummary({...summary, status: 'error', error: status.error}); setLoading(false); return }` and surface an error UI + retry button. Mirror the pattern in `useFeed.pollStatus`.
+### LLM robustness / cost controls
 
-### HIGH-7 — `api/routers/settings.py:141-147` — unbounded `posts_per_generation` → runaway LLM spend
+17. **HIGH — `embed_texts` returns unchecked list; dimension + index order not validated.**
+    File: `worker/lib/embedder.py:141` (and the Voyage branch at
+    `embedder.py:128-129`). No assertion that `len(result) == len(texts)` or
+    that each vector has the expected dimension. Voyage's spec allows
+    out-of-order `data[]` (each item has an `"index"`); a reorder silently maps
+    chunk i's text onto chunk j's vector. Downstream `_store_chunks_batch` does
+    `zip(chunks, embeddings)` and hides the mismatch, poisoning HNSW retrieval.
+    Fix: after each provider branch, `assert len(result) == len(texts)` and
+    raise `RuntimeError` on mismatch. For Voyage, sort `data` by `item["index"]`
+    before extracting embeddings. Also assert `len(vec) == EMBED_DIM` on each
+    row.
 
-`SettingsUpdate.settings: dict` accepts any value for any allowed key. `ALLOWED_SETTINGS_KEYS` is a name allow-list only — no numeric bounds. Set `posts_per_generation: 10000` → `plan_feed_posts` loops ~10,000 Claude calls per generation. Combined with `auto_generate_on_upload: true`, one upload fans out that many calls.
+18. **HIGH — Claude Vision has no per-user cost cap and no page-count cap.**
+    Files: `worker/lib/vision_extractor.py:65` (`max_tokens=4096`, called per
+    page), `worker/lib/vision_extractor.py:123` (`range(page_count)` with no
+    ceiling), `worker/lib/figure_describer.py:61`. A user with vision-fallback
+    triggered (crafted PDF that defeats PyMuPDF quality heuristics) can burn
+    roughly `50 uploads/day × N pages × 4096 output tokens` through the shared
+    `ANTHROPIC_API_KEY`. A 600-page crafted PDF at current Claude pricing is
+    ~$50/paper, ~$2,500/user/day, uncapped.
+    Fix: add `MAX_VISION_PAGES` (default ~100) enforced before the rasterize
+    loop. Drop `max_tokens` on vision to ~2048 (markdown for a page rarely
+    exceeds that). Long-term: per-user daily paid-LLM spend ledger keyed by
+    `(user_id, date)` with a default `$5/day` cap, debited inside each
+    `_extract_page_claude` / `_describe_claude` / `_generate_claude` call.
 
-Quote (settings.py:141-147):
-```python
-for key, value in body.settings.items():
-    if key in ALLOWED_SETTINGS_KEYS:
-        filtered[key] = value
-```
+19. **HIGH — Ollama embedding has no retry, unlike Ollama generation.**
+    File: `worker/lib/embedder.py:37-67`. `_generate_ollama` in `claude_client.py`
+    has 3-attempt exponential backoff on `ConnectError` / `ReadTimeout` / 5xx.
+    `_embed_ollama` makes a single unretried POST per chunk inside
+    `asyncio.gather`. One transient blip during a 500-chunk ingestion abandons
+    the task after hundreds of successful calls — and if Voyage/OpenAI is the
+    embedder, the retry doubles cost.
+    Fix: wrap each `client.post` in the same 3-attempt pattern as
+    `_generate_ollama`, raising after the final attempt.
 
-**Fix:** Change `ALLOWED_SETTINGS_KEYS` from a set to a `dict[str, tuple[type, min, max]]`. Reject out-of-range values with 422. Minimum bounds to start: `posts_per_generation: (int, 1, 50)`, `persona_temperature: (float, 0.0, 1.5)`, `chunk_max_tokens: (int, 100, 4000)`.
+20. **HIGH — Ollama vision returns empty content silently.**
+    File: `worker/lib/vision_extractor.py:97`. On 200 + empty
+    `message.content` (wrong model name, model OOM, unreachable), the function
+    returns `""`. The paper finishes with 0 chunks marked `complete` with no
+    visible error — the user sees feeds that silently omit the paper.
+    Fix: after `resp.json()["message"]["content"]`, raise
+    `RuntimeError(f"vision model {model} returned empty content for page
+    {page_num}")` if whitespace-empty; `extract_with_vision` then aborts and
+    `ingestion_tasks.py` marks the paper `error` with a reason.
 
-### HIGH-8 — `api/routers/personas.py:59-61` — `PersonaDmRequest.message` has no `max_length`
+### Accessibility (WCAG 2.1 AA, core-flow-blocking only)
 
-Every other LLM-facing body (`UserPostCreate`, `ReplyRequest`) caps user input. `message` goes directly into the persona DM prompt → Claude/Ollama. At 60 DMs/day (rate limit), a user can ship 60 × (multi-MB) input tokens.
+21. **HIGH — Settings primitives don't wire labels to native controls.**
+    File: `frontend/src/components/Settings/primitives.tsx:65-138`. `Select`,
+    `Slider`, and `ApiKeyInput` render native `<select>` / `<input>` with no
+    `aria-labelledby` / `aria-label` / associated `<label htmlFor>`. `SettingRow`
+    renders its label as a `<div>` with no `id`. A screen-reader user choosing
+    a provider in Settings (core flow 7) hears only "combobox, ollama" with no
+    idea whether they're on LLM / Vision / Embedding. WCAG 4.1.2, 3.3.2.
+    Fix: give `SettingRow` a `useId()`-generated label id, put it on the label
+    `<div>`, and pass it into children via context or a render prop so each
+    primitive can set `aria-labelledby` on its native control.
 
-Quote (personas.py:59-61):
-```python
-class PersonaDmRequest(BaseModel):
-    message: str
-```
+22. **HIGH — `LoginPage` error is not announced.**
+    File: `frontend/src/auth/LoginPage.tsx:65-69`. Failure renders into a plain
+    `<div>` — no `role="alert"`, no live region. A screen-reader user who
+    mistypes a password hears nothing after pressing "Sign in". WCAG 4.1.3.
+    Fix: `<div role="alert" aria-atomic="true" ...>{error}</div>`.
 
-**Fix:** `message: str = Field(max_length=2000)` to match `ReplyRequest.user_message`.
+23. **HIGH — `ComposeBox` swallows post failures silently (no visible or SR error).**
+    File: `frontend/src/components/Feed/ComposeBox.tsx:18-31`. `handleSubmit`
+    does `catch { /* ignore */ }` — on network failure the live-region
+    "Posting your question" message clears and nothing else happens. Neither
+    sighted nor SR users get a retry cue. WCAG 4.1.3.
+    Fix: `useState<string | null>(null)` for error; in the catch,
+    `setError(err instanceof Error ? err.message : 'Failed to post')`. Render
+    `<div role="alert">{error}</div>` under the textarea and include the error
+    text in the existing sr-only status region.
 
-### HIGH-9 — `worker/tasks/alert_tasks.py:67-115` — `check_contradictions` scales O(papers × 3 LLM calls)
+---
 
-Auto-dispatched from `process_paper` (`ingestion_tasks.py:321-327`). Selects every other complete paper in the corpus (no LIMIT), then runs 3 contradiction classifications per pair. 200-paper workspace → 600 Claude calls per upload. User has no opt-out.
+## Playwright Failures
 
-Quote (alert_tasks.py:67-71):
-```python
-other_papers = await conn.fetch("""SELECT id, title, filename FROM papers
-  WHERE corpus_id = $1 AND id != $2 AND status = 'complete'""", ...)
-```
+None. Ran `tests/e2e/review.spec.ts` at desktop viewport against
+`https://ficino.local/ficino`:
 
-**Fix:** Cap: `LIMIT 8` in the SELECT, or `random.sample(other_papers, min(8, len(other_papers)))` before the pair loop. Upload cost is bounded regardless of corpus size.
+- R-01 Upload PDF UI reachable — passed
+- R-02 Reply composer @mention autocomplete — passed (7 options)
+- R-03 Compose box → Archivist pending state — passed
+- R-04 Workspace switch dropdown — skipped (single-workspace mode, no dropdown)
+- R-05 PWA service worker + manifest registered — passed
+- R-06 Offline reload with cached UI — passed
+- R-07 Sign-out clears IndexedDB — skipped (AUTH_PROVIDER=none)
 
-### HIGH-10 — `frontend/src/App.tsx:436-438` — TL;DR refetch every 2s during paper processing
+5 passed, 2 intentionally skipped.
 
-`useEffect(() => { getPaperTldrs().then(...) }, [corpus.papers])`. `useCorpus.refresh` produces a fresh array on every 2s poll while any paper has `status !== 'complete'`. The TL;DR endpoint reads all of `paper_summaries` for the user (`api/routers/messages.py:82-96`) every 2 seconds for the duration of the processing.
+---
 
-Quote (App.tsx:436-438):
-```tsx
-useEffect(() => {
-  getPaperTldrs().then(data => setPaperTldrs(data.tldrs || {}))
-}, [corpus.papers])
-```
+## Dropped During Dedup
 
-**Fix:** Depend on a stable derived key:
-```tsx
-const completeIds = useMemo(
-  () => corpus.papers.filter(p => p.status === 'complete').map(p => p.id).sort().join(','),
-  [corpus.papers]
-)
-useEffect(() => { getPaperTldrs().then(...) }, [completeIds])
-```
-
-## Playwright failures
-
-Ran `tests/e2e/review.spec.ts` (7 scenarios covering brief's core flows) on desktop 1280×800 and mobile 390×844.
-
-- **Desktop:** 5 passed, 2 skipped (R-04 workspace dropdown early-returns at `<2` workspaces; R-07 sign-out hidden under `AUTH_PROVIDER=none`). No failures.
-- **Mobile:** 4 passed, 2 skipped, 1 failed (R-02 `button[aria-label^="Replies"]` not visible within 15s at 390px). Classified as **test-premise, not a HIGH finding**: the Reply button exists and is rendered identically across viewports (`PostCard.tsx:703`); the mobile viewport just doesn't land on a FeedPost on first paint (Archivist pending placeholder fills the visible region). Users can scroll to reach it — the flow is not blocked. Fixing this is a Playwright scroll-into-view tweak, not a product bug.
-
-No flow-blocking Playwright failures at HIGH+ severity.
-
-## Dropped during dedup
-
-1 finding dropped: performance-reviewer's blocking-I/O report was identical to bug-hunter's `papers.py:88-89` — merged as HIGH-3.
+3 findings dropped as direct duplicates across security/llm-safety agents
+(persona.py:185, :199-202, :349-353 were reported by both). 0 findings dropped
+for falling below the severity floor — every agent respected the HIGH+ bar.

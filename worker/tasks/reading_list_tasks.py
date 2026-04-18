@@ -179,6 +179,7 @@ def generate_chapter(
     self: Task,
     reading_list_id: str,
     chapter_index: int,
+    user_id: str | None = None,
 ) -> dict:
     """Generate a feed for a specific chapter of a reading list.
 
@@ -190,13 +191,17 @@ def generate_chapter(
     log.info("generate_chapter_start")
 
     try:
-        # Load the reading list
+        # Load the reading list — verify the user owns it and re-use its
+        # user_id if no kwarg was passed (API always passes it now; fallback
+        # is for legacy in-flight tasks queued before this upgrade).
         rl = fetchrow(
-            "SELECT paper_sequence, corpus_id FROM reading_lists WHERE id = $1",
+            "SELECT paper_sequence, corpus_id, user_id FROM reading_lists WHERE id = $1",
             reading_list_id,
         )
         if not rl:
             raise ValueError(f"Reading list {reading_list_id} not found")
+
+        effective_user_id = user_id or str(rl["user_id"]) or STUB_USER_ID
 
         # Load the chapter
         chapter = fetchrow(
@@ -223,7 +228,7 @@ def generate_chapter(
         # Generate a feed scoped to these papers
         # We'll call generate_feed directly with the paper IDs
         feed_id = str(uuid.uuid4())
-        user_settings = apply_provider_settings()
+        user_settings = apply_provider_settings(effective_user_id)
         num_posts = user_settings.get("posts_per_generation", 12)
         enabled_personas = {k for k, v in user_settings.get("personas_enabled", {}).items() if v}
         temperature = user_settings.get("persona_temperature", 0.8)
@@ -317,7 +322,7 @@ def generate_chapter(
         execute(
             """INSERT INTO feeds (id, user_id, corpus_id, posts, paper_count, post_count, generation_duration_ms)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            feed_id, STUB_USER_ID, corpus_id,
+            feed_id, effective_user_id, corpus_id,
             posts_json, len(cumulative_paper_ids), len(posts), 0,
         )
 

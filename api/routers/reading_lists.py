@@ -37,19 +37,28 @@ async def list_reading_lists(
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """List reading lists, optionally scoped to a workspace."""
+    """List reading lists, optionally scoped to a workspace.
+
+    One aggregate query with LEFT JOIN + COUNT FILTER replaces the previous
+    2× fetchval-per-row N+1. At 10 lists that was 21 round trips every time
+    the view mounted or refreshed; now it's 1.
+    """
+    base_sql = """
+        SELECT rl.id, rl.name, rl.paper_sequence, rl.rationale, rl.created_at,
+               COUNT(rlc.id) AS chapter_count,
+               COUNT(rlc.id) FILTER (WHERE rlc.status = 'complete') AS completed
+        FROM reading_lists rl
+        LEFT JOIN reading_list_chapters rlc ON rlc.reading_list_id = rl.id
+        WHERE rl.user_id = $1
+    """
     if workspace_id:
         rows = await db.fetch(
-            """SELECT id, name, paper_sequence, rationale, created_at
-               FROM reading_lists WHERE user_id = $1 AND corpus_id = $2
-               ORDER BY created_at DESC""",
+            base_sql + " AND rl.corpus_id = $2 GROUP BY rl.id ORDER BY rl.created_at DESC",
             user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
-            """SELECT id, name, paper_sequence, rationale, created_at
-               FROM reading_lists WHERE user_id = $1
-               ORDER BY created_at DESC""",
+            base_sql + " GROUP BY rl.id ORDER BY rl.created_at DESC",
             user.id,
         )
 
@@ -58,21 +67,12 @@ async def list_reading_lists(
         rationale = row["rationale"]
         if isinstance(rationale, str):
             rationale = json.loads(rationale)
-        # Count chapters
-        chapter_count = await db.fetchval(
-            "SELECT COUNT(*) FROM reading_list_chapters WHERE reading_list_id = $1",
-            str(row["id"]),
-        )
-        completed = await db.fetchval(
-            "SELECT COUNT(*) FROM reading_list_chapters WHERE reading_list_id = $1 AND status = 'complete'",
-            str(row["id"]),
-        )
         results.append({
             "id": str(row["id"]),
             "name": row["name"],
             "paper_count": len(row["paper_sequence"] or []),
-            "chapter_count": chapter_count,
-            "completed_chapters": completed,
+            "chapter_count": row["chapter_count"],
+            "completed_chapters": row["completed"],
             "rationale": rationale,
             "created_at": row["created_at"],
         })
@@ -379,6 +379,7 @@ async def generate_chapter(
     task = celery_app.send_task(
         "tasks.reading_list_tasks.generate_chapter",
         args=[list_id, chapter_index],
+        kwargs={"user_id": user.id},
         queue="persona",
     )
 

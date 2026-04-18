@@ -73,3 +73,28 @@ def fence_untrusted(text: str, *, max_len: int = _MAX_BLOCK_LEN) -> str:
 def fence_lines(lines: list[str], *, max_len: int = _MAX_BLOCK_LEN) -> str:
     """Fence a list of lines as one block, preserving line structure."""
     return fence_untrusted("\n".join(lines), max_len=max_len)
+
+
+def sanitize_inline(text: object, *, max_len: int = 200) -> str:
+    """Neutralize a short metadata field before inline prompt interpolation.
+
+    `fence_untrusted` wraps a block in `<untrusted>…</untrusted>`, which works
+    for multi-line content but is awkward for metadata fields like paper titles
+    or section headings that appear inside a header line. This helper collapses
+    whitespace (so a newline in the value can't escape the enclosing line),
+    neutralizes our own fence tokens, strips role markers, and caps length.
+
+    Use at every site where PDF-derived metadata (paper_title, section, cite,
+    figure description) is interpolated into a prompt without being fenced as
+    a standalone block.
+    """
+    if text is None:
+        return ""
+    s = str(text)
+    s = strip_role_markers(s)
+    s = s.replace(_FENCE_OPEN, "&lt;untrusted&gt;")
+    s = s.replace(_FENCE_CLOSE, "&lt;/untrusted&gt;")
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) > max_len:
+        s = s[:max_len] + "…"
+    return s

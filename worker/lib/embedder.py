@@ -40,6 +40,11 @@ async def _embed_ollama(texts: list[str]) -> list[list[float]]:
     Serial per-text POSTs underutilize Ollama, which can batch reasonably well
     on its side. An 8-way semaphore parallelizes the HTTP calls while keeping
     the load modest enough to avoid crushing a shared GPU.
+
+    Each request retries 3× with exponential backoff on ConnectError,
+    ReadTimeout, and 5xx — mirroring `_generate_ollama` in claude_client.py.
+    Without retry, a single transient blip during a 500-chunk ingestion
+    abandons the task after hundreds of successful calls.
     """
     cfg = _get_embed_config()
     sem = asyncio.Semaphore(8)
@@ -51,12 +56,36 @@ async def _embed_ollama(texts: list[str]) -> list[list[float]]:
         async def one(text: str) -> list[float]:
             nonlocal completed
             async with sem:
-                resp = await client.post(
-                    f"{cfg['ollama_base_url']}/api/embeddings",
-                    json={"model": cfg["ollama_model"], "prompt": text},
-                )
-                resp.raise_for_status()
-                embedding = resp.json()["embedding"]
+                last_exc: Exception | None = None
+                for attempt in range(3):
+                    try:
+                        resp = await client.post(
+                            f"{cfg['ollama_base_url']}/api/embeddings",
+                            json={"model": cfg["ollama_model"], "prompt": text},
+                        )
+                        if 500 <= resp.status_code < 600:
+                            raise httpx.HTTPStatusError(
+                                f"ollama 5xx: {resp.status_code}",
+                                request=resp.request, response=resp,
+                            )
+                        resp.raise_for_status()
+                        embedding = resp.json()["embedding"]
+                        if not embedding:
+                            raise RuntimeError("ollama returned empty embedding")
+                        break
+                    except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as e:
+                        last_exc = e
+                        if attempt == 2:
+                            raise
+                        wait = 2 * (3 ** attempt)
+                        logger.warn(
+                            "ollama_embed_retrying",
+                            attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
+                        )
+                        await asyncio.sleep(wait)
+                else:
+                    assert last_exc is not None
+                    raise last_exc
             # Log progress outside the semaphore so it doesn't serialize.
             async with progress_lock:
                 completed += 1
@@ -126,6 +155,15 @@ async def _embed_voyage(texts: list[str], input_type: str = "document") -> list[
                     continue
                 resp.raise_for_status()
                 data = resp.json()["data"]
+                # Voyage spec permits data[] to be returned out of request
+                # order; each item carries its original `index`. Sort by it
+                # so embeddings line up with the input texts — otherwise
+                # chunk i's content ends up persisted with chunk j's vector.
+                data = sorted(data, key=lambda item: item.get("index", 0))
+                if len(data) != len(batch):
+                    raise RuntimeError(
+                        f"voyage returned {len(data)} embeddings for {len(batch)} inputs"
+                    )
                 all_embeddings.extend([item["embedding"] for item in data])
                 break
             else:
@@ -168,6 +206,23 @@ async def embed_texts(texts: list[str], *, input_type: str = "document") -> list
         )
         logger.error("no_embed_provider_available", provider=provider, reason=reason)
         raise RuntimeError(f"No embedding provider reachable: {reason}")
+
+    # Guard against silent misalignment: a provider that returns fewer/more
+    # vectors than requested, or vectors of the wrong dimension, would zip
+    # into `chunks` downstream and bind chunk i's text to chunk j's vector,
+    # poisoning HNSW retrieval. Fail loud instead.
+    if len(result) != len(texts):
+        raise RuntimeError(
+            f"embed_texts length mismatch: provider={provider} "
+            f"returned {len(result)} vectors for {len(texts)} inputs"
+        )
+    expected_dim = int(os.getenv("EMBED_DIM", "1024"))
+    for idx, vec in enumerate(result):
+        if len(vec) != expected_dim:
+            raise RuntimeError(
+                f"embed_texts dim mismatch: provider={provider} "
+                f"vector[{idx}] has dim={len(vec)}, expected {expected_dim}"
+            )
 
     logger.info("embedding_complete", count=len(result), dim=len(result[0]) if result else 0)
     return result

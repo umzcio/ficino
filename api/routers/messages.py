@@ -29,36 +29,43 @@ async def list_paper_conversations(
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """List all papers with their summary status (DM inbox), scoped to workspace."""
+    """List all papers with their summary status (DM inbox), scoped to workspace.
+
+    We project the last-message preview + message count in SQL instead of
+    shipping the whole `ps.messages` JSONB — a user with 200 papers and
+    multi-turn transcripts would otherwise transfer megabytes per tab-open
+    just to render an 80-char preview.
+    """
+    # `messages->-1->>'content'` reaches the last element's content field
+    # directly; jsonb_array_length gives us the count without streaming the
+    # array. LIMIT 200 caps payload size and ORDER BY uses papers(uploaded_at).
+    projection = """p.id, p.title, p.filename, p.authors, p.chunk_count, p.figure_count,
+                    p.uploaded_at, ps.id AS summary_id, ps.generated_at AS summary_generated_at,
+                    COALESCE((ps.messages->-1->>'content'), '') AS last_msg_content,
+                    COALESCE(jsonb_array_length(ps.messages), 0) AS message_count"""
     if workspace_id:
         rows = await db.fetch(
-            """SELECT p.id, p.title, p.filename, p.authors, p.chunk_count, p.figure_count,
-                      p.uploaded_at, ps.id AS summary_id, ps.generated_at AS summary_generated_at,
-                      ps.messages
+            f"""SELECT {projection}
                FROM papers p
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
                WHERE p.status = 'complete' AND p.user_id = $1 AND p.corpus_id = $2
-               ORDER BY p.uploaded_at DESC""",
+               ORDER BY p.uploaded_at DESC
+               LIMIT 200""",
             user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
-            """SELECT p.id, p.title, p.filename, p.authors, p.chunk_count, p.figure_count,
-                      p.uploaded_at, ps.id AS summary_id, ps.generated_at AS summary_generated_at,
-                      ps.messages
+            f"""SELECT {projection}
                FROM papers p
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
                WHERE p.status = 'complete' AND p.user_id = $1
-               ORDER BY p.uploaded_at DESC""",
+               ORDER BY p.uploaded_at DESC
+               LIMIT 200""",
             user.id,
         )
     result = []
     for row in rows:
-        messages = []
-        if row["messages"]:
-            messages = row["messages"] if isinstance(row["messages"], list) else json.loads(row["messages"])
-        last_message = messages[-1]["content"][:80] if messages else None
-
+        last = row["last_msg_content"] or None
         result.append({
             "paper_id": str(row["id"]),
             "title": row["title"] or row["filename"],
@@ -66,8 +73,8 @@ async def list_paper_conversations(
             "chunk_count": row["chunk_count"],
             "has_summary": row["summary_id"] is not None,
             "summary_generated_at": row["summary_generated_at"],
-            "last_message_preview": last_message,
-            "message_count": len(messages),
+            "last_message_preview": last[:80] if last else None,
+            "message_count": row["message_count"],
             "uploaded_at": row["uploaded_at"],
         })
     return result
@@ -78,22 +85,21 @@ async def get_paper_tldrs(
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
-    """Return paper_id → TL;DR mapping for all completed summaries."""
+    """Return paper_id → TL;DR mapping for all completed summaries.
+
+    Projects `messages->0->>'content'` in SQL instead of shipping the whole
+    multi-turn transcript just to slice the first 200 chars — this endpoint
+    is called from App.tsx on mount AND on every ingestion completion.
+    """
     rows = await db.fetch(
-        """SELECT ps.paper_id, ps.messages FROM paper_summaries ps
+        """SELECT ps.paper_id,
+                  LEFT(COALESCE(ps.messages->0->>'content', ''), 200) AS tldr
+           FROM paper_summaries ps
            JOIN papers p ON ps.paper_id = p.id AND p.user_id = $1
-           WHERE ps.status = 'complete' AND ps.messages != '[]'""",
+           WHERE ps.status = 'complete' AND jsonb_array_length(ps.messages) > 0""",
         user.id,
     )
-    result: dict[str, str] = {}
-    for row in rows:
-        messages = row["messages"]
-        if isinstance(messages, str):
-            messages = json.loads(messages)
-        if messages and len(messages) > 0:
-            # First message is typically the TL;DR
-            result[str(row["paper_id"])] = messages[0].get("content", "")[:200]
-    return result
+    return {str(row["paper_id"]): row["tldr"] for row in rows if row["tldr"]}
 
 
 @router.get("/papers/{paper_id}")
@@ -212,24 +218,35 @@ async def list_group_chats(
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """List all corpus synthesis group chats."""
+    """List all corpus synthesis group chats.
+
+    Projects the preview + counts in SQL so multi-paper synthesis transcripts
+    (which can be long) don't stream over the wire per tab-open. LIMIT 50
+    caps payload for users with lots of group chats.
+    """
     rows = await db.fetch(
-        """SELECT id, name, paper_ids, messages, generated_at
-           FROM corpus_syntheses WHERE user_id = $1 ORDER BY generated_at DESC""",
+        """SELECT id, name,
+                  COALESCE(array_length(paper_ids, 1), 0) AS paper_count,
+                  COALESCE(jsonb_array_length(messages), 0) AS message_count,
+                  LEFT(COALESCE(messages->-1->>'content', ''), 80) AS last_msg,
+                  generated_at
+           FROM corpus_syntheses
+           WHERE user_id = $1
+           ORDER BY generated_at DESC
+           LIMIT 50""",
         user.id,
     )
-    result = []
-    for row in rows:
-        messages = row["messages"] if isinstance(row["messages"], list) else json.loads(row["messages"])
-        result.append({
+    return [
+        {
             "id": str(row["id"]),
             "name": row["name"],
-            "paper_count": len(row["paper_ids"]),
-            "message_count": len(messages),
-            "last_message_preview": messages[-1]["content"][:80] if messages else None,
+            "paper_count": row["paper_count"],
+            "message_count": row["message_count"],
+            "last_message_preview": row["last_msg"] or None,
             "generated_at": row["generated_at"],
-        })
-    return result
+        }
+        for row in rows
+    ]
 
 
 @router.post("/groups", status_code=202)

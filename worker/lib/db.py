@@ -225,12 +225,23 @@ async def _store_figure(
     paper_id: str, page_number: int, image_path: str,
     extraction_type: str, description: str, claim_summary: str, figure_index: int
 ) -> None:
+    # ON CONFLICT makes this idempotent under `process_paper` retries —
+    # without it, a failure *after* figure storage but before
+    # `_update_paper_status("complete")` re-runs extraction and leaves
+    # duplicate rows, plus wastes vision-LLM spend.
     pool = await _ensure_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             """INSERT INTO figures (paper_id, page_number, image_path, extraction_type,
                                    description, claim_summary, figure_index, processed_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())""",
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+               ON CONFLICT (paper_id, figure_index) DO UPDATE
+                 SET page_number = EXCLUDED.page_number,
+                     image_path = EXCLUDED.image_path,
+                     extraction_type = EXCLUDED.extraction_type,
+                     description = EXCLUDED.description,
+                     claim_summary = EXCLUDED.claim_summary,
+                     processed_at = EXCLUDED.processed_at""",
             paper_id, page_number, image_path, extraction_type,
             description, claim_summary, figure_index,
         )

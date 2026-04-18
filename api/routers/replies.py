@@ -88,42 +88,52 @@ async def list_conversations(
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """List all reply conversations with metadata for the inbox."""
+    """List all reply conversations with metadata for the inbox.
+
+    Project only what the preview cards render (last user turn, last persona
+    turn, count) via lateral subqueries. Previously shipped the full
+    `pr.messages` JSONB across every thread a user has ever opened.
+    """
+    # `WITH ORDINALITY` preserves the array position so `ORDER BY ord DESC`
+    # actually finds the LATEST user/persona turn, not an arbitrary one.
     rows = await db.fetch(
         """SELECT pr.id, pr.feed_id, pr.post_index, pr.persona_key,
-                  pr.messages, pr.updated_at,
-                  f.generated_at AS feed_generated_at
+                  pr.updated_at,
+                  f.generated_at AS feed_generated_at,
+                  COALESCE(jsonb_array_length(pr.messages), 0) AS message_count,
+                  COALESCE(
+                    (SELECT LEFT(m->>'content', 100)
+                     FROM jsonb_array_elements(pr.messages) WITH ORDINALITY AS t(m, ord)
+                     WHERE m->>'role' = 'user'
+                     ORDER BY ord DESC LIMIT 1),
+                    ''
+                  ) AS last_user,
+                  COALESCE(
+                    (SELECT LEFT(m->>'content', 100)
+                     FROM jsonb_array_elements(pr.messages) WITH ORDINALITY AS t(m, ord)
+                     WHERE m->>'role' = 'persona'
+                     ORDER BY ord DESC LIMIT 1),
+                    ''
+                  ) AS last_persona
            FROM post_replies pr
            JOIN feeds f ON pr.feed_id::uuid = f.id AND f.user_id = $1
-           ORDER BY pr.updated_at DESC""",
+           ORDER BY pr.updated_at DESC
+           LIMIT 100""",
         user.id,
     )
-    results = []
-    for r in rows:
-        messages = r["messages"]
-        if isinstance(messages, str):
-            messages = json.loads(messages)
-        # Get last user message as preview
-        last_user = ""
-        last_persona = ""
-        for msg in reversed(messages):
-            if msg["role"] == "user" and not last_user:
-                last_user = msg["content"][:100]
-            elif msg["role"] == "persona" and not last_persona:
-                last_persona = msg["content"][:100]
-            if last_user and last_persona:
-                break
-        results.append({
+    return [
+        {
             "id": str(r["id"]),
             "feed_id": r["feed_id"],
             "post_index": r["post_index"],
             "persona_key": r["persona_key"],
-            "message_count": len(messages),
-            "last_user_message": last_user,
-            "last_persona_message": last_persona,
+            "message_count": r["message_count"],
+            "last_user_message": r["last_user"],
+            "last_persona_message": r["last_persona"],
             "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
-        })
-    return results
+        }
+        for r in rows
+    ]
 
 
 @router.get("/replied-posts/{feed_id}")
@@ -598,25 +608,31 @@ Respond as {target['name']} ({target['handle']})."""
         logger.error("zap_failed", error=str(e), error_type=type(e).__name__)
         raise HTTPException(status_code=500, detail="Internal error. See server logs.")
 
-    # Add to conversation
-    existing_messages.append({
+    # Append atomically via `messages || $1::jsonb` so a concurrent
+    # create_reply turn (which uses the same pattern) can't be clobbered.
+    # We send ONLY the new interjection, not the full messages array.
+    new_turn = {
         "role": "interjection",
         "persona": target["key"],
         "content": content,
-    })
-
-    messages_json = json.dumps(existing_messages)
+    }
+    new_turn_json = json.dumps([new_turn])
     if reply_id:
         await db.execute(
-            "UPDATE post_replies SET messages = $1, updated_at = NOW() WHERE id = $2",
-            messages_json, reply_id,
+            """UPDATE post_replies
+               SET messages = messages || $1::jsonb, updated_at = NOW()
+               WHERE id = $2""",
+            new_turn_json, reply_id,
         )
+        # Refresh the in-memory copy so the response body reflects current DB state.
+        existing_messages.append(new_turn)
     else:
         row = await db.fetchrow(
             """INSERT INTO post_replies (feed_id, post_index, persona_key, messages)
                VALUES ($1, $2, $3, $4) RETURNING id""",
-            body.feed_id, body.post_index, body.source_persona_key, messages_json,
+            body.feed_id, body.post_index, body.source_persona_key, json.dumps(existing_messages + [new_turn]),
         )
+        existing_messages.append(new_turn)
         reply_id = str(row["id"])
 
     logger.info("zap_generated", target=body.target_persona_key, source=body.source_persona_key)

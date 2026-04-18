@@ -172,25 +172,31 @@ def _get_liked_paper_titles(user_id: str) -> list[str]:
 
 
 def _store_preferences(user_id: str, preferences: dict) -> None:
-    """Store computed preferences in user_settings JSONB."""
-    row = fetchrow(
-        "SELECT settings FROM user_settings WHERE user_id = $1",
-        user_id,
-    )
-    existing = {}
-    if row:
-        existing = row["settings"]
-        if isinstance(existing, str):
-            existing = json.loads(existing)
+    """Store computed preferences in user_settings JSONB.
 
-    existing["preferences"] = preferences
-    settings_json = json.dumps(existing)
+    Uses `jsonb_set` to write only the `preferences` key rather than
+    read-modify-write on the whole settings blob. A concurrent PUT /settings
+    from the API would otherwise clobber the preferences this task just wrote,
+    or vice versa (the router's last-read theme/persona toggle would be lost
+    when this task commits).
+    """
+    prefs_json = json.dumps(preferences)
 
+    # First INSERT so the row exists (NO-OP if it already does), then
+    # atomically merge the preferences key. We can't do this in a single
+    # statement because jsonb_set on INSERT requires a base document.
     execute(
         """INSERT INTO user_settings (user_id, settings, updated_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET settings = $2, updated_at = NOW()""",
-        user_id, settings_json,
+           VALUES ($1, jsonb_build_object('preferences', $2::jsonb), NOW())
+           ON CONFLICT (user_id) DO UPDATE
+             SET settings = jsonb_set(
+                   COALESCE(user_settings.settings, '{}'::jsonb),
+                   ARRAY['preferences'],
+                   $2::jsonb,
+                   true
+                 ),
+                 updated_at = NOW()""",
+        user_id, prefs_json,
     )
 
 

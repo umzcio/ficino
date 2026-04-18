@@ -63,7 +63,11 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-[13px] text-persona-skeptic bg-persona-skeptic/10 border border-persona-skeptic/20 rounded-lg px-3 py-2">
+            <div
+              role="alert"
+              aria-atomic="true"
+              className="text-[13px] text-persona-skeptic bg-persona-skeptic/10 border border-persona-skeptic/20 rounded-lg px-3 py-2"
+            >
               {error}
             </div>
           )}

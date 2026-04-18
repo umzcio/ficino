@@ -36,3 +36,23 @@ def fence_untrusted(text: str, *, max_len: int = _MAX_BLOCK_LEN) -> str:
         cleaned = cleaned[:max_len] + "… [truncated]"
 
     return f"{_FENCE_OPEN}{cleaned}{_FENCE_CLOSE}"
+
+
+def sanitize_inline(text: object, *, max_len: int = 200) -> str:
+    """Neutralize a short metadata field for inline prompt interpolation.
+
+    Collapses whitespace so a newline in the value can't escape the enclosing
+    line, neutralizes fence tokens, strips role markers, and caps length.
+    Use at sites where PDF-derived metadata (title, section, cite) is inlined
+    into a header without its own `<untrusted>` block.
+    """
+    if text is None:
+        return ""
+    s = str(text)
+    s = _ROLE_MARKER_RE.sub("", s)
+    s = s.replace(_FENCE_OPEN, "&lt;untrusted&gt;")
+    s = s.replace(_FENCE_CLOSE, "&lt;/untrusted&gt;")
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) > max_len:
+        s = s[:max_len] + "…"
+    return s

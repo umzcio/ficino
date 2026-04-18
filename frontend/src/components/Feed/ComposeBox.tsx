@@ -13,18 +13,23 @@ interface ComposeBoxProps {
 export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You', userHandle = '@you', onUserClick }: ComposeBoxProps) {
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSubmit = async () => {
     const text = content.trim()
     if (!text || loading) return
     setLoading(true)
+    setError(null)
     try {
       await createUserPost(text, workspaceId || undefined)
       setContent('')
       onPostCreated()
-    } catch {
-      // ignore
+    } catch (err) {
+      // Surface failures both visually and via the live region so neither
+      // sighted nor SR users are left staring at a post that silently never
+      // sent. Keep the message generic enough not to leak server internals.
+      setError(err instanceof Error ? err.message : 'Failed to post. Try again.')
     } finally {
       setLoading(false)
     }
@@ -33,7 +38,7 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
   return (
     <div className="border-b border-border px-4 py-3">
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {loading ? 'Posting your question' : ''}
+        {loading ? 'Posting your question' : error ? `Post failed: ${error}` : ''}
       </div>
       <div className="flex gap-3">
         <button
@@ -65,6 +70,14 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
             rows={1}
             disabled={loading}
           />
+          {error && (
+            <div
+              role="alert"
+              className="text-[12px] text-persona-skeptic bg-persona-skeptic/10 border border-persona-skeptic/20 rounded-md px-2 py-1 mt-1"
+            >
+              {error}
+            </div>
+          )}
           <div className="flex justify-between items-center mt-1">
             <span className="text-[11px] text-text-muted">
               The Archivist will search your corpus and respond

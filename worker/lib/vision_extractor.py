@@ -60,9 +60,13 @@ async def _extract_page_claude(page_image: bytes, page_num: int) -> str:
     client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"])
     image_b64 = base64.b64encode(page_image).decode("utf-8")
 
+    # 2048 output tokens is more than enough for a full page of extracted
+    # markdown; the prior 4096 doubled cost exposure without payoff. Combined
+    # with MAX_VISION_PAGES in extract_with_vision, this bounds the worst-
+    # case paid-API spend a crafted PDF can force through the shared key.
     response = await client.messages.create(
         model=cfg["claude_model"],
-        max_tokens=4096,
+        max_tokens=2048,
         system=VISION_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -94,7 +98,17 @@ async def _extract_page_ollama(page_image: bytes, page_num: int) -> str:
             },
         )
         resp.raise_for_status()
-        return resp.json()["message"]["content"]
+        content = resp.json()["message"]["content"]
+        # A 200 with empty content means the model is misconfigured (wrong
+        # name, OOM, unreachable upstream). Raising here lets the outer
+        # `extract_with_vision` abort and mark the paper 'error' with a
+        # reason, instead of silently producing a 0-chunk paper.
+        if not content or not content.strip():
+            raise RuntimeError(
+                f"ollama vision model {cfg['ollama_vision_model']!r} returned "
+                f"empty content for page {page_num}"
+            )
+        return content
 
 
 async def extract_page(page_image: bytes, page_num: int) -> str:
@@ -109,20 +123,37 @@ async def extract_page(page_image: bytes, page_num: int) -> str:
 
 
 async def extract_with_vision(file_path: str) -> str:
-    """Extract text from entire PDF using vision, page by page."""
+    """Extract text from entire PDF using vision, page by page.
+
+    Bounded by MAX_VISION_PAGES (default 100) so a crafted 600-page PDF can't
+    burn ~$50 of Claude Vision spend per upload through the shared API key.
+    Papers longer than the cap are truncated with a warning; chunks for the
+    untruncated pages still index correctly.
+    """
     if not is_available():
         raise RuntimeError("No vision provider available (set OLLAMA_VISION_MODEL or ANTHROPIC_API_KEY)")
 
     cfg = _get_config()
     page_count = get_page_count(file_path)
-    logger.info("vision_extract_start", file_path=file_path, pages=page_count, provider=cfg["vision_provider"])
+    max_pages = int(os.getenv("MAX_VISION_PAGES", "100"))
+    pages_to_process = min(page_count, max_pages)
+    if page_count > max_pages:
+        logger.warn(
+            "vision_extract_truncated",
+            file_path=file_path, total_pages=page_count, max_pages=max_pages,
+        )
+    logger.info(
+        "vision_extract_start",
+        file_path=file_path, pages=pages_to_process, total=page_count,
+        provider=cfg["vision_provider"],
+    )
 
     pages_markdown: list[str] = []
     # Open the PDF once and stream pixmaps — avoids the O(pages) cost of
     # re-opening the document per rasterize_page call inside the loop.
-    rasterizer = rasterize_pages(file_path, range(page_count), dpi=200)
+    rasterizer = rasterize_pages(file_path, range(pages_to_process), dpi=200)
     for page_num, page_image in enumerate(rasterizer):
-        logger.info("vision_extract_page", page=page_num + 1, total=page_count)
+        logger.info("vision_extract_page", page=page_num + 1, total=pages_to_process)
         page_text = await extract_page(page_image, page_num + 1)
         pages_markdown.append(page_text)
 

@@ -622,10 +622,13 @@ def generate_feed(
         except Exception:
             log.warn("post_feed_alert_dispatch_failed")
 
-        # Recompute preferences from likes so next generation reflects latest signal
+        # Recompute preferences from likes so next generation reflects latest
+        # signal. Pass user_id so the recompute writes to THIS user's row
+        # instead of collapsing every tenant onto STUB_USER_ID.
         try:
             app.send_task(
                 "tasks.preference_tasks.compute_preferences",
+                kwargs={"user_id": effective_user_id},
                 queue="persona",
             )
         except Exception:

@@ -90,7 +90,10 @@ async def send_persona_dm(
     _rl: None = Depends(RateLimit("persona_dm", 60)),
 ) -> dict[str, object]:
     """Send a DM to a persona. Persona responds grounded in the user's corpus."""
-    # Get existing conversation
+    # Get existing conversation. `existing` is used only to build the LLM
+    # context and shape the response body — the persisted turns are appended
+    # atomically below via `messages || $1::jsonb` so a concurrent DM (e.g.
+    # double-tap send) can't clobber them.
     row = await db.fetchrow(
         "SELECT id, messages FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
         user.id, persona_key,
@@ -103,7 +106,8 @@ async def send_persona_dm(
         if isinstance(existing, str):
             existing = json.loads(existing)
 
-    existing.append({"role": "user", "content": body.message})
+    user_turn = {"role": "user", "content": body.message}
+    existing.append(user_turn)
 
     # Get persona prompt + bio
     persona = await db.fetchrow(
@@ -140,11 +144,13 @@ async def send_persona_dm(
             user.id,
         )
     # Chunk content is untrusted PDF text — fence each block so a hostile
-    # document can't rewrite the persona's system prompt.
-    from sanitize import fence_untrusted
+    # document can't rewrite the persona's system prompt. Metadata fields
+    # (paper_title, section) are PDF-derived too and ride inline in the
+    # header line, so sanitize them to strip newlines / fence collisions.
+    from sanitize import fence_untrusted, sanitize_inline
 
     chunks_text = "\n\n".join(
-        f"[{c['paper_title'] or 'Unknown'} — {c['section']}]\n"
+        f"[{sanitize_inline(c['paper_title'] or 'Unknown')} — {sanitize_inline(c['section'])}]\n"
         f"{fence_untrusted(str(c['content'])[:300])}"
         for c in chunks
     ) if chunks else ""
@@ -188,21 +194,25 @@ Do NOT use JSON formatting. Respond naturally.
         logger.error("persona_dm_failed", error=str(e), error_type=type(e).__name__)
         raise HTTPException(status_code=500, detail="Internal error. See server logs.")
 
-    existing.append({"role": "persona", "content": persona_response})
+    persona_turn = {"role": "persona", "content": persona_response}
+    existing.append(persona_turn)
 
-    messages_json = json.dumps(existing)
-    if dm_id:
-        await db.execute(
-            "UPDATE persona_dms SET messages = $1, updated_at = NOW() WHERE id = $2",
-            messages_json, dm_id,
-        )
-    else:
-        row = await db.fetchrow(
-            """INSERT INTO persona_dms (user_id, persona_key, messages)
-               VALUES ($1, $2, $3) RETURNING id""",
-            user.id, persona_key, messages_json,
-        )
-        dm_id = str(row["id"])
+    # Atomically append both the user turn and persona response to whatever
+    # messages array lives in the DB right now. ON CONFLICT covers the race
+    # where two concurrent first-time DMs for the same (user, persona) try to
+    # INSERT — UNIQUE(user_id, persona_key) makes ON CONFLICT DO UPDATE do
+    # the right thing.
+    new_turns_json = json.dumps([user_turn, persona_turn])
+    row = await db.fetchrow(
+        """INSERT INTO persona_dms (user_id, persona_key, messages)
+           VALUES ($1, $2, $3::jsonb)
+           ON CONFLICT (user_id, persona_key) DO UPDATE
+             SET messages = persona_dms.messages || EXCLUDED.messages,
+                 updated_at = NOW()
+           RETURNING id""",
+        user.id, persona_key, new_turns_json,
+    )
+    dm_id = str(row["id"])
 
     logger.info("persona_dm_sent", persona=persona_key, turns=len(existing))
     return {"id": dm_id, "messages": existing, "latest_response": persona_response}

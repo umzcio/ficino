@@ -1,5 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useId, createContext, useContext } from 'react'
 import { Check, ChevronDown, Pencil, Loader2 } from 'lucide-react'
+
+// Context that carries the row's label element id to native inputs nested
+// inside the row — lets Select / Slider / ApiKeyInput wire aria-labelledby
+// without each call site threading the id by hand.
+const SettingRowContext = createContext<string | null>(null)
 
 export function Section({ icon: Icon, title, onReset, children }: {
   icon: React.ComponentType<{ size?: number; className?: string }>
@@ -33,13 +38,18 @@ export function SettingRow({ label, description, children }: {
   description?: string
   children: React.ReactNode
 }) {
+  const labelId = useId()
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex-1">
-        <div className="text-[13px] text-text font-medium">{label}</div>
+        <div id={labelId} className="text-[13px] text-text font-medium">{label}</div>
         {description && <div className="text-[11px] text-text-muted mt-0.5">{description}</div>}
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="shrink-0">
+        <SettingRowContext.Provider value={labelId}>
+          {children}
+        </SettingRowContext.Provider>
+      </div>
     </div>
   )
 }
@@ -62,16 +72,20 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   )
 }
 
-export function Select({ value, options, onChange }: {
+export function Select({ value, options, onChange, ariaLabel }: {
   value: string
   options: { value: string; label: string }[]
   onChange: (v: string) => void
+  ariaLabel?: string
 }) {
+  const labelId = useContext(SettingRowContext)
   return (
     <div className="relative">
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-labelledby={labelId || undefined}
+        aria-label={!labelId ? ariaLabel : undefined}
         className="appearance-none bg-bg-hover border border-border rounded-lg px-3 py-1.5 text-[13px] text-text cursor-pointer outline-none focus:border-gold/40 pr-7 min-w-[140px]"
       >
         {options.map((o) => (
@@ -87,6 +101,7 @@ export function Slider({ value, min, max, step, onChange, label }: {
   value: number; min: number; max: number; step: number
   onChange: (v: number) => void; label?: string
 }) {
+  const labelId = useContext(SettingRowContext)
   return (
     <div className="flex items-center gap-3">
       <input
@@ -96,6 +111,8 @@ export function Slider({ value, min, max, step, onChange, label }: {
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        aria-labelledby={labelId || undefined}
+        aria-valuetext={label || String(value)}
         className="flex-1 accent-gold h-1"
       />
       <span className="text-[13px] text-gold font-mono w-10 text-right">{label || value}</span>
@@ -121,6 +138,7 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
     }
   }
 
+  const labelId = useContext(SettingRowContext)
   return (
     <div className="flex items-center gap-2">
       <input
@@ -130,6 +148,7 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
         onChange={(e) => setLocal(e.target.value)}
         onBlur={doSave}
         onKeyDown={(e) => { if (e.key === 'Enter') doSave() }}
+        aria-labelledby={labelId || undefined}
         className="bg-bg border border-border rounded-lg px-3 py-1.5 text-[13px] text-text w-48 focus:border-gold outline-none"
       />
       {saved && <Check size={14} className="text-persona-gradstudent" />}

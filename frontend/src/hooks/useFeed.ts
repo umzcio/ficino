@@ -93,7 +93,9 @@ export function useFeed(workspaceId?: string) {
         } else if (status.status === 'complete' && status.feed_id) {
           const feed = await getFeed(status.feed_id)
           if (!mountedRef.current) return
-          cacheFeed(feed).catch(() => {})
+          // Pass workspaceId so getCachedFeeds(workspaceId) — which queries
+          // the by-workspace IDB index — returns this feed offline.
+          cacheFeed(feed, workspaceId).catch(() => {})
           setPosts(feed.posts as FeedPost[])
           setFeedId(status.feed_id)
           setFeedState('complete')

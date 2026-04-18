@@ -135,18 +135,6 @@ async def update_settings(
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
     """Update settings. Partial updates supported — only send changed keys."""
-    # Get existing
-    row = await db.fetchrow(
-        "SELECT settings FROM user_settings WHERE user_id = $1",
-        user.id,
-    )
-
-    existing = {}
-    if row:
-        existing = row["settings"]
-        if isinstance(existing, str):
-            existing = json.loads(existing)
-
     # Drop anything not on the whitelist before merging; reject out-of-range
     # numeric knobs so a client can't turn `posts_per_generation` into a
     # 10,000-shot LLM loop.
@@ -176,21 +164,42 @@ async def update_settings(
     if dropped:
         logger.warn("settings_dropped_unknown_keys", keys=dropped, user_id=user.id)
 
-    # Merge updates
-    for key, value in filtered.items():
-        if key in existing and isinstance(existing[key], dict) and isinstance(value, dict):
-            existing[key] = {**existing[key], **value}
-        else:
-            existing[key] = value
+    # Read-merge-write inside a transaction with SELECT ... FOR UPDATE so a
+    # concurrent worker preference recompute (which takes the same row lock
+    # via ON CONFLICT DO UPDATE) can't clobber our write — and vice versa.
+    # The worker writes only the `preferences` sub-key via jsonb_set, so our
+    # top-level merge here preserves it even if we don't explicitly re-read.
+    # The lock still matters for two concurrent PUTs from the same user
+    # (multi-tab / double-submit) which would otherwise lose turns.
+    async with db.transaction():
+        row = await db.fetchrow(
+            "SELECT settings FROM user_settings WHERE user_id = $1 FOR UPDATE",
+            user.id,
+        )
 
-    settings_json = json.dumps(existing)
+        existing = {}
+        if row:
+            existing = row["settings"]
+            if isinstance(existing, str):
+                existing = json.loads(existing)
 
-    await db.execute(
-        """INSERT INTO user_settings (user_id, settings, updated_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET settings = $2, updated_at = NOW()""",
-        user.id, settings_json,
-    )
+        # Merge updates. Dict values get a shallow merge to preserve any
+        # sub-keys the UI didn't resend (e.g. toggling one persona shouldn't
+        # wipe the rest of personas_enabled).
+        for key, value in filtered.items():
+            if key in existing and isinstance(existing[key], dict) and isinstance(value, dict):
+                existing[key] = {**existing[key], **value}
+            else:
+                existing[key] = value
+
+        settings_json = json.dumps(existing)
+
+        await db.execute(
+            """INSERT INTO user_settings (user_id, settings, updated_at)
+               VALUES ($1, $2, NOW())
+               ON CONFLICT (user_id) DO UPDATE SET settings = $2, updated_at = NOW()""",
+            user.id, settings_json,
+        )
 
     logger.info("settings_updated", keys=list(filtered.keys()))
 

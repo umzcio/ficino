@@ -112,7 +112,8 @@ CREATE TABLE figures (
   description TEXT,
   claim_summary TEXT,
   figure_index INTEGER NOT NULL,
-  processed_at TIMESTAMPTZ
+  processed_at TIMESTAMPTZ,
+  UNIQUE (paper_id, figure_index)
 );
 
 -- Feeds
