@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
   Zap, Loader2, BookOpen
@@ -13,11 +13,30 @@ import { CorpusPanel } from './components/Sidebar/CorpusPanel'
 import { PersonaPanel } from './components/Sidebar/PersonaPanel'
 import { FeedContent } from './components/Feed/Feed'
 import { FeedHistory } from './components/Feed/FeedHistory'
-import { MessagesView } from './components/Messages/MessagesView'
-import { BookmarksView } from './components/Bookmarks/BookmarksView'
-import { ExploreView } from './components/Explore/ExploreView'
-import { SettingsView } from './components/Settings/SettingsView'
-import { AlertsView } from './components/Alerts/AlertsView'
+// Route-level views are code-split via lazy() so Rollup does NOT emit
+// <link rel="modulepreload"> for them on first paint. Each view loads on
+// demand when the user navigates to it.
+const MessagesView = lazy(() =>
+  import('./components/Messages/MessagesView').then((m) => ({ default: m.MessagesView })),
+)
+const BookmarksView = lazy(() =>
+  import('./components/Bookmarks/BookmarksView').then((m) => ({ default: m.BookmarksView })),
+)
+const ExploreView = lazy(() =>
+  import('./components/Explore/ExploreView').then((m) => ({ default: m.ExploreView })),
+)
+const SettingsView = lazy(() =>
+  import('./components/Settings/SettingsView').then((m) => ({ default: m.SettingsView })),
+)
+const AlertsView = lazy(() =>
+  import('./components/Alerts/AlertsView').then((m) => ({ default: m.AlertsView })),
+)
+const ReadingListsView = lazy(() =>
+  import('./components/ReadingLists/ReadingListsView').then((m) => ({ default: m.ReadingListsView })),
+)
+const PersonaProfile = lazy(() =>
+  import('./components/Personas/PersonaProfile').then((m) => ({ default: m.PersonaProfile })),
+)
 import { useSettings } from './hooks/useSettings'
 import { useAlerts } from './hooks/useAlerts'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
@@ -27,13 +46,11 @@ import { MobileDrawer } from './components/Nav/MobileDrawer'
 import { PostDetail } from './components/Feed/PostDetail'
 import { ComposeBox } from './components/Feed/ComposeBox'
 import { UserPostCard } from './components/Feed/UserPostCard'
-import { PersonaProfile } from './components/Personas/PersonaProfile'
 import { UserProfile } from './components/Personas/UserProfile'
 import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
 import { useUserPosts } from './hooks/useUserPosts'
 import { getFeed, getPaperTldrs } from './lib/api'
 import { useAnnotations } from './hooks/useAnnotations'
-import { ReadingListsView } from './components/ReadingLists/ReadingListsView'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
 import { InstallButton, MobileInstallBanner } from './components/Nav/InstallPrompt'
@@ -262,7 +279,9 @@ function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) 
           key={i}
           ref={(el) => { tabRefs.current[i] = el }}
           role="tab"
+          id={`feed-tab-${i}`}
           aria-selected={active === i}
+          aria-controls={`feed-panel-${i}`}
           tabIndex={active === i ? 0 : -1}
           onClick={() => onSelect(i)}
           onKeyDown={handleKeyDown}
@@ -642,7 +661,9 @@ function AppContent() {
         <div className="max-w-[1050px] mx-auto flex min-h-screen">
           <LeftNav active={activeView} onNavigate={setActiveView} alertCount={alertsHook.unreadCount} />
           <main id="main" className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
-            {renderMainContent()}
+            <Suspense fallback={<div className="p-4 text-text-muted">Loading…</div>}>
+              {renderMainContent()}
+            </Suspense>
           </main>
           <Sidebar
             corpus={corpus}

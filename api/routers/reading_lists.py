@@ -99,13 +99,20 @@ async def get_reading_list(
 
     # Get paper details in sequence order. Guard against an empty sequence
     # so the SQL below doesn't produce `WHERE id IN ()` which Postgres rejects.
+    # Defense-in-depth: re-scope the fetch to user.id even though the parent
+    # reading_lists row is already user-owned — this prevents a stored
+    # foreign paper_id (from a prior-era bug or a restored-from-backup row)
+    # from leaking another user's title/authors into this response.
     paper_ids = [str(p) for p in (row["paper_sequence"] or [])]
     papers = []
     if paper_ids:
         placeholders = ",".join(f"${i+1}" for i in range(len(paper_ids)))
+        user_placeholder = f"${len(paper_ids) + 1}"
         paper_rows = await db.fetch(
-            f"SELECT id, title, authors, year, filename FROM papers WHERE id IN ({placeholders})",
+            f"SELECT id, title, authors, year, filename FROM papers "
+            f"WHERE id IN ({placeholders}) AND user_id = {user_placeholder}",
             *paper_ids,
+            user.id,
         )
         paper_map = {str(r["id"]): r for r in paper_rows}
         for pid in paper_ids:
@@ -235,6 +242,21 @@ async def reorder_reading_list(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Reading list not found")
+
+    # Verify every paper_id in the new sequence belongs to the caller —
+    # otherwise a reorder can slip a foreign paper_id into this user's
+    # reading list (which downstream chapter generation will happily
+    # dereference).
+    if body.paper_sequence:
+        owned_count = await db.fetchval(
+            "SELECT COUNT(*) FROM papers WHERE id = ANY($1::uuid[]) AND user_id = $2",
+            body.paper_sequence, user.id,
+        )
+        if owned_count != len(set(body.paper_sequence)):
+            raise HTTPException(
+                status_code=404,
+                detail="One or more papers not found",
+            )
 
     # Update sequence
     await db.execute(

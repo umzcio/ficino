@@ -10,6 +10,7 @@
   --color-text-muted: #9aa3b8;    /* was #7a8194 — bumped for WCAG AA on metadata text */
   --color-text-mid: #8b92a5;
   --color-text-secondary: #b0b8c8;
+  --color-text-subtle: #b0b8c8;   /* Solid replacement for text-muted/60 etc — WCAG AA 4.5:1 on --color-bg */
   --color-persona-skeptic: #e85d4a;
   --color-persona-hype: #f5a623;
   --color-persona-practitioner: #4a9eff;
@@ -36,6 +37,7 @@
   --color-text-muted: #6b7280;
   --color-text-mid: #4b5563;
   --color-text-secondary: #374151;
+  --color-text-subtle: #565e72;   /* Solid replacement for text-muted/60 etc — WCAG AA 4.5:1 on light bg */
   --color-nav-active: #1a1c22;
   --color-nav-inactive: #6b7280;
   --color-tab-active: #1a1c22;

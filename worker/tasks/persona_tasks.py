@@ -83,26 +83,46 @@ def _write_feed_posts_index(feed_id: str, posts_slice: list[dict], base_index: i
         )
 
 
-def _get_paper_ids_for_corpus(corpus_id: str | None, tag_filter: list[str] | None) -> list[str]:
-    """Get paper IDs scoped to a corpus and/or tag filter."""
+def _get_paper_ids_for_corpus(
+    corpus_id: str | None,
+    tag_filter: list[str] | None,
+    user_id: str,
+) -> list[str]:
+    """Get paper IDs scoped to a corpus and/or tag filter.
+
+    Every branch is scoped to `user_id` so another user's tags (names can
+    collide across users), papers in the named corpus, or the global
+    complete-paper fallback can't leak into this user's generated feed.
+    """
     if tag_filter:
-        # Filter by tags
+        # Filter by tags. Tag names are per-user, so both papers.user_id and
+        # tags.user_id must match the caller — otherwise a colliding tag name
+        # ("ML", "theory") in another user's workspace silently joins in.
+        user_placeholder = f"${len(tag_filter) + 1}"
         placeholders = ",".join(f"${i+1}" for i in range(len(tag_filter)))
         rows = fetch(
             f"""SELECT DISTINCT p.id FROM papers p
                 JOIN paper_tags pt ON p.id = pt.paper_id
                 JOIN tags t ON pt.tag_id = t.id
-                WHERE t.name IN ({placeholders}) AND p.status = 'complete'""",
+                WHERE t.name IN ({placeholders})
+                  AND p.status = 'complete'
+                  AND p.user_id = {user_placeholder}
+                  AND t.user_id = {user_placeholder}""",
             *tag_filter,
+            user_id,
         )
     elif corpus_id:
         rows = fetch(
-            "SELECT id FROM papers WHERE corpus_id = $1 AND status = 'complete'",
+            "SELECT id FROM papers WHERE corpus_id = $1 AND status = 'complete' AND user_id = $2",
             corpus_id,
+            user_id,
         )
     else:
-        # All complete papers
-        rows = fetch("SELECT id FROM papers WHERE status = 'complete'")
+        # All complete papers owned by this user
+        rows = fetch(
+            "SELECT id FROM papers WHERE status = 'complete' AND user_id = $1",
+            user_id,
+        )
 
     return [str(row["id"]) for row in rows]
 
@@ -290,7 +310,10 @@ def generate_feed(
         self.update_state(state="PROGRESS", meta={"step": "scoping", "feed_id": feed_id})
         log.info("feed_step", step="scoping")
 
-        paper_ids = _get_paper_ids_for_corpus(corpus_id, tag_filter)
+        # Resolve the effective user_id ONCE (same fallback used for the
+        # feeds INSERT below) so paper scoping and feed ownership agree.
+        effective_user_id = user_id or STUB_USER_ID
+        paper_ids = _get_paper_ids_for_corpus(corpus_id, tag_filter, effective_user_id)
         if not paper_ids:
             log.warn("no_papers_found")
             # Store empty feed
@@ -298,7 +321,7 @@ def generate_feed(
                 """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
                 feed_id,
-                user_id or STUB_USER_ID,
+                effective_user_id,
                 corpus_id,
                 tag_filter,
                 "[]",
@@ -542,7 +565,7 @@ def generate_feed(
                 """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
                 feed_id,
-                user_id or STUB_USER_ID,
+                effective_user_id,
                 corpus_id,
                 tag_filter,
                 posts_json,
@@ -607,20 +630,37 @@ def generate_feed(
 
 
 @app.task(name="tasks.persona_tasks.regenerate_post", bind=True)
-def regenerate_post(self: Task, feed_id: str, post_index: int) -> dict[str, object]:
+def regenerate_post(
+    self: Task,
+    feed_id: str,
+    post_index: int,
+    user_id: str | None = None,
+) -> dict[str, object]:
     """Regenerate a single post in an existing feed.
 
     Keeps the same persona and post_type, retrieves fresh chunks,
     generates a new post, and patches the feed JSONB in place.
+
+    `user_id` is required to scope the feed lookup (so a task dispatched
+    for user A can't mutate user B's feed) and the downstream paper scan
+    via `_get_paper_ids_for_corpus`. Defaults to STUB_USER_ID for
+    AUTH_PROVIDER=none compatibility.
     """
     log = logger.bind(feed_id=feed_id, post_index=post_index)
     log.info("regenerate_post_start")
 
+    effective_user_id = user_id or STUB_USER_ID
+
     user_settings = apply_provider_settings()
     temperature = user_settings.get("persona_temperature", 0.8)
 
-    # Load the existing feed
-    row = fetchrow("SELECT posts, corpus_id FROM feeds WHERE id = $1", feed_id)
+    # Load the existing feed. Scoped by user_id so a malicious or buggy
+    # dispatcher can't regenerate another user's post even if they guess
+    # the feed_id.
+    row = fetchrow(
+        "SELECT posts, corpus_id FROM feeds WHERE id = $1 AND user_id = $2",
+        feed_id, effective_user_id,
+    )
     if not row:
         raise ValueError(f"Feed {feed_id} not found")
 
@@ -645,8 +685,8 @@ def regenerate_post(self: Task, feed_id: str, post_index: int) -> dict[str, obje
             f"Post at feed {feed_id} index {post_index} has no persona — cannot regenerate"
         )
 
-    # Get paper IDs for this corpus
-    paper_ids = _get_paper_ids_for_corpus(corpus_id, None)
+    # Get paper IDs for this corpus, scoped to the owning user.
+    paper_ids = _get_paper_ids_for_corpus(corpus_id, None, effective_user_id)
     if not paper_ids:
         raise ValueError("No papers in corpus")
 

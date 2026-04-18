@@ -139,6 +139,7 @@ Do NOT use JSON formatting. Respond naturally.
     try:
         persona_response = await generate_response(
             db, system=system, messages=llm_messages, max_tokens=512, temperature=0.7,
+            user_id=user.id,
         )
     except asyncio.TimeoutError as e:
         logger.warn("persona_dm_failed", error=str(e), reason="timeout")

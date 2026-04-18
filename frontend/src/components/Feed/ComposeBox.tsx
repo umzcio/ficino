@@ -32,6 +32,9 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
 
   return (
     <div className="border-b border-border px-4 py-3">
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {loading ? 'Posting your question' : ''}
+      </div>
       <div className="flex gap-3">
         <button
           type="button"

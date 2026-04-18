@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from auth import AuthUser, get_current_user
+from auth.rate_limit import RateLimit
 from config import settings
 from db import connection as db_connection
 from db.connection import get_db
@@ -19,17 +20,34 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/replies", tags=["replies"])
 
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE/ILIKE metacharacters so user input is matched literally.
+
+    Without this, a `paper_ref` containing `%` or `_` would wildcard-match
+    across the caller's paper library — e.g. `paper_ref = "%"` would grab
+    chunks from whatever paper the DB happened to return first. Backslashes
+    must be escaped first (otherwise we double-escape the escape char).
+    Postgres honors `\\` as the default LIKE escape char.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def _llm_call_with_fresh_conn(
     system: str,
     messages: list[dict[str, str]],
     max_tokens: int,
     temperature: float,
+    user_id: str = "",
 ) -> str:
     """Run `generate_response` on a fresh pool connection.
 
     asyncpg forbids concurrent operations on a single connection, and
     `generate_response` issues its own `fetchrow` for user settings. To run
     several LLM calls in parallel we must give each one its own connection.
+
+    `user_id` is threaded through so user-specific LLM settings (provider,
+    model, API key override) apply instead of silently falling back to the
+    stub user's settings under multi-user auth.
     """
     pool = db_connection._pool
     if pool is None:
@@ -38,6 +56,7 @@ async def _llm_call_with_fresh_conn(
         return await generate_response(
             conn, system=system, messages=messages,
             max_tokens=max_tokens, temperature=temperature,
+            user_id=user_id,
         )
 
 
@@ -45,9 +64,11 @@ class ReplyRequest(BaseModel):
     feed_id: str
     post_index: int
     persona_key: str
-    user_message: str
-    post_content: str
-    paper_ref: str | None = None
+    # Bound body length so a misbehaving/malicious client can't pump
+    # unbounded text through the LLM path. Matches ZapRequest constraints.
+    user_message: str = Field(max_length=2000)
+    post_content: str = Field(max_length=4000)
+    paper_ref: str | None = Field(default=None, max_length=500)
 
 
 class ZapRequest(BaseModel):
@@ -149,6 +170,7 @@ async def create_reply(
     body: ReplyRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("reply", 60)),
 ) -> dict[str, object]:
     """Send a reply to a persona and get their response.
 
@@ -194,12 +216,18 @@ async def create_reply(
 
     chunks_text = ""
     if body.paper_ref:
+        # Escape LIKE wildcards in user-supplied paper_ref before wrapping
+        # in `%...%` — otherwise `%` or `_` in the ref silently wildcards
+        # the lookup. Ideal long-term fix is joining by paper_id; this is
+        # the defensive minimum until posts carry paper_id.
+        raw_ref = body.paper_ref.split(' et al')[0] if ' et al' in body.paper_ref else body.paper_ref[:30]
+        safe_ref = _escape_like(raw_ref)
         chunks = await db.fetch(
             """SELECT c.content, c.section FROM chunks c
                JOIN papers p ON c.paper_id = p.id
                WHERE p.user_id = $2 AND (p.title ILIKE $1 OR p.filename ILIKE $1)
                ORDER BY c.chunk_index LIMIT 5""",
-            f"%{body.paper_ref.split(' et al')[0] if ' et al' in body.paper_ref else body.paper_ref[:30]}%",
+            f"%{safe_ref}%",
             user.id,
         )
         if chunks:
@@ -241,6 +269,12 @@ ORIGINAL POST CONTEXT:
     # --- @mention: check if user tagged other personas ---
     import re
     mentioned_handles = re.findall(r'@(\w+)', body.user_message)
+    # Cap to 3 unique mentions per reply. Without this a user can fan out
+    # N concurrent LLM calls by spamming @handles — each one opens a pool
+    # connection and burns tokens/latency. `dict.fromkeys` preserves first-
+    # seen order while deduping so the same handle repeated doesn't cost
+    # multiple slots against the cap.
+    mentioned_handles = list(dict.fromkeys(mentioned_handles))[:3]
 
     # Look up mentioned personas and pre-build their prompts.
     # DB lookups are sequential/cheap; only the LLM call is parallelized.
@@ -321,6 +355,7 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
     tasks: list = [
         _llm_call_with_fresh_conn(
             system=system, messages=llm_messages, max_tokens=512, temperature=0.7,
+            user_id=user.id,
         )
     ]
     for plan in mention_plans:
@@ -328,6 +363,7 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
             _llm_call_with_fresh_conn(
                 system=plan["system"], messages=plan["messages"],
                 max_tokens=256, temperature=0.8,
+                user_id=user.id,
             )
         )
     if organic_plan:
@@ -335,6 +371,7 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
             _llm_call_with_fresh_conn(
                 system=organic_plan["system"], messages=organic_plan["messages"],
                 max_tokens=256, temperature=0.8,
+                user_id=user.id,
             )
         )
 
@@ -421,6 +458,7 @@ async def zap_response(
     body: ZapRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("reply", 60)),
 ) -> dict[str, object]:
     """Trigger a specific persona to respond to a specific message (conductor mode)."""
     # Verify the feed belongs to the user
@@ -468,12 +506,17 @@ async def zap_response(
 
     chunks_text = ""
     if body.paper_ref:
+        # Escape LIKE wildcards — see _escape_like doc. Same treatment as
+        # create_reply above so a `%`/`_` in paper_ref can't silently
+        # wildcard-match across the caller's library.
+        raw_ref = body.paper_ref.split(' et al')[0] if ' et al' in body.paper_ref else body.paper_ref[:30]
+        safe_ref = _escape_like(raw_ref)
         chunks = await db.fetch(
             """SELECT c.content, c.section FROM chunks c
                JOIN papers p ON c.paper_id = p.id
                WHERE p.user_id = $2 AND (p.title ILIKE $1 OR p.filename ILIKE $1)
                ORDER BY c.chunk_index LIMIT 5""",
-            f"%{body.paper_ref.split(' et al')[0] if ' et al' in body.paper_ref else body.paper_ref[:30]}%",
+            f"%{safe_ref}%",
             user.id,
         )
         if chunks:
@@ -520,6 +563,7 @@ Respond as {target['name']} ({target['handle']})."""
             db, system=zap_system,
             messages=[{"role": "user", "content": zap_prompt}],
             max_tokens=256, temperature=0.8,
+            user_id=user.id,
         )
     except asyncio.TimeoutError as e:
         logger.warn("zap_failed", error=str(e), reason="timeout")

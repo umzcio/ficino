@@ -148,34 +148,16 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border">
-        <button
-          onClick={() => setTab('posts')}
-          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] transition-all"
-          style={{
-            color: tab === 'posts' ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
-            fontWeight: tab === 'posts' ? 700 : 400,
-            borderBottom: tab === 'posts' ? `2px solid ${p.color}` : '2px solid transparent',
-          }}
-        >
-          Posts
-        </button>
-        <button
-          onClick={() => setTab('dm')}
-          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] transition-all"
-          style={{
-            color: tab === 'dm' ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
-            fontWeight: tab === 'dm' ? 700 : 400,
-            borderBottom: tab === 'dm' ? `2px solid ${p.color}` : '2px solid transparent',
-          }}
-        >
-          Messages
-        </button>
-      </div>
+      <PersonaTabs active={tab} onSelect={setTab} accentColor={p.color} />
 
       {/* Content */}
       {tab === 'posts' ? (
-        <div>
+        <div
+          role="tabpanel"
+          id="persona-panel-posts"
+          aria-labelledby="persona-tab-posts"
+          tabIndex={0}
+        >
           {personaPosts.length === 0 ? (
             <div className="py-16 text-center text-text-muted text-sm">
               No posts from {p.name} in the current feed.
@@ -195,7 +177,14 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
           )}
         </div>
       ) : (
-        <div className="flex flex-col" style={{ minHeight: 'calc(100vh - 350px)' }}>
+        <div
+          role="tabpanel"
+          id="persona-panel-dm"
+          aria-labelledby="persona-tab-dm"
+          tabIndex={0}
+          className="flex flex-col"
+          style={{ minHeight: 'calc(100vh - 350px)' }}
+        >
           {/* DM conversation */}
           <div className="flex-1 overflow-y-auto">
             {!dmLoaded ? (
@@ -276,6 +265,54 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const PERSONA_TABS: { key: 'posts' | 'dm'; label: string }[] = [
+  { key: 'posts', label: 'Posts' },
+  { key: 'dm', label: 'Messages' },
+]
+
+function PersonaTabs({ active, onSelect, accentColor }: {
+  active: 'posts' | 'dm'
+  onSelect: (tab: 'posts' | 'dm') => void
+  accentColor: string
+}) {
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const dir = e.key === 'ArrowRight' ? 1 : -1
+    const nextIndex = (index + dir + PERSONA_TABS.length) % PERSONA_TABS.length
+    const nextKey = PERSONA_TABS[nextIndex].key
+    onSelect(nextKey)
+    tabRefs.current[nextKey]?.focus()
+  }
+
+  return (
+    <div className="flex border-b border-border" role="tablist" aria-label="Persona sections">
+      {PERSONA_TABS.map(({ key, label }, i) => (
+        <button
+          key={key}
+          ref={(el) => { tabRefs.current[key] = el }}
+          role="tab"
+          id={`persona-tab-${key}`}
+          aria-selected={active === key}
+          aria-controls={`persona-panel-${key}`}
+          tabIndex={active === key ? 0 : -1}
+          onClick={() => onSelect(key)}
+          onKeyDown={(e) => handleKeyDown(e, i)}
+          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] transition-all"
+          style={{
+            color: active === key ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
+            fontWeight: active === key ? 700 : 400,
+            borderBottom: active === key ? `2px solid ${accentColor}` : '2px solid transparent',
+          }}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   )
 }

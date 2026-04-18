@@ -56,6 +56,17 @@ async def create_like(
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Like a post or reply message. Idempotent."""
+    # Verify the feed belongs to the caller before persisting any like-state
+    # keyed to (feed_id, post_index). Without this, a user who guesses
+    # another user's feed_id can seed like rows against it — which then
+    # show up in our preference-learning and post-feed alert passes.
+    feed_owner = await db.fetchrow(
+        "SELECT 1 FROM feeds WHERE id = $1 AND user_id = $2",
+        body.feed_id, user.id,
+    )
+    if not feed_owner:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
     existing = await db.fetchrow(
         "SELECT id FROM user_likes WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
         user.id, body.feed_id, body.post_index, body.message_index,

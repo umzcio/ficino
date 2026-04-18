@@ -226,7 +226,7 @@ function SearchBar() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[11px] text-text-mid font-medium truncate">{c.paper_title}</span>
                         <span className="text-[10px] text-text-muted">· {c.section}</span>
-                        <span className="text-[10px] text-gold/50 ml-auto">{(c.rank * 100).toFixed(0)}%</span>
+                        <span className="text-[10px] text-text-subtle ml-auto">{(c.rank * 100).toFixed(0)}%</span>
                       </div>
                       <p className="text-[12px] text-text-muted leading-relaxed line-clamp-2">
                         {c.content}
@@ -363,7 +363,7 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                 </div>
               </div>
               {ws.name !== 'Default' && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all">
                   <button
                     onClick={(e) => {
                       e.stopPropagation()

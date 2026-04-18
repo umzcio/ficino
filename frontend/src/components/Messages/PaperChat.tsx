@@ -138,7 +138,7 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
           <p className="text-sm text-text-muted">
             {summary?.messages?.length === 0 ? 'Generating summary...' : 'Loading...'}
           </p>
-          <p className="text-xs text-text-muted/60">This may take 30-60 seconds</p>
+          <p className="text-xs text-text-subtle">This may take 30-60 seconds</p>
         </div>
       ) : summary?.messages && summary.messages.length > 0 ? (
         <div className="py-3 space-y-3">
@@ -160,7 +160,7 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
           ))}
 
           <div className="px-4 py-3 text-center">
-            <span className="text-xs text-text-muted/50">End of summary</span>
+            <span className="text-xs text-text-subtle">End of summary</span>
           </div>
         </div>
       ) : (

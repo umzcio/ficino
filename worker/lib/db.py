@@ -86,26 +86,38 @@ def fetch(query: str, *args: object) -> list[asyncpg.Record]:
 async def _store_chunks_batch(
     paper_id: str, chunks: list[dict[str, object]], embeddings: list[list[float]]
 ) -> int:
-    """Store chunks with embeddings in a single transaction."""
+    """Store chunks with embeddings in a single transaction.
+
+    Uses executemany to reduce round-trip overhead — a 500-chunk paper used to
+    do 500 separate INSERT round-trips inside the transaction, which is the
+    dominant cost during ingestion. executemany ships them as one batched
+    command. A full COPY would be faster still but requires manual formatting
+    of the pgvector literal and the jsonb — executemany is a near drop-in.
+    """
+    if not chunks:
+        return 0
     pool = await _ensure_pool()
+    rows = [
+        (
+            paper_id,
+            chunk["section"],
+            chunk["content"],
+            "text",
+            chunk["chunk_index"],
+            chunk.get("token_count"),
+            str(embedding),  # pgvector accepts string representation
+            "{}",
+        )
+        for chunk, embedding in zip(chunks, embeddings)
+    ]
     async with pool.acquire() as conn:
-        stored = 0
         async with conn.transaction():
-            for chunk, embedding in zip(chunks, embeddings):
-                await conn.execute(
-                    """INSERT INTO chunks (paper_id, section, content, chunk_type, chunk_index, token_count, embedding, metadata)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-                    paper_id,
-                    chunk["section"],
-                    chunk["content"],
-                    "text",
-                    chunk["chunk_index"],
-                    chunk.get("token_count"),
-                    str(embedding),  # pgvector accepts string representation
-                    "{}",
-                )
-                stored += 1
-        return stored
+            await conn.executemany(
+                """INSERT INTO chunks (paper_id, section, content, chunk_type, chunk_index, token_count, embedding, metadata)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                rows,
+            )
+        return len(rows)
 
 
 def store_chunks_batch(

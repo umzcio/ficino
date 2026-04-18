@@ -2,12 +2,24 @@
 
 import json
 import os
+import threading
 
 import structlog
 
 from lib.db import fetchrow
 
 logger = structlog.get_logger(__name__)
+
+# Concurrent Celery tasks mutate os.environ through apply_provider_settings(),
+# which is process-global. True multi-user concurrency requires threading this
+# config through as a dict (or using contextvars) so each task's provider
+# choice doesn't bleed into sibling tasks. This lock serializes the env-var
+# writes so a single mid-write interleaving can't produce a half-applied
+# config (e.g. LLM_PROVIDER=api but ANTHROPIC_API_KEY still on the prior
+# user's value). Callers still receive the merged settings dict and SHOULD
+# prefer reading from it directly — env mutation is retained as a fallback
+# for paths that still read os.environ (embedder, claude_client).
+_env_lock = threading.Lock()
 
 STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
@@ -86,13 +98,29 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
 
     Call this at the start of any worker task that uses LLM or embeddings.
     Returns the merged settings dict.
+
+    Known limitation: env-var mutation is process-global, so concurrent
+    Celery tasks with different user settings can race. The lock below
+    keeps a single apply atomic, but does NOT prevent a later task from
+    overwriting an earlier task's env before the earlier task reads it.
+    Callers SHOULD prefer the returned dict over re-reading os.environ.
+    Fully multi-user-safe provider config needs contextvars or explicit
+    config passing; this is flagged as a degrade-gracefully interim fix.
     """
     settings = get_user_settings(user_id)
 
-    for setting_key, env_var in _SETTINGS_TO_ENV.items():
-        value = settings.get(setting_key)
-        if value:
-            os.environ[env_var] = str(value)
-            logger.debug("setting_applied", key=setting_key, env=env_var)
+    if user_id is not None and user_id != STUB_USER_ID:
+        logger.warning(
+            "apply_provider_settings_multi_user_not_safe",
+            note="os.environ mutation is process-global; concurrent tasks may race",
+            user_id=user_id,
+        )
+
+    with _env_lock:
+        for setting_key, env_var in _SETTINGS_TO_ENV.items():
+            value = settings.get(setting_key)
+            if value:
+                os.environ[env_var] = str(value)
+                logger.debug("setting_applied", key=setting_key, env=env_var)
 
     return settings

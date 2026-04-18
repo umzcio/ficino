@@ -27,6 +27,13 @@ app.conf.update(
     worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", "2")),
     worker_max_tasks_per_child=100,
     broker_pool_limit=10,
+    # Hard/soft task time limits. A stuck LLM call (Ollama hung on a cold
+    # model load, Claude waiting on rate limits, etc.) used to hold a worker
+    # slot indefinitely — worker_concurrency=2 means two stuck tasks freeze
+    # all Celery work. Soft limit raises SoftTimeLimitExceeded inside the
+    # task for graceful cleanup; hard limit SIGKILLs after an extra minute.
+    task_soft_time_limit=int(os.getenv("CELERY_SOFT_TIME_LIMIT", "540")),
+    task_time_limit=int(os.getenv("CELERY_TIME_LIMIT", "600")),
     task_routes={
         "tasks.ingestion_tasks.*": {"queue": "ingestion"},
         "tasks.persona_tasks.*": {"queue": "persona"},

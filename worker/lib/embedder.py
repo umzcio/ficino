@@ -32,20 +32,36 @@ BATCH_SIZE = 100
 
 
 async def _embed_ollama(texts: list[str]) -> list[list[float]]:
-    """Generate embeddings using Ollama."""
+    """Generate embeddings using Ollama with a bounded concurrency pool.
+
+    Serial per-text POSTs underutilize Ollama, which can batch reasonably well
+    on its side. An 8-way semaphore parallelizes the HTTP calls while keeping
+    the load modest enough to avoid crushing a shared GPU.
+    """
     cfg = _get_embed_config()
-    embeddings: list[list[float]] = []
+    sem = asyncio.Semaphore(8)
+    completed = 0
+    total = len(texts)
+    progress_lock = asyncio.Lock()
+
     async with httpx.AsyncClient(timeout=120.0) as client:
-        for i, text in enumerate(texts):
-            if i % 10 == 0:
-                logger.info("ollama_embedding", progress=f"{i}/{len(texts)}")
-            resp = await client.post(
-                f"{cfg['ollama_base_url']}/api/embeddings",
-                json={"model": cfg["ollama_model"], "prompt": text},
-            )
-            resp.raise_for_status()
-            embeddings.append(resp.json()["embedding"])
-    return embeddings
+        async def one(text: str) -> list[float]:
+            nonlocal completed
+            async with sem:
+                resp = await client.post(
+                    f"{cfg['ollama_base_url']}/api/embeddings",
+                    json={"model": cfg["ollama_model"], "prompt": text},
+                )
+                resp.raise_for_status()
+                embedding = resp.json()["embedding"]
+            # Log progress outside the semaphore so it doesn't serialize.
+            async with progress_lock:
+                completed += 1
+                if completed % 10 == 0 or completed == total:
+                    logger.info("ollama_embedding", progress=f"{completed}/{total}")
+            return embedding
+
+        return await asyncio.gather(*[one(t) for t in texts])
 
 
 async def _embed_openai(texts: list[str]) -> list[list[float]]:
@@ -139,9 +155,16 @@ async def embed_texts(texts: list[str], *, input_type: str = "document") -> list
     elif provider == "voyage" and cfg["voyage_api_key"]:
         result = await _embed_voyage(texts, input_type=input_type)
     else:
-        logger.warn("no_embed_provider_available", provider=provider)
-        dim = int(os.getenv("EMBED_DIM", "1024"))
-        result = [[0.0] * dim for _ in texts]
+        # Silent zero-vector fallback poisons HNSW with meaningless neighbors.
+        # Raise a clear error so upstream tasks can mark papers 'error' with
+        # a descriptive reason instead of storing garbage retrieval indexes.
+        reason = (
+            f"provider={provider!r}, "
+            f"openai_key={'set' if cfg['openai_api_key'] else 'missing'}, "
+            f"voyage_key={'set' if cfg['voyage_api_key'] else 'missing'}"
+        )
+        logger.error("no_embed_provider_available", provider=provider, reason=reason)
+        raise RuntimeError(f"No embedding provider reachable: {reason}")
 
     logger.info("embedding_complete", count=len(result), dim=len(result[0]) if result else 0)
     return result

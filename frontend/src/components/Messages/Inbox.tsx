@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { FileText, Users, MessageCircle, ChevronRight, Loader2 } from 'lucide-react'
 import type { PaperConversation, GroupChatPreview } from '../../types'
 import { listPaperConversations, listGroupChats, listReplyConversations, type ReplyConversation } from '../../lib/api'
@@ -50,27 +50,14 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border">
-        {([
-          { key: 'papers' as const, icon: FileText, label: 'Papers' },
-          { key: 'groups' as const, icon: Users, label: 'Groups' },
-          { key: 'threads' as const, icon: MessageCircle, label: 'Threads' },
-        ]).map(({ key, icon: Icon, label }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-all"
-            style={{
-              color: tab === key ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
-              fontWeight: tab === key ? 700 : 400,
-              borderBottom: tab === key ? '2px solid var(--color-gold)' : '2px solid transparent',
-            }}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
-      </div>
+      <InboxTabs active={tab} onSelect={setTab} />
+
+      <div
+        role="tabpanel"
+        id={`inbox-panel-${tab}`}
+        aria-labelledby={`inbox-tab-${tab}`}
+        tabIndex={0}
+      >
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -221,6 +208,56 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
           )}
         </div>
       )}
+      </div>
+    </div>
+  )
+}
+
+const INBOX_TABS: { key: 'papers' | 'groups' | 'threads'; icon: typeof FileText; label: string }[] = [
+  { key: 'papers', icon: FileText, label: 'Papers' },
+  { key: 'groups', icon: Users, label: 'Groups' },
+  { key: 'threads', icon: MessageCircle, label: 'Threads' },
+]
+
+function InboxTabs({ active, onSelect }: {
+  active: 'papers' | 'groups' | 'threads'
+  onSelect: (tab: 'papers' | 'groups' | 'threads') => void
+}) {
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const dir = e.key === 'ArrowRight' ? 1 : -1
+    const nextIndex = (index + dir + INBOX_TABS.length) % INBOX_TABS.length
+    const nextKey = INBOX_TABS[nextIndex].key
+    onSelect(nextKey)
+    tabRefs.current[nextKey]?.focus()
+  }
+
+  return (
+    <div className="flex border-b border-border" role="tablist" aria-label="Inbox sections">
+      {INBOX_TABS.map(({ key, icon: Icon, label }, i) => (
+        <button
+          key={key}
+          ref={(el) => { tabRefs.current[key] = el }}
+          role="tab"
+          id={`inbox-tab-${key}`}
+          aria-selected={active === key}
+          aria-controls={`inbox-panel-${key}`}
+          tabIndex={active === key ? 0 : -1}
+          onClick={() => onSelect(key)}
+          onKeyDown={(e) => handleKeyDown(e, i)}
+          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-all"
+          style={{
+            color: active === key ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
+            fontWeight: active === key ? 700 : 400,
+            borderBottom: active === key ? '2px solid var(--color-gold)' : '2px solid transparent',
+          }}
+        >
+          <Icon size={16} />
+          {label}
+        </button>
+      ))}
     </div>
   )
 }

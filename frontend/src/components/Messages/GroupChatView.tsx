@@ -114,7 +114,7 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
           ))}
 
           <div className="px-4 py-3 text-center">
-            <span className="text-xs text-text-muted/50">End of synthesis</span>
+            <span className="text-xs text-text-subtle">End of synthesis</span>
           </div>
         </div>
       ) : (

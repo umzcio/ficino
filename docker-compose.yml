@@ -59,9 +59,13 @@ services:
     image: pgvector/pgvector:pg16
     container_name: ficino-postgres
     restart: unless-stopped
+    # Credentials come from POSTGRES_PASSWORD in .env; the default falls back
+    # to "ficino" so a fresh checkout still boots. POSTGRES_PASSWORD is only
+    # honored when Postgres initializes a fresh volume — on existing volumes
+    # it's a no-op, so live rotation requires ALTER USER in addition.
     environment:
       POSTGRES_USER: ficino
-      POSTGRES_PASSWORD: ficino
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ficino}
       POSTGRES_DB: ficino
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ficino"]
@@ -78,8 +82,14 @@ services:
     image: redis:7-alpine
     container_name: ficino-redis
     restart: unless-stopped
+    # --requirepass is read every boot; unlike Postgres, Redis doesn't
+    # persist users in its data dir, so rotating REDIS_PASSWORD in .env
+    # takes effect on the next restart with no extra command needed.
+    command: sh -c 'redis-server --requirepass "$$REDIS_PASSWORD"'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
       interval: 5s
       timeout: 3s
       retries: 5

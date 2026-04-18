@@ -78,7 +78,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
 
       {/* Archivist reply */}
       {status === 'pending' && (
-        <div className="px-4 py-3 flex gap-3 bg-bg-hover/30 border-l-2 border-[#8b92a5]/30 ml-0">
+        <div role="status" aria-live="polite" aria-atomic="true" className="px-4 py-3 flex gap-3 bg-bg-hover/30 border-l-2 border-[#8b92a5]/30 ml-0">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
             style={{ backgroundColor: '#8b92a520', border: '1.5px solid #8b92a550', color: '#8b92a5' }}
@@ -93,7 +93,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
       )}
 
       {status === 'complete' && reply && (
-        <article className="px-4 py-3.5 flex gap-3 bg-bg-hover/20 border-l-2 border-[#8b92a5]/30 ml-0">
+        <article role="status" aria-live="polite" aria-atomic="true" className="px-4 py-3.5 flex gap-3 bg-bg-hover/20 border-l-2 border-[#8b92a5]/30 ml-0">
           {archivist?.avatar_url ? (
             <img
               src={archivist.avatar_url}
@@ -113,18 +113,20 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 mb-0.5">
-              <span
-                className="font-bold text-[15px] text-text hover:underline cursor-pointer"
+              <button
+                type="button"
+                className="font-bold text-[15px] text-text hover:underline cursor-pointer bg-transparent border-0 p-0 text-left"
                 onClick={() => onPersonaClick?.('archivist')}
               >
                 {archivist?.name || 'The Archivist'}
-              </span>
-              <span
-                className="text-sm text-text-muted hover:underline cursor-pointer"
+              </button>
+              <button
+                type="button"
+                className="text-sm text-text-muted hover:underline cursor-pointer bg-transparent border-0 p-0 text-left"
                 onClick={() => onPersonaClick?.('archivist')}
               >
                 {archivist?.handle || '@the_archivist'}
-              </span>
+              </button>
             </div>
             <div className="text-[13px] text-text-muted mb-1">
               Replying to <span className="text-gold">{userHandle}</span>
@@ -150,7 +152,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-semibold text-text-mid truncate">{src.paper_title}</span>
                           <span className="text-text-muted shrink-0">· {src.section}</span>
-                          <span className="text-gold/50 shrink-0 text-[10px] ml-auto">{(src.score * 100).toFixed(0)}%</span>
+                          <span className="text-text-subtle shrink-0 text-[10px] ml-auto">{(src.score * 100).toFixed(0)}%</span>
                         </div>
                         <p className="text-text-muted leading-relaxed line-clamp-3">{src.content}</p>
                       </div>

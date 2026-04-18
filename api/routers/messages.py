@@ -161,8 +161,16 @@ async def get_paper_summary(
 
 
 @router.get("/papers/{paper_id}/status/{task_id}")
-async def get_paper_summary_status(paper_id: str, task_id: str) -> dict[str, object]:
-    """Poll summary generation status."""
+async def get_paper_summary_status(
+    paper_id: str,
+    task_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Poll summary generation status.
+
+    Auth-gated (no task-id ownership check): task IDs are opaque but leaving
+    this open lets anyone with network visibility poll for completion.
+    """
     celery_app = _get_celery()
     result = celery_app.AsyncResult(task_id)
 

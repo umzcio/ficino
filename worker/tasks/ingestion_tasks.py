@@ -81,6 +81,12 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
     from lib.settings import apply_provider_settings, get_user_settings
     user_settings = apply_provider_settings()
 
+    # Fetch the paper's real owner so auto-tags and auto-generate dispatches
+    # attribute to them instead of the STUB_USER_ID placeholder. Falls back
+    # to the stub only if the lookup fails (paper row missing / unexpected).
+    paper_row = fetchrow("SELECT user_id FROM papers WHERE id = $1", paper_id)
+    paper_user_id = str(paper_row["user_id"]) if paper_row and paper_row["user_id"] else STUB_USER_ID
+
     try:
         # --- Step 1: Text extraction ---
         self.update_state(state="PROGRESS", meta={"step": "extracting", "paper_id": paper_id})
@@ -168,7 +174,7 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         # Auto-tag from extracted metadata
         auto_tags = meta.get("tags", [])
         if auto_tags:
-            user_id = STUB_USER_ID
+            user_id = paper_user_id
             for tag_name in auto_tags:
                 try:
                     tag = fetchrow(
@@ -205,7 +211,22 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
 
         if chunks:
             chunk_texts = [str(c["content"]) for c in chunks]
-            embeddings = embedder.embed_texts_sync(chunk_texts)
+            try:
+                embeddings = embedder.embed_texts_sync(chunk_texts)
+            except RuntimeError as e:
+                # Embedder now raises when no provider is reachable instead of
+                # silently producing zero-vectors that poison HNSW. Mark the
+                # paper 'error' with a descriptive message so the user knows
+                # why ingestion stopped — and do NOT retry, since this is a
+                # config issue, not a transient failure.
+                msg = f"No embedding provider available: {e}"
+                log.error("embedding_provider_unavailable", error=str(e))
+                _update_paper_status(paper_id, "error", error_message=msg)
+                return {
+                    "status": "error",
+                    "paper_id": paper_id,
+                    "error": msg,
+                }
         else:
             embeddings = []
 
@@ -307,7 +328,9 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         # --- Auto-generate feed if enabled ---
         try:
             from lib.settings import get_user_settings
-            user_settings = get_user_settings()
+            # Read settings for the paper's actual owner, not the stub — so
+            # the auto_generate_on_upload toggle honors the uploader's choice.
+            user_settings = get_user_settings(paper_user_id)
             if user_settings.get("auto_generate_on_upload"):
                 corpus_id = fetchrow(
                     "SELECT corpus_id FROM papers WHERE id = $1", paper_id
@@ -315,10 +338,17 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
                 if corpus_id and corpus_id["corpus_id"]:
                     app.send_task(
                         "tasks.persona_tasks.generate_feed",
-                        kwargs={"corpus_id": str(corpus_id["corpus_id"])},
+                        kwargs={
+                            "corpus_id": str(corpus_id["corpus_id"]),
+                            "user_id": str(paper_user_id),
+                        },
                         queue="persona",
                     )
-                    log.info("auto_generate_dispatched", corpus_id=str(corpus_id["corpus_id"]))
+                    log.info(
+                        "auto_generate_dispatched",
+                        corpus_id=str(corpus_id["corpus_id"]),
+                        user_id=str(paper_user_id),
+                    )
         except Exception:
             log.warn("auto_generate_dispatch_failed")
 

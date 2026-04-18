@@ -6,6 +6,7 @@ just accurate retrieval and clear synthesis.
 """
 
 import json
+import re
 import time
 
 import structlog
@@ -17,6 +18,62 @@ from lib.db import execute, fetchrow
 from lib.settings import apply_provider_settings, STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
+
+
+# "Author (YYYY)" or "Author et al. (YYYY)" — the format the ARCHIVIST_SYSTEM
+# prompt asks the model to produce. Looser patterns (e.g. "Smith and Jones
+# 2023") are out of scope; the prompt already steers the model to this shape.
+_CITATION_PATTERN = re.compile(
+    r'\b([A-Z][a-zA-Z\u00C0-\u024F\'\-]+)((?:\s+et\s+al\.?)?)\s*\((\d{4})\)'
+)
+
+
+def _known_citations(chunks: list[dict]) -> set[tuple[str, str]]:
+    """Extract (last_name_lower, year_str) tuples from retrieved chunks.
+
+    Only chunks the Archivist actually saw count as grounding — this is the
+    set the model is allowed to cite from. Uses the first author's last name
+    as the match key, since Archivist's output format drops later authors
+    behind "et al.".
+    """
+    known: set[tuple[str, str]] = set()
+    for c in chunks:
+        authors = c.get("paper_authors") or []
+        year = c.get("paper_year")
+        if authors and year:
+            first = authors[0] if isinstance(authors, (list, tuple)) else authors
+            # Last token of "Jane Doe" → "doe"; handles single-name authors too.
+            last = str(first).strip().split()[-1].lower() if str(first).strip() else ""
+            if last:
+                known.add((last, str(year)))
+    return known
+
+
+def _validate_citations(text: str, known: set[tuple[str, str]]) -> tuple[str, list[str]]:
+    """Strip citations that don't match any retrieved chunk's paper.
+
+    Returns (cleaned_text, list_of_stripped_citations). This is post-LLM
+    hallucination scrubbing — the prompt tells the model not to invent, but
+    LLMs do anyway, so we verify against the chunks that were actually
+    retrieved. Strips rather than flags to keep UX clean; hallucinations are
+    logged at warn level for monitoring.
+    """
+    hallucinated: list[str] = []
+
+    def replace(m: re.Match) -> str:
+        last = m.group(1).lower()
+        year = m.group(3)
+        if (last, year) in known:
+            return m.group(0)
+        hallucinated.append(m.group(0))
+        return ""
+
+    cleaned = _CITATION_PATTERN.sub(replace, text)
+    # Collapse any empty parenthetical wreckage "( )" or double-spaces left
+    # behind by stripped citations so the final prose stays tidy.
+    cleaned = re.sub(r'\s+,', ',', cleaned)
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
+    return cleaned, hallucinated
 
 
 ARCHIVIST_SYSTEM = """You are The Archivist, a neutral research assistant embedded in Ficino. You have read every paper in the user's corpus. Your job is to answer the user's question directly, grounding every claim in specific passages from the papers.
@@ -120,6 +177,20 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
             temperature=temperature,
             max_tokens=1024,
         )
+
+        # Post-process: strip "Author (YYYY)" citations that don't correspond
+        # to any retrieved chunk's paper. The model is instructed not to
+        # hallucinate, but verifying against the grounding set is cheap.
+        # Known citations are built from ALL retrieved chunks, not just the
+        # top 5 — the model sees all of them in the prompt and may cite any.
+        known = _known_citations(chunks)
+        response, hallucinated = _validate_citations(response, known)
+        if hallucinated:
+            log.warn(
+                "archivist_hallucinated_citation",
+                count=len(hallucinated),
+                citations=hallucinated[:10],
+            )
 
         # Build sources
         sources = [

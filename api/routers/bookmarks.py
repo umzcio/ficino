@@ -58,6 +58,18 @@ async def create_bookmark(
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Bookmark a post by saving a snapshot."""
+    # Verify the feed belongs to the caller before persisting anything keyed
+    # to (feed_id, post_index). Without this, a user can bookmark positions
+    # in another user's feed and — because the snapshot is client-supplied —
+    # stamp arbitrary content into their own bookmark list anchored to a
+    # foreign feed_id.
+    feed_owner = await db.fetchrow(
+        "SELECT 1 FROM feeds WHERE id = $1 AND user_id = $2",
+        body.feed_id, user.id,
+    )
+    if not feed_owner:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
     # Check if already bookmarked
     existing = await db.fetchrow(
         "SELECT id FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",

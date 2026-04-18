@@ -370,20 +370,31 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
         borderLeft: isFigure ? '3px solid color-mix(in srgb, var(--color-gold) 19%, transparent)' : '3px solid transparent',
       }}
       onClick={onClick}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => {
+        // Only trigger when the article itself is focused (not nested buttons/inputs)
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      } : undefined}
     >
       <Avatar persona={post.persona} />
 
       <div className="flex-1 min-w-0">
         {/* Header */}
         <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-          <span
-            className="font-bold text-[15px] text-text hover:underline cursor-pointer"
+          <button
+            type="button"
+            className="font-bold text-[15px] text-text hover:underline cursor-pointer bg-transparent border-0 p-0 text-left"
             onClick={(e) => { e.stopPropagation(); onPersonaClick?.(post.persona) }}
-          >{p.name}</span>
-          <span
-            className="text-sm text-text-muted hover:underline cursor-pointer"
+          >{p.name}</button>
+          <button
+            type="button"
+            className="text-sm text-text-muted hover:underline cursor-pointer bg-transparent border-0 p-0 text-left"
             onClick={(e) => { e.stopPropagation(); onPersonaClick?.(post.persona) }}
-          >{p.handle}</span>
+          >{p.handle}</button>
           <span className="text-sm text-text-muted">·</span>
           <span className="text-sm text-text-muted">{post.time}</span>
           {post.post_type === 'thread' && post.thread_count && (
@@ -651,7 +662,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-semibold text-text-mid truncate">{src.paper_title}</span>
                       <span className="text-text-muted shrink-0">· {src.section}</span>
-                      <span className="text-gold/50 shrink-0 text-[10px] ml-auto">{(src.score * 100).toFixed(0)}%</span>
+                      <span className="text-text-subtle shrink-0 text-[10px] ml-auto">{(src.score * 100).toFixed(0)}%</span>
                     </div>
                     <p className="text-text-muted leading-relaxed line-clamp-3">
                       {src.content}

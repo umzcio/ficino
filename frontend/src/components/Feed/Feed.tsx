@@ -1,9 +1,26 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, forwardRef } from 'react'
 import { FileText, Loader2, AlertCircle } from 'lucide-react'
+import { Virtuoso } from 'react-virtuoso'
 import type { FeedPost } from '../../types'
 import { getRepliedPostIndices } from '../../lib/api'
 import { useLikes } from '../../hooks/useLikes'
 import { PostCard } from './PostCard'
+
+// Preserve the role="feed" semantic by overriding Virtuoso's List element.
+// Virtuoso types the List ref as HTMLDivElement; cast through to keep its
+// measurement API happy while rendering an <ol> for a11y.
+const FeedList = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  function FeedList(props, ref) {
+    return (
+      <ol
+        role="feed"
+        className="list-none p-0 m-0"
+        {...(props as unknown as React.HTMLAttributes<HTMLOListElement>)}
+        ref={ref as unknown as React.Ref<HTMLOListElement>}
+      />
+    )
+  },
+)
 
 interface FeedProps {
   posts: FeedPost[]
@@ -46,6 +63,12 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
   // Track locally-deleted post indices for optimistic UI (persists until next feed reload)
   const [deletedIndices, setDeletedIndices] = useState<Set<number>>(new Set())
   const { isLiked, isReplyLiked, toggle: toggleLike, toggleReply: toggleReplyLike } = useLikes(feedId)
+  const panelProps = {
+    role: 'tabpanel' as const,
+    id: `feed-panel-${activeTab}`,
+    'aria-labelledby': `feed-tab-${activeTab}`,
+    tabIndex: 0,
+  }
 
   // Stable handler identities so PostCard's React.memo comparator can
   // actually skip re-renders. Per-post closures (onClick, which captures
@@ -73,7 +96,7 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
   if (feedState === 'generating' && posts.length === 0) {
     const stepLabel = STEP_LABELS[generatingMeta.step || ''] || 'Starting...'
     return (
-      <div className="flex flex-col items-center justify-center py-20">
+      <div {...panelProps} className="flex flex-col items-center justify-center py-20">
         <Loader2 size={32} className="text-gold animate-spin mb-4" />
         <p className="text-sm font-medium text-text mb-1">{stepLabel}</p>
         {generatingMeta.postProgress && (
@@ -87,7 +110,7 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
 
   if (feedState === 'error') {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-persona-skeptic">
+      <div {...panelProps} className="flex flex-col items-center justify-center py-20 text-persona-skeptic">
         <AlertCircle size={32} className="mb-4" />
         <p className="text-sm font-medium mb-1">Generation failed</p>
         <p className="text-xs text-text-muted max-w-[300px] text-center">{error}</p>
@@ -97,7 +120,7 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
 
   if (posts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-text-muted">
+      <div {...panelProps} className="flex flex-col items-center justify-center py-20 text-text-muted">
         <FileText size={48} strokeWidth={1} className="mb-4 text-gold/30" />
         <p className="text-lg font-semibold text-text-mid mb-2">No posts yet</p>
         <p className="text-sm">Upload papers and click Generate to create your feed</p>
@@ -105,54 +128,57 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
     )
   }
 
-  // Filter soft-deleted posts (server-side flag or optimistic local set) and apply tab filter
+  // Filter soft-deleted posts (server-side flag or optimistic local set) and apply tab filter.
+  // Precompute originalIndex in a single pass so the render loop stays O(N)
+  // instead of calling posts.indexOf(post) for every item (was O(N^2)).
   const categoryFilter = TAB_CATEGORIES[activeTab] ?? null
-  const visible = posts.filter((p, idx) => !p.deleted && !deletedIndices.has(idx))
-  const filtered = categoryFilter
-    ? visible.filter((p) => p.category === categoryFilter)
-    : visible
+  const filtered = posts
+    .map((post, originalIndex) => ({ post, originalIndex }))
+    .filter(({ post, originalIndex }) => !post.deleted && !deletedIndices.has(originalIndex))
+    .filter(({ post }) => !categoryFilter || post.category === categoryFilter)
 
   if (filtered.length === 0 && posts.length > 0) {
     const tabNames = TAB_NAMES
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-text-muted">
+      <div {...panelProps} className="flex flex-col items-center justify-center py-20 text-text-muted">
         <p className="text-sm">No {tabNames[activeTab]?.toLowerCase()} posts in this feed.</p>
-        <p className="text-xs mt-1 text-text-muted/60">Try generating again for more variety.</p>
+        <p className="text-xs mt-1 text-text-subtle">Try generating again for more variety.</p>
       </div>
     )
   }
 
   return (
-    <div>
-      <ol role="feed" className="list-none p-0 m-0">
-        {filtered.map((post, i) => {
-          const originalIndex = posts.indexOf(post)
-          return (
-            <li key={post.id ?? i} className="list-none">
-              <PostCard
-                post={post}
-                feedId={feedId}
-                postIndex={originalIndex}
-                bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
-                onBookmarkToggle={handleBookmarkToggle}
-                onClick={() => onPostClick?.(originalIndex)}
-                hasUserReply={repliedIndices.has(originalIndex)}
-                annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
-                onAnnotationSave={onAnnotationSave}
-                onAnnotationDelete={onAnnotationDelete}
-                onPersonaClick={onPersonaClick}
-                liked={isLiked(originalIndex)}
-                onLikeToggle={toggleLike}
-                isReplyLiked={isReplyLiked}
-                onReplyLikeToggle={toggleReplyLike}
-                onReplyBookmark={onReplyBookmark}
-                isReplyBookmarked={isReplyBookmarked}
-                onPostDeleted={handlePostDeleted}
-              />
-            </li>
-          )
-        })}
-      </ol>
+    <div {...panelProps}>
+      <Virtuoso
+        data={filtered}
+        useWindowScroll
+        components={{ List: FeedList }}
+        computeItemKey={(_, { post, originalIndex }) => post.id ?? `post-${originalIndex}`}
+        itemContent={(_, { post, originalIndex }) => (
+          <li className="list-none">
+            <PostCard
+              post={post}
+              feedId={feedId}
+              postIndex={originalIndex}
+              bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
+              onBookmarkToggle={handleBookmarkToggle}
+              onClick={() => onPostClick?.(originalIndex)}
+              hasUserReply={repliedIndices.has(originalIndex)}
+              annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
+              onAnnotationSave={onAnnotationSave}
+              onAnnotationDelete={onAnnotationDelete}
+              onPersonaClick={onPersonaClick}
+              liked={isLiked(originalIndex)}
+              onLikeToggle={toggleLike}
+              isReplyLiked={isReplyLiked}
+              onReplyLikeToggle={toggleReplyLike}
+              onReplyBookmark={onReplyBookmark}
+              isReplyBookmarked={isReplyBookmarked}
+              onPostDeleted={handlePostDeleted}
+            />
+          </li>
+        )}
+      />
       <div className="py-5 text-center">
         {feedState === 'generating' ? (
           <div className="flex flex-col items-center gap-2 py-4">

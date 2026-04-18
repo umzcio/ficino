@@ -77,8 +77,16 @@ async def generate_feed(
 
 
 @router.get("/status/{task_id}")
-async def get_feed_status(task_id: str) -> dict[str, object]:
-    """Poll the status of a feed generation task."""
+async def get_feed_status(
+    task_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Poll the status of a feed generation task.
+
+    Auth-gated (no task-id ownership check): a task_id is opaque and
+    effectively unguessable, but leaving this unauthenticated would let any
+    passerby poll by scraping task IDs out of logs or the network tab.
+    """
     celery_app = _get_celery()
     result = celery_app.AsyncResult(task_id)
 
@@ -224,6 +232,7 @@ async def regenerate_post(
     task = celery_app.send_task(
         "tasks.persona_tasks.regenerate_post",
         args=[feed_id, post_index],
+        kwargs={"user_id": user.id},
         queue="persona",
     )
     logger.info("regenerate_post_dispatched", feed_id=feed_id, post_index=post_index, task_id=task.id)
