@@ -26,6 +26,11 @@ async def get_llm_config(db: asyncpg.Connection, user_id: str = "") -> dict[str,
         "claude_model": env_settings.claude_model,
     }
 
+    # `ollama_base_url` is deliberately NOT user-overridable: a user-controlled
+    # URL here makes every downstream LLM call a POST to the attacker-chosen
+    # host (authenticated SSRF). It comes from env only.
+    USER_OVERRIDABLE = {"llm_provider", "ollama_llm_model", "anthropic_api_key", "claude_model"}
+
     row = await db.fetchrow(
         "SELECT settings FROM user_settings WHERE user_id = $1",
         user_id or STUB_USER_ID,
@@ -34,7 +39,7 @@ async def get_llm_config(db: asyncpg.Connection, user_id: str = "") -> dict[str,
         user = row["settings"]
         if isinstance(user, str):
             user = json.loads(user)
-        for key in config:
+        for key in USER_OVERRIDABLE:
             if key in user and user[key]:
                 config[key] = str(user[key])
 
@@ -74,11 +79,15 @@ async def generate_response(
             return content
     else:
         import anthropic
-        client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"])
+        client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"], timeout=120.0)
+        # Prior code omitted `temperature`, so every Claude call ran at the
+        # provider default (~1.0) regardless of the per-persona temperature
+        # column. Pass it through so personas keep their distinctive voices.
         resp = await client.messages.create(
             model=cfg["claude_model"],
             max_tokens=max_tokens,
             system=system,
             messages=messages,
+            temperature=temperature,
         )
         return resp.content[0].text

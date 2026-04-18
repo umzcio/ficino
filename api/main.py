@@ -55,11 +55,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — permissive in dev, lock down in production
+# CORS — permissive in dev, lock down in production. Prod origins must come
+# through CORS_ORIGINS so dev mode can't accidentally accept a prod origin.
 if settings.environment == "development":
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000", "https://ficino.local"],
+        allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

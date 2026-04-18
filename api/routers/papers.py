@@ -214,11 +214,11 @@ async def delete_paper(
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
-    """Delete a paper and its associated chunks, feeds, and alerts."""
-    # Get corpus_id + filename before deleting so we can clean up feeds/alerts
-    # and record them in the audit log.
+    """Delete a paper and its associated chunks + feeds (ownership-scoped)."""
+    # Single round-trip: verify ownership + return metadata + delete.
     row = await db.fetchrow(
-        "SELECT corpus_id, filename FROM papers WHERE id = $1", paper_id,
+        "DELETE FROM papers WHERE id = $1 AND user_id = $2 RETURNING corpus_id, filename",
+        paper_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -226,20 +226,20 @@ async def delete_paper(
     corpus_id = row["corpus_id"]
     filename = row["filename"]
 
-    await db.execute("DELETE FROM papers WHERE id = $1", paper_id)
-
-    # If no papers remain in this workspace, clean up its feeds and alerts
+    # If this was the last paper in the workspace, drop its feeds so the UI
+    # doesn't render dangling discourse. Alerts are user-scoped, not workspace-
+    # scoped, so leave them alone.
     if corpus_id:
         remaining = await db.fetchval(
-            "SELECT COUNT(*) FROM papers WHERE corpus_id = $1", corpus_id
+            "SELECT COUNT(*) FROM papers WHERE corpus_id = $1 AND user_id = $2",
+            corpus_id, user.id,
         )
         if remaining == 0:
-            await db.execute("DELETE FROM feeds WHERE corpus_id = $1", corpus_id)
             await db.execute(
-                "DELETE FROM alerts WHERE user_id = $1",
-                user.id,
+                "DELETE FROM feeds WHERE corpus_id = $1 AND user_id = $2",
+                corpus_id, user.id,
             )
-            logger.info("workspace_feeds_alerts_cleared", corpus_id=corpus_id)
+            logger.info("workspace_feeds_cleared", corpus_id=corpus_id)
 
     # Clean up uploaded file
     file_path = os.path.join(UPLOAD_DIR, f"{paper_id}.pdf")

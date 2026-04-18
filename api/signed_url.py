@@ -12,14 +12,31 @@ import hmac
 import os
 import time
 
-_SIGNING_KEY = os.getenv(
-    "SIGNED_URL_KEY",
-    # Fallback: derive from database URL + a fixed salt so dev/self-hosted
-    # just works. In production, SET `SIGNED_URL_KEY` to something random.
-    hashlib.sha256(
+def _resolve_signing_key() -> bytes:
+    """Resolve the signing key; fail-closed in production if unset.
+
+    The prior fallback derived a key from DATABASE_URL + a fixed salt. Since
+    DATABASE_URL often holds a known default (`ficino:ficino@postgres`), the
+    fallback was reproducible from the repo — forgeable figure tokens. In
+    production we refuse to start rather than ship a derivable key.
+    """
+    key = os.getenv("SIGNED_URL_KEY", "").strip()
+    if key:
+        return key.encode()
+
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        raise RuntimeError(
+            "SIGNED_URL_KEY is required when ENVIRONMENT=production. "
+            'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+
+    # Dev only: derive a stable-per-machine key from DATABASE_URL.
+    return hashlib.sha256(
         (os.getenv("DATABASE_URL", "") + "::ficino-figure-salt").encode()
-    ).hexdigest(),
-).encode()
+    ).hexdigest().encode()
+
+
+_SIGNING_KEY = _resolve_signing_key()
 
 DEFAULT_TTL_SECONDS = 600  # 10 minutes
 

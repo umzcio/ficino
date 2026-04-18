@@ -14,12 +14,24 @@ import hmac
 import os
 import time
 
-_SIGNING_KEY = os.getenv(
-    "SIGNED_URL_KEY",
-    hashlib.sha256(
+def _resolve_signing_key() -> bytes:
+    """Mirror of api/signed_url.py — fail-closed in production if unset."""
+    key = os.getenv("SIGNED_URL_KEY", "").strip()
+    if key:
+        return key.encode()
+
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        raise RuntimeError(
+            "SIGNED_URL_KEY is required when ENVIRONMENT=production. "
+            'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+
+    return hashlib.sha256(
         (os.getenv("DATABASE_URL", "") + "::ficino-figure-salt").encode()
-    ).hexdigest(),
-).encode()
+    ).hexdigest().encode()
+
+
+_SIGNING_KEY = _resolve_signing_key()
 
 DEFAULT_TTL_SECONDS = 600  # 10 minutes — matches api/signed_url.py
 

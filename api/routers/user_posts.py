@@ -109,6 +109,16 @@ async def create_user_post(
     _rl: None = Depends(RateLimit("user_post", settings.rate_limit_user_posts_per_day)),
 ) -> dict[str, str]:
     """Create a user post and dispatch The Archivist to respond."""
+    # If a corpus is specified, it must belong to the caller. Without this
+    # check, a user can stage an Archivist run over another user's corpus.
+    if body.corpus_id:
+        owner = await db.fetchval(
+            "SELECT 1 FROM corpora WHERE id = $1 AND user_id = $2",
+            body.corpus_id, user.id,
+        )
+        if not owner:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
     row = await db.fetchrow(
         """INSERT INTO user_posts (user_id, corpus_id, content, status)
            VALUES ($1, $2, $3, 'pending') RETURNING id""",

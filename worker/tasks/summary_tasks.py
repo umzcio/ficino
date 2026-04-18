@@ -10,6 +10,7 @@ from celery import Task
 from celery_app import app
 from lib import claude_client
 from lib.db import execute, fetch, fetchrow
+from lib.sanitize import fence_untrusted
 
 logger = structlog.get_logger(__name__)
 
@@ -121,22 +122,21 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
         if not rows:
             raise ValueError(f"No chunks found for paper {paper_id}")
 
+        # Chunk content + title are PDF-origin and must be treated as untrusted
+        # so a hostile document can't reshape the summarizer prompt.
         chunks_text = "\n\n".join(
-            f"[{row['section'].upper()}]\n{row['content']}" for row in rows
+            f"[{row['section'].upper()}]\n{fence_untrusted(str(row['content']))}"
+            for row in rows
         )
+        fenced_title = fence_untrusted(str(title))
 
         # Generate summary
         self.update_state(state="PROGRESS", meta={"step": "generating", "paper_id": paper_id})
 
-        prompt = PAPER_SUMMARY_PROMPT.format(title=title, chunks=chunks_text[:8000])
-        result = claude_client.generate_persona_post_sync(PAPER_SUMMARY_SYSTEM, prompt)
-
-        # Result should be a list, but generate_persona_post_sync returns a dict.
-        # Re-parse: the LLM should return a JSON array. Explicit max_tokens=1536
-        # caps the generated length — summary should comfortably fit, and this
-        # guards against runaway output if the LLM gets chatty on a big corpus.
-        # generate_text_sync routes through the persistent loop in claude_client
-        # so httpx clients don't get GC'd on a dead loop (BUG-LIVE-06).
+        prompt = PAPER_SUMMARY_PROMPT.format(title=fenced_title, chunks=chunks_text[:8000])
+        # Single LLM call — prior code also invoked generate_persona_post_sync
+        # before this, discarded the result, and re-ran generate_text_sync.
+        # That doubled cost on Claude API without using the first result.
         raw_text = claude_client.generate_text_sync(
             PAPER_SUMMARY_SYSTEM, prompt, max_tokens=1536,
         )
@@ -202,8 +202,12 @@ def generate_corpus_synthesis(
                 pid,
             )
             if rows:
-                chunks_text = "\n".join(f"[{r['section']}] {r['content'][:300]}" for r in rows)
-                paper_sections.append(f"=== {title} ===\n{chunks_text}")
+                fenced_title = fence_untrusted(str(title))
+                chunks_text = "\n".join(
+                    f"[{r['section']}]\n{fence_untrusted(str(r['content'])[:300])}"
+                    for r in rows
+                )
+                paper_sections.append(f"=== {fenced_title} ===\n{chunks_text}")
 
         if not paper_sections:
             raise ValueError("No chunks found for any of the papers")

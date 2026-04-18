@@ -216,6 +216,16 @@ async def create_group_chat(
     if len(body.paper_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 papers for a group chat")
 
+    # Verify every supplied paper_id belongs to the caller. Without this,
+    # a user can synthesize across another user's corpus and receive chunks
+    # from it in the resulting group chat.
+    owned_count = await db.fetchval(
+        "SELECT COUNT(*) FROM papers WHERE id = ANY($1::uuid[]) AND user_id = $2",
+        body.paper_ids, user.id,
+    )
+    if owned_count != len(body.paper_ids):
+        raise HTTPException(status_code=404, detail="One or more papers not found")
+
     synthesis_id = str(uuid.uuid4())
     user_id = user.id
 

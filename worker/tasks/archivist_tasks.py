@@ -53,22 +53,32 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
         temperature = user_settings.get("persona_temperature", 0.7)
 
         # Load the user post
-        row = fetchrow("SELECT content, corpus_id FROM user_posts WHERE id = $1", user_post_id)
+        row = fetchrow(
+            "SELECT content, corpus_id, user_id FROM user_posts WHERE id = $1",
+            user_post_id,
+        )
         if not row:
             raise ValueError(f"User post {user_post_id} not found")
 
         user_content = row["content"]
+        post_user_id = str(row["user_id"])
         post_corpus_id = str(row["corpus_id"]) if row["corpus_id"] else corpus_id
 
-        # Get paper IDs for this corpus
+        # Get paper IDs — always scoped to the post owner. If a corpus_id is
+        # present, narrow further to that workspace. Without the user_id
+        # filter, the no-corpus fallthrough used to leak other users' papers
+        # into the Archivist reply.
         if post_corpus_id:
             paper_rows = fetchrow(
-                "SELECT array_agg(id::text) AS ids FROM papers WHERE corpus_id = $1 AND status = 'complete'",
-                post_corpus_id,
+                """SELECT array_agg(id::text) AS ids FROM papers
+                   WHERE corpus_id = $1 AND user_id = $2 AND status = 'complete'""",
+                post_corpus_id, post_user_id,
             )
         else:
             paper_rows = fetchrow(
-                "SELECT array_agg(id::text) AS ids FROM papers WHERE status = 'complete'",
+                """SELECT array_agg(id::text) AS ids FROM papers
+                   WHERE user_id = $1 AND status = 'complete'""",
+                post_user_id,
             )
 
         paper_ids = paper_rows["ids"] if paper_rows and paper_rows["ids"] else []

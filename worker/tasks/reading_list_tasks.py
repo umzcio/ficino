@@ -16,6 +16,7 @@ from celery import Task
 from celery_app import app
 from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow, fetch
+from lib.sanitize import fence_untrusted
 from lib.settings import apply_provider_settings, STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
@@ -90,12 +91,15 @@ def propose_ordering(self: Task, paper_ids: list[str], corpus_id: str | None = N
         if not papers_context:
             return {"ordered_papers": [], "error": "No papers found"}
 
-        # Format papers for the prompt
+        # Format papers for the prompt. Titles, authors, and chunk previews
+        # are PDF-origin — fence so a poisoned paper can't rewrite ordering
+        # instructions (ID-set check at line 123 catches phantom IDs but not
+        # injected rationale text).
         papers_text = "\n\n".join(
             f"Paper ID: {p['paper_id']}\n"
-            f"Title: {p['title']}\n"
-            f"Authors: {p['authors']} ({p['year']})\n"
-            f"Content preview: {p['preview']}"
+            f"Title: {fence_untrusted(str(p['title']))}\n"
+            f"Authors: {fence_untrusted(str(p['authors']))} ({p['year']})\n"
+            f"Content preview: {fence_untrusted(str(p['preview']))}"
             for p in papers_context
         )
 

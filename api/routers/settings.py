@@ -71,6 +71,13 @@ class SettingsUpdate(BaseModel):
     settings: dict
 
 
+# Allow-list of settings keys accepted from user input. Anything not here
+# is dropped silently with a warn log. This closes a user-controlled SSRF
+# where `ollama_base_url` (and similar URL-shaped keys) in the settings
+# blob could redirect every downstream LLM call to an attacker-chosen host.
+ALLOWED_SETTINGS_KEYS = frozenset(DEFAULTS.keys())
+
+
 @router.get("")
 async def get_settings(
     user: AuthUser = Depends(get_current_user),
@@ -118,8 +125,19 @@ async def update_settings(
         if isinstance(existing, str):
             existing = json.loads(existing)
 
-    # Merge updates
+    # Drop anything not on the whitelist before merging
+    filtered: dict[str, object] = {}
+    dropped: list[str] = []
     for key, value in body.settings.items():
+        if key in ALLOWED_SETTINGS_KEYS:
+            filtered[key] = value
+        else:
+            dropped.append(key)
+    if dropped:
+        logger.warn("settings_dropped_unknown_keys", keys=dropped, user_id=user.id)
+
+    # Merge updates
+    for key, value in filtered.items():
         if key in existing and isinstance(existing[key], dict) and isinstance(value, dict):
             existing[key] = {**existing[key], **value}
         else:
@@ -134,7 +152,7 @@ async def update_settings(
         user.id, settings_json,
     )
 
-    logger.info("settings_updated", keys=list(body.settings.keys()))
+    logger.info("settings_updated", keys=list(filtered.keys()))
 
     # Return merged with defaults
     merged = {**DEFAULTS}
