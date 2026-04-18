@@ -8,7 +8,7 @@ import bcrypt
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from audit import record_audit
 from auth.models import AuthUser
@@ -22,13 +22,28 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class AuthRequest(BaseModel):
+    """Login payload. Intentionally does NOT bound password length so that
+    pre-existing accounts (which might have been created under a looser
+    policy) can still authenticate. Registration uses RegisterRequest below,
+    which enforces the current policy only on new accounts."""
     email: str
     password: str
 
 
+class RegisterRequest(BaseModel):
+    """Registration payload with a password policy.
+
+    - min_length=12: raise the bar above trivially guessable passwords.
+    - max_length=72: bcrypt silently truncates at 72 bytes, so anything
+      longer is a footgun — reject it at the API boundary.
+    """
+    email: str
+    password: str = Field(min_length=12, max_length=72)
+
+
 @router.post("/register", status_code=201)
 async def register(
-    body: AuthRequest,
+    body: RegisterRequest,
     request: Request,
     response: Response,
     db: asyncpg.Connection = Depends(get_db),

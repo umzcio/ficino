@@ -11,7 +11,7 @@ import os
 import httpx
 import structlog
 
-from lib.pdf_extractor import rasterize_page, get_page_count
+from lib.pdf_extractor import rasterize_page, rasterize_pages, get_page_count
 
 logger = structlog.get_logger(__name__)
 
@@ -113,9 +113,11 @@ async def extract_with_vision(file_path: str) -> str:
     logger.info("vision_extract_start", file_path=file_path, pages=page_count, provider=cfg["vision_provider"])
 
     pages_markdown: list[str] = []
-    for page_num in range(page_count):
+    # Open the PDF once and stream pixmaps — avoids the O(pages) cost of
+    # re-opening the document per rasterize_page call inside the loop.
+    rasterizer = rasterize_pages(file_path, range(page_count), dpi=200)
+    for page_num, page_image in enumerate(rasterizer):
         logger.info("vision_extract_page", page=page_num + 1, total=page_count)
-        page_image = rasterize_page(file_path, page_num, dpi=200)
         page_text = await extract_page(page_image, page_num + 1)
         pages_markdown.append(page_text)
 
@@ -126,18 +128,35 @@ async def extract_with_vision(file_path: str) -> str:
 
 # Persistent event loop to avoid the asyncio.run() + httpx-GC race —
 # same pattern as the other worker/lib sync wrappers. BUG-LIVE-06.
+# Round-4: loop runs on a dedicated daemon thread; concurrent callers
+# submit via run_coroutine_threadsafe instead of queuing on a lock.
 import threading as _threading
 
 _vision_loop: asyncio.AbstractEventLoop | None = None
 _vision_loop_lock = _threading.Lock()
 
 
-def _run_on_vision_loop(coro):
+def _ensure_vision_loop() -> asyncio.AbstractEventLoop:
     global _vision_loop
+    if _vision_loop is not None and not _vision_loop.is_closed():
+        return _vision_loop
     with _vision_loop_lock:
         if _vision_loop is None or _vision_loop.is_closed():
-            _vision_loop = asyncio.new_event_loop()
-        return _vision_loop.run_until_complete(coro)
+            loop = asyncio.new_event_loop()
+
+            def _runner() -> None:
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            t = _threading.Thread(target=_runner, name="vision-loop", daemon=True)
+            t.start()
+            _vision_loop = loop
+        return _vision_loop
+
+
+def _run_on_vision_loop(coro):
+    loop = _ensure_vision_loop()
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 def extract_with_vision_sync(file_path: str) -> str:

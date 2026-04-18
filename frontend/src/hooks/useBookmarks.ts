@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { FeedPost } from '../types'
 import {
   listBookmarks,
@@ -12,6 +12,10 @@ import { cacheBookmarks, getCachedBookmarks } from '../lib/offline-cache'
 export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([])
   const [loading, setLoading] = useState(true)
+  // Sentinel: keys of in-flight toggle operations. Double-clicks race against
+  // refresh() — the second click reads the stale `bookmarks` closure before
+  // the first's refresh lands. Drop any toggle whose key is already in flight.
+  const inFlight = useRef<Set<string>>(new Set())
 
   const refresh = useCallback(async () => {
     try {
@@ -34,15 +38,22 @@ export function useBookmarks() {
 
   const toggle = useCallback(
     async (feedId: string, postIndex: number, post: FeedPost, messageIndex: number = -1) => {
-      const existing = bookmarks.find(
-        (b) => b.feed_id === feedId && b.post_index === postIndex && (b.message_index ?? -1) === messageIndex
-      )
-      if (existing) {
-        await deleteBookmarkByPost(feedId, postIndex, messageIndex)
-      } else {
-        await createBookmark(feedId, postIndex, post as unknown as Record<string, unknown>, messageIndex)
+      const key = `${feedId}:${postIndex}:${messageIndex}`
+      if (inFlight.current.has(key)) return
+      inFlight.current.add(key)
+      try {
+        const existing = bookmarks.find(
+          (b) => b.feed_id === feedId && b.post_index === postIndex && (b.message_index ?? -1) === messageIndex
+        )
+        if (existing) {
+          await deleteBookmarkByPost(feedId, postIndex, messageIndex)
+        } else {
+          await createBookmark(feedId, postIndex, post as unknown as Record<string, unknown>, messageIndex)
+        }
+        await refresh()
+      } finally {
+        inFlight.current.delete(key)
       }
-      await refresh()
     },
     [bookmarks, refresh]
   )

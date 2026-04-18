@@ -125,19 +125,9 @@ async def test_delete_workspace_succeeds_when_not_last(
     client_as_user_a, seeded_users, db_conn,
 ):
     """Create a second workspace for A, then delete the original. Papers
-    originally in the deleted workspace should move to DEFAULT_WORKSPACE_ID
-    per the router's implementation."""
-    from constants import DEFAULT_WORKSPACE_ID
-
-    # Make sure DEFAULT_WORKSPACE_ID row exists; in tests the main.py lifespan
-    # doesn't run (we bypass it in conftest) so the default workspace may not
-    # yet be created. Insert-or-ignore it now.
-    await db_conn.execute(
-        """INSERT INTO corpora (id, user_id, name) VALUES ($1, $2, 'Default')
-           ON CONFLICT (id) DO NOTHING""",
-        DEFAULT_WORKSPACE_ID, "00000000-0000-0000-0000-000000000000",
-    )
-
+    originally in the deleted workspace should move into one of A's own
+    workspaces (the caller's earliest corpus by created_at) — NOT the shared
+    stub DEFAULT_WORKSPACE_ID. See MED-1."""
     # Second workspace for A.
     second = str(uuid.uuid4())
     await db_conn.execute(
@@ -155,11 +145,15 @@ async def test_delete_workspace_succeeds_when_not_last(
     )
     assert gone == 0
 
-    # Paper that used to live in workspace_a was moved to the default.
+    # Paper that used to live in workspace_a was moved to a workspace owned
+    # by A. It must NOT have ended up in another user's corpus.
     paper_corpus = await db_conn.fetchval(
         "SELECT corpus_id FROM papers WHERE id = $1", seeded_users["paper_a"],
     )
-    assert str(paper_corpus) == DEFAULT_WORKSPACE_ID
+    owner = await db_conn.fetchval(
+        "SELECT user_id FROM corpora WHERE id = $1", paper_corpus,
+    )
+    assert str(owner) == USER_A_ID
 
 
 @pytest.mark.asyncio

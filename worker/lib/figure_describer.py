@@ -141,18 +141,35 @@ async def describe_figure(image_bytes: bytes) -> dict[str, str]:
 
 # Persistent event loop for the sync wrapper — prevents httpx GC on a
 # dead loop (see BUG-LIVE-06 in phase2 playwright report).
+# Round-4: loop runs on a dedicated daemon thread via run_forever so
+# concurrent Celery threads don't serialize behind a single run_until_complete.
 import threading as _threading
 
 _figure_loop: asyncio.AbstractEventLoop | None = None
 _figure_loop_lock = _threading.Lock()
 
 
-def _run_on_figure_loop(coro):
+def _ensure_figure_loop() -> asyncio.AbstractEventLoop:
     global _figure_loop
+    if _figure_loop is not None and not _figure_loop.is_closed():
+        return _figure_loop
     with _figure_loop_lock:
         if _figure_loop is None or _figure_loop.is_closed():
-            _figure_loop = asyncio.new_event_loop()
-        return _figure_loop.run_until_complete(coro)
+            loop = asyncio.new_event_loop()
+
+            def _runner() -> None:
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            t = _threading.Thread(target=_runner, name="figure-loop", daemon=True)
+            t.start()
+            _figure_loop = loop
+        return _figure_loop
+
+
+def _run_on_figure_loop(coro):
+    loop = _ensure_figure_loop()
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 def describe_figure_sync(image_bytes: bytes) -> dict[str, str]:

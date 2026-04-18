@@ -23,7 +23,7 @@
   --color-nav-inactive: #7a8194;
   --color-tab-active: #e8eaf0;
   --color-tab-inactive: #7a8699;  /* was #555d6e — bumped for WCAG AA 3:1 on bg (UI component) */
-  --color-toggle-off: #1e2028;
+  --color-toggle-off: #5b6276;    /* was #1e2028 (= --color-border, invisible track) — bumped for 3:1 UI component contrast on bg/bg-hover; white thumb still ~6:1 */
 }
 
 /* Light mode overrides */
@@ -42,7 +42,7 @@
   --color-nav-inactive: #6b7280;
   --color-tab-active: #1a1c22;
   --color-tab-inactive: #9ca3af;
-  --color-toggle-off: #d1d5db;
+  --color-toggle-off: #8a91a0;    /* was #d1d5db — bumped for 3:1 UI component contrast on white/#f5f5f7; white thumb still ~3:1 */
 }
 
 /* Font size */

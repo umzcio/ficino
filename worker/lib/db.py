@@ -16,24 +16,45 @@ logger = structlog.get_logger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ficino:ficino@postgres:5432/ficino")
 
-# Persistent pool + event loop (thread-safe, lazy-initialized)
+# Persistent pool + event loop (thread-safe, lazy-initialized).
+# Round-4: loop runs on a dedicated daemon thread; sync wrappers submit
+# via run_coroutine_threadsafe so multiple Celery threads don't queue up
+# behind a single run_until_complete call. The small lock only guards
+# first-time loop creation.
 _pool: asyncpg.Pool | None = None
 _loop: asyncio.AbstractEventLoop | None = None
 _lock = threading.Lock()
 
 
-def _get_loop() -> asyncio.AbstractEventLoop:
-    """Get or create a persistent event loop for DB operations."""
+def _ensure_loop() -> asyncio.AbstractEventLoop:
+    """Get or create a persistent event loop running on a background thread."""
     global _loop
-    if _loop is None or _loop.is_closed():
-        _loop = asyncio.new_event_loop()
-    return _loop
+    if _loop is not None and not _loop.is_closed():
+        return _loop
+    with _lock:
+        if _loop is None or _loop.is_closed():
+            loop = asyncio.new_event_loop()
+
+            def _runner() -> None:
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            t = threading.Thread(target=_runner, name="db-loop", daemon=True)
+            t.start()
+            _loop = loop
+        return _loop
 
 
 async def _ensure_pool() -> asyncpg.Pool:
-    """Create the connection pool if it doesn't exist."""
+    """Create the connection pool if it doesn't exist.
+
+    Only checks for None — don't peek at `_pool._closed` (private API that can
+    disappear between asyncpg releases). If the pool was closed out from
+    under us, the first acquire will raise and the wrappers below will
+    rebuild the pool on demand.
+    """
     global _pool
-    if _pool is None or _pool._closed:
+    if _pool is None:
         _pool = await asyncpg.create_pool(
             dsn=DATABASE_URL,
             min_size=2,
@@ -43,29 +64,74 @@ async def _ensure_pool() -> asyncpg.Pool:
     return _pool
 
 
+async def _reset_pool() -> None:
+    """Drop the cached pool reference so the next _ensure_pool rebuilds it."""
+    global _pool
+    _pool = None
+
+
+def _is_pool_closed_error(exc: BaseException) -> bool:
+    """True if the error indicates the underlying pool has been closed.
+
+    asyncpg signals this via InterfaceError (different messages across
+    versions) or sometimes RuntimeError("pool is closed").
+    """
+    if isinstance(exc, asyncpg.InterfaceError):
+        return True
+    if isinstance(exc, RuntimeError) and "pool is closed" in str(exc).lower():
+        return True
+    return False
+
+
 def _run(coro):
-    """Run an async coroutine on the persistent event loop."""
-    with _lock:
-        loop = _get_loop()
-        return loop.run_until_complete(coro)
+    """Submit a coroutine to the persistent loop and block for the result."""
+    loop = _ensure_loop()
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 async def _execute(query: str, *args: object) -> str:
-    pool = await _ensure_pool()
-    async with pool.acquire() as conn:
-        return await conn.execute(query, *args)
+    try:
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            return await conn.execute(query, *args)
+    except BaseException as exc:
+        if not _is_pool_closed_error(exc):
+            raise
+        logger.warn("worker_db_pool_closed_rebuilding", op="execute", error=str(exc))
+        await _reset_pool()
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            return await conn.execute(query, *args)
 
 
 async def _fetchrow(query: str, *args: object) -> asyncpg.Record | None:
-    pool = await _ensure_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetchrow(query, *args)
+    try:
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(query, *args)
+    except BaseException as exc:
+        if not _is_pool_closed_error(exc):
+            raise
+        logger.warn("worker_db_pool_closed_rebuilding", op="fetchrow", error=str(exc))
+        await _reset_pool()
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(query, *args)
 
 
 async def _fetch(query: str, *args: object) -> list[asyncpg.Record]:
-    pool = await _ensure_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetch(query, *args)
+    try:
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetch(query, *args)
+    except BaseException as exc:
+        if not _is_pool_closed_error(exc):
+            raise
+        logger.warn("worker_db_pool_closed_rebuilding", op="fetch", error=str(exc))
+        await _reset_pool()
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetch(query, *args)
 
 
 def execute(query: str, *args: object) -> str:

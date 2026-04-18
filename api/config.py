@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_jwt_secret: str = ""
-    allow_registration: bool = True  # basic provider: allow new signups
+    # Secure-by-default: registration is OFF unless the operator opts in.
+    # basic_routes.py still allows the first-ever user to register so a
+    # fresh install isn't locked out of creating its bootstrap account.
+    allow_registration: bool = False  # basic provider: allow new signups
 
     # Rate limits (per user, per day — only enforced when AUTH_PROVIDER != none)
     rate_limit_uploads_per_day: int = 50

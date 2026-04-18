@@ -49,11 +49,13 @@ async def test_assign_tag_rejects_cross_user_paper(seeded_users):
     """User B tries to tag user A's paper. Endpoint must 404 before even
     looking at the tag ownership (which is B's own tag)."""
     from main import app
+    from tests.conftest import _CSRF_TEST_TOKEN, _CsrfAutoClient
 
     try:
-        async with httpx.AsyncClient(
+        async with _CsrfAutoClient(
             transport=httpx.ASGITransport(app=app), base_url="http://testserver"
         ) as client:
+            client.cookies.set("ficino_csrf", _CSRF_TEST_TOKEN)
             # First, user B creates a tag of their own.
             _swap_to(USER_B_ID, "auth-test-b@ficino.dev", "B")
             r_create = await client.post("/tags", json={"name": "interesting"})

@@ -181,19 +181,40 @@ async def embed_single(text: str, *, input_type: str = "document") -> list[float
 # connection pool each time and (b) stacks ominously with Celery's own
 # loop-lifecycle management. One long-lived loop + a thread lock matches the
 # pattern already used in lib/db.py.
+#
+# Round-4: loop runs on a dedicated daemon thread via run_forever, so
+# multiple Celery worker threads that hit embed_single_sync concurrently
+# don't serialize on a single run_until_complete. The inner asyncio.gather
+# and Voyage batching already provide the concurrency — the previous lock
+# squashed it.
 import threading
 
 _embed_loop: asyncio.AbstractEventLoop | None = None
 _embed_loop_lock = threading.Lock()
 
 
-def _run_on_embed_loop(coro):
-    """Execute an async coroutine on the embedder's persistent loop."""
+def _ensure_embed_loop() -> asyncio.AbstractEventLoop:
     global _embed_loop
+    if _embed_loop is not None and not _embed_loop.is_closed():
+        return _embed_loop
     with _embed_loop_lock:
         if _embed_loop is None or _embed_loop.is_closed():
-            _embed_loop = asyncio.new_event_loop()
-        return _embed_loop.run_until_complete(coro)
+            loop = asyncio.new_event_loop()
+
+            def _runner() -> None:
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            t = threading.Thread(target=_runner, name="embed-loop", daemon=True)
+            t.start()
+            _embed_loop = loop
+        return _embed_loop
+
+
+def _run_on_embed_loop(coro):
+    """Execute an async coroutine on the embedder's persistent loop."""
+    loop = _ensure_embed_loop()
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 def embed_texts_sync(texts: list[str], *, input_type: str = "document") -> list[list[float]]:

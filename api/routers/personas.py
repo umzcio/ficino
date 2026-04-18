@@ -33,13 +33,20 @@ async def list_personas(
 @router.get("/{persona_key}/stats")
 async def get_persona_stats(
     persona_key: str,
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
-    """Get post/reply stats for a persona."""
-    # Count reply threads with this persona
+    """Get post/reply stats for a persona, scoped to the caller.
+
+    Previously counted across all users, which leaked aggregate engagement
+    across tenants. Join through feeds for ownership; post_replies.feed_id
+    is stored as text so cast it to uuid to match feeds.id.
+    """
     thread_count = await db.fetchval(
-        "SELECT COUNT(*) FROM post_replies WHERE persona_key = $1",
-        persona_key,
+        """SELECT COUNT(*) FROM post_replies pr
+           JOIN feeds f ON pr.feed_id::uuid = f.id
+           WHERE pr.persona_key = $1 AND f.user_id = $2""",
+        persona_key, user.id,
     )
 
     return {

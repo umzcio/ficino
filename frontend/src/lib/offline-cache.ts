@@ -71,10 +71,20 @@ export async function getCachedPapers(workspaceId?: string): Promise<Paper[]> {
 export async function cacheBookmarks(bookmarks: BookmarkItem[]) {
   const db = await getDB()
   const tx = db.transaction('bookmarks', 'readwrite')
-  await tx.store.clear()
-  for (const b of bookmarks) {
-    await tx.store.put(b)
-  }
+
+  // Upsert pattern: put all incoming records (put overwrites by key), then
+  // delete keys that no longer appear in the new set. Avoids the clear-then-put
+  // race where a failed put mid-loop leaves IndexedDB empty.
+  const newKeys = new Set(bookmarks.map((b) => b.id))
+  const existingKeys = await tx.store.getAllKeys()
+
+  const ops: Promise<unknown>[] = [
+    ...bookmarks.map((b) => tx.store.put(b)),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 
@@ -133,9 +143,20 @@ export async function getCachedLikes(feedId: string): Promise<FeedLikes | undefi
 export async function cachePersonas(personas: PersonaData[]) {
   const db = await getDB()
   const tx = db.transaction('personas', 'readwrite')
-  for (const p of personas) {
-    await tx.store.put(p)
-  }
+
+  // Upsert pattern: put all incoming records (put overwrites by key), then
+  // delete keys that no longer appear in the new set. Avoids the clear-then-put
+  // race where a failed put mid-loop leaves IndexedDB empty.
+  const newKeys = new Set(personas.map((p) => p.key))
+  const existingKeys = await tx.store.getAllKeys()
+
+  const ops: Promise<unknown>[] = [
+    ...personas.map((p) => tx.store.put(p)),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 
@@ -149,10 +170,20 @@ export async function getCachedPersonas(): Promise<PersonaData[]> {
 export async function cacheWorkspaces(workspaces: Workspace[]) {
   const db = await getDB()
   const tx = db.transaction('workspaces', 'readwrite')
-  await tx.store.clear()
-  for (const w of workspaces) {
-    await tx.store.put(w)
-  }
+
+  // Upsert pattern: put all incoming records (put overwrites by key), then
+  // delete keys that no longer appear in the new set. Avoids the clear-then-put
+  // race where a failed put mid-loop leaves IndexedDB empty.
+  const newKeys = new Set(workspaces.map((w) => w.id))
+  const existingKeys = await tx.store.getAllKeys()
+
+  const ops: Promise<unknown>[] = [
+    ...workspaces.map((w) => tx.store.put(w)),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 
@@ -205,10 +236,20 @@ export async function getCachedUserPosts(workspaceId?: string): Promise<UserPost
 export async function cacheAlerts(alerts: AlertItem[]) {
   const db = await getDB()
   const tx = db.transaction('alerts', 'readwrite')
-  await tx.store.clear()
-  for (const a of alerts) {
-    await tx.store.put(a)
-  }
+
+  // Upsert pattern: put all incoming records (put overwrites by key), then
+  // delete keys that no longer appear in the new set. Avoids the clear-then-put
+  // race where a failed put mid-loop leaves IndexedDB empty.
+  const newKeys = new Set(alerts.map((a) => a.id))
+  const existingKeys = await tx.store.getAllKeys()
+
+  const ops: Promise<unknown>[] = [
+    ...alerts.map((a) => tx.store.put(a)),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 

@@ -13,6 +13,28 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
+async def get_or_create_default_workspace(
+    db: asyncpg.Connection, user_id: str
+) -> str:
+    """Return the caller's earliest workspace id, creating one if none exist.
+
+    Used by `delete_workspace` to move orphaned papers somewhere owned by the
+    same user rather than into the shared stub `DEFAULT_WORKSPACE_ID` (which
+    would leak papers across users under multi-user auth).
+    """
+    row = await db.fetchrow(
+        "SELECT id FROM corpora WHERE user_id = $1 ORDER BY created_at LIMIT 1",
+        user_id,
+    )
+    if row:
+        return str(row["id"])
+    row = await db.fetchrow(
+        "INSERT INTO corpora (user_id, name) VALUES ($1, 'Default') RETURNING id",
+        user_id,
+    )
+    return str(row["id"])
+
+
 class WorkspaceCreate(BaseModel):
     name: str
 
@@ -109,16 +131,34 @@ async def delete_workspace(
     if count <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete your only workspace")
 
-    # Move papers to default before deleting
+    # Move papers to the caller's own default workspace before deleting.
+    # Previously this moved them into the global stub DEFAULT_WORKSPACE_ID,
+    # which under multi-user auth would orphan one user's papers into a
+    # workspace owned by the stub user (cross-tenant leak). Find-or-create
+    # a per-user default instead, and scope the UPDATE by user_id so we can
+    # never accidentally touch another user's papers that happen to reference
+    # the same corpus_id.
+    target = await get_or_create_default_workspace(db, user.id)
+    if target == workspace_id:
+        # The only other workspace happens to be the one being deleted. The
+        # count guard above should prevent this, but belt-and-suspenders: pick
+        # any other workspace owned by the caller.
+        other = await db.fetchrow(
+            "SELECT id FROM corpora WHERE user_id = $1 AND id != $2 "
+            "ORDER BY created_at LIMIT 1",
+            user.id, workspace_id,
+        )
+        if other:
+            target = str(other["id"])
     await db.execute(
-        "UPDATE papers SET corpus_id = $1 WHERE corpus_id = $2",
-        DEFAULT_WORKSPACE_ID, workspace_id,
+        "UPDATE papers SET corpus_id = $1 WHERE corpus_id = $2 AND user_id = $3",
+        target, workspace_id, user.id,
     )
     await db.execute(
         "DELETE FROM corpora WHERE id = $1 AND user_id = $2",
         workspace_id, user.id,
     )
-    logger.info("workspace_deleted", workspace_id=workspace_id)
+    logger.info("workspace_deleted", workspace_id=workspace_id, moved_papers_to=target)
 
 
 @router.get("/{workspace_id}/activity")

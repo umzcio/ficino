@@ -3,7 +3,7 @@ import { Loader2, FileText, Trash2 } from 'lucide-react'
 import type { UserPost } from '../../lib/api'
 import { getUserPostStatus, deleteUserPost } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
-import { InlineMd } from './PostCard'
+import { InlineMd } from './_shared/InlineMd'
 
 interface UserPostCardProps {
   post: UserPost

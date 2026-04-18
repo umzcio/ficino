@@ -13,7 +13,7 @@ import structlog
 from celery import Task
 
 from celery_app import app
-from lib import claude_client, retrieval
+from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow
 from lib.settings import apply_provider_settings, STUB_USER_ID
 
@@ -76,7 +76,11 @@ def _validate_citations(text: str, known: set[tuple[str, str]]) -> tuple[str, li
     return cleaned, hallucinated
 
 
-ARCHIVIST_SYSTEM = """You are The Archivist, a neutral research assistant embedded in Ficino. You have read every paper in the user's corpus. Your job is to answer the user's question directly, grounding every claim in specific passages from the papers.
+# Hardcoded fallback for the Archivist system prompt, used when the `archivist`
+# row in `personas` is missing or has a blank system_prompt. The DB copy is the
+# source of truth; this literal only guarantees the worker keeps answering if
+# an operator accidentally clears the row during tuning.
+_ARCHIVIST_SYSTEM_FALLBACK = """You are The Archivist, a neutral research assistant embedded in Ficino. You have read every paper in the user's corpus. Your job is to answer the user's question directly, grounding every claim in specific passages from the papers.
 
 Rules:
 - Cite papers by author and year (e.g., "Chen & Park (2023) found that...")
@@ -86,10 +90,37 @@ Rules:
 - Be precise, thorough, and honest
 - Keep answers focused — 2-6 sentences for simple questions, longer with structure for complex ones
 - Do NOT use JSON formatting. Respond in natural prose.
-- Do NOT invent findings. Only cite what appears in the provided context.
+- Do NOT invent findings. Only cite what appears in the provided context."""
+
+
+# Suffix appended to whichever system prompt (DB or fallback) we end up using.
+# The "{chunks}" placeholder is filled at request time from retrieved chunks.
+_ARCHIVIST_CONTEXT_SUFFIX = """
 
 CORPUS CONTEXT:
 {chunks}"""
+
+
+def _get_archivist_system_prompt() -> str:
+    """Load the archivist persona's system prompt from the DB, with fallback.
+
+    The DB already has an `archivist` row — loading it live means prompt tuning
+    through the admin UI / SQL lands without a worker rebuild. Falls back to
+    the hardcoded literal if the row is missing or its system_prompt is
+    null/empty, so the task never crashes on a misconfigured row.
+    """
+    try:
+        personas = persona_lib.get_personas()
+        db_prompt = (personas.get("archivist") or {}).get("system_prompt")
+        if db_prompt and str(db_prompt).strip():
+            body = str(db_prompt)
+        else:
+            logger.warn("archivist_persona_prompt_missing_using_fallback")
+            body = _ARCHIVIST_SYSTEM_FALLBACK
+    except Exception as exc:  # DB blip → degrade rather than fail the task
+        logger.warn("archivist_persona_prompt_load_failed", error=str(exc))
+        body = _ARCHIVIST_SYSTEM_FALLBACK
+    return body + _ARCHIVIST_CONTEXT_SUFFIX
 
 
 @app.task(name="tasks.archivist_tasks.respond_to_user_post", bind=True, max_retries=2)
@@ -168,7 +199,7 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
             for c in chunks
         ) if chunks else "No relevant passages found in the corpus."
 
-        system = ARCHIVIST_SYSTEM.format(chunks=chunks_text)
+        system = _get_archivist_system_prompt().format(chunks=chunks_text)
 
         # Generate response
         response = claude_client.generate_text_sync(

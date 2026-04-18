@@ -52,11 +52,6 @@ async def upload_paper(
     paper_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{paper_id}.pdf")
 
-    # Save file to disk
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    with open(file_path, "wb") as f:
-        f.write(contents)
-
     # Use provided workspace or default
     corpus_id = workspace_id or DEFAULT_WORKSPACE_ID
 
@@ -67,9 +62,14 @@ async def upload_paper(
         corpus_id, user.id,
     )
     if not workspace_exists:
-        os.remove(file_path)
         raise HTTPException(status_code=404, detail="Workspace not found")
 
+    # DB-row-first ordering: insert the paper placeholder BEFORE writing the
+    # file to disk. If the process crashes between the row and the write,
+    # the paper row is queryable (status='pending') and can be reconciled /
+    # deleted by an operator — we never leave an orphan PDF on disk with no
+    # database trace. If the row insert itself fails (FK violation on a bad
+    # workspace), no file exists yet, so there's nothing to clean up.
     now = datetime.now(timezone.utc)
     try:
         await db.execute(
@@ -78,8 +78,27 @@ async def upload_paper(
             paper_id, user.id, corpus_id, file.filename, file_path, "pending", now,
         )
     except asyncpg.ForeignKeyViolationError:
-        os.remove(file_path)
         raise HTTPException(status_code=400, detail="Invalid workspace")
+
+    # Now write the file. If the write fails (disk full, permissions), delete
+    # the placeholder row so we don't leave a dangling `pending` paper that
+    # the worker will try to process and fail on repeatedly.
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    try:
+        with open(file_path, "wb") as f:
+            f.write(contents)
+    except OSError:
+        await db.execute(
+            "DELETE FROM papers WHERE id = $1 AND user_id = $2",
+            paper_id, user.id,
+        )
+        # Best-effort remove in case a partial file landed.
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        logger.error("paper_upload_write_failed", paper_id=paper_id)
+        raise HTTPException(status_code=500, detail="Failed to store uploaded file")
 
     logger.info("paper_uploaded", paper_id=paper_id, filename=file.filename, size=len(contents))
 

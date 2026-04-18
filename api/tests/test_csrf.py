@@ -1,8 +1,8 @@
-"""CSRF double-submit enforcement under AUTH_PROVIDER=basic.
+"""CSRF double-submit enforcement.
 
-Under AUTH_PROVIDER=none (dev/self-hosted), the middleware bypasses.
-The tests here temporarily monkeypatch settings.auth_provider to exercise
-the enforcement path.
+Round 4 removed the AUTH_PROVIDER=none bypass — the middleware now enforces
+regardless of auth provider, because a self-hosted single-user deployment is
+still reachable from any origin the logged-in user's browser visits.
 """
 from __future__ import annotations
 
@@ -23,9 +23,16 @@ async def client():
 
 
 @pytest.mark.asyncio
-async def test_csrf_bypassed_in_auth_none(client):
-    # Under auth=none, state-changing requests work without a CSRF header.
-    # (Uses a read-only GET to avoid real writes — the point is the middleware doesn't reject.)
+async def test_csrf_enforced_in_auth_none(client):
+    """Even under auth=none the middleware rejects unprotected mutations.
+    (The /feed/generate route requires auth for real, but CSRF runs first.)"""
+    r = await client.post("/feed/generate", json={})
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_csrf_allows_health_get(client):
+    """GETs are never CSRF-protected; /health stays reachable."""
     r = await client.get("/health")
     assert r.status_code == 200
 

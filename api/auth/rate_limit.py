@@ -52,18 +52,21 @@ class RateLimit:
         redis = await _get_redis()
         key = f"ratelimit:{self.key_prefix}:{user.id}"
 
-        current = await redis.get(key)
-        if current is not None and int(current) >= self.max_requests:
+        # Atomic INCR-first: the returned value is the post-increment count,
+        # so a race between two requests can't both read "N-1" and decide
+        # they're under the limit. Only set EXPIRE on the fresh key (count==1)
+        # — doing it every hit would slide the TTL forward and let a chatty
+        # caller hold the key open indefinitely. Don't decrement on overflow;
+        # just let the counter run over so sustained abuse stays blocked.
+        count = await redis.incr(key)
+        if count == 1:
+            await redis.expire(key, self.window_seconds)
+        if count > self.max_requests:
             logger.warn("rate_limit_exceeded", user_id=user.id, action=self.key_prefix, limit=self.max_requests)
             raise HTTPException(
                 status_code=429,
                 detail=f"Rate limit exceeded: {self.max_requests} {self.key_prefix} per {self.window_seconds // 3600}h. Try again later.",
             )
-
-        pipe = redis.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, self.window_seconds)
-        await pipe.execute()
 
 
 class IPRateLimit:
@@ -92,15 +95,14 @@ class IPRateLimit:
         redis = await _get_redis()
         key = f"ratelimit:{self.key_prefix}:ip:{ip}"
 
-        current = await redis.get(key)
-        if current is not None and int(current) >= self.max_requests:
+        # See RateLimit.__call__ for why this is INCR-first with EXPIRE only
+        # on the fresh key (atomic + no TTL-sliding).
+        count = await redis.incr(key)
+        if count == 1:
+            await redis.expire(key, self.window_seconds)
+        if count > self.max_requests:
             logger.warn("ip_rate_limit_exceeded", ip=ip, action=self.key_prefix, limit=self.max_requests)
             raise HTTPException(
                 status_code=429,
                 detail=f"Too many {self.key_prefix} attempts. Try again later.",
             )
-
-        pipe = redis.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, self.window_seconds)
-        await pipe.execute()

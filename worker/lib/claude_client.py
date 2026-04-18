@@ -111,6 +111,49 @@ async def _generate(
         raise RuntimeError(f"No LLM provider available (LLM_PROVIDER={cfg['llm_provider']})")
 
 
+def _find_balanced_json_object(text: str) -> str | None:
+    """Return the first top-level `{...}` substring with balanced braces.
+
+    Walks char-by-char incrementing on `{` and decrementing on `}`, returning
+    when the counter returns to zero. Crucially, skips over string literals
+    so braces inside `"..."` don't count — this handles arbitrarily nested
+    JSON (`{"a": {"b": {"c": 1}}}`) that the prior regex
+    `\\{[^{}]*(?:\\{[^{}]*\\}[^{}]*)*\\}` could only match at 1 level deep.
+
+    Treats `\\"` inside strings as an escaped quote, not a terminator. No
+    attempt at full JSON grammar — just find a brace-balanced candidate to
+    hand to json.loads. Returns None if no complete object is found.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape_next:
+            escape_next = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escape_next = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 def _parse_post_json(text: str) -> dict[str, object]:
     """Try to extract JSON from LLM response.
 
@@ -139,11 +182,13 @@ def _parse_post_json(text: str) -> dict[str, object]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-        # Try finding first { ... } block
+        # Try finding first balanced { ... } block. Hand-rolled walker instead
+        # of regex so deeply nested objects (thread_posts, sources arrays
+        # inside parent objects) parse cleanly.
         try:
-            brace_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', candidate, re.DOTALL)
-            if brace_match:
-                return json.loads(brace_match.group(0))
+            balanced = _find_balanced_json_object(candidate)
+            if balanced:
+                return json.loads(balanced)
         except (json.JSONDecodeError, ValueError):
             pass
 
@@ -152,6 +197,23 @@ def _parse_post_json(text: str) -> dict[str, object]:
     content = cleaned if cleaned else text
     # Strip any remaining markdown/code artifacts
     content = re.sub(r'```.*?```', '', content, flags=re.DOTALL).strip()
+
+    # MED-15: strip role markers so a leaked "Assistant:" / "System:" in the
+    # raw LLM output doesn't end up persisted verbatim into feeds.posts.
+    # No fence wrapping — that's a prompt-time concern, not a storage one.
+    from lib.sanitize import strip_role_markers
+    content = strip_role_markers(content)
+
+    # Reject absurdly long fallbacks. A 20k-char blob slipping into feeds.posts
+    # is almost certainly the model dumping its chain-of-thought, not a post.
+    # Better to show a minimal stub than store a novel as a "post".
+    if len(content) > 4000:
+        logger.warn(
+            "post_json_fallback_too_long",
+            response_length=len(content),
+        )
+        content = "[generation produced malformed output]"
+
     # Log only shape info — the response can contain partial user-paper content
     # or PII echoed back from chunks. Keep debugging possible without leaking
     # content into host logs.
@@ -218,18 +280,42 @@ Respond with exactly one word: supports, contradicts, or extends
 # fresh loop per call, which left httpx connections getting GC'd on a
 # dead loop and surfacing `RuntimeError('Event loop is closed')` in the
 # worker's "Task exception was never retrieved" warnings (BUG-LIVE-06).
+#
+# Round-4: the loop now runs forever on a dedicated daemon thread and
+# coroutines are submitted via `run_coroutine_threadsafe`. The previous
+# `with _lock: loop.run_until_complete(coro)` pattern serialized every
+# LLM call in the process (one at a time across all Celery pool workers
+# in the same process), squandering async concurrency. A tiny creation
+# lock still guards the first-time loop bring-up so two threads can't
+# race to create two loops.
 import threading
 
 _llm_loop: asyncio.AbstractEventLoop | None = None
 _llm_loop_lock = threading.Lock()
 
 
-def _run_on_llm_loop(coro):
+def _ensure_llm_loop() -> asyncio.AbstractEventLoop:
+    """Start the shared event loop on a background daemon thread if needed."""
     global _llm_loop
+    if _llm_loop is not None and not _llm_loop.is_closed():
+        return _llm_loop
     with _llm_loop_lock:
         if _llm_loop is None or _llm_loop.is_closed():
-            _llm_loop = asyncio.new_event_loop()
-        return _llm_loop.run_until_complete(coro)
+            loop = asyncio.new_event_loop()
+
+            def _runner() -> None:
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            t = threading.Thread(target=_runner, name="llm-loop", daemon=True)
+            t.start()
+            _llm_loop = loop
+        return _llm_loop
+
+
+def _run_on_llm_loop(coro):
+    loop = _ensure_llm_loop()
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 def generate_persona_post_sync(

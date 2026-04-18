@@ -81,16 +81,27 @@ def retrieve_chunks(
 
     sql = f"""
     WITH candidates AS (
-        -- Stage 1: nearest CANDIDATE_POOL by vector alone. Uses HNSW index.
+        -- Stage 1a: nearest CANDIDATE_POOL by vector alone. Uses HNSW index.
         SELECT c.id
         FROM chunks c
-        WHERE TRUE {paper_filter.replace('c.paper_id', 'c.paper_id')}
+        WHERE TRUE {paper_filter}
         ORDER BY c.embedding <=> $1::vector
         LIMIT $3
+    ),
+    keyword_hits AS (
+        -- Stage 1b: top-CANDIDATE_POOL pure keyword hits, bounded the same way
+        -- as the vector branch. The original WHERE clause had an unbounded
+        -- `OR c.search_vector @@ plainto_tsquery(...)` that degenerated to a
+        -- full-table scan on large corpora and pulled thousands of weak
+        -- keyword matches into the re-ranker. Bounding + ordering by ts_rank
+        -- keeps Stage 2 proportional to CANDIDATE_POOL.
+        SELECT c.id
+        FROM chunks c
+        WHERE c.search_vector @@ plainto_tsquery('english', $2) {paper_filter}
+        ORDER BY ts_rank(c.search_vector, plainto_tsquery('english', $2)) DESC
+        LIMIT $3
     )
-    -- Stage 2: hybrid re-rank over the candidates + any additional pure-keyword
-    -- matches (UNION) so a rare-term query with a weak vector signal still
-    -- surfaces its keyword hits.
+    -- Stage 2: hybrid re-rank over the bounded union of candidates + keyword_hits.
     SELECT
         c.id,
         c.paper_id,
@@ -117,7 +128,7 @@ def retrieve_chunks(
     JOIN papers p ON c.paper_id = p.id
     WHERE (
         c.id IN (SELECT id FROM candidates)
-        OR c.search_vector @@ plainto_tsquery('english', $2)
+        OR c.id IN (SELECT id FROM keyword_hits)
     )
     {paper_filter}
     ORDER BY score DESC
@@ -149,18 +160,22 @@ def retrieve_chunks(
     return results
 
 
-_retrieval_queries_cache: dict[str, str] | None = None
-
-
 def _get_retrieval_queries() -> dict[str, str]:
-    """Load persona retrieval queries from the database (cached per worker process)."""
-    global _retrieval_queries_cache
-    if _retrieval_queries_cache is None:
-        rows = fetch(
-            "SELECT key, retrieval_query FROM personas WHERE is_active = true"
-        )
-        _retrieval_queries_cache = {row["key"]: row["retrieval_query"] for row in rows}
-    return _retrieval_queries_cache
+    """Return {persona_key → retrieval_query} from the personas cache.
+
+    Was previously cached in a module-level dict with no TTL and no
+    invalidate hook, which meant retrieval_query edits via admin SQL
+    never surfaced without a worker restart. `persona_lib.get_personas()`
+    already has a 1h TTL + `invalidate_personas_cache()` — piggyback on
+    that instead of maintaining a parallel cache.
+    """
+    from lib import persona as persona_lib  # local import avoids circular at import time
+
+    personas = persona_lib.get_personas()
+    return {
+        key: (p.get("retrieval_query") or "key findings and methodology")
+        for key, p in personas.items()
+    }
 
 
 def retrieve_for_persona(

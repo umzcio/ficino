@@ -58,7 +58,10 @@ def _write_feed_posts_index(feed_id: str, posts_slice: list[dict], base_index: i
     """
     for i, p in enumerate(posts_slice):
         post_index = base_index + i
-        content_text = str(p.get("content", ""))[:10000]  # guard against absurd length
+        # validate_post_shape already capped content at MAX_CONTENT_CHARS (2000)
+        # so feeds.posts and feed_posts now agree. The str(...) coercion stays
+        # to handle legacy rows that pre-date that validator.
+        content_text = str(p.get("content", ""))
         execute(
             """INSERT INTO feed_posts
                (feed_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
@@ -460,8 +463,13 @@ def generate_feed(
                 selected_figure = random.choice(available_figures)
 
             # Build the prompt
-            # For quotes/replies, include both existing feed posts and newly generated ones
-            reference_posts = all_feed_posts + posts if post_type in ("quote", "reply") else None
+            # For quotes/replies, include both existing feed posts and newly generated ones.
+            # Skip soft-deleted posts — quoting a hidden post would resurrect its content
+            # in the new post and look broken when the user toggles showDeleted off.
+            reference_posts = (
+                [p for p in (all_feed_posts + posts) if not p.get("deleted")]
+                if post_type in ("quote", "reply") else None
+            )
             user_prompt = persona_lib.build_post_prompt(
                 persona_key=persona_key,
                 post_type=post_type,
@@ -513,19 +521,11 @@ def generate_feed(
                     for c in chunks[:5]  # Top 5 source chunks
                 ]
 
-                # Assign category for tab filtering
-                # Every post must appear in at least one tab beyond "For You"
+                # Assign category for tab filtering. Every post appears in at
+                # least one tab beyond "For You". Shared helper so the three
+                # call sites (feed gen / regenerate / reading list) don't drift.
                 pt = post_data.get("post_type", post_type)
-                if pt in ("quote", "reply"):
-                    post_data["category"] = "debates"
-                elif persona_key in ("skeptic", "methodologist"):
-                    post_data["category"] = "methods"
-                elif persona_key in ("hype", "practitioner") or pt == "figure":
-                    post_data["category"] = "findings"
-                elif persona_key == "gradstudent":
-                    post_data["category"] = "debates"
-                else:
-                    post_data["category"] = "findings"
+                post_data["category"] = persona_lib.assign_post_category(persona_key, pt)
 
                 # Tab-focused generation: override category
                 if tab_category:
@@ -730,16 +730,9 @@ def regenerate_post(
         for c in chunks[:5]
     ]
 
-    # Assign category
+    # Assign category via the shared helper (MED-24).
     pt = post_data.get("post_type", post_type)
-    if pt in ("quote", "reply"):
-        post_data["category"] = "debates"
-    elif persona_key in ("skeptic", "methodologist"):
-        post_data["category"] = "methods"
-    elif persona_key in ("hype", "practitioner") or pt == "figure":
-        post_data["category"] = "findings"
-    else:
-        post_data["category"] = "debates" if persona_key == "gradstudent" else "findings"
+    post_data["category"] = persona_lib.assign_post_category(persona_key, pt)
 
     _apply_engagement_defaults(post_data)
     validate_post_shape(post_data, persona_key=persona_key)

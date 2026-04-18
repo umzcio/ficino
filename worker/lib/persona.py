@@ -61,7 +61,7 @@ def get_personas() -> dict[str, dict[str, str]]:
     now = time.monotonic()
     if _personas_cache is None or (now - _personas_cache_time) > _PERSONAS_CACHE_TTL_SECONDS:
         rows = fetch(
-            "SELECT key, handle, name, initials, color, system_prompt, temperature FROM personas WHERE is_active = true ORDER BY sort_order"
+            "SELECT key, handle, name, initials, color, system_prompt, temperature, retrieval_query FROM personas WHERE is_active = true ORDER BY sort_order"
         )
         _personas_cache = {
             row["key"]: {
@@ -71,6 +71,7 @@ def get_personas() -> dict[str, dict[str, str]]:
                 "color": row["color"],
                 "system_prompt": row["system_prompt"],
                 "temperature": row["temperature"],  # may be None = fall back to user setting
+                "retrieval_query": row["retrieval_query"],
             }
             for row in rows
         }
@@ -125,6 +126,26 @@ def get_active_persona_prompts() -> dict[str, str]:
     """Fetch active persona system prompts, prepended with the shared preamble."""
     personas = get_personas()
     return {key: SYSTEM_PREAMBLE + p["system_prompt"] for key, p in personas.items()}
+
+
+def assign_post_category(persona_key: str, post_type: str) -> str:
+    """Pick the tab category for a generated post.
+
+    Tabs in the feed UI are "For You", "debates", "methods", "findings".
+    Every post must land in at least one tab beyond "For You" so power
+    users can filter by lens. Extracted out of persona_tasks / reading_list_tasks
+    where three near-identical copies of this if/elif ladder had drifted
+    (reading_list missed the gradstudent → debates branch).
+    """
+    if post_type in ("quote", "reply"):
+        return "debates"
+    if persona_key in ("skeptic", "methodologist"):
+        return "methods"
+    if persona_key in ("hype", "practitioner") or post_type == "figure":
+        return "findings"
+    if persona_key == "gradstudent":
+        return "debates"
+    return "findings"
 
 
 def _build_short_cite(chunk: dict[str, object]) -> str:

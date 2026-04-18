@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query
 
 from auth import AuthUser, get_current_user
 from db.connection import get_db
+from routers.replies import _escape_like
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/search", tags=["search"])
@@ -39,6 +40,11 @@ async def search(
 
     logger.info("search", query=query)
 
+    # Escape LIKE metachars so a user query like "50%" doesn't wildcard-match
+    # everything. Backslash must be escaped first to avoid double-escaping the
+    # escape char itself. Postgres uses `\` as the default LIKE escape.
+    safe_query = _escape_like(query)
+
     # Search papers by title, filename, authors
     paper_rows = await db.fetch(
         """SELECT id, title, filename, authors, year, status, chunk_count
@@ -50,7 +56,7 @@ async def search(
            )
            ORDER BY uploaded_at DESC
            LIMIT 10""",
-        f"%{query}%", user.id,
+        f"%{safe_query}%", user.id,
     )
     papers = [
         {

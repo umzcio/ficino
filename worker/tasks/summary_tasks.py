@@ -99,11 +99,30 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
     log.info("paper_summary_start")
 
     try:
-        # Check if a completed summary already exists
-        existing = fetchrow("SELECT id, status FROM paper_summaries WHERE paper_id = $1", paper_id)
-        if existing and (existing.get("status") or "complete") == "complete" and existing.get("status") != "generating":
-            log.info("paper_summary_exists")
-            return {"status": "exists", "paper_id": paper_id}
+        # Check if a completed summary already exists. The previous guard
+        # treated status=NULL or status="error" as "complete" (via the
+        # `(status or "complete")` default), which blocked retries after a
+        # transient failure from ever regenerating. Now only an explicitly
+        # "complete" row short-circuits; "error" and NULL fall through to
+        # regenerate, and "generating" checks task_id so a Celery retry of
+        # the same task can resume, while a different task_id means another
+        # worker is actively producing the summary — bail to avoid a race.
+        existing = fetchrow("SELECT id, status, task_id FROM paper_summaries WHERE paper_id = $1", paper_id)
+        if existing:
+            status = existing.get("status")
+            if status == "complete":
+                log.info("paper_summary_exists")
+                return {"status": "exists", "paper_id": paper_id}
+            if status == "generating":
+                existing_task_id = existing.get("task_id")
+                if existing_task_id and existing_task_id != self.request.id:
+                    log.info(
+                        "paper_summary_already_generating",
+                        other_task_id=existing_task_id,
+                    )
+                    return {"status": "already_generating", "paper_id": paper_id}
+                # Same task retrying after a mid-flight crash — fall through
+                # and regenerate over the half-written row.
 
         # Get paper info
         paper = fetchrow("SELECT title, filename, authors FROM papers WHERE id = $1", paper_id)

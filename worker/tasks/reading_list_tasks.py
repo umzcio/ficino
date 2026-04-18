@@ -245,7 +245,6 @@ def generate_chapter(
             preferences=preferences,
         )
 
-        import random
         system_prompts = persona_lib.get_active_persona_prompts()
         posts = []
 
@@ -264,7 +263,10 @@ def generate_chapter(
                 chapter_context += f"The reader has already covered {chapter_index} prior paper(s). Build on that foundation — reference earlier papers when relevant."
             system_prompt = system_prompt + chapter_context
 
-            reference_posts = posts if post_type in ("quote", "reply") and posts else None
+            reference_posts = (
+                [p for p in posts if not p.get("deleted")]
+                if post_type in ("quote", "reply") and posts else None
+            )
             user_prompt = persona_lib.build_post_prompt(
                 persona_key=persona_key,
                 post_type=post_type if post_type in ("post", "thread", "figure") else "post",
@@ -292,21 +294,16 @@ def generate_chapter(
                     for c in chunks[:5]
                 ]
 
-                # Category assignment
+                # Category assignment via the shared helper (MED-24). The old
+                # inline copy was missing the gradstudent → debates branch so
+                # gradstudent chapter posts were silently getting "findings".
                 pt = post_data.get("post_type", post_type)
-                if pt in ("quote", "reply"):
-                    post_data["category"] = "debates"
-                elif persona_key in ("skeptic", "methodologist"):
-                    post_data["category"] = "methods"
-                elif persona_key in ("hype", "practitioner") or pt == "figure":
-                    post_data["category"] = "findings"
-                else:
-                    post_data["category"] = "debates" if persona_key == "gradstudent" else "findings"
+                post_data["category"] = persona_lib.assign_post_category(persona_key, pt)
 
-                post_data.setdefault("likes", random.randint(100, 5000))
-                post_data.setdefault("retweets", random.randint(20, 1000))
-                post_data.setdefault("replies", random.randint(10, 500))
-                post_data.setdefault("bookmarks", random.randint(10, 900))
+                # Reuse persona_tasks' engagement defaults so reading list and
+                # feed gen stay in sync (MED-24 cleanup).
+                from tasks.persona_tasks import _apply_engagement_defaults
+                _apply_engagement_defaults(post_data)
 
                 posts.append(post_data)
             except Exception as e:

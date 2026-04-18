@@ -1,103 +1,19 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import {
   MessageCircle, Repeat2, Heart, Bookmark,
-  MoreHorizontal, FileText, ImageIcon, ZoomIn, X, Loader2,
+  MoreHorizontal, FileText, ImageIcon, ZoomIn, Loader2,
   RefreshCw, EyeOff, Bug, Copy, Quote, StickyNote, Trash2
 } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, deletePost, updateSettings, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { InlineMd } from './_shared/InlineMd'
+import { FigureLightbox } from './_shared/FigureLightbox'
+import { Avatar } from './_shared/Avatar'
+import { formatNum } from './_shared/formatNum'
 
-/** Lightweight inline markdown: **bold**, *italic*, `code`. No block elements. */
-export function InlineMd({ text }: { text: string }) {
-  if (!text) return null
-  const parts: React.ReactNode[] = []
-  // Split on **bold**, *italic*, and `code` patterns
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g
-  let last = 0
-  let match: RegExpExecArray | null
-  let key = 0
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > last) parts.push(text.slice(last, match.index))
-    if (match[2]) parts.push(<strong key={key++}>{match[2]}</strong>)
-    else if (match[3]) parts.push(<em key={key++}>{match[3]}</em>)
-    else if (match[4]) parts.push(<code key={key++} className="text-[13px] bg-bg-hover px-1 py-px rounded">{match[4]}</code>)
-    last = match.index + match[0].length
-  }
-  if (last < text.length) parts.push(text.slice(last))
-  return <>{parts}</>
-}
-
-function FigureLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useFocusTrap(true, ref)
-
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
-
-  return (
-    <div
-      ref={ref}
-      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Figure lightbox"
-    >
-      <button
-        onClick={onClose}
-        aria-label="Close lightbox"
-        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-bg/80 border border-border flex items-center justify-center cursor-pointer hover:bg-bg transition-colors"
-      >
-        <X size={20} className="text-text" />
-      </button>
-      <img
-        src={src}
-        alt={alt}
-        className="max-w-full max-h-[90vh] object-contain rounded-lg"
-        onClick={(e) => e.stopPropagation()}
-      />
-    </div>
-  )
-}
-
-function formatNum(n: number): string {
-  return n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
-}
-
-function Avatar({ persona }: { persona: string }) {
-  const personas = usePersonas()
-  const p = personas[persona]
-  if (!p) return null
-  if (p.avatar_url) {
-    return (
-      <img
-        src={p.avatar_url}
-        alt={p.name}
-        className="w-[42px] h-[42px] rounded-full shrink-0 object-cover"
-        style={{ border: `2px solid ${p.color}50` }}
-      />
-    )
-  }
-  return (
-    <div
-      className="w-[42px] h-[42px] rounded-full shrink-0 flex items-center justify-center text-[13px] font-bold tracking-tight"
-      style={{
-        backgroundColor: p.color + '28',
-        border: `2px solid ${p.color}50`,
-        color: p.color,
-      }}
-    >
-      {p.initials}
-    </div>
-  )
-}
+// Re-export for existing consumers that imported InlineMd from PostCard.
+export { InlineMd } from './_shared/InlineMd'
 
 function ActionBtn({
   icon: Icon, count, color, active, onClick, label,

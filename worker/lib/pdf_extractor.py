@@ -12,6 +12,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
+from typing import Iterable, Iterator
 
 import fitz  # PyMuPDF
 import structlog
@@ -285,13 +286,34 @@ def extract_figures(file_path: str, output_dir: str) -> list[dict[str, object]]:
     return figures
 
 
-def rasterize_page(file_path: str, page_num: int, dpi: int = 300) -> bytes:
-    """Rasterize a single PDF page to PNG bytes at the given DPI."""
+def rasterize_pages(
+    file_path: str, page_nums: Iterable[int], dpi: int = 300,
+) -> Iterator[bytes]:
+    """Rasterize multiple PDF pages, opening the document once.
+
+    `fitz.open()` parses the whole PDF header + xref and allocates internal
+    structures. Calling it once per page inside a vision-extraction loop
+    (as rasterize_page used to be invoked) multiplies that parse cost by
+    the page count — on long PDFs this is the dominant overhead before
+    the vision API call itself. Yielding within a single open document
+    keeps per-page work to `get_pixmap` + tobytes.
+    """
     doc = fitz.open(file_path)
-    page = doc[page_num]
-    zoom = dpi / 72.0
-    mat = fitz.Matrix(zoom, zoom)
-    pix = page.get_pixmap(matrix=mat)
-    png_bytes = pix.tobytes("png")
-    doc.close()
-    return png_bytes
+    try:
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        for page_num in page_nums:
+            page = doc[page_num]
+            pix = page.get_pixmap(matrix=mat)
+            yield pix.tobytes("png")
+    finally:
+        doc.close()
+
+
+def rasterize_page(file_path: str, page_num: int, dpi: int = 300) -> bytes:
+    """Rasterize a single PDF page to PNG bytes at the given DPI.
+
+    Kept for single-page callers (e.g. figure extraction). For loops,
+    prefer `rasterize_pages` which opens the PDF once.
+    """
+    return next(rasterize_pages(file_path, [page_num], dpi=dpi))

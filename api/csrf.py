@@ -37,11 +37,14 @@ class CsrfMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         method = request.method.upper()
 
-        # Bypass CSRF entirely when the app is in AUTH_PROVIDER=none
-        # (single-user self-host; attacker would need local access anyway).
-        if settings.auth_provider == "none":
-            response = await call_next(request)
-            return response
+        # Previously: full bypass when AUTH_PROVIDER=none. That left the
+        # self-hosted single-user deployment wide open to CSRF from any
+        # site the user happened to visit while logged in — the threat
+        # model isn't "local attacker only," it's "any origin can forge
+        # a request against localhost / the public deployment."
+        # The frontend already reads the ficino_csrf cookie and echoes it
+        # as X-CSRF-Token on mutating requests, so turning enforcement on
+        # regardless of auth_provider is a no-op for a conforming client.
 
         # Enforce for state-changing methods only
         if method in CSRF_PROTECTED_METHODS and request.url.path not in CSRF_EXEMPT_PATHS:

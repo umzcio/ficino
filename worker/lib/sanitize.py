@@ -35,6 +35,20 @@ _FENCE_OPEN = "<untrusted>"
 _FENCE_CLOSE = "</untrusted>"
 
 
+def strip_role_markers(text: str) -> str:
+    """Remove leading "System:", "Assistant:", "Human:"-style line prefixes.
+
+    Unlike `fence_untrusted`, this returns plain text without the fence
+    wrapper — intended for storage paths (e.g. the _parse_post_json fallback
+    that persists raw LLM output into feeds.posts). Prompt-time callers
+    should keep using `fence_untrusted` so the surrounding prompt can
+    reference the `<untrusted>` region as data-only.
+    """
+    if not text:
+        return ""
+    return _ROLE_MARKER_RE.sub("", text)
+
+
 def fence_untrusted(text: str, *, max_len: int = _MAX_BLOCK_LEN) -> str:
     """Wrap untrusted text in clear delimiters after stripping role markers.
 
@@ -45,7 +59,7 @@ def fence_untrusted(text: str, *, max_len: int = _MAX_BLOCK_LEN) -> str:
     if not text:
         return f"{_FENCE_OPEN}{_FENCE_CLOSE}"
 
-    cleaned = _ROLE_MARKER_RE.sub("", text)
+    cleaned = strip_role_markers(text)
     # Neutralize any collision with our own fence markers.
     cleaned = cleaned.replace(_FENCE_OPEN, "&lt;untrusted&gt;")
     cleaned = cleaned.replace(_FENCE_CLOSE, "&lt;/untrusted&gt;")

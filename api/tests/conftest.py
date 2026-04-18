@@ -123,6 +123,27 @@ async def seeded_users(db_conn: asyncpg.Connection):
     await db_conn.execute("DELETE FROM users WHERE id IN ($1, $2)", USER_A_ID, USER_B_ID)
 
 
+_CSRF_TEST_TOKEN = "test-csrf-token-fixture"
+
+
+class _CsrfAutoClient(httpx.AsyncClient):
+    """AsyncClient that auto-attaches the double-submit CSRF pair.
+
+    Round 4 removed the AUTH_PROVIDER=none bypass, so mutating requests
+    must echo the ficino_csrf cookie in X-CSRF-Token. Every test client
+    gets the same fixed cookie value preseeded and the matching header
+    injected on POST/PUT/DELETE/PATCH — tests stay unchanged, and the CSRF
+    middleware sees a valid pair.
+    """
+
+    async def request(self, method, url, **kwargs):  # type: ignore[override]
+        if method.upper() in ("POST", "PUT", "DELETE", "PATCH"):
+            headers = dict(kwargs.pop("headers", None) or {})
+            headers.setdefault("X-CSRF-Token", _CSRF_TEST_TOKEN)
+            kwargs["headers"] = headers
+        return await super().request(method, url, **kwargs)
+
+
 @pytest_asyncio.fixture
 async def client_as_user_a(seeded_users):
     """Async httpx client that spoofs user A via dependency_overrides.
@@ -132,9 +153,10 @@ async def client_as_user_a(seeded_users):
         id=USER_A_ID, email="auth-test-a@ficino.dev", display_name="A"
     )
     try:
-        async with httpx.AsyncClient(
+        async with _CsrfAutoClient(
             transport=httpx.ASGITransport(app=app), base_url="http://testserver"
         ) as client:
+            client.cookies.set("ficino_csrf", _CSRF_TEST_TOKEN)
             yield client
     finally:
         app.dependency_overrides.pop(get_current_user, None)
@@ -146,9 +168,10 @@ async def client_as_user_b(seeded_users):
         id=USER_B_ID, email="auth-test-b@ficino.dev", display_name="B"
     )
     try:
-        async with httpx.AsyncClient(
+        async with _CsrfAutoClient(
             transport=httpx.ASGITransport(app=app), base_url="http://testserver"
         ) as client:
+            client.cookies.set("ficino_csrf", _CSRF_TEST_TOKEN)
             yield client
     finally:
         app.dependency_overrides.pop(get_current_user, None)
