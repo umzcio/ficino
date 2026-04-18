@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { HardDrive, AlertTriangle, Download, Trash2, Check } from 'lucide-react'
-import { clearAllFeeds, clearAllSummaries } from '../../lib/api'
+import { clearAllFeeds, clearAllSummaries, clearAllUserPosts, clearAllPapers, clearEverything } from '../../lib/api'
 import { estimateCacheSize, clearOfflineData, getLastSync } from '../../lib/workspace-download'
 import type { Workspace } from '../../types'
 import { Section, SettingRow, DangerButton, Loader2 } from './primitives'
@@ -116,6 +116,18 @@ export function StorageTab({ onDownloadWorkspace, workspaces }: Props) {
 
         <SettingRow label="Clear All Summaries" description="Delete all paper summaries. They will regenerate on next view.">
           <DangerButton label="Clear Summaries" onConfirm={clearAllSummaries} />
+        </SettingRow>
+
+        <SettingRow label="Clear All Conversations" description="Delete all your posts and The Archivist's replies.">
+          <DangerButton label="Clear Conversations" onConfirm={clearAllUserPosts} />
+        </SettingRow>
+
+        <SettingRow label="Delete All Papers" description="Permanently remove every paper, its chunks, figures, summaries, and feeds. This cannot be undone.">
+          <DangerButton label="Delete All Papers" onConfirm={clearAllPapers} />
+        </SettingRow>
+
+        <SettingRow label="Delete Everything" description="Wipe all user-generated content: papers, feeds, conversations, paper summaries, notifications, reading lists, and tags. Workspaces and account settings are kept. This cannot be undone.">
+          <DangerButton label="Delete Everything" onConfirm={clearEverything} />
         </SettingRow>
       </Section>
     </div>

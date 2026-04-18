@@ -176,6 +176,21 @@ def get_page_count(file_path: str) -> int:
     return count
 
 
+def extract_pages_text(file_path: str) -> list[str]:
+    """Extract plain text per page, one string per page.
+
+    Used by the figure detector to locate captions / figure numbers /
+    body-paragraph references for each page it's asked to classify. Plain
+    `page.get_text()` is fine here — we don't need heading detection or
+    markdown; the VLM sees the page image itself for layout.
+    """
+    doc = fitz.open(file_path)
+    try:
+        return [page.get_text() for page in doc]
+    finally:
+        doc.close()
+
+
 def extract_text_pymupdf(file_path: str) -> str:
     """Extract text from PDF using PyMuPDF with improved heading detection.
 
@@ -233,55 +248,102 @@ def extract_text_pymupdf(file_path: str) -> str:
 
 
 def extract_figures(file_path: str, output_dir: str) -> list[dict[str, object]]:
-    """Extract embedded figures/images from a PDF using PyMuPDF.
+    """Detect and extract *typed* scientific figures via a vision model.
 
-    Extracts bitmap-embedded images. For figures rendered as vector
-    drawing commands, rasterizes the full page and crops.
+    Replaces the old "grab every embedded bitmap" approach, which pulled
+    UI glyphs, publisher logos, and running-header icons alongside real
+    figures and had no way to distinguish a scatter plot from a stock
+    photograph. That indiscriminate output poisoned downstream
+    persona-post generation (Methods Skeptic earnestly critiquing a doc
+    icon, Stats Nerd trying to do statistics on a building photograph).
 
-    Returns list of dicts: {page, image_path, extraction_type, width, height}
+    New flow:
+      1. Rasterize every page at ~150 DPI.
+      2. Ask a VLM (Claude Sonnet by default) to return a typed list of
+         scientific figures for each page — with caption, figure number,
+         body-paragraph reference, type classification, and a normalized
+         bbox. Non-scientific bitmaps are silently dropped at this step.
+      3. Crop each detected bbox from the same raster the VLM saw.
+
+    Returned dicts carry all of the new typed metadata so `store_figure`
+    can persist it and post-generation can route figures to the right
+    personas.
     """
+    from lib import figure_detector
+
     logger.info("figure_extract_start", file_path=file_path)
     os.makedirs(output_dir, exist_ok=True)
 
-    doc = fitz.open(file_path)
+    if not figure_detector.is_available():
+        logger.warn("figure_detector_unavailable_skipping_figures")
+        return []
+
+    # Page rendering + per-page text for the detector. 150 DPI is the
+    # sweet spot: high enough that Sonnet can read caption text and
+    # axis labels, low enough that image-token cost stays predictable
+    # (~2800 tokens/page for a Letter-sized rendering).
+    page_count = get_page_count(file_path)
+    page_pngs: list[bytes] = list(
+        rasterize_pages(file_path, range(page_count), dpi=150),
+    )
+    page_texts = extract_pages_text(file_path)
+
+    per_page = figure_detector.detect_figures_for_paper_sync(page_pngs, page_texts)
+
     figures: list[dict[str, object]] = []
     figure_index = 0
 
-    for page_num, page in enumerate(doc):
-        image_list = page.get_images(full=True)
+    for page_num, (page_png, detections) in enumerate(zip(page_pngs, per_page)):
+        if not detections:
+            continue
+        # Open the rendered page once, crop all of its detected figures
+        # from it. Crops are saved as individual PNGs for the describer.
+        page_img = Image.open(io.BytesIO(page_png))
+        page_w, page_h = page_img.size
 
-        for img_idx, img_info in enumerate(image_list):
-            xref = img_info[0]
-            try:
-                base_image = doc.extract_image(xref)
-            except Exception:
-                logger.warn("figure_extract_failed", page=page_num, xref=xref)
-                continue
+        for det in detections:
+            x0n, y0n, x1n, y1n = det["bbox"]
+            crop_box = (
+                int(x0n * page_w), int(y0n * page_h),
+                int(x1n * page_w), int(y1n * page_h),
+            )
+            crop = page_img.crop(crop_box)
+            if crop.mode not in ("RGB", "RGBA", "L", "1"):
+                crop = crop.convert("RGBA" if "A" in crop.mode else "RGB")
 
-            image_bytes = base_image["image"]
-            img = Image.open(io.BytesIO(image_bytes))
-
-            # Skip small images (icons, logos, decorations)
-            if img.width < MIN_FIGURE_WIDTH or img.height < MIN_FIGURE_HEIGHT:
-                continue
-
-            # Save as PNG
-            fig_filename = f"fig_p{page_num + 1}_{img_idx}.png"
+            fig_filename = f"fig_p{page_num + 1}_{figure_index}.png"
             fig_path = os.path.join(output_dir, fig_filename)
-            img.save(fig_path, "PNG")
+            crop.save(fig_path, "PNG")
 
             figures.append({
                 "page": page_num + 1,
                 "image_path": fig_path,
-                "extraction_type": "bitmap",
-                "width": img.width,
-                "height": img.height,
+                "extraction_type": "vlm_detected",
+                "width": crop.width,
+                "height": crop.height,
                 "figure_index": figure_index,
+                # Typed metadata from the detector. These travel all the way
+                # through to the DB via store_figure.
+                "figure_type": det["type"],
+                "caption": det["caption"],
+                "figure_number": det["figure_number"],
+                "data_claim": det["data_claim"],
+                "referenced_paragraph": det["referenced_paragraph"],
+                "bbox": {
+                    "page": page_num + 1,
+                    "x0": x0n, "y0": y0n, "x1": x1n, "y1": y1n,
+                },
+                "detector_confidence": det["confidence"],
             })
             figure_index += 1
-            logger.info("figure_extracted", page=page_num + 1, size=f"{img.width}x{img.height}")
+            logger.info(
+                "figure_extracted",
+                page=page_num + 1, type=det["type"],
+                figure_number=det["figure_number"] or "?",
+                confidence=round(det["confidence"], 2),
+                size=f"{crop.width}x{crop.height}",
+            )
 
-    doc.close()
     logger.info("figure_extract_complete", file_path=file_path, count=len(figures))
     return figures
 

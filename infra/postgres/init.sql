@@ -76,6 +76,7 @@ CREATE TABLE chunks (
   token_count INTEGER,
   embedding vector(1024),
   search_vector tsvector,
+  contextual_prefix TEXT,
   metadata JSONB DEFAULT '{}',
   UNIQUE (paper_id, chunk_index)
 );
@@ -113,6 +114,13 @@ CREATE TABLE figures (
   claim_summary TEXT,
   figure_index INTEGER NOT NULL,
   processed_at TIMESTAMPTZ,
+  figure_type TEXT,
+  caption TEXT,
+  figure_number TEXT,
+  data_claim TEXT,
+  referenced_paragraph TEXT,
+  bbox JSONB,
+  detector_confidence REAL,
   UNIQUE (paper_id, figure_index)
 );
 
@@ -296,7 +304,9 @@ CREATE TABLE personas (
   avatar_url TEXT,
   bio TEXT,
   is_active BOOLEAN DEFAULT true,
+  feed_eligible BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  allowed_figure_types TEXT[],
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

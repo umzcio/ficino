@@ -153,5 +153,23 @@ export function useFeed(workspaceId?: string) {
     }
   }, [stopPolling])
 
+  // "Delete All Papers" and "Delete Everything" both wipe feeds on the
+  // server. Reset the feed view the moment either bulk delete completes.
+  useEffect(() => {
+    const onCleared = () => {
+      stopPolling()
+      setPosts([])
+      setFeedId(null)
+      setFeedState('idle')
+      setError(null)
+    }
+    window.addEventListener('ficino:papers-cleared', onCleared)
+    window.addEventListener('ficino:everything-cleared', onCleared)
+    return () => {
+      window.removeEventListener('ficino:papers-cleared', onCleared)
+      window.removeEventListener('ficino:everything-cleared', onCleared)
+    }
+  }, [stopPolling])
+
   return { posts, feedId, feedState, generatingMeta, error, generate, loadFeed }
 }

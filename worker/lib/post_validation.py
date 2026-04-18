@@ -36,7 +36,11 @@ def validate_post_shape(post_data: dict, *, persona_key: str) -> dict:
     warn log so the operator sees the drift. An invalid post_type is coerced
     to "post".
     """
-    # Required fields
+    # Required fields. `persona` and `post_type` default to sensible values;
+    # `content` is load-bearing — without it the post is nothing but a
+    # placeholder, which has no place in a research feed. Missing content
+    # now raises so the caller drops the slot instead of persisting an
+    # apology string that looks like a broken product.
     for field in REQUIRED_FIELDS:
         if not post_data.get(field):
             logger.warn(
@@ -50,8 +54,7 @@ def validate_post_shape(post_data: dict, *, persona_key: str) -> dict:
             elif field == "post_type":
                 post_data["post_type"] = "post"
             elif field == "content":
-                # Keep the post but mark it so the UI can surface a placeholder
-                post_data["content"] = "[generation produced no text]"
+                raise ValueError("persona_post_missing_content")
 
     # post_type must match the frontend's Literal union
     pt = post_data.get("post_type")

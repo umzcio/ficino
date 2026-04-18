@@ -200,10 +200,14 @@ def _parse_post_json(text: str) -> dict[str, object]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Last resort: return the text as content
-    # Use cleaned (thinking-stripped) version for the content
+    # Last resort: the model returned plain text instead of a JSON object.
+    # Wrap it as a post IF the text is substantive — otherwise raise so the
+    # caller drops the slot. We no longer manufacture `[generation produced
+    # no text]` / `[generation produced malformed output]` placeholders; a
+    # research-grade feed should not ship user-facing apology text as a
+    # "post". Callers are expected to catch ValueError and continue past
+    # the failed slot.
     content = cleaned if cleaned else text
-    # Strip any remaining markdown/code artifacts
     content = re.sub(r'```.*?```', '', content, flags=re.DOTALL).strip()
 
     # MED-15: strip role markers so a leaked "Assistant:" / "System:" in the
@@ -212,24 +216,22 @@ def _parse_post_json(text: str) -> dict[str, object]:
     from lib.sanitize import strip_role_markers
     content = strip_role_markers(content)
 
-    # Reject absurdly long fallbacks. A 20k-char blob slipping into feeds.posts
-    # is almost certainly the model dumping its chain-of-thought, not a post.
-    # Better to show a minimal stub than store a novel as a "post".
-    if len(content) > 4000:
-        logger.warn(
-            "post_json_fallback_too_long",
-            response_length=len(content),
-        )
-        content = "[generation produced malformed output]"
+    # Empty / whitespace-only means the LLM produced nothing usable. Drop.
+    if not content.strip():
+        logger.warn("post_json_empty_response_dropped")
+        raise ValueError("persona_post_empty_content")
 
-    # Log only shape info — the response can contain partial user-paper content
-    # or PII echoed back from chunks. Keep debugging possible without leaking
-    # content into host logs.
-    logger.warn(
-        "post_json_parse_failed",
-        response_length=len(content),
-        response_type=type(content).__name__,
-    )
+    # Absurdly long blobs are almost certainly chain-of-thought spillage,
+    # not a post. Drop rather than persist a novel.
+    if len(content) > 4000:
+        logger.warn("post_json_fallback_too_long_dropped", response_length=len(content))
+        raise ValueError("persona_post_content_too_long")
+
+    # Substantive plaintext — wrap as a plain post. Log the parse drift so
+    # we can see how often models ignore the JSON contract, but do not
+    # surface shape info that would leak chunk/PII content.
+    logger.warn("post_json_parse_failed_wrapped_as_plaintext",
+                response_length=len(content))
     return {"post_type": "post", "content": content}
 
 

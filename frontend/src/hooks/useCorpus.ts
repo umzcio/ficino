@@ -114,6 +114,23 @@ export function useCorpus(workspaceId?: string) {
   // Dedicated cleanup effect: only clears the pending timeout on unmount.
   useEffect(() => () => stopPolling(), [stopPolling])
 
+  // Refresh when a bulk "Delete All Papers" OR "Delete Everything" happens
+  // from Settings. Both wipe the IDB store and dispatch; the corpus view
+  // drops its stale list without a hard reload.
+  useEffect(() => {
+    const onCleared = () => {
+      stopPolling()
+      setPapers([])
+      refresh()
+    }
+    window.addEventListener('ficino:papers-cleared', onCleared)
+    window.addEventListener('ficino:everything-cleared', onCleared)
+    return () => {
+      window.removeEventListener('ficino:papers-cleared', onCleared)
+      window.removeEventListener('ficino:everything-cleared', onCleared)
+    }
+  }, [refresh, stopPolling])
+
   const upload = useCallback(async (file: File) => {
     setUploading(true)
     setError(null)

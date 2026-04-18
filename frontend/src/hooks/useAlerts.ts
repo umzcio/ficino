@@ -36,6 +36,18 @@ export function useAlerts() {
     }
   }, [refresh])
 
+  // "Delete Everything" wipes alerts on the server (the granular clears
+  // never did). Reset local state the moment the bulk delete completes
+  // instead of waiting for the 30s poll to catch up.
+  useEffect(() => {
+    const onCleared = () => {
+      setAlerts([])
+      setUnreadCount(0)
+    }
+    window.addEventListener('ficino:everything-cleared', onCleared)
+    return () => window.removeEventListener('ficino:everything-cleared', onCleared)
+  }, [])
+
   const markRead = useCallback(async (id: string) => {
     await markAlertRead(id)
     await refresh()

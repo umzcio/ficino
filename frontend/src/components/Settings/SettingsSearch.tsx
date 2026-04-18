@@ -35,6 +35,9 @@ const REGISTRY: SettingEntry[] = [
   { tab: 'storage', label: 'Clear Offline Data', terms: 'clear offline data cache indexeddb' },
   { tab: 'storage', label: 'Clear All Feeds', terms: 'clear feeds delete danger' },
   { tab: 'storage', label: 'Clear All Summaries', terms: 'clear summaries delete danger' },
+  { tab: 'storage', label: 'Clear All Conversations', terms: 'clear conversations user posts archivist messages delete danger' },
+  { tab: 'storage', label: 'Delete All Papers', terms: 'delete papers corpus reset wipe start over chunks figures danger destructive' },
+  { tab: 'storage', label: 'Delete Everything', terms: 'delete everything reset factory clean nuke notifications alerts danger destructive start over' },
 ]
 
 const TAB_LABELS: Record<SettingsTab, string> = {

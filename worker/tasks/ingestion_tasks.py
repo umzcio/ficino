@@ -12,13 +12,13 @@ from celery import Task
 from celery_app import app
 from lib import (
     chunker,
+    contextualizer,
     embedder,
     marker_extractor,
     metadata_extractor,
     pdf_extractor,
     quality_check,
     vision_extractor,
-    figure_describer,
 )
 from lib.db import execute, fetchrow, store_chunks_batch, store_figure
 from lib.settings import STUB_USER_ID
@@ -204,13 +204,49 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         chunks = chunker.chunk_markdown(markdown, max_tokens=chunk_max)
         log.info("chunks_created", count=len(chunks))
 
+        # --- Step 3b: Contextual prefixing (Anthropic-style contextual retrieval) ---
+        # Runs only when context_provider != "none". The prefix is a 1-2
+        # sentence blurb per chunk that situates it in the paper, and it is
+        # concatenated to the chunk content BEFORE embedding so the vector
+        # captures the chunk's role inside the paper, not just its tokens.
+        # Also persisted to chunks.contextual_prefix for future re-embeds
+        # without a second LLM pass.
+        self.update_state(state="PROGRESS", meta={"step": "contextualizing", "paper_id": paper_id})
+        log.info("ingestion_step", step="contextualizing")
+        if chunks:
+            try:
+                contextual_prefixes = contextualizer.generate_contexts_for_paper_sync(
+                    markdown, chunks,
+                )
+            except Exception as e:
+                # Contextual retrieval is an upgrade, not a hard requirement.
+                # If the contextualizer is down (Anthropic outage, local LLM
+                # crashed), fall back to prefix-less ingestion rather than
+                # failing the whole paper.
+                log.warn("contextualizer_failed_falling_back", error=str(e)[:200])
+                contextual_prefixes = ["" for _ in chunks]
+        else:
+            contextual_prefixes = []
+
+        # Attach prefix onto each chunk dict so store_chunks_batch can persist it.
+        for chunk, prefix in zip(chunks, contextual_prefixes):
+            chunk["contextual_prefix"] = prefix
+
         # --- Step 4: Embedding ---
         self.update_state(state="PROGRESS", meta={"step": "embedding", "paper_id": paper_id})
         _update_paper_status(paper_id, "embedding")
         log.info("ingestion_step", step="embedding")
 
         if chunks:
-            chunk_texts = [str(c["content"]) for c in chunks]
+            # Prefix+content embedding: chunks with a prefix get it prepended so
+            # the bi-encoder sees paper-level framing. Chunks without (or with
+            # empty) prefix fall back to raw content — retains backward-compat
+            # with prior chunks if a paper is partially re-ingested.
+            chunk_texts = [
+                (f"{c.get('contextual_prefix') or ''}\n\n{c['content']}".strip()
+                 if c.get("contextual_prefix") else str(c["content"]))
+                for c in chunks
+            ]
             try:
                 embeddings = embedder.embed_texts_sync(chunk_texts)
             except RuntimeError as e:
@@ -241,29 +277,50 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         figure_dir = os.path.join("/app/figures", paper_id)
         figures = pdf_extractor.extract_figures(file_path, figure_dir)
 
-        # 3.5 telemetry: count stored vs failed so ops can detect vision-
-        # provider degradation before it silently wipes all figures. Threshold
-        # alerting (50%-fail-rate, etc.) is a follow-up once we have baseline
-        # data from production — this emits the raw counts under a stable
-        # structlog event key so whatever aggregator the ops team picks can
-        # derive rate windows.
+        # Storage telemetry. Detection failures happen upstream (in the
+        # detector, per-page) and surface as an empty figures list or a
+        # given page missing detections; the loop below only covers
+        # per-row DB write failures, which at this point should be rare
+        # (they mean disk or DB trouble, not vision-model trouble).
         figures_attempted = len(figures)
         figures_stored = 0
         figures_failed_by_type: dict[str, int] = {}
 
         for fig in figures:
             try:
-                with open(str(fig["image_path"]), "rb") as f:
-                    img_bytes = f.read()
-                desc = figure_describer.describe_figure_sync(img_bytes)
+                # data_claim is the detector's 1-sentence grounded summary;
+                # caption is the actual figure caption text. We keep the
+                # legacy `description` and `claim_summary` columns populated
+                # from these so older persona-prompt code paths don't need
+                # to be updated simultaneously — the new columns are also
+                # written so prompt code can be upgraded to use them.
+                data_claim = str(fig.get("data_claim") or "")
+                caption = str(fig.get("caption") or "")
+                legacy_description = data_claim or caption
+                # First sentence of data_claim, or full caption — whichever
+                # is shorter and gives personas a clean, short summary.
+                first_sentence = data_claim.split(". ")[0].strip()
+                legacy_claim = (first_sentence[:400] if first_sentence
+                                else caption[:400])
+
                 store_figure(
                     paper_id=paper_id,
                     page_number=int(fig["page"]),
                     image_path=str(fig["image_path"]),
                     extraction_type=str(fig["extraction_type"]),
-                    description=desc["description"],
-                    claim_summary=desc["claim_summary"],
+                    description=legacy_description,
+                    claim_summary=legacy_claim,
                     figure_index=int(fig["figure_index"]),
+                    figure_type=str(fig.get("figure_type") or "") or None,
+                    caption=caption or None,
+                    figure_number=str(fig.get("figure_number") or "") or None,
+                    data_claim=data_claim or None,
+                    referenced_paragraph=str(fig.get("referenced_paragraph") or "") or None,
+                    bbox=fig.get("bbox") if isinstance(fig.get("bbox"), dict) else None,
+                    detector_confidence=(
+                        float(fig["detector_confidence"])
+                        if fig.get("detector_confidence") is not None else None
+                    ),
                 )
                 figures_stored += 1
             except Exception as e:

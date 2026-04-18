@@ -477,6 +477,53 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
     return result
 
 
+@router.delete("/{feed_id}/{post_index}/message/{message_index}", status_code=204)
+async def delete_reply_message(
+    feed_id: str,
+    post_index: int,
+    message_index: int,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> None:
+    """Delete a single message from a post's reply thread.
+
+    The per-message 3-dot menu on PostCard calls this. Previously there
+    was no way for a user to remove a specific reply or interjection —
+    the entire thread was either kept or not.
+
+    Ownership: validated via feed membership. post_replies rows don't
+    carry a user_id of their own; they belong to the user who owns the
+    feed that owns the thread.
+
+    Concurrency: uses `messages - $1::int` (JSONB array element remove)
+    in a single statement so two concurrent deletes or an interleaved
+    append/delete can't clobber each other's edits mid-read. The
+    `jsonb_array_length` check guards against out-of-range indices;
+    Postgres' `jsonb - int` silently no-ops on a bad index, so we need
+    an explicit 404 path to surface the error to the caller.
+    """
+    feed_owner = await db.fetchrow(
+        "SELECT id FROM feeds WHERE id = $1 AND user_id = $2",
+        feed_id, user.id,
+    )
+    if not feed_owner:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
+    row = await db.fetchrow(
+        "SELECT id, jsonb_array_length(messages) AS n FROM post_replies WHERE feed_id = $1 AND post_index = $2",
+        feed_id, post_index,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Reply thread not found")
+    if message_index < 0 or message_index >= row["n"]:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    await db.execute(
+        "UPDATE post_replies SET messages = messages - $3::int WHERE feed_id = $1 AND post_index = $2",
+        feed_id, post_index, message_index,
+    )
+
+
 @router.post("/zap")
 async def zap_response(
     body: ZapRequest,

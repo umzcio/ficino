@@ -260,6 +260,46 @@ export async function getCachedUserPosts(workspaceId?: string): Promise<UserPost
   return db.getAll('userPosts')
 }
 
+export async function clearCachedUserPosts(): Promise<void> {
+  const db = await getDB()
+  const tx = db.transaction('userPosts', 'readwrite')
+  await tx.store.clear()
+  await tx.done
+}
+
+export async function clearCachedPapers(): Promise<void> {
+  const db = await getDB()
+  const tx = db.transaction('papers', 'readwrite')
+  await tx.store.clear()
+  await tx.done
+}
+
+export async function clearCachedFeeds(): Promise<void> {
+  const db = await getDB()
+  const tx = db.transaction('feeds', 'readwrite')
+  await tx.store.clear()
+  await tx.done
+}
+
+export async function clearAllCachedContent(): Promise<void> {
+  // Nuclear cache wipe to accompany clear-everything on the server. Walks
+  // every content-shaped IDB store; scaffolding stores (workspaces,
+  // settings, syncMeta, personas) are deliberately left intact so the
+  // user keeps their workspace list and preferences.
+  const db = await getDB()
+  const contentStores = [
+    'feeds', 'papers', 'paperSummaries', 'groupChats',
+    'bookmarks', 'annotations', 'likes', 'userPosts', 'alerts',
+  ] as const
+  for (const name of contentStores) {
+    try {
+      const tx = db.transaction(name as never, 'readwrite')
+      await tx.store.clear()
+      await tx.done
+    } catch { /* store may not exist in older browsers' IDB version */ }
+  }
+}
+
 // ── Alerts ──────────────────────────────────────────────────────────────────
 
 export async function cacheAlerts(alerts: AlertItem[]) {

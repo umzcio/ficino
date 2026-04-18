@@ -181,6 +181,7 @@ async def _store_chunks_batch(
             chunk.get("token_count"),
             str(embedding),  # pgvector accepts string representation
             "{}",
+            chunk.get("contextual_prefix") or None,
         )
         for chunk, embedding in zip(chunks, embeddings)
     ]
@@ -196,8 +197,8 @@ async def _store_chunks_batch(
                 paper_id,
             )
             await conn.executemany(
-                """INSERT INTO chunks (paper_id, user_id, section, content, chunk_type, chunk_index, token_count, embedding, metadata)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                """INSERT INTO chunks (paper_id, user_id, section, content, chunk_type, chunk_index, token_count, embedding, metadata, contextual_prefix)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                    ON CONFLICT (paper_id, chunk_index) DO UPDATE SET
                      user_id = EXCLUDED.user_id,
                      section = EXCLUDED.section,
@@ -205,7 +206,8 @@ async def _store_chunks_batch(
                      chunk_type = EXCLUDED.chunk_type,
                      token_count = EXCLUDED.token_count,
                      embedding = EXCLUDED.embedding,
-                     metadata = EXCLUDED.metadata""",
+                     metadata = EXCLUDED.metadata,
+                     contextual_prefix = EXCLUDED.contextual_prefix""",
                 rows,
             )
         return len(rows)
@@ -223,36 +225,75 @@ def store_chunks_batch(
 
 async def _store_figure(
     paper_id: str, page_number: int, image_path: str,
-    extraction_type: str, description: str, claim_summary: str, figure_index: int
+    extraction_type: str, description: str, claim_summary: str, figure_index: int,
+    *,
+    figure_type: str | None = None,
+    caption: str | None = None,
+    figure_number: str | None = None,
+    data_claim: str | None = None,
+    referenced_paragraph: str | None = None,
+    bbox: dict | None = None,
+    detector_confidence: float | None = None,
 ) -> None:
     # ON CONFLICT makes this idempotent under `process_paper` retries —
     # without it, a failure *after* figure storage but before
     # `_update_paper_status("complete")` re-runs extraction and leaves
     # duplicate rows, plus wastes vision-LLM spend.
+    import json as _json
+    bbox_json = _json.dumps(bbox) if bbox is not None else None
     pool = await _ensure_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            """INSERT INTO figures (paper_id, page_number, image_path, extraction_type,
-                                   description, claim_summary, figure_index, processed_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            """INSERT INTO figures (
+                 paper_id, page_number, image_path, extraction_type,
+                 description, claim_summary, figure_index, processed_at,
+                 figure_type, caption, figure_number, data_claim,
+                 referenced_paragraph, bbox, detector_confidence
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(),
+                       $8, $9, $10, $11, $12, $13::jsonb, $14)
                ON CONFLICT (paper_id, figure_index) DO UPDATE
-                 SET page_number = EXCLUDED.page_number,
-                     image_path = EXCLUDED.image_path,
-                     extraction_type = EXCLUDED.extraction_type,
-                     description = EXCLUDED.description,
-                     claim_summary = EXCLUDED.claim_summary,
-                     processed_at = EXCLUDED.processed_at""",
+                 SET page_number          = EXCLUDED.page_number,
+                     image_path           = EXCLUDED.image_path,
+                     extraction_type      = EXCLUDED.extraction_type,
+                     description          = EXCLUDED.description,
+                     claim_summary        = EXCLUDED.claim_summary,
+                     processed_at         = EXCLUDED.processed_at,
+                     figure_type          = EXCLUDED.figure_type,
+                     caption              = EXCLUDED.caption,
+                     figure_number        = EXCLUDED.figure_number,
+                     data_claim           = EXCLUDED.data_claim,
+                     referenced_paragraph = EXCLUDED.referenced_paragraph,
+                     bbox                 = EXCLUDED.bbox,
+                     detector_confidence  = EXCLUDED.detector_confidence""",
             paper_id, page_number, image_path, extraction_type,
             description, claim_summary, figure_index,
+            figure_type, caption, figure_number, data_claim,
+            referenced_paragraph, bbox_json, detector_confidence,
         )
 
 
 def store_figure(
     paper_id: str, page_number: int, image_path: str,
-    extraction_type: str, description: str, claim_summary: str, figure_index: int
+    extraction_type: str, description: str, claim_summary: str, figure_index: int,
+    *,
+    figure_type: str | None = None,
+    caption: str | None = None,
+    figure_number: str | None = None,
+    data_claim: str | None = None,
+    referenced_paragraph: str | None = None,
+    bbox: dict | None = None,
+    detector_confidence: float | None = None,
 ) -> None:
-    """Store a figure record. Sync wrapper."""
+    """Store a figure record with typed metadata. Sync wrapper."""
     _run(_store_figure(
         paper_id, page_number, image_path, extraction_type,
         description, claim_summary, figure_index,
+        figure_type=figure_type,
+        caption=caption,
+        figure_number=figure_number,
+        data_claim=data_claim,
+        referenced_paragraph=referenced_paragraph,
+        bbox=bbox,
+        detector_confidence=detector_confidence,
     ))

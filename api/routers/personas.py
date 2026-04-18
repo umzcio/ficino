@@ -56,6 +56,76 @@ async def get_persona_stats(
     }
 
 
+@router.get("/{persona_key}/replies")
+async def get_persona_replies(
+    persona_key: str,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, object]]:
+    """List every interjection this persona made across the user's feeds.
+
+    The profile's Posts tab only shows top-level posts authored by this
+    persona. Interjections — where THIS persona "jumped in" on a thread
+    owned by another persona — live inside `post_replies.messages` as
+    messages with role='interjection' and their own inner `persona`
+    field. Nothing surfaced those per-persona, so reply activity was
+    invisible on the profile.
+
+    The LATERAL unnest walks every message of every post_replies row the
+    caller owns and filters to interjections authored by this persona.
+    Each hit carries enough parent-post context (author, content snippet,
+    paper_ref) to render an "in reply to …" card on the profile without
+    a second round-trip.
+
+    Feed ownership is enforced by the `f.user_id = $1` join — a caller
+    can't see another user's reply activity by guessing a persona key.
+    """
+    rows = await db.fetch(
+        """
+        SELECT
+          f.id                            AS feed_id,
+          pr.post_index                   AS post_index,
+          (msg.idx - 1)::int              AS message_index,
+          msg.value ->> 'content'         AS content,
+          f.generated_at                  AS thread_generated_at,
+          f.posts -> pr.post_index        AS parent_post
+        FROM post_replies pr
+        JOIN feeds f ON pr.feed_id = f.id
+        CROSS JOIN LATERAL jsonb_array_elements(pr.messages)
+          WITH ORDINALITY AS msg(value, idx)
+        WHERE f.user_id = $1
+          AND msg.value ->> 'persona' = $2
+          AND msg.value ->> 'role'    = 'interjection'
+        ORDER BY f.generated_at DESC, pr.post_index, msg.idx
+        LIMIT 100
+        """,
+        user.id, persona_key,
+    )
+
+    results: list[dict[str, object]] = []
+    for r in rows:
+        parent = r["parent_post"]
+        # parent_post arrives as JSONB -> dict via asyncpg, but defensively
+        # handle the string path in case the driver changes.
+        if isinstance(parent, str):
+            parent = json.loads(parent)
+        parent = parent or {}
+        results.append({
+            "feed_id": str(r["feed_id"]),
+            "post_index": r["post_index"],
+            "message_index": r["message_index"],
+            "content": r["content"] or "",
+            "thread_generated_at": r["thread_generated_at"],
+            "parent_post": {
+                "persona": parent.get("persona"),
+                "content": (parent.get("content") or "")[:300],
+                "post_type": parent.get("post_type"),
+                "paper_ref": parent.get("paper_ref"),
+            },
+        })
+    return results
+
+
 class PersonaDmRequest(BaseModel):
     # Bound LLM input so a misbehaving client can't pump unbounded text into
     # the persona prompt. Matches ReplyRequest.user_message.

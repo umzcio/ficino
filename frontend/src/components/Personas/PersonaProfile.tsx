@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, Loader2, Send, MessagesSquare } from 'lucide-react'
 import { usePersonas } from '../../hooks/usePersonas'
-import { getPersonaStats, getPersonaDm, sendPersonaDm, type ReplyMessage } from '../../lib/api'
+import { getPersonaStats, getPersonaDm, sendPersonaDm, getPersonaReplies, type ReplyMessage, type PersonaReplyItem } from '../../lib/api'
 import type { FeedPost } from '../../types'
 import { PostCard, InlineMd } from '../Feed/PostCard'
 
@@ -18,18 +18,34 @@ interface PersonaProfileProps {
 export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTake, generating, canGenerate }: PersonaProfileProps) {
   const personas = usePersonas()
   const p = personas[personaKey]
-  const [tab, setTab] = useState<'posts' | 'dm'>('posts')
+  const [tab, setTab] = useState<'posts' | 'replies' | 'dm'>('posts')
   const [stats, setStats] = useState<{ reply_threads: number } | null>(null)
   const [dmMessages, setDmMessages] = useState<ReplyMessage[]>([])
   const [dmInput, setDmInput] = useState('')
   const [dmLoading, setDmLoading] = useState(false)
   const [dmLoaded, setDmLoaded] = useState(false)
+  // Interjections this persona made across the user's feeds — the
+  // "jumped in" messages that don't show under the Posts tab because
+  // they aren't top-level posts.
+  const [replies, setReplies] = useState<PersonaReplyItem[]>([])
+  const [repliesLoaded, setRepliesLoaded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     getPersonaStats(personaKey).then(setStats).catch(() => {})
   }, [personaKey])
+
+  // Lazy-load replies the first time the user opens the Replies tab. Avoids
+  // paying the extra SQL pass for users who never view the tab.
+  useEffect(() => {
+    if (tab === 'replies' && !repliesLoaded) {
+      getPersonaReplies(personaKey)
+        .then(setReplies)
+        .catch(() => setReplies([]))
+        .finally(() => setRepliesLoaded(true))
+    }
+  }, [tab, personaKey, repliesLoaded])
 
   useEffect(() => {
     if (tab === 'dm' && !dmLoaded) {
@@ -151,7 +167,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       <PersonaTabs active={tab} onSelect={setTab} accentColor={p.color} />
 
       {/* Content */}
-      {tab === 'posts' ? (
+      {tab === 'posts' && (
         <div
           role="tabpanel"
           id="persona-panel-posts"
@@ -176,7 +192,80 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
             })
           )}
         </div>
-      ) : (
+      )}
+      {tab === 'replies' && (
+        <div
+          role="tabpanel"
+          id="persona-panel-replies"
+          aria-labelledby="persona-tab-replies"
+          tabIndex={0}
+        >
+          {!repliesLoaded ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={20} className="animate-spin" style={{ color: p.color }} />
+            </div>
+          ) : replies.length === 0 ? (
+            <div className="py-16 text-center text-text-muted text-sm">
+              {p.name} hasn't jumped into any conversations yet.
+            </div>
+          ) : (
+            replies.map((r) => {
+              const parentPersona = r.parent_post.persona ? personas[r.parent_post.persona] : null
+              const parentName = parentPersona?.name || r.parent_post.persona || 'Unknown'
+              const parentHandle = parentPersona?.handle || ''
+              return (
+                <div
+                  key={`${r.feed_id}-${r.post_index}-${r.message_index}`}
+                  className="border-b border-border px-4 py-3"
+                >
+                  {/* Parent post context — who this persona jumped in on */}
+                  <div className="text-[12px] text-text-muted mb-1.5">
+                    Jumped into <span className="text-gold">{parentName}</span>
+                    {parentHandle && <span className="ml-1">{parentHandle}</span>}
+                  </div>
+                  <div
+                    className="text-[13px] text-text-muted italic border-l-2 pl-3 mb-2.5 line-clamp-3"
+                    style={{ borderColor: (parentPersona?.color || 'var(--color-border)') + '60' }}
+                  >
+                    {r.parent_post.content}
+                  </div>
+                  {/* The interjection itself */}
+                  <div className="flex gap-2.5">
+                    {p.avatar_url ? (
+                      <img
+                        src={p.avatar_url}
+                        alt={p.name}
+                        className="w-8 h-8 rounded-full object-cover shrink-0"
+                        style={{ border: `1.5px solid ${p.color}50` }}
+                      />
+                    ) : (
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+                        style={{ backgroundColor: p.color + '22', color: p.color, border: `1.5px solid ${p.color}50` }}
+                      >
+                        {p.initials}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[13px] font-bold text-text">{p.name}</span>
+                        <span className="text-[13px] text-text-muted">{p.handle}</span>
+                        <span className="text-[10px] text-text-muted bg-bg-hover border border-border rounded px-1.5 py-px">
+                          jumped in
+                        </span>
+                      </div>
+                      <p className="text-[14px] text-text leading-relaxed whitespace-pre-wrap">
+                        <InlineMd text={r.content} />
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
+      {tab === 'dm' && (
         <div
           role="tabpanel"
           id="persona-panel-dm"
@@ -269,14 +358,15 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
   )
 }
 
-const PERSONA_TABS: { key: 'posts' | 'dm'; label: string }[] = [
+const PERSONA_TABS: { key: 'posts' | 'replies' | 'dm'; label: string }[] = [
   { key: 'posts', label: 'Posts' },
+  { key: 'replies', label: 'Replies' },
   { key: 'dm', label: 'Messages' },
 ]
 
 function PersonaTabs({ active, onSelect, accentColor }: {
-  active: 'posts' | 'dm'
-  onSelect: (tab: 'posts' | 'dm') => void
+  active: 'posts' | 'replies' | 'dm'
+  onSelect: (tab: 'posts' | 'replies' | 'dm') => void
   accentColor: string
 }) {
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})

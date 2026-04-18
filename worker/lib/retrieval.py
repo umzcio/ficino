@@ -13,6 +13,7 @@ import structlog
 
 from lib.db import fetch
 from lib.embedder import embed_single_sync
+from lib.reranker import rerank as rerank_chunks
 
 logger = structlog.get_logger(__name__)
 
@@ -49,6 +50,11 @@ MAX_VECTOR_DISTANCE = _clamp_weight("RETRIEVAL_MAX_VECTOR_DISTANCE", 0.8)
 # anyway — cost is negligible.
 CANDIDATE_POOL = int(os.getenv("RETRIEVAL_CANDIDATE_POOL", "100"))
 
+# When a reranker is enabled, fetch this multiple of top_k from SQL so the
+# cross-encoder has enough candidates to meaningfully reorder. Capped at
+# CANDIDATE_POOL so we never exceed the stage-1 bound.
+RERANK_MULTIPLIER = int(os.getenv("RETRIEVAL_RERANK_MULTIPLIER", "5"))
+
 
 def retrieve_chunks(
     query: str,
@@ -59,8 +65,17 @@ def retrieve_chunks(
 
     Stage 1: vector-nearest CANDIDATE_POOL chunks via HNSW.
     Stage 2: re-rank those candidates with the hybrid vector + BM25 score.
+    Stage 3 (optional): cross-encoder reranker over top top_k*RERANK_MULTIPLIER.
     """
     logger.info("retrieval_start", query=query[:100], paper_ids=paper_ids, top_k=top_k)
+
+    # If a reranker is configured, pull a wider slice from SQL so the
+    # cross-encoder has enough material to reorder meaningfully. Capped at
+    # CANDIDATE_POOL — the stage-1 branch can't return more than it fetched.
+    rerank_provider = os.getenv("RERANK_PROVIDER", "none")
+    sql_top_k = top_k
+    if rerank_provider != "none":
+        sql_top_k = min(CANDIDATE_POOL, max(top_k * RERANK_MULTIPLIER, top_k))
 
     # Generate query embedding
     query_embedding = embed_single_sync(query)
@@ -72,10 +87,10 @@ def retrieve_chunks(
     if paper_ids:
         placeholders = ",".join(f"${i+4}" for i in range(len(paper_ids)))
         paper_filter = f"AND c.paper_id IN ({placeholders})"
-        args: list[object] = [embedding_str, query, CANDIDATE_POOL, *paper_ids, top_k]
+        args: list[object] = [embedding_str, query, CANDIDATE_POOL, *paper_ids, sql_top_k]
     else:
         paper_filter = ""
-        args = [embedding_str, query, CANDIDATE_POOL, top_k]
+        args = [embedding_str, query, CANDIDATE_POOL, sql_top_k]
 
     top_k_param = f"${len(args)}"
 
@@ -157,6 +172,16 @@ def retrieve_chunks(
 
     logger.info("retrieval_complete", results=len(results),
                 match_types={r["match_type"] for r in results})
+
+    # Stage 3: cross-encoder rerank, if enabled. No-ops when RERANK_PROVIDER
+    # is "none" (default) so this is a safe ship without flipping any flag.
+    if rerank_provider != "none" and results:
+        reranked = rerank_chunks(query, results, top_k=top_k)
+        logger.info("retrieval_reranked",
+                    provider=rerank_provider,
+                    input=len(results), output=len(reranked))
+        return reranked
+
     return results
 
 

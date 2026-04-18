@@ -230,7 +230,17 @@ def generate_chapter(
         feed_id = str(uuid.uuid4())
         user_settings = apply_provider_settings(effective_user_id)
         num_posts = user_settings.get("posts_per_generation", 12)
-        enabled_personas = {k for k, v in user_settings.get("personas_enabled", {}).items() if v}
+        # Opt-out persona enablement — mirror persona_tasks.generate_feed.
+        # Start from DB-eligible personas, remove only explicit opt-outs.
+        all_feed_personas = {
+            k for k, meta in persona_lib.get_personas().items()
+            if meta.get("feed_eligible")
+        }
+        user_enabled = user_settings.get("personas_enabled", {})
+        enabled_personas = {
+            k for k in all_feed_personas
+            if user_enabled.get(k, True) is not False
+        }
         temperature = user_settings.get("persona_temperature", 0.8)
         post_weights = user_settings.get("post_type_weights", persona_lib.POST_TYPE_WEIGHTS)
         preferences = user_settings.get("preferences")

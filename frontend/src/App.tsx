@@ -57,7 +57,7 @@ import { InstallButton, MobileInstallBanner } from './components/Nav/InstallProm
 import { OnlineProvider, useIsOnline } from './lib/online-context'
 import { OfflineBanner } from './components/Nav/OfflineBanner'
 import { DownloadProgress } from './components/Nav/DownloadProgress'
-import { downloadWorkspace, getLastSync, type DownloadProgress as DlProgress } from './lib/workspace-download'
+import { downloadWorkspace, type DownloadProgress as DlProgress } from './lib/workspace-download'
 
 type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'settings'
 
@@ -158,36 +158,19 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
   )
 }
 
-function formatSyncAgo(ts: number): string {
-  const mins = Math.floor((Date.now() - ts) / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
-}
-
 function FeedHeader({
   paperCount,
-  totalPaperCount,
-  activePersonaCount,
   onGenerate,
   generating,
-  activeTag,
   onMobileLogoTap,
   isOnline,
-  syncTime,
   workspaceProps,
 }: {
   paperCount: number
-  totalPaperCount: number
-  activePersonaCount: number
   onGenerate: () => void
   generating: boolean
-  activeTag: string | null
   onMobileLogoTap?: () => void
   isOnline?: boolean
-  syncTime?: number | null
   workspaceProps?: {
     workspaces: import('./types').Workspace[]
     active: import('./types').Workspace | null
@@ -220,8 +203,8 @@ function FeedHeader({
             BETA
           </span>
         </div>
-        <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
-          {workspaceProps?.showUI && workspaceProps.active && (
+        {workspaceProps?.showUI && workspaceProps.active && (
+          <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
             <WorkspaceDropdown
               workspaces={workspaceProps.workspaces}
               active={workspaceProps.active}
@@ -231,24 +214,8 @@ function FeedHeader({
               onRename={workspaceProps.onRename}
               onDownload={workspaceProps.onDownload}
             />
-          )}
-          {workspaceProps?.showUI && <span>·</span>}
-          <span>
-            {paperCount === totalPaperCount
-              ? `${paperCount} paper${paperCount !== 1 ? 's' : ''}`
-              : `${paperCount} of ${totalPaperCount} papers`
-            } · {activePersonaCount} persona{activePersonaCount !== 1 ? 's' : ''} ·{' '}
-            {generating ? 'generating' : 'ready'}
-          </span>
-          {activeTag && (
-            <span className="ml-1 text-gold"> · #{activeTag}</span>
-          )}
-          {syncTime && (
-            <span className={`ml-1 ${Date.now() - syncTime > 24 * 60 * 60 * 1000 ? 'text-persona-hype' : 'text-text-muted'}`}>
-              {' · '}synced {formatSyncAgo(syncTime)}
-            </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
       <button
         onClick={onGenerate}
@@ -426,13 +393,6 @@ function AppContent() {
     setDlProgress(null)
   }, [])
 
-  const [workspaceSyncTime, setWorkspaceSyncTime] = useState<number | null>(null)
-  useEffect(() => {
-    if (ws.activeId) {
-      getLastSync(ws.activeId).then(setWorkspaceSyncTime)
-    }
-  }, [ws.activeId, dlProgress?.done])
-
   // Depend on a stable key derived from which papers have completed, not the
   // array identity. `useCorpus.refresh` returns a fresh array on every 2s
   // poll while any upload is processing, which previously caused
@@ -462,7 +422,6 @@ function AppContent() {
 
   const completePapers = corpus.papers.filter((p) => p.status === 'complete')
   const enabledPersonas = (appSettings.settings.personas_enabled || {}) as Record<string, boolean>
-  const activePersonaCount = Object.values(enabledPersonas).filter((v) => v !== false).length || 5
 
   const filteredPaperCount = activeTag
     ? completePapers.filter((p) => p.tags?.some((t) => t.name === activeTag)).length
@@ -603,14 +562,10 @@ function AppContent() {
           <>
             <FeedHeader
               paperCount={filteredPaperCount}
-              totalPaperCount={corpus.papers.length}
-              activePersonaCount={activePersonaCount}
               onGenerate={handleGenerate}
               generating={feed.feedState === 'generating'}
-              activeTag={activeTag}
               onMobileLogoTap={() => setShowMobileDrawer(true)}
               isOnline={isOnline}
-              syncTime={workspaceSyncTime}
               workspaceProps={{
                 workspaces: ws.workspaces,
                 active: ws.active,

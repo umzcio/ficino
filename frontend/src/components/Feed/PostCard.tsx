@@ -5,7 +5,7 @@ import {
   RefreshCw, EyeOff, Bug, Copy, Quote, StickyNote, Trash2
 } from 'lucide-react'
 import type { FeedPost } from '../../types'
-import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, deletePost, updateSettings, type ReplyMessage } from '../../lib/api'
+import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, deletePost, updateSettings, deleteReplyMessage, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { InlineMd } from './_shared/InlineMd'
 import { FigureLightbox } from './_shared/FigureLightbox'
@@ -121,6 +121,11 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
   const [mentionIdx, setMentionIdx] = useState(0)
   const [zapOpen, setZapOpen] = useState<number | null>(null) // index of message being zapped, -1 = post itself
   const [zapLoading, setZapLoading] = useState(false)
+  // Per-reply-message 3-dot menu. Tracks which message index currently has
+  // its menu open; null = none. Parallel to zapOpen so each message can
+  // toggle its overflow actions independently.
+  const [msgMenuOpen, setMsgMenuOpen] = useState<number | null>(null)
+  const msgMenuRef = useRef<HTMLDivElement>(null)
   const [debugOpen, setDebugOpen] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -143,6 +148,25 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
       document.removeEventListener('keydown', handleKey)
     }
   }, [zapOpen])
+
+  // Same click-outside / Escape pattern for the per-message 3-dot menu.
+  useEffect(() => {
+    if (msgMenuOpen === null) return
+    const handleClick = (e: MouseEvent) => {
+      if (msgMenuRef.current && !msgMenuRef.current.contains(e.target as Node)) {
+        setMsgMenuOpen(null)
+      }
+    }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMsgMenuOpen(null)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [msgMenuOpen])
 
   // Filter personas for @mention autocomplete
   const allPersonas = Object.entries(personas).map(([k, pp]) => ({ personaKey: k, ...pp }))
@@ -876,6 +900,62 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                             })}
                             label="Bookmark"
                           />
+                          {/* Per-message 3-dot menu. Previously there was no way
+                              to remove a single interjection or reply — the whole
+                              thread was kept or nothing. Copy + Delete covers the
+                              day-to-day use; per-persona hide already lives on
+                              the parent post's menu. */}
+                          <div className="relative" ref={msgMenuOpen === i ? msgMenuRef : undefined}>
+                            <button
+                              type="button"
+                              aria-label="More options"
+                              aria-haspopup="menu"
+                              aria-expanded={msgMenuOpen === i}
+                              className="bg-transparent border-none cursor-pointer p-1 ml-1 hover:bg-bg-hover rounded-full"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setMsgMenuOpen(msgMenuOpen === i ? null : i)
+                              }}
+                            >
+                              <MoreHorizontal size={14} className="text-text-muted" />
+                            </button>
+                            {msgMenuOpen === i && (
+                              <div
+                                role="menu"
+                                className="absolute right-0 bottom-full mb-1 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[200px]"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MenuItem
+                                  icon={Copy}
+                                  label="Copy text"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setMsgMenuOpen(null)
+                                    copyToClipboard(msg.content, 'Message text')
+                                  }}
+                                />
+                                {!isUser && (
+                                  <MenuItem
+                                    icon={Trash2}
+                                    label="Delete message"
+                                    color="var(--color-persona-skeptic)"
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      setMsgMenuOpen(null)
+                                      if (!feedId) return
+                                      try {
+                                        await deleteReplyMessage(feedId, postIndex, i)
+                                        // Optimistic local removal; server write is already committed.
+                                        setReplyMessages(prev => prev.filter((_, idx) => idx !== i))
+                                      } catch {
+                                        setToast('Failed to delete message')
+                                      }
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

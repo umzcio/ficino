@@ -43,6 +43,15 @@ DEFAULTS = {
     "ollama_embed_model": "bge-m3:latest",
     "vision_provider": "ollama",
     "ollama_vision_model": "gemma4:latest",
+    # Cross-encoder rerank of retrieval candidates. "none" = off (default).
+    "rerank_provider": "none",
+    "rerank_local_model": "BAAI/bge-reranker-v2-m3",
+    "rerank_voyage_model": "rerank-2-lite",
+    "rerank_cohere_model": "rerank-v3.5",
+    # Per-chunk contextual prefix generation at ingest time. "none" = off.
+    "context_provider": "none",
+    "context_anthropic_model": "claude-haiku-4-5",
+    "context_ollama_model": "qwen3.5:latest",
     "personas_enabled": {
         "skeptic": True,
         "hype": True,
@@ -78,8 +87,16 @@ _SETTINGS_TO_ENV = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
     "voyage_api_key": "VOYAGE_API_KEY",
+    "cohere_api_key": "COHERE_API_KEY",
     "claude_model": "CLAUDE_MODEL",
     "voyage_embed_model": "VOYAGE_EMBED_MODEL",
+    "rerank_provider": "RERANK_PROVIDER",
+    "rerank_local_model": "RERANK_LOCAL_MODEL",
+    "rerank_voyage_model": "RERANK_VOYAGE_MODEL",
+    "rerank_cohere_model": "RERANK_COHERE_MODEL",
+    "context_provider": "CONTEXT_PROVIDER",
+    "context_anthropic_model": "CONTEXT_ANTHROPIC_MODEL",
+    "context_ollama_model": "CONTEXT_OLLAMA_MODEL",
 }
 
 

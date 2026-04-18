@@ -293,7 +293,22 @@ def generate_feed(
         # "Get their take" requests which pass an explicit small num_posts
         if not persona_key:
             num_posts = user_settings.get("posts_per_generation", num_posts)
-        enabled_personas = {k for k, v in user_settings.get("personas_enabled", {}).items() if v}
+        # Opt-out enabled-personas logic. Start from every feed-eligible
+        # persona in the DB (is_active=true, feed_eligible=true), then
+        # remove any the user has explicitly turned off in their settings.
+        # Prior behavior was opt-in — it derived the enabled set from the
+        # user's personas_enabled dict only, so personas added via migration
+        # after the dict's defaults were seeded (e.g. Amplifier) never made
+        # the set and silently produced zero posts.
+        all_feed_personas = {
+            k for k, meta in persona_lib.get_personas().items()
+            if meta.get("feed_eligible")
+        }
+        user_enabled = user_settings.get("personas_enabled", {})
+        enabled_personas = {
+            k for k in all_feed_personas
+            if user_enabled.get(k, True) is not False
+        }
         temperature = user_settings.get("persona_temperature", 0.8)
         post_weights = user_settings.get("post_type_weights", persona_lib.POST_TYPE_WEIGHTS)
 
@@ -373,10 +388,18 @@ def generate_feed(
                     flat_chunks.append(c)
                     seen_ids.add(c["id"])
 
-        # Fetch available figures for figure posts
+        # Fetch available figures for figure posts. Pulls the new typed
+        # columns (figure_type, caption, figure_number, data_claim,
+        # referenced_paragraph, detector_confidence) so persona routing
+        # can gate on figure_type and prompt building can ground on
+        # caption + data_claim instead of a blind description.
         figure_rows = fetch(
-            """SELECT f.id, f.paper_id, f.page_number, f.image_path, f.description,
-                      f.claim_summary, f.figure_index, p.filename AS paper_filename, p.title AS paper_title
+            """SELECT f.id, f.paper_id, f.page_number, f.image_path,
+                      f.description, f.claim_summary, f.figure_index,
+                      f.figure_type, f.caption, f.figure_number,
+                      f.data_claim, f.referenced_paragraph,
+                      f.detector_confidence,
+                      p.filename AS paper_filename, p.title AS paper_title
                FROM figures f JOIN papers p ON f.paper_id = p.id
                WHERE f.paper_id = ANY($1)""",
             paper_ids,
@@ -399,10 +422,21 @@ def generate_feed(
                 "claim_summary": r["claim_summary"] or "",
                 "figure_index": r["figure_index"],
                 "paper_ref": r["paper_title"] or r["paper_filename"],
+                # Typed metadata. `figure_type` is the key gate for persona
+                # routing — a figure without a type (legacy row from before
+                # typed extraction) is effectively dead to routing and will
+                # not be surfaced to any persona.
+                "figure_type": r["figure_type"],
+                "caption": r["caption"] or "",
+                "figure_number": r["figure_number"] or "",
+                "data_claim": r["data_claim"] or "",
+                "referenced_paragraph": r["referenced_paragraph"] or "",
+                "detector_confidence": r["detector_confidence"],
             }
             for r in figure_rows
         ]
-        log.info("figures_available", count=len(available_figures))
+        log.info("figures_available", count=len(available_figures),
+                 typed=sum(1 for f in available_figures if f["figure_type"]))
 
         # --- Step 3: Contradiction detection ---
         self.update_state(state="PROGRESS", meta={"step": "classifying", "feed_id": feed_id})
@@ -473,10 +507,39 @@ def generate_feed(
                 start = (my_slot_index * window_size) % (max_start + 1) if max_start > 0 else 0
                 chunks = chunks[start:start + window_size]
 
-            # Pick figure BEFORE prompt if this is a figure post
+            # Pick figure BEFORE prompt if this is a figure post. The
+            # figure MUST be of a type this persona is allowed to post
+            # about — this is the fix for the bug where Methods Skeptic
+            # earnestly critiqued a UI doc icon and Stats Nerd tried to
+            # do statistics on a photograph. Personas whose
+            # `allowed_figure_types` is empty/null will never enter this
+            # branch with a figure selected; the post-generation code
+            # below already continues past posts that can't be built.
             selected_figure = None
             if post_type == "figure" and available_figures:
-                selected_figure = random.choice(available_figures)
+                allowed_types = set(
+                    (persona_lib.get_personas().get(persona_key, {}) or {})
+                    .get("allowed_figure_types") or ()
+                )
+                eligible = [
+                    f for f in available_figures
+                    if f["figure_type"] and f["figure_type"] in allowed_types
+                ]
+                if eligible:
+                    selected_figure = random.choice(eligible)
+                else:
+                    # Persona is in a "figure" slot but no figure on this
+                    # paper matches its allowed types. Skip the slot —
+                    # better no post than a forced-fit figure post.
+                    log.info(
+                        "figure_post_skipped_no_eligible_figure",
+                        persona=persona_key,
+                        allowed=list(allowed_types),
+                        available_types=sorted({
+                            f["figure_type"] for f in available_figures if f["figure_type"]
+                        }),
+                    )
+                    continue
 
             # Build the prompt
             # For quotes/replies, include both existing feed posts and newly generated ones.
@@ -517,14 +580,29 @@ def generate_feed(
                 if chunks:
                     post_data["paper_ref"] = persona_lib._build_short_cite(chunks[0])
 
-                # Attach the figure data that was used in the prompt
+                # Attach the figure data that was used in the prompt.
+                # Prefer the real caption text from the detector; fall back
+                # to the legacy description field (populated from data_claim)
+                # for any pre-typed-extraction figures still in the corpus.
                 if selected_figure:
                     post_data["figure_url"] = selected_figure["image_url"]
                     post_data["figure_id"] = selected_figure["id"]
-                    fig_idx = (selected_figure.get("figure_index", 0) or 0) + 1
-                    post_data["figure_caption"] = f"Fig. {fig_idx}, p.{selected_figure['page_number']} — {selected_figure['description'][:150]}. {selected_figure.get('paper_ref', '')}"
+                    figure_number = selected_figure.get("figure_number") or ""
+                    if figure_number:
+                        fig_label = f"Fig. {figure_number}"
+                    else:
+                        fig_label = f"Fig. {(selected_figure.get('figure_index', 0) or 0) + 1}"
+                    caption_text = (
+                        selected_figure.get("caption")
+                        or selected_figure.get("description", "")
+                    )[:200]
+                    paper_ref = selected_figure.get("paper_ref", "")
+                    post_data["figure_caption"] = (
+                        f"{fig_label}, p.{selected_figure['page_number']} — "
+                        f"{caption_text}. {paper_ref}"
+                    )
                     if not post_data.get("paper_ref"):
-                        post_data["paper_ref"] = selected_figure.get("paper_ref")
+                        post_data["paper_ref"] = paper_ref
 
                 # Attach source chunks for transparency
                 post_data["sources"] = [

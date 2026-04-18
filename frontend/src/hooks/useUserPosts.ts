@@ -33,5 +33,22 @@ export function useUserPosts(workspaceId: string | null) {
     return () => clearInterval(interval)
   }, [posts, refresh])
 
+  // Refresh when a bulk clear happens from Settings: either the targeted
+  // "Clear All Conversations" button or the nuclear "Delete Everything"
+  // reset. Both dispatch their own event; listen to both so the view
+  // drops its stale list without a hard reload.
+  useEffect(() => {
+    const onCleared = () => {
+      setPosts([])
+      refresh()
+    }
+    window.addEventListener('ficino:user-posts-cleared', onCleared)
+    window.addEventListener('ficino:everything-cleared', onCleared)
+    return () => {
+      window.removeEventListener('ficino:user-posts-cleared', onCleared)
+      window.removeEventListener('ficino:everything-cleared', onCleared)
+    }
+  }, [refresh])
+
   return { posts, loading, refresh }
 }

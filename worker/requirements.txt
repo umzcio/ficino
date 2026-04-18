@@ -10,3 +10,8 @@ tiktoken>=0.7.0
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
 httpx>=0.28.0
+# Local cross-encoder reranker (RERANK_PROVIDER=local). Pulls torch; only
+# imported when the local provider is actually used. Hosted providers
+# (voyage / cohere) don't need this — but it's in the base image so a
+# flip of RERANK_PROVIDER doesn't require a rebuild.
+sentence-transformers>=3.0.0

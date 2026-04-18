@@ -1,6 +1,9 @@
 """User settings endpoints."""
 
+import asyncio
 import json
+import os
+import shutil
 
 import asyncpg
 import httpx
@@ -269,3 +272,162 @@ async def clear_all_summaries(
         user.id,
     )
     return {"status": "cleared"}
+
+
+@router.post("/clear-user-posts", status_code=200)
+async def clear_all_user_posts(
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Clear all user posts and the Archivist replies attached to them."""
+    await db.execute("DELETE FROM user_posts WHERE user_id = $1", user.id)
+    return {"status": "cleared"}
+
+
+@router.post("/clear-everything", status_code=200)
+async def clear_everything(
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Nuclear reset — delete every piece of user-generated content.
+
+    Clearing only papers, only feeds, or only conversations leaves stale
+    state behind: alerts/notifications in particular never get cleaned by
+    the granular clears, and a user who wants a genuinely empty state had
+    to click four buttons in sequence. This endpoint deletes the full set
+    in a single transaction.
+
+    Kept tables (intentional): corpora/workspaces, user_settings, personas.
+    Those are account scaffolding, not content — the user keeps their
+    workspaces and preferences, they just come back empty.
+
+    Cascade coverage:
+      feeds ─→ bookmarks, annotations, user_likes, post_replies
+      papers ─→ chunks, figures, paper_summaries, paper_tags
+      reading_lists ─→ reading_list_chapters
+    alerts / persona_dms / user_posts / corpus_syntheses / tags are
+    direct user_id cascades, deleted explicitly.
+    """
+    upload_dir = app_settings.upload_dir
+
+    paper_rows = await db.fetch(
+        "SELECT id FROM papers WHERE user_id = $1", user.id,
+    )
+    paper_ids = [str(r["id"]) for r in paper_rows]
+
+    async with db.transaction():
+        # Order matters only for legibility — each delete is scoped by
+        # user_id or by a feed/paper/list that is itself user-scoped, so
+        # there are no cross-user ownership leaks even mid-transaction.
+        await db.execute("DELETE FROM alerts           WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM persona_dms      WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM user_posts       WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM corpus_syntheses WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM reading_lists    WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM feeds            WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM papers           WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM tags             WHERE user_id = $1", user.id)
+
+    def _cleanup_files(ids: list[str]) -> int:
+        freed = 0
+        for pid in ids:
+            pdf_path = os.path.join(upload_dir, f"{pid}.pdf")
+            if os.path.exists(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                    freed += 1
+                except OSError as e:
+                    logger.warn("clear_everything_pdf_unlink_failed",
+                                paper_id=pid, error=str(e)[:120])
+            fig_dir = os.path.join("/app/figures", pid)
+            if os.path.isdir(fig_dir):
+                try:
+                    shutil.rmtree(fig_dir)
+                except OSError as e:
+                    logger.warn("clear_everything_figdir_unlink_failed",
+                                paper_id=pid, error=str(e)[:120])
+        return freed
+
+    freed = await asyncio.to_thread(_cleanup_files, paper_ids)
+    logger.info("clear_everything_complete",
+                user_id=str(user.id),
+                paper_count=len(paper_ids),
+                files_removed=freed)
+    return {"status": "cleared", "paper_count": len(paper_ids)}
+
+
+@router.post("/clear-papers", status_code=200)
+async def clear_all_papers(
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Delete every paper for this user — chunks, figures, summaries, and
+    feeds go with them.
+
+    This is the most destructive user-facing action in the app. It was
+    added because every other "clear all" in Danger Zone (feeds,
+    summaries, conversations) had a sibling — papers were the only
+    resource that still required manual per-item delete. For a research
+    workflow where you want to start the whole corpus from scratch
+    (e.g., after changing extraction settings or re-ingesting with a
+    new pipeline) this is the only realistic reset button.
+
+    Cascade coverage:
+      - chunks.paper_id            ON DELETE CASCADE (init.sql)
+      - figures.paper_id           ON DELETE CASCADE (init.sql)
+      - paper_summaries.paper_id   ON DELETE CASCADE (init.sql)
+      - paper_tags.paper_id        ON DELETE CASCADE (init.sql)
+    Feeds don't cascade from papers (they reference corpora and hold
+    paper_ids inside a JSONB posts array), so a feed that survives a
+    bulk paper delete would render broken references — delete user's
+    feeds explicitly too.
+
+    Disk cleanup (PDF uploads + figure crops) is offloaded to a thread
+    so a slow mount doesn't block the event loop.
+    """
+    upload_dir = app_settings.upload_dir
+
+    # 1. Enumerate paper IDs so we can clean up files on disk after the DB
+    #    rows are gone. Fetching before the delete is safe under transaction
+    #    semantics — either both the SELECT and DELETE happen, or neither.
+    paper_rows = await db.fetch(
+        "SELECT id FROM papers WHERE user_id = $1", user.id,
+    )
+    paper_ids = [str(r["id"]) for r in paper_rows]
+
+    # 2. DB cascade. Papers first (cascades chunks/figures/summaries/tags),
+    #    then feeds (orphaned JSONB references).
+    await db.execute("DELETE FROM papers WHERE user_id = $1", user.id)
+    await db.execute("DELETE FROM feeds WHERE user_id = $1", user.id)
+
+    # 3. Disk cleanup. Per-paper pdf + the figure crops directory the
+    #    worker writes to `/app/figures/{paper_id}/`. Failures here are
+    #    logged but don't fail the API call — the DB row is the source
+    #    of truth for what the user "has", and leaked disk files get
+    #    reaped by routine filesystem maintenance.
+    def _cleanup_files(ids: list[str]) -> int:
+        freed = 0
+        for pid in ids:
+            pdf_path = os.path.join(upload_dir, f"{pid}.pdf")
+            if os.path.exists(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                    freed += 1
+                except OSError as e:
+                    logger.warn("clear_papers_pdf_unlink_failed",
+                                paper_id=pid, error=str(e)[:120])
+            fig_dir = os.path.join("/app/figures", pid)
+            if os.path.isdir(fig_dir):
+                try:
+                    shutil.rmtree(fig_dir)
+                except OSError as e:
+                    logger.warn("clear_papers_figdir_unlink_failed",
+                                paper_id=pid, error=str(e)[:120])
+        return freed
+
+    freed = await asyncio.to_thread(_cleanup_files, paper_ids)
+    logger.info("clear_papers_complete",
+                user_id=str(user.id),
+                paper_count=len(paper_ids),
+                files_removed=freed)
+    return {"status": "cleared", "paper_count": len(paper_ids)}

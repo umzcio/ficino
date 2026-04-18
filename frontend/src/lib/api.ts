@@ -174,6 +174,15 @@ export async function sendReply(
   })
 }
 
+export async function deleteReplyMessage(
+  feedId: string, postIndex: number, messageIndex: number,
+): Promise<void> {
+  return request(
+    `/replies/${feedId}/${postIndex}/message/${messageIndex}`,
+    { method: 'DELETE' },
+  )
+}
+
 export async function sendZap(
   feedId: string, postIndex: number, targetPersonaKey: string,
   sourcePersonaKey: string, sourceMessage: string, postContent: string, paperRef: string | null,
@@ -233,6 +242,24 @@ export interface PersonaData {
 
 export async function listPersonas(): Promise<PersonaData[]> {
   return request<PersonaData[]>('/personas')
+}
+
+export interface PersonaReplyItem {
+  feed_id: string
+  post_index: number
+  message_index: number
+  content: string
+  thread_generated_at: string
+  parent_post: {
+    persona: string | null
+    content: string
+    post_type: string | null
+    paper_ref: string | null
+  }
+}
+
+export async function getPersonaReplies(key: string): Promise<PersonaReplyItem[]> {
+  return request(`/personas/${key}/replies`)
 }
 
 export async function getPersonaStats(key: string): Promise<{ reply_threads: number }> {
@@ -305,6 +332,44 @@ export async function clearAllFeeds(): Promise<void> {
 
 export async function clearAllSummaries(): Promise<void> {
   return request('/settings/clear-summaries', { method: 'POST' })
+}
+
+export async function clearAllUserPosts(): Promise<void> {
+  await request('/settings/clear-user-posts', { method: 'POST' })
+  // Also drop the IDB cache and broadcast so any mounted useUserPosts hook
+  // refetches — without this the UI still shows the stale list until a hard
+  // reload because settings lives in a sibling view with no shared state.
+  try {
+    const { clearCachedUserPosts } = await import('./offline-cache')
+    await clearCachedUserPosts()
+  } catch { /* cache clear is best-effort */ }
+  window.dispatchEvent(new CustomEvent('ficino:user-posts-cleared'))
+}
+
+export async function clearAllPapers(): Promise<void> {
+  await request('/settings/clear-papers', { method: 'POST' })
+  // Wipe the papers AND feeds IDB stores — feeds hold paper_ids in their
+  // posts JSONB and would render dangling references after the server-side
+  // paper delete. Broadcast so useCorpus and useFeed refetch immediately.
+  try {
+    const { clearCachedPapers, clearCachedFeeds } = await import('./offline-cache')
+    await Promise.all([clearCachedPapers(), clearCachedFeeds()])
+  } catch { /* cache clear is best-effort */ }
+  window.dispatchEvent(new CustomEvent('ficino:papers-cleared'))
+}
+
+export async function clearEverything(): Promise<void> {
+  await request('/settings/clear-everything', { method: 'POST' })
+  // Wipe all content IDB stores and broadcast a single event. Every
+  // content hook (useCorpus, useFeed, useUserPosts, useAlerts) listens
+  // for this so the UI collapses to a clean-slate state without a hard
+  // reload. Alerts/notifications were the specific leak that motivated
+  // this button — the granular clears never touched them.
+  try {
+    const { clearAllCachedContent } = await import('./offline-cache')
+    await clearAllCachedContent()
+  } catch { /* best-effort */ }
+  window.dispatchEvent(new CustomEvent('ficino:everything-cleared'))
 }
 
 // Reading Lists
