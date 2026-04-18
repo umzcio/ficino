@@ -12,19 +12,22 @@ import os
 import httpx
 import structlog
 
+from lib.settings import get_active
+
 logger = structlog.get_logger(__name__)
 
 
 def _get_embed_config() -> dict[str, str]:
-    """Read embed config from env at call time (supports runtime changes)."""
+    """Read embed config from active provider settings, falling back to env."""
     return {
-        "provider": os.getenv("EMBED_PROVIDER", "ollama"),
+        "provider": get_active("embed_provider", "EMBED_PROVIDER", "ollama"),
+        # ollama_base_url is env-only (SSRF defense).
         "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
-        "ollama_model": os.getenv("OLLAMA_EMBED_MODEL", "bge-m3:latest"),
-        "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
-        "openai_model": os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
-        "voyage_api_key": os.getenv("VOYAGE_API_KEY", ""),
-        "voyage_model": os.getenv("VOYAGE_EMBED_MODEL", "voyage-4-large"),
+        "ollama_model": get_active("ollama_embed_model", "OLLAMA_EMBED_MODEL", "bge-m3:latest"),
+        "openai_api_key": get_active("openai_api_key", "OPENAI_API_KEY", ""),
+        "openai_model": get_active("openai_embed_model", "OPENAI_EMBED_MODEL", "text-embedding-3-small"),
+        "voyage_api_key": get_active("voyage_api_key", "VOYAGE_API_KEY", ""),
+        "voyage_model": get_active("voyage_embed_model", "VOYAGE_EMBED_MODEL", "voyage-4-large"),
     }
 
 

@@ -24,6 +24,16 @@ logger = structlog.get_logger(__name__)
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle: DB pool creation and teardown."""
     logger.info("startup", environment=settings.environment, auth_provider=settings.auth_provider)
+
+    # Fail-closed: AUTH_PROVIDER=supabase with empty JWT secret would let
+    # `jwt.decode(token, "", algorithms=["HS256"])` validate any attacker-
+    # forged token, giving silent auth bypass / account takeover. Match the
+    # pattern used by signed_url._resolve_signing_key.
+    if settings.auth_provider == "supabase" and not settings.supabase_jwt_secret:
+        raise RuntimeError(
+            "SUPABASE_JWT_SECRET is required when AUTH_PROVIDER=supabase"
+        )
+
     pool = await create_pool()
 
     # For AUTH_PROVIDER=none, ensure stub user + default workspace exist

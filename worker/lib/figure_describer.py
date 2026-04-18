@@ -11,6 +11,8 @@ import os
 import httpx
 import structlog
 
+from lib.settings import get_active
+
 logger = structlog.get_logger(__name__)
 
 FIGURE_PROMPT = """Analyze this figure from an academic paper. Provide:
@@ -24,13 +26,17 @@ CLAIM: <claim summary>"""
 
 
 def _get_config() -> dict[str, str]:
-    """Read vision config from env at call time (supports runtime changes via settings)."""
+    """Read vision config from active provider settings, falling back to env."""
     return {
-        "vision_provider": os.getenv("VISION_PROVIDER", os.getenv("LLM_PROVIDER", "ollama")),
+        "vision_provider": get_active(
+            "vision_provider", "VISION_PROVIDER",
+            get_active("llm_provider", "LLM_PROVIDER", "ollama"),
+        ),
+        # ollama_base_url is env-only (SSRF defense).
         "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
-        "ollama_vision_model": os.getenv("OLLAMA_VISION_MODEL", ""),
-        "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
-        "claude_model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
+        "ollama_vision_model": get_active("ollama_vision_model", "OLLAMA_VISION_MODEL", ""),
+        "anthropic_api_key": get_active("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
+        "claude_model": get_active("claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6"),
     }
 
 

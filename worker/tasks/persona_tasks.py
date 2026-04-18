@@ -755,12 +755,16 @@ def regenerate_post(
     validate_post_shape(post_data, persona_key=persona_key)
     post_data["regenerated"] = True
 
-    # Patch the feed
-    posts[post_index] = post_data
-    posts_json = json.dumps(posts, default=str)
+    # Patch the feed with an atomic jsonb_set so a concurrent regenerate or
+    # append-to-feed doesn't lose the other's write via read-modify-write. The
+    # UPDATE is also scoped by user_id so a bad dispatch can't cross tenants
+    # even if the feed_id arg was wrong.
+    post_json = json.dumps(post_data, default=str)
     execute(
-        "UPDATE feeds SET posts = $1 WHERE id = $2",
-        posts_json, feed_id,
+        """UPDATE feeds
+           SET posts = jsonb_set(posts, ARRAY[$1::text], $2::jsonb, false)
+           WHERE id = $3 AND user_id = $4""",
+        str(post_index), post_json, feed_id, effective_user_id,
     )
 
     # Sync the feed_posts search index row for this post_index.

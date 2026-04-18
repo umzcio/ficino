@@ -554,8 +554,8 @@ export async function getPaperSummary(paperId: string): Promise<PaperSummary> {
   return request<PaperSummary>(`/messages/papers/${paperId}`)
 }
 
-export async function getPaperSummaryStatus(paperId: string, taskId: string): Promise<{ status: string }> {
-  return request<{ status: string }>(`/messages/papers/${paperId}/status/${taskId}`)
+export async function getPaperSummaryStatus(paperId: string, taskId: string): Promise<{ status: string; error?: string }> {
+  return request<{ status: string; error?: string }>(`/messages/papers/${paperId}/status/${taskId}`)
 }
 
 export async function listGroupChats(): Promise<GroupChatPreview[]> {

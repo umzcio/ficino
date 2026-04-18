@@ -76,24 +76,43 @@ function MessageBubble({ message }: { message: SummaryMessage }) {
 export function PaperChat({ paperId, onBack }: PaperChatProps) {
   const [summary, setSummary] = useState<PaperSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    let active = true
     async function load() {
       setLoading(true)
+      setError(null)
       const data = await getPaperSummary(paperId)
+      if (!active) return
       setSummary(data)
 
       if (data.status === 'generating' && data.task_id) {
-        // Poll for completion
+        // Poll for completion. The poll loop must handle terminal non-complete
+        // states (error / unknown) or the spinner runs forever when the worker
+        // has already given up — the API returns `{status: 'error', error: ...}`
+        // when the Celery task faulted, and we used to just re-schedule the
+        // poll and spin.
         const poll = async () => {
-          const status = await getPaperSummaryStatus(paperId, data.task_id!)
-          if (status.status === 'complete') {
-            const updated = await getPaperSummary(paperId)
-            setSummary(updated)
+          try {
+            const status = await getPaperSummaryStatus(paperId, data.task_id!)
+            if (!active) return
+            if (status.status === 'complete') {
+              const updated = await getPaperSummary(paperId)
+              if (!active) return
+              setSummary(updated)
+              setLoading(false)
+            } else if (status.status === 'error' || status.status === 'unknown') {
+              setError(status.error || 'Summary generation failed')
+              setLoading(false)
+            } else {
+              timeoutRef.current = setTimeout(poll, 2000)
+            }
+          } catch (e) {
+            if (!active) return
+            setError(e instanceof Error ? e.message : 'Failed to check summary status')
             setLoading(false)
-          } else {
-            timeoutRef.current = setTimeout(poll, 2000)
           }
         }
         timeoutRef.current = setTimeout(poll, 2000)
@@ -104,6 +123,7 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
     load()
 
     return () => {
+      active = false
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
   }, [paperId])
@@ -132,7 +152,12 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
       </div>
 
       {/* Messages */}
-      {loading || (summary?.status === 'generating') ? (
+      {error ? (
+        <div role="alert" className="flex flex-col items-center justify-center py-20 gap-3 px-6 text-center">
+          <p className="text-sm text-text">Summary generation failed</p>
+          <p className="text-xs text-text-muted">{error}</p>
+        </div>
+      ) : loading || (summary?.status === 'generating') ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 size={28} className="text-gold animate-spin" />
           <p className="text-sm text-text-muted">

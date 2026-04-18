@@ -7,7 +7,7 @@ import asyncpg
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import settings
 from auth import AuthUser, get_current_user
@@ -57,7 +57,9 @@ async def get_persona_stats(
 
 
 class PersonaDmRequest(BaseModel):
-    message: str
+    # Bound LLM input so a misbehaving client can't pump unbounded text into
+    # the persona prompt. Matches ReplyRequest.user_message.
+    message: str = Field(max_length=2000)
 
 
 @router.get("/{persona_key}/dm")

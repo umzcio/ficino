@@ -41,11 +41,17 @@ async def serve_figure(
         raise HTTPException(status_code=404, detail="Figure not found")
 
     # 3) Resolve on disk; reject any path escape.
+    # Worker writes figures under /app/figures/<paper_id>/<name>.png, so the
+    # basename alone isn't enough — strip to basename to block traversal in the
+    # stored path, then re-join under the paper_id subdir. paper_id is the
+    # route param; reject anything that isn't a plain UUID-ish slug.
     filename = os.path.basename(row["image_path"])
     if not filename or filename.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid image path")
-    full_path = Path(settings.figures_dir).resolve() / filename
+    if not paper_id or "/" in paper_id or ".." in paper_id:
+        raise HTTPException(status_code=400, detail="Invalid paper id")
     base = Path(settings.figures_dir).resolve()
+    full_path = (base / paper_id / filename).resolve()
     try:
         full_path.relative_to(base)
     except ValueError:

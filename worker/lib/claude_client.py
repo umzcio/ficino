@@ -13,16 +13,24 @@ import os
 import httpx
 import structlog
 
+from lib.settings import get_active
+
 logger = structlog.get_logger(__name__)
 
 def _get_config() -> dict[str, str]:
-    """Read LLM config from env at call time (supports runtime changes)."""
+    """Read LLM config from the active provider settings, falling back to env.
+
+    Prefers the per-task dict published by apply_provider_settings so a
+    concurrent task in another Celery process can't swap env keys mid-call
+    and bill user A's Claude usage to user B's API key.
+    """
     return {
-        "llm_provider": os.getenv("LLM_PROVIDER", "ollama"),
+        "llm_provider": get_active("llm_provider", "LLM_PROVIDER", "ollama"),
+        # ollama_base_url is NOT user-overridable (SSRF defense) — env only.
         "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
-        "ollama_llm_model": os.getenv("OLLAMA_LLM_MODEL", "qwen3.5:latest"),
-        "claude_model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
-        "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+        "ollama_llm_model": get_active("ollama_llm_model", "OLLAMA_LLM_MODEL", "qwen3.5:latest"),
+        "claude_model": get_active("claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6"),
+        "anthropic_api_key": get_active("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
     }
 
 

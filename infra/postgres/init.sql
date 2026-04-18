@@ -76,7 +76,8 @@ CREATE TABLE chunks (
   token_count INTEGER,
   embedding vector(1024),
   search_vector tsvector,
-  metadata JSONB DEFAULT '{}'
+  metadata JSONB DEFAULT '{}',
+  UNIQUE (paper_id, chunk_index)
 );
 
 -- btree on user_id so full-text search can bitmap-AND ownership with the
@@ -195,7 +196,8 @@ CREATE TABLE post_replies (
   persona_key TEXT NOT NULL,
   messages JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (feed_id, post_index)
 );
 
 CREATE INDEX ON post_replies (feed_id, post_index);

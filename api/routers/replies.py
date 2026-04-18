@@ -199,6 +199,11 @@ async def create_reply(
         if isinstance(existing_messages, str):
             existing_messages = json.loads(existing_messages)
 
+    # Mark the boundary so the final DB write can append ONLY the new items
+    # via `messages || $1::jsonb`. This avoids the classic SELECT→mutate→
+    # UPDATE race where two concurrent replies overwrite each other's work.
+    initial_len = len(existing_messages)
+
     # Add user message
     existing_messages.append({"role": "user", "content": body.user_message})
 
@@ -424,20 +429,29 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
             })
             logger.info("interjection_generated", persona=meta["persona_key"])
 
-    # --- Single DB write with all appended messages ---
-    messages_json = json.dumps(existing_messages)
-    if reply_id:
-        await db.execute(
-            "UPDATE post_replies SET messages = $1, updated_at = NOW() WHERE id = $2",
-            messages_json, reply_id,
-        )
-    else:
-        row = await db.fetchrow(
-            """INSERT INTO post_replies (feed_id, post_index, persona_key, messages)
-               VALUES ($1, $2, $3, $4) RETURNING id""",
-            body.feed_id, body.post_index, body.persona_key, messages_json,
-        )
-        reply_id = str(row["id"])
+    # --- Single DB write: upsert + jsonb append so concurrent replies both
+    # land their turns without overwriting each other. `new_messages` is only
+    # what THIS call added — everything before `initial_len` is the snapshot
+    # we read and shouldn't re-write. The UNIQUE (feed_id, post_index)
+    # constraint + ON CONFLICT turns the INSERT path into an atomic upsert,
+    # so a select-then-insert race can't double-row either.
+    new_messages = existing_messages[initial_len:]
+    new_json = json.dumps(new_messages)
+    row = await db.fetchrow(
+        """INSERT INTO post_replies (feed_id, post_index, persona_key, messages)
+           VALUES ($1, $2, $3, $4::jsonb)
+           ON CONFLICT (feed_id, post_index) DO UPDATE
+             SET messages = post_replies.messages || EXCLUDED.messages,
+                 updated_at = NOW()
+           RETURNING id, messages""",
+        body.feed_id, body.post_index, body.persona_key, new_json,
+    )
+    reply_id = str(row["id"])
+    # Return the canonical merged list so the caller sees any turns from a
+    # concurrent reply that landed between our SELECT and our UPDATE.
+    existing_messages = row["messages"]
+    if isinstance(existing_messages, str):
+        existing_messages = json.loads(existing_messages)
 
     logger.info("reply_generated", persona=body.persona_key, turns=len(existing_messages))
 

@@ -5,7 +5,7 @@ import json
 import asyncpg
 import httpx
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import settings as app_settings
@@ -77,6 +77,18 @@ class SettingsUpdate(BaseModel):
 # blob could redirect every downstream LLM call to an attacker-chosen host.
 ALLOWED_SETTINGS_KEYS = frozenset(DEFAULTS.keys())
 
+# Numeric bounds for keys that feed into cost-sensitive paths. Without these
+# a client could PUT `posts_per_generation: 10000` or `chunk_max_tokens: 1_000_000`
+# and fan out enormous LLM spend on a single dispatch. Keys not listed here
+# are still bounded by their default type (e.g. strings pass through the
+# ALLOWED set) — this dict only applies to numeric knobs that drive loops
+# or token budgets.
+_NUMERIC_BOUNDS: dict[str, tuple[type, float, float]] = {
+    "posts_per_generation": (int, 1, 50),
+    "persona_temperature": (float, 0.0, 1.5),
+    "chunk_max_tokens": (int, 100, 4000),
+}
+
 # Keys whose values are secrets. GET /settings returns them as a boolean-ish
 # "set" / "" string so an XSS or browser-extension snoop can't exfiltrate
 # the actual key from a response body.
@@ -135,14 +147,32 @@ async def update_settings(
         if isinstance(existing, str):
             existing = json.loads(existing)
 
-    # Drop anything not on the whitelist before merging
+    # Drop anything not on the whitelist before merging; reject out-of-range
+    # numeric knobs so a client can't turn `posts_per_generation` into a
+    # 10,000-shot LLM loop.
     filtered: dict[str, object] = {}
     dropped: list[str] = []
     for key, value in body.settings.items():
-        if key in ALLOWED_SETTINGS_KEYS:
-            filtered[key] = value
-        else:
+        if key not in ALLOWED_SETTINGS_KEYS:
             dropped.append(key)
+            continue
+        if key in _NUMERIC_BOUNDS:
+            expected_type, lo, hi = _NUMERIC_BOUNDS[key]
+            try:
+                coerced = expected_type(value)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{key} must be a {expected_type.__name__}",
+                )
+            if coerced < lo or coerced > hi:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{key} must be between {lo} and {hi}",
+                )
+            filtered[key] = coerced
+        else:
+            filtered[key] = value
     if dropped:
         logger.warn("settings_dropped_unknown_keys", keys=dropped, user_id=user.id)
 

@@ -23,16 +23,24 @@ from signed_url import sign_resource
 
 @pytest_asyncio.fixture
 async def seeded_figure(db_conn: asyncpg.Connection, seeded_users):
-    """Insert a real figure file on disk + DB row owned by user A."""
+    """Insert a real figure file on disk + DB row owned by user A.
+
+    Figures are written by the worker to /app/figures/<paper_id>/<name>.png.
+    The signed-URL handler rebuilds that path from the route params, so this
+    fixture must match that layout — a flat path under figures_dir is not
+    what production serves.
+    """
     figure_id = str(uuid.uuid4())
+    paper_id = seeded_users["paper_a"]
     # Minimal 1x1 PNG (67 bytes) — enough for FileResponse to serve.
     png_bytes = bytes.fromhex(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
         "0000000d49444154789c6300010000000500010d0a2db40000000049454e44ae426082"
     )
-    os.makedirs(settings.figures_dir, exist_ok=True)
+    paper_dir = os.path.join(settings.figures_dir, paper_id)
+    os.makedirs(paper_dir, exist_ok=True)
     filename = f"{figure_id}.png"
-    disk_path = os.path.join(settings.figures_dir, filename)
+    disk_path = os.path.join(paper_dir, filename)
     with open(disk_path, "wb") as f:
         f.write(png_bytes)
 
@@ -41,14 +49,18 @@ async def seeded_figure(db_conn: asyncpg.Connection, seeded_users):
                                 extraction_type, description, claim_summary,
                                 figure_index)
            VALUES ($1, $2, 1, $3, 'image', 'desc', 'claim', 0)""",
-        figure_id, seeded_users["paper_a"], disk_path,
+        figure_id, paper_id, disk_path,
     )
 
-    yield {"figure_id": figure_id, "paper_id": seeded_users["paper_a"]}
+    yield {"figure_id": figure_id, "paper_id": paper_id}
 
     await db_conn.execute("DELETE FROM figures WHERE id = $1", figure_id)
     if os.path.exists(disk_path):
         os.remove(disk_path)
+    try:
+        os.rmdir(paper_dir)
+    except OSError:
+        pass
 
 
 @pytest.mark.asyncio

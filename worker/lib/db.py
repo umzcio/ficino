@@ -184,11 +184,28 @@ async def _store_chunks_batch(
         )
         for chunk, embedding in zip(chunks, embeddings)
     ]
+    # Retry-safety: if the pipeline is re-run (Celery retry after a post-chunk
+    # failure), existing chunks for this paper are flushed first so we don't
+    # end up with rows from a prior chunker config sitting alongside the
+    # current run's indices. The ON CONFLICT on (paper_id, chunk_index) then
+    # makes the insert itself idempotent.
     async with pool.acquire() as conn:
         async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM chunks WHERE paper_id = $1",
+                paper_id,
+            )
             await conn.executemany(
                 """INSERT INTO chunks (paper_id, user_id, section, content, chunk_type, chunk_index, token_count, embedding, metadata)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                   ON CONFLICT (paper_id, chunk_index) DO UPDATE SET
+                     user_id = EXCLUDED.user_id,
+                     section = EXCLUDED.section,
+                     content = EXCLUDED.content,
+                     chunk_type = EXCLUDED.chunk_type,
+                     token_count = EXCLUDED.token_count,
+                     embedding = EXCLUDED.embedding,
+                     metadata = EXCLUDED.metadata""",
                 rows,
             )
         return len(rows)

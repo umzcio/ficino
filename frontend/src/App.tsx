@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
   Zap, Loader2, BookOpen
@@ -433,9 +433,22 @@ function AppContent() {
     }
   }, [ws.activeId, dlProgress?.done])
 
+  // Depend on a stable key derived from which papers have completed, not the
+  // array identity. `useCorpus.refresh` returns a fresh array on every 2s
+  // poll while any upload is processing, which previously caused
+  // `getPaperTldrs` to refetch every 2s through the whole ingestion window.
+  const completePaperIdsKey = useMemo(
+    () =>
+      corpus.papers
+        .filter((p) => p.status === 'complete')
+        .map((p) => p.id)
+        .sort()
+        .join(','),
+    [corpus.papers],
+  )
   useEffect(() => {
     getPaperTldrs().then((data) => setPaperTldrs(new Map(Object.entries(data)))).catch(() => {})
-  }, [corpus.papers])
+  }, [completePaperIdsKey])
 
   // Apply theme + display settings
   useEffect(() => {

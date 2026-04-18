@@ -63,10 +63,14 @@ def check_contradictions(self: Task, paper_id: str) -> dict[str, object]:
 
         paper_title = paper["title"] or paper["filename"]
 
-        # Get other complete papers in the same workspace
+        # Get other complete papers in the same workspace. Bounded to 8 so a
+        # large corpus doesn't fan out to 3×N LLM calls per upload (200-paper
+        # workspace → 600 Claude calls without the cap). ORDER BY random()
+        # so we spread the comparison surface across the library over time.
         other_papers = fetch(
             """SELECT id, title, filename FROM papers
-               WHERE corpus_id = $1 AND id != $2 AND status = 'complete'""",
+               WHERE corpus_id = $1 AND id != $2 AND status = 'complete'
+               ORDER BY random() LIMIT 8""",
             paper["corpus_id"], paper_id,
         )
 

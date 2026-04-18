@@ -1,5 +1,6 @@
 """Paper upload, list, and management endpoints."""
 
+import asyncio
 import os
 import uuid
 from datetime import datetime, timezone
@@ -83,10 +84,15 @@ async def upload_paper(
     # Now write the file. If the write fails (disk full, permissions), delete
     # the placeholder row so we don't leave a dangling `pending` paper that
     # the worker will try to process and fail on repeatedly.
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    # Disk I/O goes through asyncio.to_thread so a 50MB write doesn't pin the
+    # event loop and stall every other in-flight request on this worker.
+    def _write_file(path: str, data: bytes) -> None:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+
     try:
-        with open(file_path, "wb") as f:
-            f.write(contents)
+        await asyncio.to_thread(_write_file, file_path, contents)
     except OSError:
         await db.execute(
             "DELETE FROM papers WHERE id = $1 AND user_id = $2",
@@ -94,7 +100,7 @@ async def upload_paper(
         )
         # Best-effort remove in case a partial file landed.
         try:
-            os.remove(file_path)
+            await asyncio.to_thread(os.remove, file_path)
         except OSError:
             pass
         logger.error("paper_upload_write_failed", paper_id=paper_id)
@@ -260,10 +266,13 @@ async def delete_paper(
             )
             logger.info("workspace_feeds_cleared", corpus_id=corpus_id)
 
-    # Clean up uploaded file
+    # Clean up uploaded file. Disk I/O offloaded so delete doesn't block the
+    # event loop on slow volumes.
     file_path = os.path.join(UPLOAD_DIR, f"{paper_id}.pdf")
-    if os.path.exists(file_path):
-        os.remove(file_path)
+    def _remove_if_exists(p: str) -> None:
+        if os.path.exists(p):
+            os.remove(p)
+    await asyncio.to_thread(_remove_if_exists, file_path)
 
     logger.info("paper_deleted", paper_id=paper_id)
 
