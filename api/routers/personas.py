@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from config import settings
 from auth import AuthUser, get_current_user
+from auth.rate_limit import RateLimit
 from db.connection import get_db
 from services.llm import generate_response
 
@@ -84,6 +85,7 @@ async def send_persona_dm(
     body: PersonaDmRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("persona_dm", 60)),
 ) -> dict[str, object]:
     """Send a DM to a persona. Persona responds grounded in the user's corpus."""
     # Get existing conversation
@@ -110,14 +112,31 @@ async def send_persona_dm(
         raise HTTPException(status_code=404, detail="Persona not found")
 
     # Get corpus chunks for context (RAG) — strictly scoped to the caller's own
-    # papers so one user's DM can't surface another user's content.
+    # papers. Prefer chunks whose tsvector matches the user's message so the
+    # context is relevant AND the query uses the chunks.search_vector GIN
+    # index; a previous `ORDER BY random() LIMIT 10` had to scan+sort every
+    # chunk the user owned (~30MB at 10k chunks) on every DM turn.
     chunks = await db.fetch(
         """SELECT c.content, c.section, p.title AS paper_title
            FROM chunks c JOIN papers p ON c.paper_id = p.id
            WHERE p.status = 'complete' AND p.user_id = $1
-           ORDER BY random() LIMIT 10""",
-        user.id,
+             AND c.search_vector @@ plainto_tsquery('english', $2)
+           ORDER BY ts_rank(c.search_vector, plainto_tsquery('english', $2)) DESC
+           LIMIT 10""",
+        user.id, body.message,
     )
+    if not chunks:
+        # Message had no usable tsquery terms (e.g. "hi"). Fall back to the
+        # most recent paper's opening chunks so the persona has *something*
+        # grounded to cite. Bounded by LIMIT + chunk_index, no random scan.
+        chunks = await db.fetch(
+            """SELECT c.content, c.section, p.title AS paper_title
+               FROM chunks c JOIN papers p ON c.paper_id = p.id
+               WHERE p.status = 'complete' AND p.user_id = $1
+               ORDER BY p.uploaded_at DESC, c.chunk_index ASC
+               LIMIT 10""",
+            user.id,
+        )
     # Chunk content is untrusted PDF text — fence each block so a hostile
     # document can't rewrite the persona's system prompt.
     from sanitize import fence_untrusted

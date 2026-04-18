@@ -30,16 +30,19 @@ export function useFeed(workspaceId?: string) {
   }, [])
 
   // Load most recent feed on mount or workspace change. Every setState is
-  // gated on mountedRef so a late-resolving fetch from an unmounted
-  // component (including StrictMode double-mount in dev) is a no-op
-  // instead of a "setState on unmounted component" warning.
+  // gated on mountedRef AND a per-effect `active` sentinel so that:
+  //   (a) a late-resolving fetch from an unmounted component is a no-op,
+  //   (b) a fetch started for workspace A doesn't overwrite the UI after
+  //       the user has already switched to workspace B (the old fetch
+  //       resolving late would otherwise show A's feed under B's header).
   useEffect(() => {
+    let active = true
     async function loadLatest() {
       if (!mountedRef.current) return
       setFeedState('loading')
       try {
         const feeds = await listFeeds(workspaceId)
-        if (!mountedRef.current) return
+        if (!active || !mountedRef.current) return
         cacheFeeds(feeds, workspaceId).catch(() => {})
         if (feeds.length > 0 && feeds[0].posts.length > 0) {
           setPosts(feeds[0].posts as FeedPost[])
@@ -54,7 +57,7 @@ export function useFeed(workspaceId?: string) {
         // Offline fallback: try IndexedDB
         try {
           const cached = await getCachedFeeds(workspaceId)
-          if (!mountedRef.current) return
+          if (!active || !mountedRef.current) return
           if (cached.length > 0 && cached[0].posts.length > 0) {
             setPosts(cached[0].posts as FeedPost[])
             setFeedId(cached[0].id)
@@ -62,10 +65,13 @@ export function useFeed(workspaceId?: string) {
             return
           }
         } catch { /* ignore */ }
-        if (mountedRef.current) setFeedState('idle')
+        if (active && mountedRef.current) setFeedState('idle')
       }
     }
     loadLatest()
+    return () => {
+      active = false
+    }
   }, [workspaceId])
 
   const pollStatus = useCallback((taskId: string) => {

@@ -98,6 +98,7 @@ export function WorkspaceBottomSheet({
                 }}
                 placeholder="Workspace name..."
                 autoFocus
+                aria-label="New workspace name"
                 className="flex-1 bg-transparent border border-border rounded-lg px-3 py-2.5 text-sm text-text outline-none focus:border-gold/40"
               />
               <button

@@ -28,7 +28,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ficino:ficino@postgres:54
 async def backfill() -> None:
     conn = await asyncpg.connect(DATABASE_URL)
     try:
-        feeds = await conn.fetch("SELECT id, posts FROM feeds ORDER BY generated_at")
+        feeds = await conn.fetch("SELECT id, user_id, posts FROM feeds ORDER BY generated_at")
         print(f"Found {len(feeds)} feeds to backfill")
 
         total_inserted = 0
@@ -36,6 +36,7 @@ async def backfill() -> None:
 
         for feed in feeds:
             feed_id = feed["id"]
+            user_id = feed["user_id"]
             posts = feed["posts"]
             if isinstance(posts, str):
                 posts = json.loads(posts)
@@ -49,9 +50,9 @@ async def backfill() -> None:
                 content_text = str(p.get("content", ""))[:10000]
                 await conn.execute(
                     """INSERT INTO feed_posts
-                       (feed_id, post_index, content_text, persona, post_type,
+                       (feed_id, user_id, post_index, content_text, persona, post_type,
                         category, paper_ref, data, deleted)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
                        ON CONFLICT (feed_id, post_index) DO UPDATE SET
                          content_text = EXCLUDED.content_text,
                          persona = EXCLUDED.persona,
@@ -61,6 +62,7 @@ async def backfill() -> None:
                          data = EXCLUDED.data,
                          deleted = EXCLUDED.deleted""",
                     feed_id,
+                    user_id,
                     post_index,
                     content_text,
                     p.get("persona"),

@@ -69,14 +69,19 @@ async def search(
         for r in paper_rows
     ]
 
-    # Search chunks via tsvector full-text search
+    # Search chunks via tsvector full-text search. Filter by user_id FIRST
+    # via the denormalized column + chunks_user_id_idx so the planner can
+    # bitmap-AND with the GIN scan. Without the column on chunks, a common
+    # tsquery term (e.g. "neural") matched every tenant's chunks before the
+    # post-JOIN ownership trim.
     chunk_rows = await db.fetch(
         """SELECT c.id, c.paper_id, c.section, c.content, c.chunk_index,
                   p.title AS paper_title, p.filename AS paper_filename,
                   ts_rank(c.search_vector, plainto_tsquery('english', $1)) AS rank
            FROM chunks c
-           JOIN papers p ON c.paper_id = p.id AND p.user_id = $2
-           WHERE c.search_vector @@ plainto_tsquery('english', $1)
+           JOIN papers p ON c.paper_id = p.id
+           WHERE c.user_id = $2
+             AND c.search_vector @@ plainto_tsquery('english', $1)
            ORDER BY rank DESC
            LIMIT 15""",
         query, user.id,
@@ -101,8 +106,9 @@ async def search(
                       fp.content_text, fp.paper_ref, f.generated_at,
                       ts_rank(fp.search_vector, plainto_tsquery('english', $1)) AS rank
                FROM feed_posts fp
-               JOIN feeds f ON fp.feed_id = f.id AND f.user_id = $2
-               WHERE NOT fp.deleted
+               JOIN feeds f ON fp.feed_id = f.id
+               WHERE fp.user_id = $2
+                 AND NOT fp.deleted
                  AND fp.search_vector @@ plainto_tsquery('english', $1)
                ORDER BY rank DESC, f.generated_at DESC
                LIMIT 10""",

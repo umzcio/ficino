@@ -73,9 +73,16 @@ async def generate_response(
                 },
             )
             resp.raise_for_status()
-            content = resp.json()["message"]["content"]
-            if not content and resp.json()["message"].get("thinking"):
-                content = resp.json()["message"]["thinking"]
+            payload = resp.json()
+            content = payload["message"]["content"]
+            if not content and payload["message"].get("thinking"):
+                content = payload["message"]["thinking"]
+            # Ollama can return HTTP 200 with empty content (model hit
+            # num_predict with no text, or whitespace-only). Raise here so
+            # callers see a concrete failure instead of persisting an empty
+            # bubble into post_replies.messages.
+            if not content or not content.strip():
+                raise RuntimeError("LLM returned empty response")
             return content
     else:
         import anthropic

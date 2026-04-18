@@ -6,7 +6,7 @@ import asyncpg
 import structlog
 from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import settings
 from auth import AuthUser, get_current_user
@@ -22,7 +22,11 @@ def _get_celery() -> Celery:
 
 
 class UserPostCreate(BaseModel):
-    content: str
+    # Matches the max_length used for ReplyRequest / ZapRequest in replies.py
+    # so every body string shipped to a paid LLM has a per-request size cap.
+    # Without this, 30 multi-MB posts/day (the existing rate limit) can still
+    # burn arbitrarily large input-token bills on Claude.
+    content: str = Field(max_length=4000)
     corpus_id: str | None = None
 
 

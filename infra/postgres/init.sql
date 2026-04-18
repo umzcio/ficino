@@ -68,6 +68,7 @@ CREATE TABLE paper_tags (
 CREATE TABLE chunks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   paper_id UUID REFERENCES papers(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   section TEXT NOT NULL,
   content TEXT NOT NULL,
   chunk_type TEXT NOT NULL DEFAULT 'text',
@@ -77,6 +78,11 @@ CREATE TABLE chunks (
   search_vector tsvector,
   metadata JSONB DEFAULT '{}'
 );
+
+-- btree on user_id so full-text search can bitmap-AND ownership with the
+-- GIN index on search_vector. Without this, a tenant's tsquery scans every
+-- other tenant's content before the ownership filter is applied.
+CREATE INDEX chunks_user_id_idx ON chunks(user_id);
 
 -- Vector index for chunk embeddings lives in a separate migration
 -- (infra/postgres/add_hnsw_index.sql). HNSW is preferred over IVFFlat

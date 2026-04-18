@@ -59,6 +59,15 @@ async def generate_feed(
         "user_id": user.id,
     }
     if body.append_to_feed_id:
+        # Ownership check — without this, an attacker who learns another
+        # user's feed UUID could submit it here and have the worker overwrite
+        # that feed with persona posts grounded in the attacker's corpus.
+        owner = await db.fetchval(
+            "SELECT 1 FROM feeds WHERE id = $1 AND user_id = $2",
+            str(body.append_to_feed_id), user.id,
+        )
+        if not owner:
+            raise HTTPException(status_code=404, detail="Feed not found")
         kwargs["append_to_feed_id"] = body.append_to_feed_id
     if body.tab_focus:
         kwargs["tab_focus"] = body.tab_focus

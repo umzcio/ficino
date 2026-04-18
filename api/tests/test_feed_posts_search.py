@@ -27,10 +27,10 @@ async def test_search_posts_finds_own_content(
     # would produce.
     await db_conn.execute(
         """INSERT INTO feed_posts
-           (feed_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
-           VALUES ($1, 0, 'unique search term aardvark for testing', 'skeptic', 'post', 'methods', 'Test 2024', '{}'::jsonb, false)
+           (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+           VALUES ($1, $2, 0, 'unique search term aardvark for testing', 'skeptic', 'post', 'methods', 'Test 2024', '{}'::jsonb, false)
            ON CONFLICT (feed_id, post_index) DO UPDATE SET content_text = EXCLUDED.content_text, deleted = false""",
-        feed_id,
+        feed_id, USER_A_ID,
     )
     try:
         r = await client_as_user_a.get("/search?q=aardvark")
@@ -55,10 +55,10 @@ async def test_search_posts_excludes_other_users(
     feed_b = seeded_users["feed_b"]
     await db_conn.execute(
         """INSERT INTO feed_posts
-           (feed_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
-           VALUES ($1, 0, 'user B secret quokka content', 'hype', 'post', 'findings', 'BPaper 2024', '{}'::jsonb, false)
+           (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+           VALUES ($1, $2, 0, 'user B secret quokka content', 'hype', 'post', 'findings', 'BPaper 2024', '{}'::jsonb, false)
            ON CONFLICT (feed_id, post_index) DO UPDATE SET content_text = EXCLUDED.content_text, deleted = false""",
-        feed_b,
+        feed_b, USER_B_ID,
     )
     try:
         r = await client_as_user_a.get("/search?q=quokka")
@@ -82,10 +82,10 @@ async def test_search_posts_skips_soft_deleted(
     feed_id = seeded_users["feed_a"]
     await db_conn.execute(
         """INSERT INTO feed_posts
-           (feed_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
-           VALUES ($1, 0, 'deleted platypus content should not appear', 'skeptic', 'post', 'methods', 'Test 2024', '{}'::jsonb, true)
+           (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+           VALUES ($1, $2, 0, 'deleted platypus content should not appear', 'skeptic', 'post', 'methods', 'Test 2024', '{}'::jsonb, true)
            ON CONFLICT (feed_id, post_index) DO UPDATE SET content_text = EXCLUDED.content_text, deleted = true""",
-        feed_id,
+        feed_id, USER_A_ID,
     )
     try:
         r = await client_as_user_a.get("/search?q=platypus")
@@ -119,10 +119,10 @@ async def test_search_posts_result_shape(
     feed_id = seeded_users["feed_a"]
     await db_conn.execute(
         """INSERT INTO feed_posts
-           (feed_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
-           VALUES ($1, 0, 'shape test narwhal content here', 'methodologist', 'thread', 'methods', 'ShapeTest 2024', '{}'::jsonb, false)
+           (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+           VALUES ($1, $2, 0, 'shape test narwhal content here', 'methodologist', 'thread', 'methods', 'ShapeTest 2024', '{}'::jsonb, false)
            ON CONFLICT (feed_id, post_index) DO UPDATE SET content_text = EXCLUDED.content_text, deleted = false""",
-        feed_id,
+        feed_id, USER_A_ID,
     )
     try:
         r = await client_as_user_a.get("/search?q=narwhal")

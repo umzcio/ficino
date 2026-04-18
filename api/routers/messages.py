@@ -117,6 +117,25 @@ async def get_paper_summary(
         paper_id,
     )
 
+    # Workers can die mid-task (OOM, SIGKILL, container restart) without
+    # writing back a terminal status. If the row says 'generating' but the
+    # task is actually FAILURE/REVOKED/unknown, re-dispatch rather than
+    # stranding the user on a forever-spinner.
+    celery_app = _get_celery()
+    if summary and (summary["status"] or "complete") == "generating" and summary["task_id"]:
+        try:
+            task_state = celery_app.AsyncResult(summary["task_id"]).state
+        except Exception:
+            task_state = "UNKNOWN"
+        if task_state in ("FAILURE", "REVOKED", "UNKNOWN"):
+            logger.warn(
+                "paper_summary_stuck_generating",
+                paper_id=paper_id,
+                old_task_id=summary["task_id"],
+                task_state=task_state,
+            )
+            summary = None  # fall through to the dispatch branch below
+
     if summary:
         messages = summary["messages"]
         if isinstance(messages, str):
@@ -134,8 +153,7 @@ async def get_paper_summary(
             result["task_id"] = summary["task_id"]
         return result
 
-    # No summary yet — trigger generation and create placeholder row
-    celery_app = _get_celery()
+    # No (usable) summary yet — trigger generation and create placeholder row
     task = celery_app.send_task(
         "tasks.summary_tasks.generate_paper_summary",
         args=[paper_id],

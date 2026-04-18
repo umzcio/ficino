@@ -66,6 +66,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                       if (e.key === 'Escape') setRenamingId(null)
                     }}
                     autoFocus
+                    aria-label={`Rename workspace ${ws.name}`}
                     className="w-full bg-transparent border border-border rounded px-2 py-1 text-xs text-text outline-none focus:border-gold/40"
                   />
                 </div>
@@ -131,6 +132,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                   }}
                   placeholder="Name..."
                   autoFocus
+                  aria-label="New workspace name"
                   className="w-full bg-transparent border border-border rounded px-2 py-1.5 text-xs text-text outline-none focus:border-gold/40"
                 />
               </div>

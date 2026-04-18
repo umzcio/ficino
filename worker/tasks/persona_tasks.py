@@ -46,7 +46,9 @@ def _apply_engagement_defaults(post_data: dict[str, object]) -> None:
         post_data.setdefault(field, random.randint(lo, hi))
 
 
-def _write_feed_posts_index(feed_id: str, posts_slice: list[dict], base_index: int) -> None:
+def _write_feed_posts_index(
+    feed_id: str, posts_slice: list[dict], base_index: int, user_id: str,
+) -> None:
     """Sync feed_posts search index for a slice of posts.
 
     Each row is UPSERTed on (feed_id, post_index) so retries and append-mode
@@ -55,6 +57,9 @@ def _write_feed_posts_index(feed_id: str, posts_slice: list[dict], base_index: i
     index that can be rebuilt via infra/postgres/backfill_feed_posts.py
     if it drifts. The caller wraps this in try/except so an index failure
     doesn't lose the feed itself.
+
+    user_id is denormalized onto feed_posts so full-text search can filter
+    by owner before hitting the GIN index.
     """
     for i, p in enumerate(posts_slice):
         post_index = base_index + i
@@ -64,8 +69,8 @@ def _write_feed_posts_index(feed_id: str, posts_slice: list[dict], base_index: i
         content_text = str(p.get("content", ""))
         execute(
             """INSERT INTO feed_posts
-               (feed_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+               (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
                ON CONFLICT (feed_id, post_index) DO UPDATE SET
                  content_text = EXCLUDED.content_text,
                  persona = EXCLUDED.persona,
@@ -75,6 +80,7 @@ def _write_feed_posts_index(feed_id: str, posts_slice: list[dict], base_index: i
                  data = EXCLUDED.data,
                  deleted = EXCLUDED.deleted""",
             feed_id,
+            user_id,
             post_index,
             content_text,
             p.get("persona"),
@@ -241,11 +247,21 @@ def generate_feed(
     4. Generate posts via LLM
     5. Store feed in database
     """
+    # Hoisted early so the append_to_feed_id branch below can scope its
+    # SELECT/UPDATE by user_id as defense-in-depth against a bypass of the
+    # API's ownership check. Later assignments of effective_user_id in this
+    # function are idempotent with this one.
+    effective_user_id = user_id or STUB_USER_ID
+
     existing_posts: list[dict[str, object]] = []
     if append_to_feed_id:
         feed_id = append_to_feed_id
-        # Load existing posts from the feed
-        row = fetchrow("SELECT posts FROM feeds WHERE id = $1", feed_id)
+        # Load existing posts from the feed — scoped by user_id in case this
+        # task was dispatched by something other than the API router.
+        row = fetchrow(
+            "SELECT posts FROM feeds WHERE id = $1 AND user_id = $2",
+            feed_id, effective_user_id,
+        )
         if row and row["posts"]:
             existing_posts = json.loads(row["posts"]) if isinstance(row["posts"], str) else row["posts"]
         # Idempotency guard: Celery retries reuse the same task_id. If a prior
@@ -554,11 +570,12 @@ def generate_feed(
         if append_to_feed_id:
             execute(
                 """UPDATE feeds SET posts = $1, post_count = $2, generation_duration_ms = generation_duration_ms + $3
-                   WHERE id = $4""",
+                   WHERE id = $4 AND user_id = $5""",
                 posts_json,
                 len(all_posts),
                 duration_ms,
                 feed_id,
+                effective_user_id,
             )
         else:
             execute(
@@ -580,7 +597,7 @@ def generate_feed(
         # the source of truth; the backfill script can re-hydrate the index.
         try:
             base_index = len(existing_posts) if append_to_feed_id else 0
-            _write_feed_posts_index(feed_id, posts, base_index)
+            _write_feed_posts_index(feed_id, posts, base_index, effective_user_id)
         except Exception as e:
             log.warn(
                 "feed_posts_index_sync_failed",
@@ -748,7 +765,7 @@ def regenerate_post(
 
     # Sync the feed_posts search index row for this post_index.
     try:
-        _write_feed_posts_index(feed_id, [post_data], post_index)
+        _write_feed_posts_index(feed_id, [post_data], post_index, effective_user_id)
     except Exception as e:
         log.warn(
             "feed_posts_index_sync_failed",

@@ -67,6 +67,10 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
       `}
     >
       <label htmlFor="pdf-upload" className="sr-only">Upload PDFs</label>
+      {/* sr-only (not `hidden`) keeps the input focusable in the tab order —
+          display:none would remove it entirely and leave keyboard users with
+          no way to open the file picker. Enter/Space on the focused input
+          still triggers the native file dialog. */}
       <input
         ref={inputRef}
         id="pdf-upload"
@@ -74,7 +78,7 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
         accept=".pdf"
         multiple
         onChange={handleInputChange}
-        className="hidden"
+        className="sr-only"
       />
       {uploading ? (
         <>

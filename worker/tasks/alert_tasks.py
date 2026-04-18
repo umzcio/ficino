@@ -151,10 +151,11 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
     log.info("post_feed_check_start")
 
     try:
-        feed = fetchrow("SELECT posts, post_count FROM feeds WHERE id = $1", feed_id)
+        feed = fetchrow("SELECT user_id, posts, post_count FROM feeds WHERE id = $1", feed_id)
         if not feed or not feed["posts"]:
             return {"status": "skipped"}
 
+        owner_id = str(feed["user_id"])
         posts = feed["posts"]
         if isinstance(posts, str):
             posts = json.loads(posts)
@@ -169,9 +170,12 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
                 title="High-debate feed generated",
                 body=f"Your latest feed has {debate_count} debate posts out of {total} — the personas are really arguing. Something in your corpus is provocative.",
                 metadata={"feed_id": feed_id, "debate_count": debate_count, "total": total},
+                user_id=owner_id,
             )
 
-        # Check for reading gaps — papers debated but never summarized
+        # Check for reading gaps — papers debated but never summarized.
+        # Scope by the feed owner so a multi-tenant deployment doesn't leak
+        # one user's paper titles into another user's alert feed.
         paper_refs = set()
         for p in posts:
             ref = p.get("paper_ref")
@@ -182,7 +186,8 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
             unsummarized = fetch(
                 """SELECT p.id, p.title, p.filename FROM papers p
                    LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
-                   WHERE ps.id IS NULL AND p.status = 'complete'"""
+                   WHERE ps.id IS NULL AND p.status = 'complete' AND p.user_id = $1""",
+                owner_id,
             )
             for paper in unsummarized:
                 title = paper["title"] or paper["filename"]
@@ -193,6 +198,7 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
                         title="Go deeper on this paper",
                         body=f'Personas are debating "{title}" in your feeds, but you haven\'t read its summary yet. Tap to explore.',
                         metadata={"paper_id": str(paper["id"]), "paper_title": title},
+                        user_id=owner_id,
                     )
 
         log.info("post_feed_check_complete")
@@ -209,14 +215,17 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
     name="tasks.alert_tasks.check_stale_papers",
 )
 def check_stale_papers(self: Task) -> dict[str, object]:
-    """Check for papers that have never appeared in a feed."""
+    """Check for papers that have never appeared in a feed.
+
+    Scans across all users — each stale paper gets an alert addressed to
+    that paper's owner (not the scheduler's user_id, which would collapse
+    every tenant's alerts onto a single inbox).
+    """
     log = logger.bind(task_id=self.request.id)
 
     try:
-        # Papers that are complete but have never been in a feed
-        # (simplified: papers with 0 feeds referencing their chunks)
         stale = fetch(
-            """SELECT p.id, p.title, p.filename, p.uploaded_at
+            """SELECT p.id, p.user_id, p.title, p.filename, p.uploaded_at
                FROM papers p
                WHERE p.status = 'complete'
                AND p.uploaded_at < NOW() - INTERVAL '7 days'
@@ -232,6 +241,7 @@ def check_stale_papers(self: Task) -> dict[str, object]:
                 title="Unused paper in your corpus",
                 body=f'"{title}" has been in your corpus for over a week but hasn\'t been part of any feed generation. Consider generating a feed or removing it.',
                 metadata={"paper_id": str(paper["id"]), "paper_title": title},
+                user_id=str(paper["user_id"]),
             )
 
         log.info("stale_check_complete", stale_count=len(stale))

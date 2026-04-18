@@ -93,7 +93,14 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
       )}
 
       {status === 'complete' && reply && (
-        <article role="status" aria-live="polite" aria-atomic="true" className="px-4 py-3.5 flex gap-3 bg-bg-hover/20 border-l-2 border-[#8b92a5]/30 ml-0">
+        // One-shot SR announcement — short message, outside the article,
+        // so expanding "Sources" below doesn't re-announce the full reply.
+        // Prior wiring put role="status" + aria-atomic="true" on the article
+        // itself, which overrode article semantics AND caused every subtree
+        // mutation (e.g. sources toggle) to re-read the entire AI response.
+        <>
+          <div role="status" aria-live="polite" className="sr-only">The Archivist replied.</div>
+          <article className="px-4 py-3.5 flex gap-3 bg-bg-hover/20 border-l-2 border-[#8b92a5]/30 ml-0">
           {archivist?.avatar_url ? (
             <img
               src={archivist.avatar_url}
@@ -162,7 +169,8 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
               </div>
             )}
           </div>
-        </article>
+          </article>
+        </>
       )}
 
       {status === 'error' && (

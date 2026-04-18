@@ -72,9 +72,11 @@ class RateLimit:
 class IPRateLimit:
     """IP-keyed rate limiter for unauthenticated endpoints like /auth/login.
 
-    Uses `X-Forwarded-For` (first hop) when present — Ficino runs behind an
-    nginx reverse proxy which sets that header. Falls back to
-    `request.client.host` if no proxy header is set.
+    Reads `X-Real-IP` set by nginx to `$remote_addr` (the real TCP peer).
+    Do NOT trust the first hop of `X-Forwarded-For` — nginx uses
+    `$proxy_add_x_forwarded_for` which preserves any client-supplied value
+    and appends the real IP, so `split(",")[0]` is attacker-controlled and
+    lets a caller rotate that header to bypass brute-force limits.
 
     Always active regardless of AUTH_PROVIDER, because its primary use is
     protecting the auth endpoints themselves from brute-force.
@@ -86,9 +88,9 @@ class IPRateLimit:
         self.window_seconds = window_seconds
 
     async def __call__(self, request: Request) -> None:
-        forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        if real_ip:
+            ip = real_ip
         else:
             ip = request.client.host if request.client else "unknown"
 

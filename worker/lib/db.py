@@ -150,7 +150,10 @@ def fetch(query: str, *args: object) -> list[asyncpg.Record]:
 
 
 async def _store_chunks_batch(
-    paper_id: str, chunks: list[dict[str, object]], embeddings: list[list[float]]
+    paper_id: str,
+    chunks: list[dict[str, object]],
+    embeddings: list[list[float]],
+    user_id: str,
 ) -> int:
     """Store chunks with embeddings in a single transaction.
 
@@ -159,6 +162,10 @@ async def _store_chunks_batch(
     dominant cost during ingestion. executemany ships them as one batched
     command. A full COPY would be faster still but requires manual formatting
     of the pgvector literal and the jsonb — executemany is a near drop-in.
+
+    user_id is denormalized onto chunks so full-text search can filter by
+    owner before hitting the GIN index (see
+    infra/postgres/add_user_id_to_chunks_feed_posts.sql).
     """
     if not chunks:
         return 0
@@ -166,6 +173,7 @@ async def _store_chunks_batch(
     rows = [
         (
             paper_id,
+            user_id,
             chunk["section"],
             chunk["content"],
             "text",
@@ -179,18 +187,21 @@ async def _store_chunks_batch(
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.executemany(
-                """INSERT INTO chunks (paper_id, section, content, chunk_type, chunk_index, token_count, embedding, metadata)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                """INSERT INTO chunks (paper_id, user_id, section, content, chunk_type, chunk_index, token_count, embedding, metadata)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
                 rows,
             )
         return len(rows)
 
 
 def store_chunks_batch(
-    paper_id: str, chunks: list[dict[str, object]], embeddings: list[list[float]]
+    paper_id: str,
+    chunks: list[dict[str, object]],
+    embeddings: list[list[float]],
+    user_id: str,
 ) -> int:
     """Store chunks with embeddings. Sync wrapper."""
-    return _run(_store_chunks_batch(paper_id, chunks, embeddings))
+    return _run(_store_chunks_batch(paper_id, chunks, embeddings, user_id))
 
 
 async def _store_figure(

@@ -29,12 +29,13 @@ async def record_audit(
     """Persist an audit-log row. Never raises.
 
     `action` convention: `"<resource>.<verb>"` (e.g. "paper.delete", "workspace.rename").
-    Include the caller's IP from X-Forwarded-For first hop so logs reflect the
-    real client when behind the nginx proxy.
+    Include the caller's IP from X-Real-IP (set by nginx to $remote_addr) —
+    not X-Forwarded-For, whose first hop is attacker-controlled under nginx's
+    `$proxy_add_x_forwarded_for` and would poison the audit log.
     """
     try:
-        fwd = request.headers.get("x-forwarded-for", "")
-        ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        ip = real_ip or (request.client.host if request.client else None)
         ua = request.headers.get("user-agent", "")[:500]
         import json
         await db.execute(

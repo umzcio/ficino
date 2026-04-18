@@ -28,11 +28,22 @@ export async function networkFirst<T>(
 export async function cacheFeeds(feeds: Feed[], workspaceId?: string) {
   const db = await getDB()
   const tx = db.transaction('feeds', 'readwrite')
-  // Queue all puts without awaiting each sequentially — an in-loop await
-  // on tx.store.put() can yield the event loop before the last put commits,
-  // letting tx.done race. Promise.all keeps the transaction open until every
-  // put's request is registered, then tx.done guarantees the commit.
-  await Promise.all(feeds.map((f) => tx.store.put({ ...f, workspaceId })))
+  // Upsert pattern: put all incoming records, then delete stale keys that
+  // no longer appear in the new set. Without the delete step, a feed
+  // removed on the server (e.g. when the last paper in a workspace is
+  // deleted and papers.py:256-261 cascades) lingers in IndexedDB and
+  // resurrects on any offline load via getCachedFeeds.
+  const newKeys = new Set(feeds.map((f) => f.id))
+  const existingKeys = workspaceId
+    ? await tx.store.index('by-workspace').getAllKeys(workspaceId)
+    : await tx.store.getAllKeys()
+  const ops: Promise<unknown>[] = [
+    ...feeds.map((f) => tx.store.put({ ...f, workspaceId })),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 
@@ -54,7 +65,19 @@ export async function getCachedFeeds(workspaceId?: string): Promise<Feed[]> {
 export async function cachePapers(papers: Paper[], workspaceId?: string) {
   const db = await getDB()
   const tx = db.transaction('papers', 'readwrite')
-  await Promise.all(papers.map((p) => tx.store.put({ ...p, workspaceId })))
+  // See cacheFeeds for the rationale — same upsert-then-delete shape so a
+  // server-side delete propagates to the IndexedDB cache.
+  const newKeys = new Set(papers.map((p) => p.id))
+  const existingKeys = workspaceId
+    ? await tx.store.index('by-workspace').getAllKeys(workspaceId)
+    : await tx.store.getAllKeys()
+  const ops: Promise<unknown>[] = [
+    ...papers.map((p) => tx.store.put({ ...p, workspaceId })),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 
@@ -210,16 +233,22 @@ export async function getCachedSettings(): Promise<Record<string, unknown> | und
 export async function cacheUserPosts(posts: UserPost[], workspaceId?: string) {
   const db = await getDB()
   const tx = db.transaction('userPosts', 'readwrite')
-  // Clear existing posts for this workspace before caching
-  if (workspaceId) {
-    const existing = await tx.store.index('by-workspace').getAllKeys(workspaceId)
-    for (const key of existing) {
-      await tx.store.delete(key)
-    }
-  }
-  for (const p of posts) {
-    await tx.store.put({ ...p, workspaceId })
-  }
+  // Upsert pattern, matching the rest of this file. The previous in-loop
+  // `await tx.store.put()` was exactly the race the sibling comments warn
+  // about — the transaction can auto-commit before the final put, leaving
+  // the cached list half-written. Collect all ops into a single
+  // Promise.all, then await tx.done once.
+  const newKeys = new Set(posts.map((p) => p.id))
+  const existingKeys = workspaceId
+    ? await tx.store.index('by-workspace').getAllKeys(workspaceId)
+    : await tx.store.getAllKeys()
+  const ops: Promise<unknown>[] = [
+    ...posts.map((p) => tx.store.put({ ...p, workspaceId })),
+    ...existingKeys
+      .filter((k) => !newKeys.has(String(k)))
+      .map((k) => tx.store.delete(k)),
+  ]
+  await Promise.all(ops)
   await tx.done
 }
 

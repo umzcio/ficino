@@ -28,10 +28,19 @@ export function useCorpus(workspaceId?: string) {
     extraPollsRef.current = 0
   }, [])
 
+  // Track the workspaceId a fetch was issued for, so a slow response for an
+  // older workspace can be discarded rather than clobbering the UI after
+  // the user has switched workspaces.
+  const workspaceForFetchRef = useRef<string | undefined>(workspaceId)
+  useEffect(() => {
+    workspaceForFetchRef.current = workspaceId
+  }, [workspaceId])
+
   const refresh = useCallback(async () => {
+    const issuedFor = workspaceId
     try {
       const data = await listPapers(workspaceId)
-      if (!mountedRef.current) return null
+      if (!mountedRef.current || workspaceForFetchRef.current !== issuedFor) return null
       cachePapers(data, workspaceId).catch(() => {})
       setPapers(data)
       setError(null)
@@ -40,17 +49,19 @@ export function useCorpus(workspaceId?: string) {
       // Offline fallback
       try {
         const cached = await getCachedPapers(workspaceId)
-        if (!mountedRef.current) return null
+        if (!mountedRef.current || workspaceForFetchRef.current !== issuedFor) return null
         if (cached.length > 0) {
           setPapers(cached)
           setError(null)
           return cached
         }
       } catch { /* ignore */ }
-      if (mountedRef.current) setError(err instanceof Error ? err.message : 'Failed to load papers')
+      if (mountedRef.current && workspaceForFetchRef.current === issuedFor) {
+        setError(err instanceof Error ? err.message : 'Failed to load papers')
+      }
       return null
     } finally {
-      if (mountedRef.current) setLoading(false)
+      if (mountedRef.current && workspaceForFetchRef.current === issuedFor) setLoading(false)
     }
   }, [workspaceId])
 

@@ -231,7 +231,7 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
             embeddings = []
 
         # --- Step 5: Store chunks ---
-        stored = store_chunks_batch(paper_id, chunks, embeddings)
+        stored = store_chunks_batch(paper_id, chunks, embeddings, paper_user_id)
         log.info("chunks_stored", count=stored)
 
         # --- Step 6: Figure extraction ---

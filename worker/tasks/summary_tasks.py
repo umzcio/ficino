@@ -174,6 +174,15 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
             # Fallback: wrap raw text as a single message
             messages = [{"role": "paper", "type": "summary", "content": cleaned}]
 
+        # A "success path with no brackets" (response truncation or prose-only
+        # output) falls out of the try block with messages==[] but never hits
+        # the except — apply the same fallback explicitly so we never store
+        # status='complete' with an empty message list (which the GET handler
+        # would short-circuit forever without a path to regenerate).
+        if not messages:
+            log.warn("summary_parse_empty", preview=cleaned[:200])
+            messages = [{"role": "paper", "type": "summary", "content": cleaned or "(no content returned)"}]
+
         # Store
         messages_json = json.dumps(messages, default=str)
         execute(
@@ -190,6 +199,18 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
         log.error("paper_summary_failed", error=str(exc))
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc)
+        # Retries exhausted — mark the placeholder row so the GET handler
+        # can re-dispatch on the next poll instead of spinning forever on a
+        # status='generating' row with a dead task_id.
+        try:
+            execute(
+                """UPDATE paper_summaries
+                   SET status = 'error', task_id = NULL
+                   WHERE paper_id = $1""",
+                paper_id,
+            )
+        except Exception as update_exc:
+            log.error("paper_summary_error_mark_failed", error=str(update_exc))
         raise
 
 

@@ -20,6 +20,10 @@
 CREATE TABLE IF NOT EXISTS feed_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   feed_id UUID NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+  -- Denormalized from feeds.user_id so full-text search can filter by owner
+  -- before hitting the GIN index (see add_user_id_to_chunks_feed_posts.sql).
+  -- NOT NULL is enforced by the follow-up migration after backfill.
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   post_index INTEGER NOT NULL,
 
   -- Denormalized searchable fields (copied out of the JSONB dict)

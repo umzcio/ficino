@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { clearOfflineData } from '../lib/workspace-download'
 
 export interface AuthUser {
   id: string
@@ -157,6 +158,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [provider])
 
   const signOut = useCallback(async () => {
+    // Wipe per-user IndexedDB before dropping auth state. None of the offline
+    // stores carry a userId key, so leaving them in place means the next user
+    // on this browser sees the prior user's bookmarks / annotations / etc.
+    // during the fetch-in-flight window. Swallow errors — they shouldn't block
+    // sign-out, but a failure here means some stale data may linger.
+    try {
+      await clearOfflineData()
+    } catch { /* ignore */ }
     if (provider === 'basic') {
       await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
       setUser(null)
