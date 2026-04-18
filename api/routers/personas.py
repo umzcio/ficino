@@ -109,19 +109,17 @@ async def get_persona_replies(
         # handle the string path in case the driver changes.
         if isinstance(parent, str):
             parent = json.loads(parent)
-        parent = parent or {}
+        # Return the FULL parent post JSONB so the frontend can render it
+        # with the same PostCard component used everywhere else in the app.
+        # Previously we hand-picked a subset, which forced the Replies tab
+        # to diverge visually from the rest of the feed.
         results.append({
             "feed_id": str(r["feed_id"]),
             "post_index": r["post_index"],
             "message_index": r["message_index"],
             "content": r["content"] or "",
             "thread_generated_at": r["thread_generated_at"],
-            "parent_post": {
-                "persona": parent.get("persona"),
-                "content": (parent.get("content") or "")[:300],
-                "post_type": parent.get("post_type"),
-                "paper_ref": parent.get("paper_ref"),
-            },
+            "parent_post": parent or {},
         })
     return results
 

@@ -36,6 +36,12 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
     getPersonaStats(personaKey).then(setStats).catch(() => {})
   }, [personaKey])
 
+  // NOTE: per-persona local state (repliesLoaded, dmLoaded, drafts, etc.)
+  // is reset by a `key={personaKey}` at the parent in App.tsx. That makes
+  // React remount this subtree on every persona switch, so there is no
+  // need for manual reset effects here — and no class of "forgot to
+  // reset flag X when personaKey changed" bugs.
+
   // Lazy-load replies the first time the user opens the Replies tab. Avoids
   // paying the extra SQL pass for users who never view the tab.
   useEffect(() => {
@@ -210,55 +216,48 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
             </div>
           ) : (
             replies.map((r) => {
+              // Twitter-style profile replies: render the parent post AND the
+              // interjection using the SAME PostCard the rest of the app uses.
+              // The interjection is wrapped as a synthetic FeedPost with
+              // post_type='reply' and a replying_to pointer, so PostCard's
+              // existing "Replying to …" styling kicks in naturally.
               const parentPersona = r.parent_post.persona ? personas[r.parent_post.persona] : null
-              const parentName = parentPersona?.name || r.parent_post.persona || 'Unknown'
-              const parentHandle = parentPersona?.handle || ''
+              const parentHandle = parentPersona?.handle || `@${r.parent_post.persona ?? 'unknown'}`
+              const syntheticReply: FeedPost = {
+                // Synthetic id scoped to the thread position so React keys
+                // stay stable across re-renders. Encodes post_index and
+                // message_index; not used as a DB key anywhere.
+                id: r.post_index * 10000 + r.message_index,
+                persona: personaKey,
+                post_type: 'reply',
+                content: r.content,
+                paper_ref: r.parent_post.paper_ref ?? null,
+                replying_to: parentHandle,
+                time: '',
+                likes: 0,
+                retweets: 0,
+                replies: 0,
+                bookmarks: 0,
+              }
               return (
-                <div
-                  key={`${r.feed_id}-${r.post_index}-${r.message_index}`}
-                  className="border-b border-border px-4 py-3"
-                >
-                  {/* Parent post context — who this persona jumped in on */}
-                  <div className="text-[12px] text-text-muted mb-1.5">
-                    Jumped into <span className="text-gold">{parentName}</span>
-                    {parentHandle && <span className="ml-1">{parentHandle}</span>}
-                  </div>
-                  <div
-                    className="text-[13px] text-text-muted italic border-l-2 pl-3 mb-2.5 line-clamp-3"
-                    style={{ borderColor: (parentPersona?.color || 'var(--color-border)') + '60' }}
-                  >
-                    {r.parent_post.content}
-                  </div>
-                  {/* The interjection itself */}
-                  <div className="flex gap-2.5">
-                    {p.avatar_url ? (
-                      <img
-                        src={p.avatar_url}
-                        alt={p.name}
-                        className="w-8 h-8 rounded-full object-cover shrink-0"
-                        style={{ border: `1.5px solid ${p.color}50` }}
-                      />
-                    ) : (
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-                        style={{ backgroundColor: p.color + '22', color: p.color, border: `1.5px solid ${p.color}50` }}
-                      >
-                        {p.initials}
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-[13px] font-bold text-text">{p.name}</span>
-                        <span className="text-[13px] text-text-muted">{p.handle}</span>
-                        <span className="text-[10px] text-text-muted bg-bg-hover border border-border rounded px-1.5 py-px">
-                          jumped in
-                        </span>
-                      </div>
-                      <p className="text-[14px] text-text leading-relaxed whitespace-pre-wrap">
-                        <InlineMd text={r.content} />
-                      </p>
-                    </div>
-                  </div>
+                <div key={`${r.feed_id}-${r.post_index}-${r.message_index}`}>
+                  {/* Twitter-chained: the parent renders a thread-connector
+                      rail from just under its avatar to its bottom edge, and
+                      the reply continues that rail from its top edge up to
+                      its avatar. The two rails meet across the border
+                      between the cards to read as a single vertical line —
+                      exactly like Twitter's profile Replies tab. */}
+                  <PostCard
+                    post={r.parent_post}
+                    feedId={r.feed_id}
+                    postIndex={r.post_index}
+                    threadConnector="below"
+                  />
+                  <PostCard
+                    post={syntheticReply}
+                    feedId={r.feed_id}
+                    threadConnector="above"
+                  />
                 </div>
               )
             })

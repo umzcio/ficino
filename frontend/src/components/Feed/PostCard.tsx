@@ -96,9 +96,16 @@ interface PostCardProps {
   isReplyBookmarked?: (postIndex: number, messageIndex: number) => boolean
   onPostRegenerated?: () => void
   onPostDeleted?: (postIndex: number) => void
+  // Optional vertical rail drawn inside the avatar column, used by threaded
+  // views (e.g. the profile Replies tab) to visually chain parent → child.
+  // 'below' draws a rail from just under the avatar to the card's bottom
+  // edge. 'above' draws one from the card's top edge to just above the
+  // avatar. Combining 'below' on the parent and 'above' on the reply
+  // produces a continuous Twitter-style connector across the two cards.
+  threadConnector?: 'below' | 'above' | 'both'
 }
 
-function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated, onPostDeleted }: PostCardProps) {
+function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated, onPostDeleted, threadConnector }: PostCardProps) {
   const personas = usePersonas()
   const p = personas[post.persona]
   const bookmarked = !!bookmarkedId
@@ -320,6 +327,26 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
         }
       } : undefined}
     >
+      {/* Thread connector rail. Positioned so its center-X aligns with the
+          avatar center (px-4=16 + avatar-half=21 = 37), width 2px.
+          'below': starts 2px under the avatar and runs to the card's bottom
+          edge. 'above': runs from the card's top edge to 2px above the
+          avatar. Combined on adjacent cards, this produces Twitter's
+          continuous reply-chain rail. */}
+      {(threadConnector === 'below' || threadConnector === 'both') && (
+        <div
+          aria-hidden="true"
+          className="absolute bg-border"
+          style={{ left: 36, top: 58, bottom: 0, width: 2 }}
+        />
+      )}
+      {(threadConnector === 'above' || threadConnector === 'both') && (
+        <div
+          aria-hidden="true"
+          className="absolute bg-border"
+          style={{ left: 36, top: 0, height: 12, width: 2 }}
+        />
+      )}
       <Avatar persona={post.persona} />
 
       <div className="flex-1 min-w-0">
@@ -573,17 +600,69 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
           </div>
         )}
 
-        {/* Quote block */}
-        {post.post_type === 'quote' && post.quoting_content && (
-          <div className="border border-border rounded-xl px-3.5 py-2.5 mb-2.5 bg-bg-hover">
-            <div className="text-[13px] text-text-muted font-semibold mb-1">
-              {post.quoting_handle}
+        {/* Quote block — Twitter-style nested post card. Renders the quoted
+            persona's avatar + name + @handle inline at the top of a rounded
+            border box, with the quoted content below. Matches how Twitter
+            displays a quote-tweet: the quoted post is embedded inside the
+            quoter's post, with no action bar of its own. Previously showed
+            only the handle string and content text — visually inconsistent
+            with the rest of the app, which always displays persona identity
+            with an avatar. */}
+        {post.post_type === 'quote' && post.quoting_content && (() => {
+          // Handles are unique per persona. Look up the full persona by
+          // handle so we can render avatar + name. If the handle doesn't
+          // resolve (legacy post, renamed persona), fall back to a handle-
+          // only header.
+          const quoted = Object.entries(personas).find(
+            ([, pp]) => pp.handle === post.quoting_handle,
+          )
+          const quotedKey = quoted?.[0]
+          const quotedPersona = quoted?.[1]
+          return (
+            <div
+              className="border border-border rounded-2xl px-3.5 py-3 mb-2.5 bg-transparent cursor-pointer hover:bg-bg-hover transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (quotedKey && onPersonaClick) onPersonaClick(quotedKey)
+              }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                {quotedPersona && (
+                  quotedPersona.avatar_url ? (
+                    <img
+                      src={quotedPersona.avatar_url}
+                      alt={quotedPersona.name}
+                      className="w-5 h-5 rounded-full shrink-0 object-cover"
+                      style={{ border: `1.5px solid ${quotedPersona.color}50` }}
+                    />
+                  ) : (
+                    <div
+                      className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[9px] font-bold"
+                      style={{
+                        backgroundColor: quotedPersona.color + '22',
+                        color: quotedPersona.color,
+                        border: `1.5px solid ${quotedPersona.color}50`,
+                      }}
+                    >
+                      {quotedPersona.initials}
+                    </div>
+                  )
+                )}
+                {quotedPersona?.name && (
+                  <span className="text-[14px] font-bold text-text truncate">
+                    {quotedPersona.name}
+                  </span>
+                )}
+                <span className="text-[14px] text-text-muted truncate">
+                  {post.quoting_handle}
+                </span>
+              </div>
+              <div className="text-[14px] text-text leading-snug">
+                <InlineMd text={post.quoting_content || ''} />
+              </div>
             </div>
-            <div className="text-[13px] text-text-secondary leading-snug">
-              <InlineMd text={post.quoting_content || ''} />
-            </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Source reveal */}
         {post.sources && post.sources.length > 0 && (

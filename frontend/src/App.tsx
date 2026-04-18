@@ -520,7 +520,15 @@ function AppContent() {
         }
         if (selectedPersona) {
           return (
+            // `key={selectedPersona}` forces React to treat every persona
+            // switch as a full remount, so *all* local state inside
+            // PersonaProfile (reply/dm load flags, drafts, scroll, etc.)
+            // resets automatically. Without this, flags like repliesLoaded
+            // carry over from the previous persona and silently skip
+            // refetches — the correct structural fix instead of
+            // remembering to reset each flag in its own effect.
             <PersonaProfile
+              key={selectedPersona}
               personaKey={selectedPersona}
               onBack={() => setSelectedPersona(null)}
               posts={feed.posts}
@@ -533,7 +541,13 @@ function AppContent() {
         }
         if (selectedPostIndex !== null && feed.posts[selectedPostIndex]) {
           return (
+            // Same remount-on-identity-change pattern as PersonaProfile —
+            // PostDetail owns local state (replyOpen, repliesLoaded, menu
+            // flags, etc.) through its inner PostCard. Navigating from one
+            // post to another without a key would reuse that state and
+            // silently show stale replies for the previous post.
             <PostDetail
+              key={selectedPostIndex}
               post={feed.posts[selectedPostIndex]}
               postIndex={selectedPostIndex}
               posts={feed.posts}

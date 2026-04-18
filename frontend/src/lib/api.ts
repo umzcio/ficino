@@ -1,4 +1,4 @@
-import type { Paper, Feed, PaperConversation, PaperSummary, GroupChatPreview, GroupChat, Workspace, ActivityItem } from '../types'
+import type { Paper, Feed, FeedPost, PaperConversation, PaperSummary, GroupChatPreview, GroupChat, Workspace, ActivityItem } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/ficino/api'
 
@@ -250,12 +250,10 @@ export interface PersonaReplyItem {
   message_index: number
   content: string
   thread_generated_at: string
-  parent_post: {
-    persona: string | null
-    content: string
-    post_type: string | null
-    paper_ref: string | null
-  }
+  // Full FeedPost JSONB straight from feeds.posts[post_index]. Typed as
+  // FeedPost so the Replies tab can render it with the same PostCard used
+  // everywhere else.
+  parent_post: FeedPost
 }
 
 export async function getPersonaReplies(key: string): Promise<PersonaReplyItem[]> {

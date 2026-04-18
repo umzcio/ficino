@@ -195,8 +195,13 @@ export function PostDetail({
               Responses
             </div>
             {downstream.map(({ dp, di }) => (
+              // Key on post.id, not array index. Index-keyed children
+              // let React reuse the same PostCard instance if the
+              // downstream list mutates (post deleted/regenerated), which
+              // carries the prior post's local state (replyOpen,
+              // repliesLoaded) onto the next post at that slot.
               <PostCard
-                key={di}
+                key={dp.id ?? di}
                 post={dp}
                 feedId={feedId}
                 postIndex={di}
