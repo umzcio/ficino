@@ -77,6 +77,16 @@ class SettingsUpdate(BaseModel):
 # blob could redirect every downstream LLM call to an attacker-chosen host.
 ALLOWED_SETTINGS_KEYS = frozenset(DEFAULTS.keys())
 
+# Keys whose values are secrets. GET /settings returns them as a boolean-ish
+# "set" / "" string so an XSS or browser-extension snoop can't exfiltrate
+# the actual key from a response body.
+SECRET_KEYS = frozenset({"anthropic_api_key", "openai_api_key", "voyage_api_key"})
+
+
+def _redact_secrets(d: dict[str, object]) -> dict[str, object]:
+    """Replace secret keys in a settings dict with 'set' / ''."""
+    return {k: ("set" if v else "") if k in SECRET_KEYS else v for k, v in d.items()}
+
 
 @router.get("")
 async def get_settings(
@@ -103,7 +113,7 @@ async def get_settings(
         else:
             merged[key] = value
 
-    return merged
+    return _redact_secrets(merged)
 
 
 @router.put("")
@@ -154,14 +164,14 @@ async def update_settings(
 
     logger.info("settings_updated", keys=list(filtered.keys()))
 
-    # Return merged with defaults
+    # Return merged with defaults (secrets redacted — match GET shape).
     merged = {**DEFAULTS}
     for key, value in existing.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = {**merged[key], **value}
         else:
             merged[key] = value
-    return merged
+    return _redact_secrets(merged)
 
 
 @router.get("/ollama-models")

@@ -29,8 +29,13 @@ export default defineConfig({
             urlPattern: /\/ficino\/api\/figures\//,
             handler: 'CacheFirst',
             options: {
+              // 200 entries was the LRU ceiling and caused silent eviction
+              // once a user's corpus crossed ~20 papers × 10 figures — dropped
+              // figures vanished from offline mode with no UI signal. 1000 is
+              // ~10× typical corpus size and still well under the browser's
+              // per-origin quota (~50 MB of JPEGs at ~100 KB each).
               cacheName: 'figure-images',
-              expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              expiration: { maxEntries: 1000, maxAgeSeconds: 30 * 24 * 60 * 60 },
             },
           },
           {

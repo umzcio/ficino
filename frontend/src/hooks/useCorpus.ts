@@ -10,6 +10,15 @@ export function useCorpus(workspaceId?: string) {
   const [error, setError] = useState<string | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const extraPollsRef = useRef(0)
+  // Gate setState calls in async paths so a refresh() resolving after
+  // unmount doesn't update a dead component.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const stopPolling = useCallback(() => {
     if (timeoutRef.current) {
@@ -22,6 +31,7 @@ export function useCorpus(workspaceId?: string) {
   const refresh = useCallback(async () => {
     try {
       const data = await listPapers(workspaceId)
+      if (!mountedRef.current) return null
       cachePapers(data, workspaceId).catch(() => {})
       setPapers(data)
       setError(null)
@@ -30,16 +40,17 @@ export function useCorpus(workspaceId?: string) {
       // Offline fallback
       try {
         const cached = await getCachedPapers(workspaceId)
+        if (!mountedRef.current) return null
         if (cached.length > 0) {
           setPapers(cached)
           setError(null)
           return cached
         }
       } catch { /* ignore */ }
-      setError(err instanceof Error ? err.message : 'Failed to load papers')
+      if (mountedRef.current) setError(err instanceof Error ? err.message : 'Failed to load papers')
       return null
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }, [workspaceId])
 
@@ -75,19 +86,22 @@ export function useCorpus(workspaceId?: string) {
     refresh()
   }, [refresh])
 
-  // Start/stop polling based on paper states
+  // Start polling when papers go into a processing state. Separate from
+  // the unmount cleanup — otherwise every setPapers() fires the cleanup
+  // + restart cycle, which can drop a poll tick mid-flight. schedulePoll
+  // already guards against double-scheduling via timeoutRef.
   useEffect(() => {
     const hasProcessing = papers.some(
       (p) => p.status && !['complete', 'error'].includes(p.status),
     )
-
     if (hasProcessing) {
       extraPollsRef.current = 3
       schedulePoll()
     }
+  }, [papers, schedulePoll])
 
-    return () => stopPolling()
-  }, [papers, schedulePoll, stopPolling])
+  // Dedicated cleanup effect: only clears the pending timeout on unmount.
+  useEffect(() => () => stopPolling(), [stopPolling])
 
   const upload = useCallback(async (file: File) => {
     setUploading(true)

@@ -75,17 +75,26 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
   return (
     <nav aria-label="Main navigation" className="w-16 shrink-0 flex-col items-center pt-5 gap-0.5 border-r border-border hidden md:flex">
       <div className="mb-5">
+        {/* alt="" — the brand text "ficino" is already rendered as visible
+            text in FeedHeader, so SR users shouldn't hear it twice. */}
         <img
           src={`${import.meta.env.BASE_URL}ficino-favicon-light.png`}
-          alt="ficino"
+          alt=""
           className="w-9 h-9 rounded-[10px] app-logo"
         />
       </div>
-      {NAV_ITEMS.map(({ icon: Icon, view, label }) => (
+      {NAV_ITEMS.map(({ icon: Icon, view, label }) => {
+        // Fold the unread count into the aria-label so SR users aren't told
+        // just "Alerts" — they also learn how many are waiting.
+        const ariaLabel =
+          view === 'alerts' && alertCount > 0
+            ? `${label}, ${alertCount} unread`
+            : label
+        return (
         <button
           key={view}
           onClick={() => onNavigate(view)}
-          aria-label={label}
+          aria-label={ariaLabel}
           aria-current={active === view ? 'page' : undefined}
           className="w-[46px] h-[46px] rounded-full border-none bg-transparent cursor-pointer flex items-center justify-center transition-all duration-100 hover:bg-gold/10 hover:text-gold relative"
           style={{
@@ -95,12 +104,12 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
         >
           <Icon size={20} strokeWidth={active === view ? 2.25 : 1.75} />
           {view === 'alerts' && alertCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 rounded-full bg-persona-skeptic text-white text-[10px] font-bold flex items-center justify-center px-1">
+            <span aria-hidden="true" className="absolute top-1.5 right-1.5 min-w-[16px] h-4 rounded-full bg-persona-skeptic text-white text-[10px] font-bold flex items-center justify-center px-1">
               {alertCount > 9 ? '9+' : alertCount}
             </span>
           )}
         </button>
-      ))}
+      )})}
       <div className="mt-auto mb-4">
         <InstallButton />
       </div>
@@ -661,6 +670,11 @@ function AppContent() {
         <div className="max-w-[1050px] mx-auto flex min-h-screen">
           <LeftNav active={activeView} onNavigate={setActiveView} alertCount={alertsHook.unreadCount} />
           <main id="main" className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
+            {/* Visually-hidden landmark heading: every authenticated view
+                currently jumps to <h2>, which AXE flags as a missing h1.
+                A single sr-only h1 establishes the document root for
+                screen readers without changing visual hierarchy. */}
+            <h1 className="sr-only">Ficino</h1>
             <Suspense fallback={<div className="p-4 text-text-muted">Loading…</div>}>
               {renderMainContent()}
             </Suspense>

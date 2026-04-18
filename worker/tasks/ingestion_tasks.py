@@ -303,11 +303,14 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
             )
 
         # --- Complete ---
+        # Use `figures_stored`, not `len(figures)` — some figures fail vision
+        # description and don't end up in the DB, so len(figures) overstates
+        # what the user can actually browse.
         _update_paper_status(
             paper_id, "complete",
             extraction_path=extraction_path,
             chunk_count=len(chunks),
-            figure_count=len(figures),
+            figure_count=figures_stored,
         )
         log.info("ingestion_complete",
                  extraction_path=extraction_path,
@@ -327,11 +330,12 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
 
         # --- Auto-generate feed if enabled ---
         try:
-            from lib.settings import get_user_settings
-            # Read settings for the paper's actual owner, not the stub — so
-            # the auto_generate_on_upload toggle honors the uploader's choice.
-            user_settings = get_user_settings(paper_user_id)
-            if user_settings.get("auto_generate_on_upload"):
+            # Re-fetch for the paper's actual owner (the `user_settings` local
+            # at the top of this task was scoped to the stub / apply_provider_settings
+            # path). `get_user_settings` was already imported alongside
+            # `apply_provider_settings` at the task entry — reuse it.
+            owner_settings = get_user_settings(paper_user_id)
+            if owner_settings.get("auto_generate_on_upload"):
                 corpus_id = fetchrow(
                     "SELECT corpus_id FROM papers WHERE id = $1", paper_id
                 )

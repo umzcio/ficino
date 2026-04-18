@@ -92,12 +92,21 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
       setRepliedIndices(new Set())
     }
   }, [feedId, feedState])
-  // If generating with no existing posts, show full-screen spinner
+  // If generating with no existing posts, show full-screen spinner. The
+  // whole block is a live region so SR users hear step changes — doubly
+  // important under prefers-reduced-motion where `.animate-spin` is
+  // disabled and the spinner becomes a static glyph with no motion cue.
   if (feedState === 'generating' && posts.length === 0) {
     const stepLabel = STEP_LABELS[generatingMeta.step || ''] || 'Starting...'
     return (
-      <div {...panelProps} className="flex flex-col items-center justify-center py-20">
-        <Loader2 size={32} className="text-gold animate-spin mb-4" />
+      <div
+        {...panelProps}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="flex flex-col items-center justify-center py-20"
+      >
+        <Loader2 size={32} className="text-gold animate-spin mb-4" aria-hidden="true" />
         <p className="text-sm font-medium text-text mb-1">{stepLabel}</p>
         {generatingMeta.postProgress && (
           <p className="text-xs text-text-muted">
@@ -181,8 +190,13 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
       />
       <div className="py-5 text-center">
         {feedState === 'generating' ? (
-          <div className="flex flex-col items-center gap-2 py-4">
-            <Loader2 size={24} className="text-gold animate-spin" />
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="flex flex-col items-center gap-2 py-4"
+          >
+            <Loader2 size={24} className="text-gold animate-spin" aria-hidden="true" />
             <p className="text-sm text-text-muted">
               {STEP_LABELS[generatingMeta.step || ''] || 'Generating more posts...'}
               {generatingMeta.postProgress && ` (${generatingMeta.postProgress})`}
