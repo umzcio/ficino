@@ -96,6 +96,24 @@ _NUMERIC_BOUNDS: dict[str, tuple[type, float, float]] = {
 # the actual key from a response body.
 SECRET_KEYS = frozenset({"anthropic_api_key", "openai_api_key", "voyage_api_key"})
 
+# Keys that override the admin-configured LLM / embedding / vision stack.
+# Under PUBLIC_DEPLOYMENT=true these are rejected on write so hosted users
+# can't point the app at their own keys or swap models — the operator's
+# env config is the only source of truth. On self-host (default) these
+# remain user-configurable.
+PROVIDER_OVERRIDE_KEYS = frozenset({
+    "llm_provider",
+    "embed_provider",
+    "vision_provider",
+    "ollama_llm_model",
+    "ollama_embed_model",
+    "ollama_vision_model",
+    "claude_model",
+    "anthropic_api_key",
+    "openai_api_key",
+    "voyage_api_key",
+})
+
 
 def _redact_secrets(d: dict[str, object]) -> dict[str, object]:
     """Replace secret keys in a settings dict with 'set' / ''."""
@@ -142,9 +160,17 @@ async def update_settings(
     # 10,000-shot LLM loop.
     filtered: dict[str, object] = {}
     dropped: list[str] = []
+    locked: list[str] = []
     for key, value in body.settings.items():
         if key not in ALLOWED_SETTINGS_KEYS:
             dropped.append(key)
+            continue
+        # On hosted deployments the operator's env config is the single
+        # source of truth for providers + keys. Any user attempt to override
+        # is dropped silently with a warn log (not 422 — the hosted UI
+        # shouldn't be sending these anyway, and 422 leaks config state).
+        if app_settings.public_deployment and key in PROVIDER_OVERRIDE_KEYS:
+            locked.append(key)
             continue
         if key in _NUMERIC_BOUNDS:
             expected_type, lo, hi = _NUMERIC_BOUNDS[key]
@@ -165,6 +191,11 @@ async def update_settings(
             filtered[key] = value
     if dropped:
         logger.warn("settings_dropped_unknown_keys", keys=dropped, user_id=user.id)
+    if locked:
+        logger.warn(
+            "settings_dropped_provider_override_on_public_deployment",
+            keys=locked, user_id=user.id,
+        )
 
     # Read-merge-write inside a transaction with SELECT ... FOR UPDATE so a
     # concurrent worker preference recompute (which takes the same row lock

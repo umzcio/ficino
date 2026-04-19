@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Cpu, Users } from 'lucide-react'
+import { Cpu, Users, Shield } from 'lucide-react'
 import { getOllamaModels } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { useAuth } from '../../auth/AuthContext'
 import { Section, SettingRow, Toggle, Select, Slider, ApiKeyInput, Loader2 } from './primitives'
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 
 export function AITab({ settings: s, onUpdate }: Props) {
   const personas = usePersonas()
+  const { publicDeployment } = useAuth()
   const [ollamaModels, setOllamaModels] = useState<{
     llm: { name: string; size: string; family: string }[]
     embed: { name: string; size: string }[]
@@ -19,18 +21,42 @@ export function AITab({ settings: s, onUpdate }: Props) {
   const [loadingModels, setLoadingModels] = useState(false)
 
   useEffect(() => {
+    // On hosted deployments the user can't change providers, so there's
+    // nothing to populate this dropdown with — skip the probe.
+    if (publicDeployment) return
     setLoadingModels(true)
     getOllamaModels()
       .then(setOllamaModels)
       .catch(() => {})
       .finally(() => setLoadingModels(false))
-  }, [])
+  }, [publicDeployment])
 
   const personasEnabled = (s.personas_enabled || {}) as Record<string, boolean>
 
   return (
     <div className="p-4 space-y-4">
-      <Section icon={Cpu} title="LLM Provider">
+      {publicDeployment ? (
+        <Section icon={Shield} title="LLM Provider">
+          <div className="text-[13px] text-text-muted bg-bg-hover border border-border rounded-lg px-3 py-2.5 flex items-start gap-2.5">
+            <Shield size={14} className="text-gold mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="text-text font-medium mb-1">Managed by Ficino</div>
+              LLM providers and API keys are configured by the platform.
+              Self-host this app from{' '}
+              <a
+                href="https://github.com/umzcio/ficino"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gold hover:underline"
+              >
+                GitHub
+              </a>{' '}
+              to bring your own models.
+            </div>
+          </div>
+        </Section>
+      ) : (
+        <Section icon={Cpu} title="LLM Provider">
         <SettingRow label="LLM Provider" description="Which AI powers persona generation">
           <Select
             value={s.llm_provider as string}
@@ -163,6 +189,7 @@ export function AITab({ settings: s, onUpdate }: Props) {
             : 'Using API providers — credits will be consumed per generation'}
         </div>
       </Section>
+      )}
 
       <Section icon={Users} title="Personas">
         {Object.entries(personas).map(([key, p]) => (

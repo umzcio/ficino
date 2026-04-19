@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     supabase_storage_bucket: str = "papers"
 
+    # SaaS / hosted-deployment lock. When true:
+    #   - the Settings → AI UI hides LLM provider + API-key controls
+    #   - the settings-update endpoint silently drops any attempt to set
+    #     provider-override keys (anthropic_api_key, llm_provider, etc.)
+    # Operators of the hosted service supply API keys via .env.secrets;
+    # self-hosters leave this false and users configure their own.
+    public_deployment: bool = False
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

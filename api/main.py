@@ -112,11 +112,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Auth provider discovery endpoint (unauthenticated)
+# Auth provider + deployment-mode discovery endpoint (unauthenticated).
+# Frontend calls this on boot to decide which login flow to show AND
+# whether to hide LLM/API-key controls in Settings.
 @app.get("/auth/provider")
-async def get_auth_provider() -> dict[str, str]:
-    """Return the configured auth provider. Frontend uses this to decide which login flow to show."""
-    return {"provider": settings.auth_provider}
+async def get_auth_provider() -> dict[str, object]:
+    return {
+        "provider": settings.auth_provider,
+        "public_deployment": settings.public_deployment,
+    }
 
 # Mount basic auth routes only when provider is basic
 if settings.auth_provider == "basic":

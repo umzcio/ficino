@@ -11,6 +11,10 @@ interface AuthContextValue {
   user: AuthUser | null
   loading: boolean
   provider: 'none' | 'basic' | 'supabase'
+  // True on the hosted/SaaS deployment. Signals to the UI that LLM
+  // provider + API-key controls should be hidden — the operator's
+  // env config is the source of truth on public installs.
+  publicDeployment: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
@@ -21,6 +25,7 @@ const AuthCtx = createContext<AuthContextValue>({
   user: null,
   loading: true,
   provider: 'none',
+  publicDeployment: false,
   signIn: async () => {},
   signUp: async () => {},
   signOut: async () => {},
@@ -40,17 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [provider, setProvider] = useState<'none' | 'basic' | 'supabase'>('none')
+  const [publicDeployment, setPublicDeployment] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Discover provider and initialize auth state
   useEffect(() => {
     async function init() {
       try {
-        // Discover provider
+        // Discover provider + deployment mode
         const res = await fetch(`${API_BASE}/auth/provider`)
         const data = await res.json()
         const p = data.provider as 'none' | 'basic' | 'supabase'
         setProvider(p)
+        setPublicDeployment(Boolean(data.public_deployment))
 
         if (p === 'none') {
           // No auth — stub user, always authenticated
@@ -177,7 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [provider])
 
   return (
-    <AuthCtx.Provider value={{ user, loading, provider, signIn, signUp, signOut, error }}>
+    <AuthCtx.Provider value={{ user, loading, provider, publicDeployment, signIn, signUp, signOut, error }}>
       {children}
     </AuthCtx.Provider>
   )
