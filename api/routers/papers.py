@@ -1,7 +1,6 @@
 """Paper upload, list, and management endpoints."""
 
 import asyncio
-import os
 import uuid
 from datetime import datetime, timezone
 
@@ -17,12 +16,10 @@ from auth.rate_limit import RateLimit
 from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
 from models.paper import Paper
-from signed_url import sign_resource
+from storage import storage
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/papers", tags=["papers"])
-
-UPLOAD_DIR = settings.upload_dir
 
 
 def _get_redis() -> Redis:
@@ -51,7 +48,6 @@ async def upload_paper(
         raise HTTPException(status_code=400, detail="File is not a valid PDF (magic bytes missing)")
 
     paper_id = str(uuid.uuid4())
-    file_path = os.path.join(UPLOAD_DIR, f"{paper_id}.pdf")
 
     # Use provided workspace or default
     corpus_id = workspace_id or DEFAULT_WORKSPACE_ID
@@ -66,55 +62,61 @@ async def upload_paper(
         raise HTTPException(status_code=404, detail="Workspace not found")
 
     # DB-row-first ordering: insert the paper placeholder BEFORE writing the
-    # file to disk. If the process crashes between the row and the write,
-    # the paper row is queryable (status='pending') and can be reconciled /
-    # deleted by an operator — we never leave an orphan PDF on disk with no
-    # database trace. If the row insert itself fails (FK violation on a bad
-    # workspace), no file exists yet, so there's nothing to clean up.
+    # bytes. If the process crashes between the row and the write, the paper
+    # row is queryable (status='pending') and can be reconciled / deleted by
+    # an operator — we never leave an orphan PDF in storage with no database
+    # trace. If the row insert itself fails (FK violation on a bad workspace),
+    # no object exists yet, so there's nothing to clean up.
+    #
+    # file_path is populated with the backend's reference (filesystem path
+    # for local, bucket key for supabase) AFTER the save so we only record
+    # a pointer to something that actually exists.
     now = datetime.now(timezone.utc)
     try:
         await db.execute(
             """INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status, uploaded_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            paper_id, user.id, corpus_id, file.filename, file_path, "pending", now,
+            paper_id, user.id, corpus_id, file.filename, "", "pending", now,
         )
     except asyncpg.ForeignKeyViolationError:
         raise HTTPException(status_code=400, detail="Invalid workspace")
 
-    # Now write the file. If the write fails (disk full, permissions), delete
-    # the placeholder row so we don't leave a dangling `pending` paper that
-    # the worker will try to process and fail on repeatedly.
-    # Disk I/O goes through asyncio.to_thread so a 50MB write doesn't pin the
-    # event loop and stall every other in-flight request on this worker.
-    def _write_file(path: str, data: bytes) -> None:
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(data)
-
+    # Persist the bytes via the storage backend. Storage I/O (disk or cloud
+    # upload) is sync but large, so run it in a worker thread so a 50 MB
+    # upload doesn't pin the event loop and stall every other request.
     try:
-        await asyncio.to_thread(_write_file, file_path, contents)
-    except OSError:
+        file_ref = await asyncio.to_thread(
+            storage.save_pdf, user.id, paper_id, contents,
+        )
+    except Exception as e:
         await db.execute(
             "DELETE FROM papers WHERE id = $1 AND user_id = $2",
             paper_id, user.id,
         )
-        # Best-effort remove in case a partial file landed.
+        # Best-effort cleanup in case a partial object landed.
         try:
-            await asyncio.to_thread(os.remove, file_path)
-        except OSError:
+            await asyncio.to_thread(storage.delete_pdf, user.id, paper_id)
+        except Exception:
             pass
-        logger.error("paper_upload_write_failed", paper_id=paper_id)
+        logger.error("paper_upload_write_failed", paper_id=paper_id, error=str(e)[:200])
         raise HTTPException(status_code=500, detail="Failed to store uploaded file")
+
+    await db.execute(
+        "UPDATE papers SET file_path = $1 WHERE id = $2",
+        file_ref, paper_id,
+    )
 
     logger.info("paper_uploaded", paper_id=paper_id, filename=file.filename, size=len(contents))
 
-    # Dispatch Celery ingestion task
+    # Dispatch Celery ingestion task. Only paper_id is passed — the worker
+    # resolves the storage reference via the shared storage adapter so the
+    # API never has to care what the backend layout looks like.
     redis = _get_redis()
     from celery import Celery
     celery_app = Celery(broker=settings.redis_url)
     celery_app.send_task(
         "tasks.ingestion_tasks.process_paper",
-        args=[paper_id, file_path],
+        args=[paper_id],
         queue="ingestion",
     )
     logger.info("ingestion_task_dispatched", paper_id=paper_id)
@@ -266,13 +268,10 @@ async def delete_paper(
             )
             logger.info("workspace_feeds_cleared", corpus_id=corpus_id)
 
-    # Clean up uploaded file. Disk I/O offloaded so delete doesn't block the
-    # event loop on slow volumes.
-    file_path = os.path.join(UPLOAD_DIR, f"{paper_id}.pdf")
-    def _remove_if_exists(p: str) -> None:
-        if os.path.exists(p):
-            os.remove(p)
-    await asyncio.to_thread(_remove_if_exists, file_path)
+    # Clean up PDF + extracted figure crops. Storage I/O offloaded so a slow
+    # disk or cloud call doesn't block the event loop. delete_paper_artifacts
+    # is idempotent, so a partially-deleted paper still converges.
+    await asyncio.to_thread(storage.delete_paper_artifacts, user.id, paper_id)
 
     logger.info("paper_deleted", paper_id=paper_id)
 
@@ -302,17 +301,18 @@ async def list_figures(
            WHERE f.paper_id = $1 ORDER BY f.figure_index""",
         paper_id, user.id,
     )
-    # Each URL carries a fresh short-lived (10 min) HMAC token. The handler
-    # at GET /figures/{paper_id}/{figure_id} verifies the token AND that the
-    # paper belongs to the caller, so leaking the URL cannot outlive the TTL
-    # or cross-tenant.
+    # Each URL carries a fresh short-lived token from the storage backend:
+    # - Local backend returns /figures/{paper_id}/{figure_id}?token=...,
+    #   served by our API, which re-verifies ownership on every fetch.
+    # - Supabase backend returns a direct signed-storage URL the browser
+    #   can hit without a round-trip through us.
     return [
         {
             "id": str(row["id"]),
             "page_number": row["page_number"],
-            "image_url": (
-                f"/figures/{paper_id}/{row['id']}"
-                f"?token={sign_resource(str(row['id']))}"
+            "image_url": storage.figure_image_url(
+                user.id, paper_id, str(row["id"]),
+                str(row["image_path"] or ""),
             ),
             "extraction_type": row["extraction_type"],
             "description": row["description"],

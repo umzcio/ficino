@@ -1,0 +1,82 @@
+"""Abstract storage backend interface.
+
+Backends translate (user_id, paper_id, filename) triples into their own
+physical layout — a filesystem path for LocalStorage, a bucket key for
+SupabaseStorage — and the rest of the app never has to care which one
+is in use.
+
+Method naming follows the bytes-in / bytes-out convention. Any method
+that needs a filesystem path for third-party libraries (fitz, marker,
+PIL) goes through `localize_pdf` + `release_local` so cloud backends
+can stage a temp file and clean it up.
+"""
+
+from abc import ABC, abstractmethod
+
+
+class StorageBackend(ABC):
+    # -- PDFs --
+
+    @abstractmethod
+    def save_pdf(self, user_id: str, paper_id: str, content: bytes) -> str:
+        """Persist the PDF bytes. Return a backend-specific reference
+        (suitable for storing in papers.file_path)."""
+
+    @abstractmethod
+    def localize_pdf(self, user_id: str, paper_id: str) -> str:
+        """Return a filesystem path the worker can hand to fitz/marker/etc.
+
+        Local backend returns the existing path. Cloud backends download
+        to a tempfile; pair with `release_local()` to clean it up.
+        """
+
+    @abstractmethod
+    def release_local(self, local_path: str) -> None:
+        """Release a path returned by `localize_pdf`. No-op for local
+        backend; removes the tempfile for cloud backends."""
+
+    @abstractmethod
+    def delete_pdf(self, user_id: str, paper_id: str) -> None:
+        """Delete the PDF. Idempotent."""
+
+    # -- Figures --
+
+    @abstractmethod
+    def save_figure(
+        self, user_id: str, paper_id: str, filename: str, content: bytes
+    ) -> str:
+        """Persist a figure crop (basename like 'fig_p1_0.png'). Return a
+        backend reference suitable for storing in figures.image_path."""
+
+    @abstractmethod
+    def read_figure_bytes(
+        self, user_id: str, paper_id: str, filename: str
+    ) -> bytes:
+        """Read the figure bytes. Used by the API's FileResponse path for
+        the local backend; cloud backends generally serve via signed URL
+        and don't need this."""
+
+    # -- Bulk --
+
+    @abstractmethod
+    def delete_paper_artifacts(self, user_id: str, paper_id: str) -> None:
+        """Delete the PDF and every figure under this paper. Idempotent."""
+
+    # -- URLs --
+
+    @abstractmethod
+    def figure_image_url(
+        self,
+        user_id: str,
+        paper_id: str,
+        figure_id: str,
+        image_path: str,
+        ttl: int = 600,
+    ) -> str:
+        """Return a URL the browser can fetch directly.
+
+        `image_path` is whatever was stored in figures.image_path when the
+        crop was saved — each backend uses it according to its own layout.
+        Local returns a relative `/figures/...?token=...` URL served by our
+        API; cloud backends return a provider-issued signed URL.
+        """

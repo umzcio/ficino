@@ -2,8 +2,6 @@
 
 import asyncio
 import json
-import os
-import shutil
 
 import asyncpg
 import httpx
@@ -14,6 +12,7 @@ from pydantic import BaseModel
 from config import settings as app_settings
 from auth import AuthUser, get_current_user
 from db.connection import get_db
+from storage import storage
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -308,8 +307,6 @@ async def clear_everything(
     alerts / persona_dms / user_posts / corpus_syntheses / tags are
     direct user_id cascades, deleted explicitly.
     """
-    upload_dir = app_settings.upload_dir
-
     paper_rows = await db.fetch(
         "SELECT id FROM papers WHERE user_id = $1", user.id,
     )
@@ -328,31 +325,27 @@ async def clear_everything(
         await db.execute("DELETE FROM papers           WHERE user_id = $1", user.id)
         await db.execute("DELETE FROM tags             WHERE user_id = $1", user.id)
 
-    def _cleanup_files(ids: list[str]) -> int:
+    # Storage cleanup goes through the adapter so the same code works for
+    # filesystem + cloud backends. delete_paper_artifacts is idempotent; we
+    # log and keep going on failures.
+    def _cleanup_artifacts(user_id: str, ids: list[str]) -> int:
         freed = 0
         for pid in ids:
-            pdf_path = os.path.join(upload_dir, f"{pid}.pdf")
-            if os.path.exists(pdf_path):
-                try:
-                    os.remove(pdf_path)
-                    freed += 1
-                except OSError as e:
-                    logger.warn("clear_everything_pdf_unlink_failed",
-                                paper_id=pid, error=str(e)[:120])
-            fig_dir = os.path.join("/app/figures", pid)
-            if os.path.isdir(fig_dir):
-                try:
-                    shutil.rmtree(fig_dir)
-                except OSError as e:
-                    logger.warn("clear_everything_figdir_unlink_failed",
-                                paper_id=pid, error=str(e)[:120])
+            try:
+                storage.delete_paper_artifacts(user_id, pid)
+                freed += 1
+            except Exception as e:
+                logger.warn(
+                    "clear_everything_artifact_unlink_failed",
+                    paper_id=pid, error=str(e)[:120],
+                )
         return freed
 
-    freed = await asyncio.to_thread(_cleanup_files, paper_ids)
+    freed = await asyncio.to_thread(_cleanup_artifacts, user.id, paper_ids)
     logger.info("clear_everything_complete",
                 user_id=str(user.id),
                 paper_count=len(paper_ids),
-                files_removed=freed)
+                artifacts_removed=freed)
     return {"status": "cleared", "paper_count": len(paper_ids)}
 
 
@@ -382,13 +375,11 @@ async def clear_all_papers(
     bulk paper delete would render broken references — delete user's
     feeds explicitly too.
 
-    Disk cleanup (PDF uploads + figure crops) is offloaded to a thread
-    so a slow mount doesn't block the event loop.
+    Storage cleanup (PDF uploads + figure crops) is offloaded to a thread
+    so a slow disk or cloud call doesn't block the event loop.
     """
-    upload_dir = app_settings.upload_dir
-
-    # 1. Enumerate paper IDs so we can clean up files on disk after the DB
-    #    rows are gone. Fetching before the delete is safe under transaction
+    # 1. Enumerate paper IDs so we can clean up artifacts after the DB rows
+    #    are gone. Fetching before the delete is safe under transaction
     #    semantics — either both the SELECT and DELETE happen, or neither.
     paper_rows = await db.fetch(
         "SELECT id FROM papers WHERE user_id = $1", user.id,
@@ -400,32 +391,24 @@ async def clear_all_papers(
     await db.execute("DELETE FROM papers WHERE user_id = $1", user.id)
     await db.execute("DELETE FROM feeds WHERE user_id = $1", user.id)
 
-    # 3. Disk cleanup. Per-paper pdf + the figure crops directory the
-    #    worker writes to `/app/figures/{paper_id}/`. Failures here are
-    #    logged but don't fail the API call — the DB row is the source
-    #    of truth for what the user "has", and leaked disk files get
-    #    reaped by routine filesystem maintenance.
-    def _cleanup_files(ids: list[str]) -> int:
+    # 3. Storage cleanup via the adapter — same code path for local disk
+    #    and cloud buckets. Failures are logged but don't fail the API
+    #    call; the DB row is the source of truth for what the user "has",
+    #    and orphaned artifacts get reaped by routine maintenance.
+    def _cleanup_artifacts(user_id: str, ids: list[str]) -> int:
         freed = 0
         for pid in ids:
-            pdf_path = os.path.join(upload_dir, f"{pid}.pdf")
-            if os.path.exists(pdf_path):
-                try:
-                    os.remove(pdf_path)
-                    freed += 1
-                except OSError as e:
-                    logger.warn("clear_papers_pdf_unlink_failed",
-                                paper_id=pid, error=str(e)[:120])
-            fig_dir = os.path.join("/app/figures", pid)
-            if os.path.isdir(fig_dir):
-                try:
-                    shutil.rmtree(fig_dir)
-                except OSError as e:
-                    logger.warn("clear_papers_figdir_unlink_failed",
-                                paper_id=pid, error=str(e)[:120])
+            try:
+                storage.delete_paper_artifacts(user_id, pid)
+                freed += 1
+            except Exception as e:
+                logger.warn(
+                    "clear_papers_artifact_unlink_failed",
+                    paper_id=pid, error=str(e)[:120],
+                )
         return freed
 
-    freed = await asyncio.to_thread(_cleanup_files, paper_ids)
+    freed = await asyncio.to_thread(_cleanup_artifacts, user.id, paper_ids)
     logger.info("clear_papers_complete",
                 user_id=str(user.id),
                 paper_count=len(paper_ids),

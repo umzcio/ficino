@@ -22,6 +22,7 @@ from lib import (
 )
 from lib.db import execute, fetchrow, store_chunks_batch, store_figure
 from lib.settings import STUB_USER_ID
+from lib.storage import storage
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +66,9 @@ def _update_paper_status(paper_id: str, status: str, **kwargs: object) -> None:
     default_retry_delay=30,
     name="tasks.ingestion_tasks.process_paper",
 )
-def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
+def process_paper(
+    self: Task, paper_id: str, _legacy_file_path: str | None = None,
+) -> dict[str, str]:
     """Full ingestion pipeline for a single paper.
 
     Steps:
@@ -74,6 +77,12 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
     3. Generate embeddings (Ollama, Voyage, or OpenAI)
     4. Store chunks + embeddings in pgvector
     5. Extract and describe figures
+
+    The `_legacy_file_path` argument is accepted for backward compatibility
+    with in-flight Celery jobs enqueued before the storage-adapter refactor.
+    New dispatches only send `paper_id`; the storage backend resolves the
+    PDF location itself (filesystem path for local, tempfile download for
+    cloud backends).
     """
     log = logger.bind(paper_id=paper_id, task_id=self.request.id)
 
@@ -86,6 +95,12 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
     # to the stub only if the lookup fails (paper row missing / unexpected).
     paper_row = fetchrow("SELECT user_id FROM papers WHERE id = $1", paper_id)
     paper_user_id = str(paper_row["user_id"]) if paper_row and paper_row["user_id"] else STUB_USER_ID
+
+    # Materialize the PDF on local disk so the extraction libs (fitz, marker,
+    # PIL) can open it by path. For local backend this is a no-op returning
+    # the canonical path; for cloud backends it downloads to a tempfile that
+    # must be cleaned up in the `finally` below.
+    file_path = storage.localize_pdf(paper_user_id, paper_id)
 
     try:
         # --- Step 1: Text extraction ---
@@ -274,8 +289,11 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         self.update_state(state="PROGRESS", meta={"step": "extracting_figures", "paper_id": paper_id})
         log.info("ingestion_step", step="extracting_figures")
 
-        figure_dir = os.path.join("/app/figures", paper_id)
-        figures = pdf_extractor.extract_figures(file_path, figure_dir)
+        # extract_figures returns crops as in-memory PNG bytes keyed under
+        # "image_bytes". The storage adapter is the only thing that writes
+        # them — whether that means a filesystem directory (local) or a
+        # Supabase bucket key (cloud).
+        figures = pdf_extractor.extract_figures(file_path)
 
         # Storage telemetry. Detection failures happen upstream (in the
         # detector, per-page) and surface as an empty figures list or a
@@ -303,10 +321,20 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
                 legacy_claim = (first_sentence[:400] if first_sentence
                                 else caption[:400])
 
+                # Upload the crop to storage and capture the backend's
+                # reference for `figures.image_path`. Whatever is persisted
+                # here is what `storage.figure_image_url()` will receive at
+                # browse time — the two must agree on the reference shape.
+                image_ref = storage.save_figure(
+                    paper_user_id, paper_id,
+                    str(fig["filename"]),
+                    fig["image_bytes"],
+                )
+
                 store_figure(
                     paper_id=paper_id,
                     page_number=int(fig["page"]),
-                    image_path=str(fig["image_path"]),
+                    image_path=image_ref,
                     extraction_type=str(fig["extraction_type"]),
                     description=legacy_description,
                     claim_summary=legacy_claim,
@@ -328,7 +356,7 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
                 figures_failed_by_type[err_type] = figures_failed_by_type.get(err_type, 0) + 1
                 log.warn(
                     "figure_store_failed",
-                    figure=str(fig.get("image_path")),
+                    figure=str(fig.get("filename")),
                     error_type=err_type,
                     error=str(e)[:200],
                 )
@@ -430,3 +458,11 @@ def process_paper(self: Task, paper_id: str, file_path: str) -> dict[str, str]:
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc)
         raise
+    finally:
+        # Release any tempfile the storage backend created (no-op for local).
+        # Running this in `finally` guarantees cleanup even when the pipeline
+        # errors out or retries — the next attempt will re-localize.
+        try:
+            storage.release_local(file_path)
+        except Exception:
+            log.warn("release_local_failed")

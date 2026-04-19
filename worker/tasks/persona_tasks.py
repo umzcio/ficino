@@ -17,7 +17,7 @@ from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow, fetch
 from lib.post_validation import validate_post_shape
 from lib.settings import apply_provider_settings, STUB_USER_ID
-from lib.signed_url import sign_resource
+from lib.storage import storage
 
 # TTL for signed figure URLs embedded in persisted feed posts. Feeds are
 # browsed for hours/days after generation, so the 10-minute default would
@@ -399,24 +399,30 @@ def generate_feed(
                       f.figure_type, f.caption, f.figure_number,
                       f.data_claim, f.referenced_paragraph,
                       f.detector_confidence,
+                      p.user_id AS paper_user_id,
                       p.filename AS paper_filename, p.title AS paper_title
                FROM figures f JOIN papers p ON f.paper_id = p.id
                WHERE f.paper_id = ANY($1)""",
             paper_ids,
         )
-        # Signed with a 24h TTL because these URLs are persisted into feed
-        # posts and rendered by the frontend long after generation. When a
-        # token eventually expires the figure endpoint will 403 — the
-        # frontend can recover by re-fetching GET /papers/{paper_id}/figures
-        # to get a fresh short-lived token.
+        # URLs are issued by the storage adapter with a 24h TTL because
+        # they're persisted into feed posts and rendered long after
+        # generation. When a token eventually expires:
+        #   - local backend's /figures/... endpoint will 403
+        #   - cloud signed URLs will 403 at the provider
+        # Either way the frontend can recover by re-fetching
+        # GET /papers/{paper_id}/figures to get a fresh short-lived token.
         available_figures = [
             {
                 "id": str(r["id"]),
                 "paper_id": str(r["paper_id"]),
                 "page_number": r["page_number"],
-                "image_url": (
-                    f"/figures/{r['paper_id']}/{r['id']}"
-                    f"?token={sign_resource(str(r['id']), ttl=FIGURE_URL_TTL_SECONDS)}"
+                "image_url": storage.figure_image_url(
+                    str(r["paper_user_id"]),
+                    str(r["paper_id"]),
+                    str(r["id"]),
+                    str(r["image_path"] or ""),
+                    ttl=FIGURE_URL_TTL_SECONDS,
                 ),
                 "description": r["description"] or "",
                 "claim_summary": r["claim_summary"] or "",

@@ -247,7 +247,7 @@ def extract_text_pymupdf(file_path: str) -> str:
     return result
 
 
-def extract_figures(file_path: str, output_dir: str) -> list[dict[str, object]]:
+def extract_figures(file_path: str) -> list[dict[str, object]]:
     """Detect and extract *typed* scientific figures via a vision model.
 
     Replaces the old "grab every embedded bitmap" approach, which pulled
@@ -265,14 +265,15 @@ def extract_figures(file_path: str, output_dir: str) -> list[dict[str, object]]:
          bbox. Non-scientific bitmaps are silently dropped at this step.
       3. Crop each detected bbox from the same raster the VLM saw.
 
-    Returned dicts carry all of the new typed metadata so `store_figure`
-    can persist it and post-generation can route figures to the right
-    personas.
+    Each returned dict includes the crop as raw PNG bytes under
+    `image_bytes` and a suggested `filename`. The caller is responsible
+    for persisting the bytes via the storage adapter — this function
+    never touches the filesystem so it works identically for local and
+    cloud backends.
     """
     from lib import figure_detector
 
     logger.info("figure_extract_start", file_path=file_path)
-    os.makedirs(output_dir, exist_ok=True)
 
     if not figure_detector.is_available():
         logger.warn("figure_detector_unavailable_skipping_figures")
@@ -297,7 +298,7 @@ def extract_figures(file_path: str, output_dir: str) -> list[dict[str, object]]:
         if not detections:
             continue
         # Open the rendered page once, crop all of its detected figures
-        # from it. Crops are saved as individual PNGs for the describer.
+        # from it. Crop bytes are returned to the caller for storage.
         page_img = Image.open(io.BytesIO(page_png))
         page_w, page_h = page_img.size
 
@@ -312,12 +313,13 @@ def extract_figures(file_path: str, output_dir: str) -> list[dict[str, object]]:
                 crop = crop.convert("RGBA" if "A" in crop.mode else "RGB")
 
             fig_filename = f"fig_p{page_num + 1}_{figure_index}.png"
-            fig_path = os.path.join(output_dir, fig_filename)
-            crop.save(fig_path, "PNG")
+            buf = io.BytesIO()
+            crop.save(buf, "PNG")
 
             figures.append({
                 "page": page_num + 1,
-                "image_path": fig_path,
+                "filename": fig_filename,
+                "image_bytes": buf.getvalue(),
                 "extraction_type": "vlm_detected",
                 "width": crop.width,
                 "height": crop.height,

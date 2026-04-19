@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     upload_dir: str = "/app/uploads"
     figures_dir: str = "/app/figures"
 
+    # Storage backend for PDFs + figure crops
+    storage_provider: str = "local"  # "local" or "supabase"
+    supabase_service_role_key: str = ""
+    supabase_storage_bucket: str = "papers"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

@@ -11,3 +11,6 @@ structlog>=24.1.0
 celery>=5.4.0
 PyJWT>=2.9.0
 bcrypt>=4.2.0
+# Only imported when STORAGE_PROVIDER=supabase — safe to install on
+# self-host builds too, it just sits unused at local-backend runtime.
+supabase>=2.8.0

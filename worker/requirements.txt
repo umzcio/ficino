@@ -15,3 +15,6 @@ httpx>=0.28.0
 # (voyage / cohere) don't need this — but it's in the base image so a
 # flip of RERANK_PROVIDER doesn't require a rebuild.
 sentence-transformers>=3.0.0
+# Only imported when STORAGE_PROVIDER=supabase — safe to install on
+# self-host builds too.
+supabase>=2.8.0
