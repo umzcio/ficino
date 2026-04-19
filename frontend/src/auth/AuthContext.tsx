@@ -1,5 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { clearOfflineData } from '../lib/workspace-download'
+import { setAuthTokenGetter } from '../lib/api'
+
+// Holds the current Supabase access token so api.ts can attach it to the
+// Authorization header synchronously on every request. Refreshed below by
+// onAuthStateChange whenever Supabase rotates the token (every ~1 hour).
+let _currentAccessToken: string | null = null
 
 export interface AuthUser {
   id: string
@@ -90,12 +96,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const supabase = createClient(supabaseUrl, supabaseKey)
           ;_supabaseClient = supabase
 
+          // Register the sync token getter before anything makes an API call.
+          // api.ts reads _currentAccessToken on every request and attaches
+          // "Authorization: Bearer <token>" when present.
+          setAuthTokenGetter(() => _currentAccessToken)
+
           const { data: { session } } = await supabase.auth.getSession()
           if (session) {
+            _currentAccessToken = session.access_token ?? null
             setUser({ id: session.user.id, email: session.user.email || '', display_name: null })
           }
 
-          supabase.auth.onAuthStateChange((_event: string, session: { user: { id: string; email?: string } } | null) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          supabase.auth.onAuthStateChange((_event: string, session: any) => {
+            _currentAccessToken = session?.access_token ?? null
             if (session) {
               setUser({ id: session.user.id, email: session.user.email || '', display_name: null })
             } else {
