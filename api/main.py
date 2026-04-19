@@ -147,6 +147,9 @@ app.include_router(users.router)
 app.include_router(workspaces.router)
 
 @app.get("/health")
+@app.get("/healthz")
 async def health() -> dict[str, str]:
-    """Health check endpoint."""
+    """Health check endpoint. /healthz is the Railway/Kubernetes convention;
+    /health is what docker-compose's healthcheck (and our own logs) look for.
+    Both return the same payload."""
     return {"status": "ok", "service": "ficino-api"}

@@ -1,0 +1,25 @@
+server {
+    listen ${PORT};
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SPA fallback — Vite builds emit a single index.html that hydrates the
+    # client router; every non-asset path has to return it so deep links
+    # (/settings, /personas/skeptic, ...) survive a hard refresh.
+    location / {
+        try_files $uri $uri/ /index.html;
+
+        # Service worker must never be cached — otherwise a stale one keeps
+        # serving the previous build after deploy.
+        location ~ sw\.js$ {
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+            add_header Service-Worker-Allowed "/";
+        }
+    }
+
+    # Lightweight healthcheck endpoint for Railway. Returns 200/no-body.
+    location = /healthz {
+        access_log off;
+        return 200;
+    }
+}

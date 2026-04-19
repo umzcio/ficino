@@ -1,0 +1,27 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Vite inlines VITE_* env vars at build time, so they must be available
+# during `npm run build`. Railway passes these as build ARGs (declared
+# in the Service → Variables tab and marked "build-time") — keep the
+# list here in sync with frontend/.env.example.
+ARG VITE_API_BASE
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_API_BASE=$VITE_API_BASE
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
+COPY package*.json .npmrc ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.railway.conf.template /etc/nginx/conf.d/default.conf.template
+
+# Railway injects $PORT at container start. Substitute it into the nginx
+# config template once, then hand off to nginx. Using a one-shot envsubst
+# keeps the base nginx:alpine image's entrypoint untouched.
+CMD ["sh", "-c", "envsubst '$PORT' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
