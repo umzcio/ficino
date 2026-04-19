@@ -3,11 +3,15 @@ import { Loader2 } from 'lucide-react'
 import { useAuth } from './AuthContext'
 
 export function LoginPage() {
-  const { signIn, signUp, error, provider } = useAuth()
+  const { signIn, signUp, error, publicDeployment } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [loading, setLoading] = useState(false)
+
+  // Hide the self-serve sign-up toggle on hosted deployments where signups
+  // are invite-only. Self-host installs keep the toggle.
+  const showSignUp = !publicDeployment
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -82,18 +86,14 @@ export function LoginPage() {
           </button>
         </form>
 
-        <div className="text-center mt-6">
-          <button
-            onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); }}
-            className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline"
-          >
-            {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-          </button>
-        </div>
-
-        {provider === 'supabase' && (
-          <div className="text-center mt-4 text-[11px] text-text-muted">
-            Powered by Supabase Auth
+        {showSignUp && (
+          <div className="text-center mt-6">
+            <button
+              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); }}
+              className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline"
+            >
+              {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+            </button>
           </div>
         )}
       </div>
