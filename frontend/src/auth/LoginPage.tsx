@@ -164,7 +164,7 @@ export function LoginPage() {
           )}
           {showCodeField && (
             <div>
-              <label htmlFor="login-code" className="sr-only">6-digit code</label>
+              <label htmlFor="login-code" className="sr-only">Code from email</label>
               <input
                 id="login-code"
                 type="text"
@@ -172,9 +172,11 @@ export function LoginPage() {
                 pattern="[0-9]*"
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                placeholder="6-digit code"
-                aria-label="6-digit code from email"
-                maxLength={6}
+                placeholder="Code from email"
+                aria-label="Code from email"
+                // No maxLength: Supabase's recovery OTP length is project-
+                // configurable (6, 8, 10). Capping at 6 silently truncates
+                // longer tokens and the verifyOtp call 403s as expired.
                 className="w-full bg-bg-hover border border-border rounded-lg px-4 py-3 text-[18px] tracking-[0.4em] text-center text-text placeholder:text-text-muted placeholder:tracking-normal placeholder:text-[15px] outline-none focus:border-gold/40 transition-colors"
                 autoComplete="one-time-code"
               />
