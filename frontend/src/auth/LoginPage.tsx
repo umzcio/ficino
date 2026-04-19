@@ -32,8 +32,12 @@ export function LoginPage() {
     <div className="min-h-screen bg-bg flex items-center justify-center px-4">
       <div className="w-full max-w-[380px]">
         <div className="text-center mb-8">
-          <h1 className="font-display text-[32px] font-semibold text-text tracking-tight">ficino</h1>
-          <p className="text-[14px] text-text-muted mt-1">
+          <img
+            src="/ficino-logo.png"
+            alt="Ficino"
+            className="h-12 mx-auto mb-3"
+          />
+          <p className="text-[14px] text-text-muted">
             {mode === 'login' ? 'Sign in to your account' : 'Create your account'}
           </p>
         </div>
