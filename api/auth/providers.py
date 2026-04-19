@@ -96,6 +96,31 @@ async def delete_session(token: str) -> None:
 # Provider: supabase — JWT verification
 # ---------------------------------------------------------------------------
 
+# Supabase rotated default signing from legacy HS256 (shared HMAC secret) to
+# asymmetric ECDSA (ES256) / RSA (RS256) tokens with keys exposed via JWKS.
+# Project age decides which you get: older projects still use HS256, newer
+# ones use ES256/RS256. We support both paths:
+#   * If the token's header carries a `kid`, look up the key via the JWKS
+#     endpoint and verify with the declared algorithm.
+#   * Otherwise fall back to HS256 with SUPABASE_JWT_SECRET.
+#
+# PyJWKClient caches keys for an hour by default and re-fetches on a `kid`
+# miss, so key rotations handle themselves without a redeploy.
+_jwks_client = None
+
+
+def _get_jwks_client():
+    global _jwks_client
+    if _jwks_client is None and settings.supabase_url:
+        import jwt as _jwt
+        _jwks_client = _jwt.PyJWKClient(
+            f"{settings.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json",
+            cache_jwk_set=True,
+            lifespan=3600,
+        )
+    return _jwks_client
+
+
 async def get_user_supabase(
     request: Request,
     db: asyncpg.Connection = Depends(get_db),
@@ -109,12 +134,34 @@ async def get_user_supabase(
 
     try:
         import jwt
-        payload = jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
+
+        # Look at the token's header to decide which verification path to
+        # take. No signature check here — we just read the `kid` / `alg`.
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        alg = unverified_header.get("alg", "HS256")
+
+        if kid and alg != "HS256":
+            # Asymmetric path: fetch the signing key from Supabase's JWKS
+            # endpoint by kid and verify with the declared algorithm.
+            jwks = _get_jwks_client()
+            if jwks is None:
+                raise RuntimeError("SUPABASE_URL must be set to verify asymmetric tokens")
+            signing_key = jwks.get_signing_key_from_jwt(token).key
+            payload = jwt.decode(
+                token,
+                signing_key,
+                algorithms=[alg],
+                audience="authenticated",
+            )
+        else:
+            # Legacy HMAC path (older Supabase projects).
+            payload = jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
     except Exception as e:
         logger.warn("supabase_jwt_invalid", error=str(e))
         raise HTTPException(status_code=401, detail="Invalid token")

@@ -10,6 +10,10 @@ anthropic>=0.40.0
 structlog>=24.1.0
 celery>=5.4.0
 PyJWT>=2.9.0
+# cryptography is optional for PyJWT in general but required for
+# PyJWKClient + ES256/RS256 asymmetric verification. Pin it explicitly
+# so a slim container doesn't skip it.
+cryptography>=43.0.0
 bcrypt>=4.2.0
 # Only imported when STORAGE_PROVIDER=supabase — safe to install on
 # self-host builds too, it just sits unused at local-backend runtime.

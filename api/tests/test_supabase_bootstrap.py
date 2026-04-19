@@ -19,14 +19,24 @@ from config import settings
 
 @pytest.fixture
 def mock_jwt_decode(monkeypatch):
-    """Patch jwt.decode to return whichever payload the test hands in."""
+    """Patch JWT verification to return whichever payload the test hands in.
+
+    get_user_supabase now also inspects the token header to pick between
+    the legacy HS256 path and the asymmetric JWKS path, so we stub both
+    `get_unverified_header` (return a legacy-style header so the test takes
+    the HS256 branch) and `decode` (return the test's fake payload).
+    """
     import jwt
     payloads = {}
 
     def fake_decode(token, *_a, **_k):
         return payloads[token]
 
+    def fake_unverified_header(_token):
+        return {"alg": "HS256"}
+
     monkeypatch.setattr(jwt, "decode", fake_decode)
+    monkeypatch.setattr(jwt, "get_unverified_header", fake_unverified_header)
     # Supabase provider refuses to run without a jwt secret configured
     monkeypatch.setattr(settings, "supabase_jwt_secret", "fake-secret")
     return payloads
