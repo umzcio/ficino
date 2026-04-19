@@ -55,12 +55,14 @@ async def _ensure_pool() -> asyncpg.Pool:
     """
     global _pool
     if _pool is None:
+        min_size = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
+        max_size = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
         _pool = await asyncpg.create_pool(
             dsn=DATABASE_URL,
-            min_size=2,
-            max_size=10,
+            min_size=min_size,
+            max_size=max_size,
         )
-        logger.info("worker_db_pool_created", min_size=2, max_size=10)
+        logger.info("worker_db_pool_created", min_size=min_size, max_size=max_size)
     return _pool
 
 
