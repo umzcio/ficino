@@ -10,11 +10,13 @@ tiktoken>=0.7.0
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
 httpx>=0.28.0
-# Local cross-encoder reranker (RERANK_PROVIDER=local). Pulls torch; only
-# imported when the local provider is actually used. Hosted providers
-# (voyage / cohere) don't need this — but it's in the base image so a
-# flip of RERANK_PROVIDER doesn't require a rebuild.
-sentence-transformers>=3.0.0
+# Local cross-encoder reranker (RERANK_PROVIDER=local). Pulls torch + CUDA
+# libs (~5GB); only used when the local provider is actually selected.
+# Kept out of the base install so the default image is slim enough to boot
+# reliably on PaaS runtimes. Self-hosters who want local reranking should
+# `pip install -r requirements-rerank.txt` in their worker Dockerfile.
+# sentence-transformers>=3.0.0
+
 # Only imported when STORAGE_PROVIDER=supabase — safe to install on
 # self-host builds too.
 supabase>=2.8.0

@@ -1,0 +1,7 @@
+# Optional: local cross-encoder reranker dependencies.
+# Install alongside the base requirements if you set RERANK_PROVIDER=local.
+# Pulls torch + CUDA libs, so ~5GB extra — skip on memory-constrained
+# deploys (most PaaS).
+#
+#   pip install -r requirements-rerank.txt
+sentence-transformers>=3.0.0
