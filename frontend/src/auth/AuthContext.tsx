@@ -106,10 +106,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
           return
         }
-      } catch {
-        // If provider endpoint fails, fall back to none
-        setProvider('none')
-        setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'stub@ficino.dev', display_name: 'You' })
+      } catch (err) {
+        // Self-host default: if /auth/provider is unreachable AND the frontend
+        // wasn't built against an explicit API origin, assume a single-user
+        // local dev install and drop in as the stub user. On hosted deploys
+        // VITE_API_BASE is always set — a failed fetch there is a real outage
+        // and silently granting stub access would be an auth bypass.
+        if (!import.meta.env.VITE_API_BASE) {
+          setProvider('none')
+          setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'stub@ficino.dev', display_name: 'You' })
+        } else {
+          setError('Cannot reach API — please try again in a moment.')
+        }
+        console.error('auth/provider discovery failed:', err)
       }
       setLoading(false)
     }
