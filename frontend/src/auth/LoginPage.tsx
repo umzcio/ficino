@@ -2,27 +2,29 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useAuth } from './AuthContext'
 
-type Mode = 'login' | 'register' | 'forgot' | 'reset'
+// `verify-code` is the UM-friendly recovery path: the email contains a
+// 6-digit token (template shows {{ .Token }}), and the user types it in
+// alongside a new password. This sidesteps corporate link scanners
+// (Microsoft ATP Safe Links, Google pre-fetch) that burn single-use
+// reset tokens before the recipient clicks.
+type Mode = 'login' | 'register' | 'forgot' | 'verify-code' | 'reset'
 
 export function LoginPage() {
   const {
-    signIn, signUp, sendPasswordReset, updatePassword,
+    signIn, signUp, sendPasswordReset, updatePassword, verifyRecoveryCode,
     error, info, publicDeployment, passwordRecovery,
   } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [code, setCode] = useState('')
   const [mode, setMode] = useState<Mode>('login')
   const [loading, setLoading] = useState(false)
 
-  // Self-serve sign-up is hidden on hosted deployments where signups are
-  // invite-only. Self-host installs keep the toggle.
   const showSignUp = !publicDeployment
 
-  // When the user clicks a password-recovery email, they land on
-  // /auth/reset (enforced by sendPasswordReset's redirectTo). Force the
-  // reset-form mode either on that path OR when Supabase does surface
-  // the PASSWORD_RECOVERY event — either signal is sufficient.
+  // If the user DID successfully click a link (non-corporate inbox), they
+  // land on /auth/reset and we show the simpler set-new-password form.
   useEffect(() => {
     const onResetPath = typeof window !== 'undefined' && window.location.pathname === '/auth/reset'
     if (passwordRecovery || onResetPath) setMode('reset')
@@ -41,11 +43,25 @@ export function LoginPage() {
       } else if (mode === 'forgot') {
         if (!email) return
         await sendPasswordReset(email)
+        // Advance to the code-entry step regardless of link vs OTP — the
+        // email carries both; whichever the user actually uses works.
+        setMode('verify-code')
+      } else if (mode === 'verify-code') {
+        if (!email || !code || !password || password !== confirmPassword) return
+        const ok = await verifyRecoveryCode(email, code, password)
+        if (ok) {
+          // Session is now live, clear the path if we somehow have one,
+          // and drop the form locals so a refresh starts clean.
+          if (typeof window !== 'undefined' && window.location.pathname === '/auth/reset') {
+            window.history.replaceState(null, '', '/')
+          }
+          setCode('')
+          setPassword('')
+          setConfirmPassword('')
+        }
       } else if (mode === 'reset') {
         if (!password || password !== confirmPassword) return
         await updatePassword(password)
-        // After the password is set, bounce off the /auth/reset URL so
-        // a page reload doesn't re-trigger the reset form.
         if (typeof window !== 'undefined' && window.location.pathname === '/auth/reset') {
           window.history.replaceState(null, '', '/')
         }
@@ -59,13 +75,15 @@ export function LoginPage() {
     login: 'Sign in to your account',
     register: 'Create your account',
     forgot: 'Reset your password',
+    'verify-code': 'Enter the code from your email',
     reset: 'Set a new password',
   }[mode]
 
   const buttonLabel = {
     login: 'Sign in',
     register: 'Create account',
-    forgot: 'Send reset link',
+    forgot: 'Send reset code',
+    'verify-code': 'Update password',
     reset: 'Update password',
   }[mode]
 
@@ -74,7 +92,14 @@ export function LoginPage() {
     (mode === 'login' && (!email || !password)) ||
     (mode === 'register' && (!email || !password)) ||
     (mode === 'forgot' && !email) ||
+    (mode === 'verify-code' && (!code || !password || password !== confirmPassword)) ||
     (mode === 'reset' && (!password || password !== confirmPassword))
+
+  const showEmailField = mode === 'login' || mode === 'register' || mode === 'forgot'
+  const showEmailReadonly = mode === 'verify-code'
+  const showCodeField = mode === 'verify-code'
+  const showPasswordField = mode === 'login' || mode === 'register' || mode === 'verify-code' || mode === 'reset'
+  const showConfirmField = mode === 'verify-code' || mode === 'reset'
 
   return (
     <div className="min-h-screen bg-bg flex items-center justify-center px-4">
@@ -89,7 +114,7 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {(mode === 'login' || mode === 'register' || mode === 'forgot') && (
+          {showEmailField && (
             <div>
               <label htmlFor="login-email" className="sr-only">Email</label>
               <input
@@ -104,24 +129,47 @@ export function LoginPage() {
               />
             </div>
           )}
-          {(mode === 'login' || mode === 'register' || mode === 'reset') && (
+          {showEmailReadonly && (
+            <div className="text-[13px] text-text-muted px-1">
+              Code sent to <span className="text-text">{email}</span>
+            </div>
+          )}
+          {showCodeField && (
+            <div>
+              <label htmlFor="login-code" className="sr-only">6-digit code</label>
+              <input
+                id="login-code"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="6-digit code"
+                aria-label="6-digit code from email"
+                maxLength={6}
+                className="w-full bg-bg-hover border border-border rounded-lg px-4 py-3 text-[18px] tracking-[0.4em] text-center text-text placeholder:text-text-muted placeholder:tracking-normal placeholder:text-[15px] outline-none focus:border-gold/40 transition-colors"
+                autoComplete="one-time-code"
+              />
+            </div>
+          )}
+          {showPasswordField && (
             <div>
               <label htmlFor="login-password" className="sr-only">
-                {mode === 'reset' ? 'New password' : 'Password'}
+                {mode === 'verify-code' || mode === 'reset' ? 'New password' : 'Password'}
               </label>
               <input
                 id="login-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={mode === 'reset' ? 'New password' : 'Password'}
-                aria-label={mode === 'reset' ? 'New password' : 'Password'}
+                placeholder={mode === 'verify-code' || mode === 'reset' ? 'New password' : 'Password'}
+                aria-label={mode === 'verify-code' || mode === 'reset' ? 'New password' : 'Password'}
                 className="w-full bg-bg-hover border border-border rounded-lg px-4 py-3 text-[15px] text-text placeholder:text-text-muted outline-none focus:border-gold/40 transition-colors"
                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               />
             </div>
           )}
-          {mode === 'reset' && (
+          {showConfirmField && (
             <div>
               <label htmlFor="login-password-confirm" className="sr-only">Confirm new password</label>
               <input
@@ -166,9 +214,6 @@ export function LoginPage() {
           </button>
         </form>
 
-        {/* Bottom navigation between modes. Sign-up toggle hidden on
-            invite-only hosted deploys; reset mode hides all nav (the user
-            only escapes it by completing the update or closing the tab). */}
         <div className="text-center mt-6 space-y-2">
           {mode === 'login' && (
             <>
@@ -202,6 +247,14 @@ export function LoginPage() {
               className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline block mx-auto"
             >
               Back to sign in
+            </button>
+          )}
+          {mode === 'verify-code' && (
+            <button
+              onClick={() => { setMode('forgot'); setCode(''); }}
+              className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline block mx-auto"
+            >
+              Didn't get a code? Send another
             </button>
           )}
         </div>

@@ -30,6 +30,11 @@ interface AuthContextValue {
   signOut: () => Promise<void>
   sendPasswordReset: (email: string) => Promise<void>
   updatePassword: (newPassword: string) => Promise<void>
+  // Verify the 6-digit recovery code from the reset email, then set a new
+  // password in one shot. Use this on corporate inboxes (Microsoft ATP,
+  // Google Safe Browsing) where link-scanning burns single-use tokens
+  // before the user can click.
+  verifyRecoveryCode: (email: string, code: string, newPassword: string) => Promise<boolean>
   error: string | null
   info: string | null
 }
@@ -45,6 +50,7 @@ const AuthCtx = createContext<AuthContextValue>({
   signOut: async () => {},
   sendPasswordReset: async () => {},
   updatePassword: async () => {},
+  verifyRecoveryCode: async () => false,
   error: null,
   info: null,
 })
@@ -235,6 +241,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [provider])
 
+  const verifyRecoveryCode = useCallback(async (email: string, code: string, newPassword: string): Promise<boolean> => {
+    setError(null)
+    setInfo(null)
+    if (provider !== 'supabase') {
+      setError('Recovery code is only available with Supabase auth.')
+      return false
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = _supabaseClient as any
+    // Trim because Outlook / Apple Mail sometimes pastes with trailing
+    // whitespace; Supabase rejects "123456 " verbatim.
+    const cleanCode = code.trim()
+    const { data, error: vErr } = await supabase.auth.verifyOtp({
+      email,
+      token: cleanCode,
+      type: 'recovery',
+    })
+    if (vErr || !data?.session) {
+      setError(vErr?.message || 'Invalid or expired code.')
+      return false
+    }
+    // verifyOtp established the session; updateUser now sets the password.
+    const { error: uErr } = await supabase.auth.updateUser({ password: newPassword })
+    if (uErr) {
+      setError(uErr.message)
+      return false
+    }
+    setPasswordRecovery(false)
+    setInfo('Password updated — you are signed in.')
+    return true
+  }, [provider])
+
   const updatePassword = useCallback(async (newPassword: string) => {
     setError(null)
     setInfo(null)
@@ -276,6 +314,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthCtx.Provider value={{
       user, loading, provider, publicDeployment, passwordRecovery,
       signIn, signUp, signOut, sendPasswordReset, updatePassword,
+      verifyRecoveryCode,
       error, info,
     }}>
       {children}
