@@ -19,11 +19,13 @@ export function LoginPage() {
   // invite-only. Self-host installs keep the toggle.
   const showSignUp = !publicDeployment
 
-  // When the user clicks a password-recovery email, Supabase fires the
-  // PASSWORD_RECOVERY event which AuthContext surfaces via the flag.
-  // Switch the form into "set new password" mode automatically.
+  // When the user clicks a password-recovery email, they land on
+  // /auth/reset (enforced by sendPasswordReset's redirectTo). Force the
+  // reset-form mode either on that path OR when Supabase does surface
+  // the PASSWORD_RECOVERY event — either signal is sufficient.
   useEffect(() => {
-    if (passwordRecovery) setMode('reset')
+    const onResetPath = typeof window !== 'undefined' && window.location.pathname === '/auth/reset'
+    if (passwordRecovery || onResetPath) setMode('reset')
   }, [passwordRecovery])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,6 +44,11 @@ export function LoginPage() {
       } else if (mode === 'reset') {
         if (!password || password !== confirmPassword) return
         await updatePassword(password)
+        // After the password is set, bounce off the /auth/reset URL so
+        // a page reload doesn't re-trigger the reset form.
+        if (typeof window !== 'undefined' && window.location.pathname === '/auth/reset') {
+          window.history.replaceState(null, '', '/')
+        }
       }
     } finally {
       setLoading(false)

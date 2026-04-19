@@ -216,8 +216,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (provider === 'supabase') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supabase = _supabaseClient as any
-      // redirectTo must be in Supabase Auth → URL Configuration → Redirect URLs
-      const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined
+      // redirectTo must be in Supabase Auth → URL Configuration → Redirect URLs.
+      // Send recovery links to a dedicated /auth/reset path so the frontend
+      // can force the reset-password form from the URL alone, regardless
+      // of which event Supabase emits (PKCE flow often surfaces SIGNED_IN
+      // rather than PASSWORD_RECOVERY).
+      const redirectTo = typeof window !== 'undefined'
+        ? `${window.location.origin}/auth/reset`
+        : undefined
       const { error: err } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
       if (err) {
         setError(err.message)

@@ -315,6 +315,13 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, loading, provider, passwordRecovery } = useAuth()
+  // URL-based recovery detection. Supabase's PKCE flow sometimes emits
+  // SIGNED_IN instead of PASSWORD_RECOVERY after an email link lands, so
+  // we key off the pathname the reset link targets. sendPasswordReset
+  // pins the Supabase redirectTo to /auth/reset, so whenever the user
+  // is on that path we force the LoginPage — even if Supabase has
+  // already "logged them in" via the code exchange.
+  const onResetPath = typeof window !== 'undefined' && window.location.pathname === '/auth/reset'
   if (loading) {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
@@ -322,10 +329,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
-  // Password-recovery sessions must hit the new-password form before the
-  // app renders — Supabase has signed the user in, but the session only
-  // authorizes updateUser({password}) until the new password is set.
-  if (passwordRecovery) return <LoginPage />
+  if (passwordRecovery || onResetPath) return <LoginPage />
   if (!user && provider !== 'none') return <LoginPage />
   return <>{children}</>
 }
