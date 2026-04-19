@@ -3,22 +3,33 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Base path differs by deploy target:
+//   self-host (default) — /ficino/, served behind the the-host nginx proxy
+//   SaaS (Railway)      — /, served at the root of ficino.app
+// Set VITE_BASE_PATH at build time to flip it.
+const BASE = process.env.VITE_BASE_PATH || '/ficino/'
+
+// Escape the base for use inside a RegExp literal. "/ficino/" becomes
+// "\/ficino\/"; "/" becomes "\/". Needed because the PWA plugin's URL
+// patterns are passed as regex.
+const BASE_RE = BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 export default defineConfig({
-  base: '/ficino/',
+  base: BASE,
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      scope: '/ficino/',
+      scope: BASE,
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
-        navigateFallback: '/ficino/index.html',
-        navigateFallbackAllowlist: [/^\/ficino\//],
-        navigateFallbackDenylist: [/^\/ficino\/api\//],
+        navigateFallback: `${BASE}index.html`,
+        navigateFallbackAllowlist: [new RegExp(`^${BASE_RE}`)],
+        navigateFallbackDenylist: [new RegExp(`^${BASE_RE}api\\/`)],
         runtimeCaching: [
           {
-            urlPattern: /\/ficino\/personas\/.*\.png$/,
+            urlPattern: new RegExp(`${BASE_RE}personas\\/.*\\.png$`),
             handler: 'CacheFirst',
             options: {
               cacheName: 'persona-avatars',
@@ -26,7 +37,7 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: /\/ficino\/api\/figures\//,
+            urlPattern: new RegExp(`${BASE_RE}api\\/figures\\/`),
             handler: 'CacheFirst',
             options: {
               // 200 entries was the LRU ceiling and caused silent eviction
@@ -62,8 +73,8 @@ export default defineConfig({
         theme_color: '#080a0f',
         background_color: '#080a0f',
         display: 'standalone',
-        scope: '/ficino/',
-        start_url: '/ficino/',
+        scope: BASE,
+        start_url: BASE,
         icons: [
           {
             src: 'pwa-192x192.png',
