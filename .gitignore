@@ -31,6 +31,41 @@ tests/results/
 # Claude Code local config (per-user, not repo-wide)
 .claude/
 
+# Agent-skills machinery installed via `npx skills add`. These are per-user
+# tooling folders, not source. skills-lock.json is the lockfile — also local.
+.agents/
+skills/
+skills-lock.json
+.adal/
+.augment/
+.bob/
+.codebuddy/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+.mcp.json
+
 # IDE
 .vscode/
 .idea/

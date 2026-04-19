@@ -164,18 +164,10 @@ CREATE TABLE annotations (
 
 CREATE INDEX ON annotations (user_id, feed_id);
 
--- Persona DMs (one conversation per user+persona, messages as JSONB array)
-CREATE TABLE persona_dms (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  persona_key TEXT NOT NULL REFERENCES personas(key) ON DELETE CASCADE,
-  messages JSONB NOT NULL DEFAULT '[]'::jsonb,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, persona_key)
-);
-
-CREATE INDEX ON persona_dms (user_id, persona_key);
+-- NOTE: persona_dms is defined after the personas table below because it
+-- holds a FK to personas(key). Fresh-install top-to-bottom runs of this
+-- file would fail to create the FK if the two were in their "natural"
+-- reading order. Don't move persona_dms back above `personas`.
 
 -- Paper summaries (individual DMs — paper talks to you)
 CREATE TABLE paper_summaries (
@@ -339,3 +331,18 @@ INSERT INTO personas (key, handle, name, initials, color, retrieval_query, syste
   'key findings, methodology, definitions, background, results, conclusions, evidence, claims, data, analysis',
   'You are a neutral research assistant who has read every paper in the user''s corpus. You answer questions directly, grounding every claim in specific passages from the papers. You cite papers by author and year. You are precise, thorough, and honest about what the corpus does and does not contain. When papers disagree, you present both sides without taking one. When asked about something not covered in the corpus, say so clearly. No persona, no voice, no character -- just accurate retrieval and clear synthesis. Structure longer answers with bullet points or numbered lists when helpful.',
   '/ficino/personas/the_archivist.png', 5);
+
+-- Persona DMs (one conversation per user+persona, messages as JSONB array).
+-- Defined here rather than near `annotations` (its conceptual sibling) because
+-- its FK to personas(key) requires the personas table to exist first.
+CREATE TABLE persona_dms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  persona_key TEXT NOT NULL REFERENCES personas(key) ON DELETE CASCADE,
+  messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, persona_key)
+);
+
+CREATE INDEX ON persona_dms (user_id, persona_key);
