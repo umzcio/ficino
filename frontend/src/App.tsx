@@ -314,7 +314,7 @@ function Sidebar({ corpus, activeTag, onTagFilter, enabledPersonas, onSearchClic
 }
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, loading, provider } = useAuth()
+  const { user, loading, provider, passwordRecovery } = useAuth()
   if (loading) {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
@@ -322,6 +322,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
+  // Password-recovery sessions must hit the new-password form before the
+  // app renders — Supabase has signed the user in, but the session only
+  // authorizes updateUser({password}) until the new password is set.
+  if (passwordRecovery) return <LoginPage />
   if (!user && provider !== 'none') return <LoginPage />
   return <>{children}</>
 }

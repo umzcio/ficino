@@ -21,10 +21,17 @@ interface AuthContextValue {
   // provider + API-key controls should be hidden — the operator's
   // env config is the source of truth on public installs.
   publicDeployment: boolean
+  // True right after the user clicks a Supabase password-recovery email
+  // link. While this is on the login page should show a "set new
+  // password" form rather than logging the user into the app.
+  passwordRecovery: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
+  sendPasswordReset: (email: string) => Promise<void>
+  updatePassword: (newPassword: string) => Promise<void>
   error: string | null
+  info: string | null
 }
 
 const AuthCtx = createContext<AuthContextValue>({
@@ -32,10 +39,14 @@ const AuthCtx = createContext<AuthContextValue>({
   loading: true,
   provider: 'none',
   publicDeployment: false,
+  passwordRecovery: false,
   signIn: async () => {},
   signUp: async () => {},
   signOut: async () => {},
+  sendPasswordReset: async () => {},
+  updatePassword: async () => {},
   error: null,
+  info: null,
 })
 
 export function useAuth() {
@@ -52,7 +63,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [provider, setProvider] = useState<'none' | 'basic' | 'supabase'>('none')
   const [publicDeployment, setPublicDeployment] = useState(false)
+  const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
 
   // Discover provider and initialize auth state
   useEffect(() => {
@@ -108,12 +121,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          supabase.auth.onAuthStateChange((_event: string, session: any) => {
+          supabase.auth.onAuthStateChange((event: string, session: any) => {
             _currentAccessToken = session?.access_token ?? null
             if (session) {
               setUser({ id: session.user.id, email: session.user.email || '', display_name: null })
             } else {
               setUser(null)
+            }
+            // PASSWORD_RECOVERY is fired when the user lands from a
+            // "Reset your password" email. Supabase has already exchanged
+            // the recovery token for a short-lived session — the only
+            // valid action on it is updateUser({password}), after which
+            // Supabase upgrades it to a normal session. We flip the flag
+            // so the login surface renders a new-password form instead
+            // of dropping the user straight into the app.
+            if (event === 'PASSWORD_RECOVERY') {
+              setPasswordRecovery(true)
             }
           })
 
@@ -187,6 +210,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [provider])
 
+  const sendPasswordReset = useCallback(async (email: string) => {
+    setError(null)
+    setInfo(null)
+    if (provider === 'supabase') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = _supabaseClient as any
+      // redirectTo must be in Supabase Auth → URL Configuration → Redirect URLs
+      const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined
+      const { error: err } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+      if (err) {
+        setError(err.message)
+        return
+      }
+      setInfo('Check your email for a reset link.')
+    } else {
+      setError('Password reset is only available with Supabase auth.')
+    }
+  }, [provider])
+
+  const updatePassword = useCallback(async (newPassword: string) => {
+    setError(null)
+    setInfo(null)
+    if (provider === 'supabase') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = _supabaseClient as any
+      const { error: err } = await supabase.auth.updateUser({ password: newPassword })
+      if (err) {
+        setError(err.message)
+        return
+      }
+      setPasswordRecovery(false)
+      setInfo('Password updated — you are signed in.')
+    } else {
+      setError('Password update is only available with Supabase auth.')
+    }
+  }, [provider])
+
   const signOut = useCallback(async () => {
     // Wipe per-user IndexedDB before dropping auth state. None of the offline
     // stores carry a userId key, so leaving them in place means the next user
@@ -207,7 +267,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [provider])
 
   return (
-    <AuthCtx.Provider value={{ user, loading, provider, publicDeployment, signIn, signUp, signOut, error }}>
+    <AuthCtx.Provider value={{
+      user, loading, provider, publicDeployment, passwordRecovery,
+      signIn, signUp, signOut, sendPasswordReset, updatePassword,
+      error, info,
+    }}>
       {children}
     </AuthCtx.Provider>
   )
