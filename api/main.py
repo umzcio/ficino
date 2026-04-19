@@ -65,8 +65,42 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — permissive in dev, lock down in production. Prod origins must come
-# through CORS_ORIGINS so dev mode can't accidentally accept a prod origin.
+# Middleware registration order matters: Starlette wraps middlewares in
+# reverse-add order, so the LAST add_middleware call becomes the OUTERMOST
+# layer. On egress, the outer layers run last — they get the final
+# chance to add headers to the response.
+#
+# CORSMiddleware MUST be outermost. If it sits inside CSRF/SecurityHeaders,
+# any rejection response from those inner middlewares (e.g. 403 from CSRF)
+# returns to the browser WITHOUT Access-Control-Allow-Origin, and the
+# browser reports "CORS blocked" instead of the real 403. The StarletteDocs
+# call this out explicitly.
+#
+# Add order below is reverse of desired wrapping, so the final stack is:
+#   CORS (outermost)
+#     └── CSRF
+#           └── SecurityHeaders (innermost)
+#                 └── endpoint
+
+# Security headers — innermost
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if settings.environment != "development":
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+            response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CSRF double-submit cookie protection — middle layer
+app.add_middleware(CsrfMiddleware)
+
+# CORS — outermost, so CSRF/SecurityHeaders rejections still get ACAO
 if settings.environment == "development":
     app.add_middleware(
         CORSMiddleware,
@@ -92,25 +126,6 @@ else:
             "X-CSRF-Token",
         ],
     )
-
-# CSRF double-submit cookie protection.
-# Order: CORS (preflight) → CSRF (reject bad state-changers) → SecurityHeaders.
-app.add_middleware(CsrfMiddleware)
-
-# Security headers
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        if settings.environment != "development":
-            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
-            response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co"
-        return response
-
-app.add_middleware(SecurityHeadersMiddleware)
 
 # Auth provider + deployment-mode discovery endpoint (unauthenticated).
 # Frontend calls this on boot to decide which login flow to show AND
