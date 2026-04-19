@@ -124,14 +124,27 @@ async def get_user_supabase(
     if not sub:
         raise HTTPException(status_code=401, detail="Invalid token: missing sub")
 
-    # Upsert user in local DB (clerk_id stores the Supabase sub)
+    # Upsert user in local DB (clerk_id stores the Supabase sub). xmax=0
+    # in the returning row means Postgres actually inserted (vs. updated),
+    # which lets us seed a default workspace exactly once per user without
+    # a separate existence check or a race with concurrent first sign-ins.
     row = await db.fetchrow(
         """INSERT INTO users (clerk_id, email)
            VALUES ($1, $2)
            ON CONFLICT (clerk_id) DO UPDATE SET email = $2
-           RETURNING id, email, display_name""",
+           RETURNING id, email, display_name, (xmax = 0) AS inserted""",
         sub, email,
     )
+
+    if row["inserted"]:
+        # Seed a default workspace so the app has somewhere to put this
+        # user's first paper — otherwise the upload route 404s on the
+        # missing DEFAULT_WORKSPACE_ID lookup. Mirrors basic_routes.register.
+        await db.execute(
+            "INSERT INTO corpora (user_id, name) VALUES ($1, 'Default')",
+            str(row["id"]),
+        )
+        logger.info("supabase_user_bootstrapped", user_id=str(row["id"]))
 
     return AuthUser(
         id=str(row["id"]),
