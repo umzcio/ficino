@@ -1,6 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import { useAuth } from './AuthContext'
+
+// Supabase → Auth → Attack Protection → Captcha, when enabled, requires
+// every sign-in / sign-up / reset / verifyOtp call to include a
+// captchaToken. The site key is public (safe to bake into the frontend
+// bundle); the secret lives on Supabase. If unset, the widget silently
+// no-ops so self-host installs without Turnstile still work.
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined
 
 // `verify-code` is the UM-friendly recovery path: the email contains a
 // 6-digit token (template shows {{ .Token }}), and the user types it in
@@ -20,8 +28,23 @@ export function LoginPage() {
   const [code, setCode] = useState('')
   const [mode, setMode] = useState<Mode>('login')
   const [loading, setLoading] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const turnstileRef = useRef<TurnstileInstance>(null)
 
   const showSignUp = !publicDeployment
+  const captchaEnabled = Boolean(TURNSTILE_SITE_KEY)
+  // Modes that hit Supabase's captcha-protected endpoints. The final
+  // updatePassword call in 'reset' mode uses an already-elevated session,
+  // so it doesn't need a fresh Turnstile token.
+  const modeNeedsCaptcha = mode === 'login' || mode === 'register' || mode === 'forgot' || mode === 'verify-code'
+  const haveCaptcha = !captchaEnabled || !modeNeedsCaptcha || captchaToken.length > 0
+
+  // Reset the Turnstile widget after a token is consumed so the next
+  // submission gets a fresh one (tokens are single-use).
+  const resetCaptcha = () => {
+    try { turnstileRef.current?.reset() } catch { /* widget not yet mounted */ }
+    setCaptchaToken('')
+  }
 
   // If the user DID successfully click a link (non-corporate inbox), they
   // land on /auth/reset and we show the simpler set-new-password form.
@@ -36,19 +59,23 @@ export function LoginPage() {
     try {
       if (mode === 'login') {
         if (!email || !password) return
-        await signIn(email, password)
+        await signIn(email, password, captchaToken || undefined)
+        resetCaptcha()
       } else if (mode === 'register') {
         if (!email || !password) return
-        await signUp(email, password)
+        await signUp(email, password, captchaToken || undefined)
+        resetCaptcha()
       } else if (mode === 'forgot') {
         if (!email) return
-        await sendPasswordReset(email)
+        await sendPasswordReset(email, captchaToken || undefined)
+        resetCaptcha()
         // Advance to the code-entry step regardless of link vs OTP — the
         // email carries both; whichever the user actually uses works.
         setMode('verify-code')
       } else if (mode === 'verify-code') {
         if (!email || !code || !password || password !== confirmPassword) return
-        const ok = await verifyRecoveryCode(email, code, password)
+        const ok = await verifyRecoveryCode(email, code, password, captchaToken || undefined)
+        resetCaptcha()
         if (ok) {
           // Session is now live, clear the path if we somehow have one,
           // and drop the form locals so a refresh starts clean.
@@ -89,6 +116,7 @@ export function LoginPage() {
 
   const submitDisabled =
     loading ||
+    !haveCaptcha ||
     (mode === 'login' && (!email || !password)) ||
     (mode === 'register' && (!email || !password)) ||
     (mode === 'forgot' && !email) ||
@@ -181,6 +209,19 @@ export function LoginPage() {
                 aria-label="Confirm new password"
                 className="w-full bg-bg-hover border border-border rounded-lg px-4 py-3 text-[15px] text-text placeholder:text-text-muted outline-none focus:border-gold/40 transition-colors"
                 autoComplete="new-password"
+              />
+            </div>
+          )}
+
+          {captchaEnabled && modeNeedsCaptcha && (
+            <div className="flex justify-center">
+              <Turnstile
+                ref={turnstileRef}
+                siteKey={TURNSTILE_SITE_KEY!}
+                onSuccess={(token: string) => setCaptchaToken(token)}
+                onError={() => setCaptchaToken('')}
+                onExpire={() => setCaptchaToken('')}
+                options={{ theme: 'dark' }}
               />
             </div>
           )}

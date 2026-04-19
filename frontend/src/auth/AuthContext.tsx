@@ -25,16 +25,21 @@ interface AuthContextValue {
   // link. While this is on the login page should show a "set new
   // password" form rather than logging the user into the app.
   passwordRecovery: boolean
-  signIn: (email: string, password: string) => Promise<void>
-  signUp: (email: string, password: string) => Promise<void>
+  // Each auth-endpoint method accepts an optional captchaToken so the
+  // caller can route a Cloudflare Turnstile token through to Supabase's
+  // options.captchaToken — required when Supabase → Auth → Attack
+  // Protection → Captcha is enabled. Basic-auth / none providers ignore
+  // it; the parameter is plumbed through uniformly.
+  signIn: (email: string, password: string, captchaToken?: string) => Promise<void>
+  signUp: (email: string, password: string, captchaToken?: string) => Promise<void>
   signOut: () => Promise<void>
-  sendPasswordReset: (email: string) => Promise<void>
+  sendPasswordReset: (email: string, captchaToken?: string) => Promise<void>
   updatePassword: (newPassword: string) => Promise<void>
   // Verify the 6-digit recovery code from the reset email, then set a new
   // password in one shot. Use this on corporate inboxes (Microsoft ATP,
   // Google Safe Browsing) where link-scanning burns single-use tokens
   // before the user can click.
-  verifyRecoveryCode: (email: string, code: string, newPassword: string) => Promise<boolean>
+  verifyRecoveryCode: (email: string, code: string, newPassword: string, captchaToken?: string) => Promise<boolean>
   error: string | null
   info: string | null
 }
@@ -168,7 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     init()
   }, [])
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, captchaToken?: string) => {
     setError(null)
     if (provider === 'basic') {
       const res = await fetch(`${API_BASE}/auth/login`, {
@@ -187,12 +192,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (meRes.ok) setUser(await meRes.json())
     } else if (provider === 'supabase') {
       const supabase = _supabaseClient as any
-      const { error: err } = await supabase.auth.signInWithPassword({ email, password })
+      const { error: err } = await supabase.auth.signInWithPassword({
+        email, password,
+        options: captchaToken ? { captchaToken } : undefined,
+      })
       if (err) setError(err.message)
     }
   }, [provider])
 
-  const signUp = useCallback(async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string, captchaToken?: string) => {
     setError(null)
     if (provider === 'basic') {
       const res = await fetch(`${API_BASE}/auth/register`, {
@@ -211,37 +219,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (meRes.ok) setUser(await meRes.json())
     } else if (provider === 'supabase') {
       const supabase = _supabaseClient as any
-      const { error: err } = await supabase.auth.signUp({ email, password })
+      const { error: err } = await supabase.auth.signUp({
+        email, password,
+        options: captchaToken ? { captchaToken } : undefined,
+      })
       if (err) setError(err.message)
     }
   }, [provider])
 
-  const sendPasswordReset = useCallback(async (email: string) => {
+  const sendPasswordReset = useCallback(async (email: string, captchaToken?: string) => {
     setError(null)
     setInfo(null)
     if (provider === 'supabase') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supabase = _supabaseClient as any
-      // redirectTo must be in Supabase Auth → URL Configuration → Redirect URLs.
-      // Send recovery links to a dedicated /auth/reset path so the frontend
-      // can force the reset-password form from the URL alone, regardless
-      // of which event Supabase emits (PKCE flow often surfaces SIGNED_IN
-      // rather than PASSWORD_RECOVERY).
       const redirectTo = typeof window !== 'undefined'
         ? `${window.location.origin}/auth/reset`
         : undefined
-      const { error: err } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+      const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo,
+        captchaToken,
+      })
       if (err) {
         setError(err.message)
         return
       }
-      setInfo('Check your email for a reset link.')
+      setInfo('Check your email for a reset code.')
     } else {
       setError('Password reset is only available with Supabase auth.')
     }
   }, [provider])
 
-  const verifyRecoveryCode = useCallback(async (email: string, code: string, newPassword: string): Promise<boolean> => {
+  const verifyRecoveryCode = useCallback(async (email: string, code: string, newPassword: string, captchaToken?: string): Promise<boolean> => {
     setError(null)
     setInfo(null)
     if (provider !== 'supabase') {
@@ -250,13 +259,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase = _supabaseClient as any
-    // Trim because Outlook / Apple Mail sometimes pastes with trailing
-    // whitespace; Supabase rejects "123456 " verbatim.
     const cleanCode = code.trim()
     const { data, error: vErr } = await supabase.auth.verifyOtp({
       email,
       token: cleanCode,
       type: 'recovery',
+      options: captchaToken ? { captchaToken } : undefined,
     })
     if (vErr || !data?.session) {
       setError(vErr?.message || 'Invalid or expired code.')

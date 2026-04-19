@@ -8,12 +8,17 @@ WORKDIR /app
 ARG VITE_API_BASE
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
+# Cloudflare Turnstile site key (public; safe to bake in the bundle).
+# Required when Supabase → Auth → Attack Protection → Captcha is on.
+# Leave unset on self-host installs without Turnstile.
+ARG VITE_TURNSTILE_SITE_KEY
 # Serve at root on Railway. Default in vite.config.ts is /ficino/ for
 # self-host; SaaS builds override to /.
 ARG VITE_BASE_PATH=/
 ENV VITE_API_BASE=$VITE_API_BASE
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY
 ENV VITE_BASE_PATH=$VITE_BASE_PATH
 
 COPY package*.json .npmrc ./
