@@ -9,8 +9,8 @@ Everything below is live in production.
 ### Core Platform
 | Feature | Description |
 |---------|-------------|
-| **Paper ingestion** | Upload PDFs → text extraction (Marker/PyMuPDF/vision fallback) → quality check → section-aware chunking → embedding → pgvector storage |
-| **Feed generation** | Five AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed with posts, threads, quotes, replies, and figure analysis |
+| **Paper ingestion** | Upload PDFs → text extraction (Marker/PyMuPDF/vision fallback) → quality check → section-aware chunking → contextual prefixing → embedding → pgvector storage |
+| **Feed generation** | Six AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed with posts, threads, quotes, replies, and figure analysis. A seventh reply-only persona (The Archivist) is gated out of feed authoring via a `feed_eligible` flag |
 | **Append mode** | "Generate more posts" adds to the current feed. New posts can quote/reply to existing ones. Feed ID preserved for bookmarks and annotations |
 | **Feed history** | Browse and reload past feed generations per workspace |
 | **Auto-generate** | Optionally trigger feed generation automatically when a paper finishes ingestion (configurable in Settings) |
@@ -20,9 +20,26 @@ Everything below is live in production.
 |---------|-------------|
 | **Research-grounded prompts** | Five personas with detailed system prompts engineered from research on science communication, the replication crisis, and academic social media discourse. Each persona has specific "moves," voice rules, interaction rules, and post-type behaviors |
 | **DB-stored personas** | All persona data (metadata, prompts, retrieval queries, avatars, bios) lives in a single `personas` table. Adding a persona is one INSERT, zero code changes |
-| **Persona profiles** | Click any persona name → Twitter-style profile with Midjourney avatar, AI-generated bio, post history from current feed, and stats |
+| **Persona profiles** | Click any persona name → Twitter-style profile with Midjourney avatar, AI-generated bio, and three tabs: **Posts** (this persona's top-level feed posts), **Replies** (every interjection this persona made into other threads, with full parent-post context), **Messages** (private DM conversation) |
+| **Opt-out persona enablement** | Every DB persona with `feed_eligible=true` is enabled by default; the user opts out via `personas_enabled[key]=false` in settings. Personas added via migration appear in every user's feed automatically with no seed-data update required |
 | **Persona DMs** | Message any persona directly. They respond in character, grounded in your corpus via RAG. Conversations persist across sessions |
 | **Organic interjections** | After 2+ user replies in a thread, another persona may jump in (~70% chance) if the conversation topic overlaps their expertise. Selective, opinionated, and unprompted |
+
+### Retrieval Quality
+| Feature | Description |
+|---------|-------------|
+| **Hybrid search** | Two-stage: HNSW vector nearest-neighbor prunes to a candidate pool, then a weighted (0.7 vector + 0.3 BM25) re-ranker produces the final top-k. See [architecture/hybrid-search](https://docs.ficino.ai/architecture/hybrid-search) |
+| **Cross-encoder reranker** | Optional stage-3 reranker over the hybrid candidate pool. Providers: `local` (BGE-reranker-v2-m3), `voyage` (rerank-2-lite/rerank-2), `cohere` (rerank-v3.5), or `none` to disable. Provider abstraction mirrors the embedder pattern; degrades gracefully to hybrid-only on rerank failure |
+| **Contextual retrieval** | Anthropic-style per-chunk contextual prefix generated at ingest time and prepended before embedding. Providers: `anthropic` (Claude Haiku with ephemeral prompt caching — the paper is cached once, per-chunk calls are cents), `ollama` (local qwen3.5 fallback), or `none`. Prefix persisted on `chunks.contextual_prefix` so re-embedding doesn't require a second LLM pass |
+| **Persona-tuned retrieval** | Each persona has its own retrieval query emphasizing the sections it cares about (methodology for Skeptic, findings for Hype, etc.), stored on the personas table and hot-editable |
+
+### Figure Pipeline (VLM-based)
+| Feature | Description |
+|---------|-------------|
+| **Scientific-figure detection** | Each PDF page is rendered and handed to Claude Sonnet vision (or a local VLM) with a structured prompt that returns a typed list of scientific figures. Non-scientific bitmaps (UI glyphs, publisher logos, running-header icons, decorative marks) are silently filtered at detection time — they never reach storage |
+| **Typed figures** | Every figure has a `figure_type` enum (chart_bar, chart_line, chart_scatter, diagram, schematic, flowchart, algorithm, photograph, map, micrograph, anatomical, table_image, other), caption text, figure_number ("5", "5a", "S3"), a data_claim ("what the paper uses this figure to show"), and the first referenced paragraph. Plus bbox + detector confidence |
+| **Persona-typed figure routing** | Every persona declares `allowed_figure_types` on its row. Figure-post slots only pick from the intersection of (paper's figures) × (persona's allowed types) — so Methods Skeptic never gets a UI icon to critique and the Hype persona never tries statistics on a photograph. Personas with no eligible figure on the paper skip the slot rather than force-fit |
+| **Grounded figure prompts** | Persona figure-post prompts receive the caption, figure_number, data_claim, and referenced paragraph as fenced grounding context. Posts are evaluated against what the paper says the figure shows, not a blind vision description |
 
 ### Paper Intelligence
 | Feature | Description |
@@ -54,6 +71,9 @@ Everything below is live in production.
 | **Bookmarks** | Snapshot-based, survives feed regeneration |
 | **Reply tracking** | REPLIED badge on posts with conversations. "Threads" tab in Messages inbox for finding all your persona conversations |
 | **Reply actions** | Like and bookmark individual reply messages with full persistence. Hearts and bookmarks on reply messages survive page reloads. Liked replies feed into the preference aggregation system |
+| **Per-reply three-dots menu** | Each reply/interjection message has its own ⋯ menu (Copy text, Delete message). Delete removes a single message atomically via JSONB array-element removal; the rest of the thread survives |
+| **Nested quote cards** | Quote-tweet posts render the quoted persona as a Twitter-style nested card inside the quoter's post — avatar + name + @handle on the first line, content below, clickable to the quoted persona's profile |
+| **Threaded reply rail** | Profile Replies tab renders parent + interjection through the shared PostCard component, connected by a vertical rail inside the avatar column — matches Twitter's profile Replies layout rather than a one-off card shape |
 | **Regenerate post** | Three-dots menu → Regenerate. Reruns a single post with the same persona and post type but fresh chunks. Worker task patches the feed JSONB in place |
 | **Hide persona** | Three-dots menu → Hide. One-click disable of a persona from future feed generations. Calls settings API to toggle persona off |
 | **Debug view** | Three-dots menu → Debug view (dev only, hidden in production). Shows post metadata (persona, type, category, feed_id, post_index) and full retrieved chunk details with relevance scores |
@@ -79,6 +99,20 @@ Everything below is live in production.
 | **Persistent likes** | Heart clicks stored in `user_likes` table with full context: persona, post type, category, feed, timestamp. Hearts persist across page reloads. Synthetic engagement counts preserved for social proof |
 | **Preference aggregation** | After 5+ likes, computes per-persona hit rate, per-post-type affinity, and per-category weighting. Annotated likes (like + note) weighted 2x as stronger learning signal. Stored in `user_settings.preferences`, recomputed after every feed generation |
 | **Adaptive feed generation** | Learned preferences blended with manual settings at 40/60 ratio. Liked personas get more posts, preferred post types weighted higher. Retrieval boosts chunks from papers user has liked posts about (1.25x score). Design principle: optimize for *learning*, not engagement |
+
+### Data Management (Danger Zone)
+| Feature | Description |
+|---------|-------------|
+| **Clear All Feeds** | Delete every generated feed for the user. Bookmarks and annotations survive (they're snapshot-based) |
+| **Clear All Summaries** | Delete every paper summary — they regenerate on next view |
+| **Clear All Conversations** | Delete every user post and every Archivist reply attached to it. Broadcasts an event so mounted views reset without a hard reload |
+| **Delete All Papers** | Cascade-delete every paper, its chunks, figures, summaries, and feeds. Cleans up PDFs and figure crops on disk. Workspaces and settings are kept |
+| **Delete Everything** | Nuclear reset — everything above PLUS notifications/alerts, persona DMs, corpus syntheses, and reading lists, in one transaction. Workspaces and account settings are kept. Each content hook (useCorpus, useFeed, useUserPosts, useAlerts) listens for the clear event and resets instantly |
+
+### Post-Generation Quality Gate
+| Feature | Description |
+|---------|-------------|
+| **Hard-fail on unparseable output** | `_parse_post_json` and `validate_post_shape` raise on empty or excessively-long LLM output instead of persisting `[generation produced no text]` placeholder strings. The feed-generation loop catches the raise and drops the slot — a research feed never ships apology text as a "post" |
 
 ### Configuration & Display
 | Feature | Description |

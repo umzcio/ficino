@@ -44,8 +44,8 @@ Upload PDFs --> Ingest & Chunk --> AI Personas Debate --> You Learn by Scrolling
 ```
 
 1. **Upload papers**: drag-drop PDFs into your corpus
-2. **Automatic ingestion**: extracts text (PyMuPDF or Vision fallback for tricky PDFs), detects sections, chunks intelligently, generates embeddings
-3. **Generate feed**: six AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed
+2. **Automatic ingestion**: extracts text (PyMuPDF or Vision fallback for tricky PDFs), detects sections, chunks intelligently, generates a per-chunk contextual prefix, then embeds. Figures are detected per-page by Claude Sonnet vision — only *scientific* figures (charts, diagrams, photographs) are kept, each tagged with a caption, figure number, data claim, and type
+3. **Generate feed**: six AI personas retrieve relevant chunks via hybrid search (vector + BM25, with an optional cross-encoder reranker as stage 3), and generate a Twitter/X-style discourse feed. Figures are only offered to personas whose `allowed_figure_types` cover the figure's type — so Methods Skeptic never critiques a UI icon
 4. **Cross-paper RAG**: personas argue *across* papers, detecting contradictions and agreements
 5. **Interact**: reply to personas, bookmark posts, explore paper summaries, trace claims back to source chunks
 
@@ -53,7 +53,7 @@ Upload PDFs --> Ingest & Chunk --> AI Personas Debate --> You Learn by Scrolling
 
 ## Personas
 
-Six AI personas with distinct epistemic styles, each grounded in RAG-retrieved paper content. Persona prompts are engineered from research on science communication, the replication crisis, and academic social media discourse -- each persona's "moves" map to documented behaviors from credible practitioners in their archetype (Gelman, Mollick, Bik, Veritasium, etc.).
+Six feed personas + The Archivist (reply-only), each grounded in RAG-retrieved paper content. Persona prompts are engineered from research on science communication, the replication crisis, and academic social media discourse -- each persona's "moves" map to documented behaviors from credible practitioners in their archetype (Gelman, Mollick, Bik, Veritasium, etc.).
 
 | Handle | Name | Style |
 |--------|------|-------|
@@ -101,7 +101,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **@Mention personas**: type `@` in a reply to summon another persona. Autocomplete dropdown, targeted response in character
 - **Conductor mode**: retweet (↻) button on any post or reply message opens a persona picker — route any message to any persona for their take. Orchestrate multi-persona debates without typing
 - **Organic interjections**: other personas jump into your reply threads when the topic touches their expertise
-- **Persona profiles**: click any persona name to view their profile with avatar, bio, posts, and DM
+- **Persona profiles**: click any persona name to view their profile with avatar, bio, and three tabs — **Posts** (their feed posts), **Replies** (every interjection they made into other threads with parent-post context), **Messages** (private DM)
 - **Get their take**: on any persona's profile, click "Get their take" to generate 3 new posts from that persona on your current corpus — appended to the active feed
 - **Persona DMs**: message any persona directly — they respond in character, grounded in your corpus
 - **Post detail view**: click any post to see full thread context — parent posts, quoted originals, downstream responses
@@ -110,6 +110,8 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Bookmarks**: snapshot-based, survives feed regeneration
 - **Append mode**: "Generate more posts" adds to the current feed instead of replacing it
 - **Figure lightbox**: extracted figures rendered inline with expand-on-click
+- **Per-reply three-dots menu**: Copy text / Delete message on individual replies and interjections inside a thread
+- **Nested quote cards**: quote-tweet posts render the quoted persona as a Twitter-style nested card (avatar + name + @handle + content) inside the quoter's post
 
 ### Intelligence Layer
 - **Contradiction alerts**: notified when a new paper contradicts existing corpus
@@ -140,7 +142,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Service worker**: Workbox precaches all static assets, runtime-caches figure images and Google Fonts
 - **IndexedDB offline data**: all hooks write through to IndexedDB on fetch, fall back to cache when offline
 - **Download workspace**: one-click pre-cache of an entire workspace (feeds, papers, summaries, figures) for airplane-mode reading
-- **Sync indicator**: "synced Xm ago" in feed header, amber warning when stale
+- **Sync indicator**: per-workspace "synced Xm ago" shown in Settings → Storage; amber warning when stale (>24h)
 
 ---
 
