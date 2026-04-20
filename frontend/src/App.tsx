@@ -628,7 +628,9 @@ function AppContent() {
             )}
             <PullToRefresh
               onRefresh={async () => {
-                if (feed.feedId) await feed.loadFeed(feed.feedId)
+                if (!feed.feedId) return
+                const fresh = await getFeed(feed.feedId)
+                feed.loadFeed(fresh as unknown as { id: string; posts: unknown[] })
               }}
             >
               <SwipeableTabs activeIndex={activeTab} tabCount={4} onChange={setActiveTab}>
