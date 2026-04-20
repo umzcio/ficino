@@ -290,8 +290,11 @@ def generate_feed(
     start_time = time.time()
 
     try:
-        # Load user settings and apply provider env vars
-        user_settings = apply_provider_settings()
+        # Load user settings and apply provider env vars. Threaded with the
+        # feed owner's id so every LLM / embedding call in this task bills
+        # their keys rather than whichever user's settings happen to be
+        # cached in the Celery prefork child from a prior task.
+        user_settings = apply_provider_settings(effective_user_id)
         # User's posts_per_generation applies to normal feed gen, but not to persona-scoped
         # "Get their take" requests which pass an explicit small num_posts
         if not persona_key:
@@ -758,7 +761,9 @@ def regenerate_post(
 
     effective_user_id = user_id or STUB_USER_ID
 
-    user_settings = apply_provider_settings()
+    # Thread the post owner's id so regeneration bills their provider keys,
+    # not whatever user's settings are cached in this prefork child.
+    user_settings = apply_provider_settings(effective_user_id)
     temperature = user_settings.get("persona_temperature", 0.8)
 
     # Load the existing feed. Scoped by user_id so a malicious or buggy

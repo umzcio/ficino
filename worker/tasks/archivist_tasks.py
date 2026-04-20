@@ -137,10 +137,10 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
     start = time.time()
 
     try:
-        user_settings = apply_provider_settings()
-        temperature = user_settings.get("persona_temperature", 0.7)
-
-        # Load the user post
+        # Load the user post first so we can scope provider settings to the
+        # post owner. If we applied settings before this SELECT, retrieval
+        # + reply generation would run under whichever user's keys were
+        # cached in this Celery prefork child from a prior task.
         row = fetchrow(
             "SELECT content, corpus_id, user_id FROM user_posts WHERE id = $1",
             user_post_id,
@@ -151,6 +151,9 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
         user_content = row["content"]
         post_user_id = str(row["user_id"])
         post_corpus_id = str(row["corpus_id"]) if row["corpus_id"] else corpus_id
+
+        user_settings = apply_provider_settings(post_user_id)
+        temperature = user_settings.get("persona_temperature", 0.7)
 
         # Get paper IDs — always scoped to the post owner. If a corpus_id is
         # present, narrow further to that workspace. Without the user_id

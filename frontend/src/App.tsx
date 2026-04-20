@@ -518,6 +518,24 @@ function AppContent() {
           />
         )
       case 'profile':
+        // If the user clicked a persona avatar while viewing their own
+        // profile, render that persona's profile — same branch pattern as
+        // the `default` case. Without this, setSelectedPersona fires but
+        // the view stays on UserProfile and the click looks broken.
+        if (selectedPersona) {
+          return (
+            <PersonaProfile
+              key={selectedPersona}
+              personaKey={selectedPersona}
+              onBack={() => setSelectedPersona(null)}
+              posts={feed.posts}
+              feedId={feed.feedId}
+              onGenerateTake={(personaKey) => feed.generate(ws.activeId, undefined, feed.feedId || undefined, undefined, personaKey, 3)}
+              generating={feed.feedState === 'generating'}
+              canGenerate={corpus.papers.length > 0 && isOnline}
+            />
+          )
+        }
         return (
           <UserProfile
             workspaceId={ws.activeId}

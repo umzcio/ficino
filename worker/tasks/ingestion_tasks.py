@@ -86,15 +86,16 @@ def process_paper(
     """
     log = logger.bind(paper_id=paper_id, task_id=self.request.id)
 
-    # Apply provider settings from DB (LLM, embed, API keys)
+    # Fetch the paper's real owner first so provider settings below are
+    # scoped to them rather than whoever's keys happen to be cached in this
+    # Celery prefork child. Vision + embedding calls on a 600-page PDF
+    # would otherwise drain the wrong user's budget.
     from lib.settings import apply_provider_settings, get_user_settings
-    user_settings = apply_provider_settings()
-
-    # Fetch the paper's real owner so auto-tags and auto-generate dispatches
-    # attribute to them instead of the STUB_USER_ID placeholder. Falls back
-    # to the stub only if the lookup fails (paper row missing / unexpected).
     paper_row = fetchrow("SELECT user_id FROM papers WHERE id = $1", paper_id)
     paper_user_id = str(paper_row["user_id"]) if paper_row and paper_row["user_id"] else STUB_USER_ID
+
+    # Apply provider settings from DB (LLM, embed, API keys) for this owner
+    user_settings = apply_provider_settings(paper_user_id)
 
     # Materialize the PDF on local disk so the extraction libs (fitz, marker,
     # PIL) can open it by path. For local backend this is a no-op returning
