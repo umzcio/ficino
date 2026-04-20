@@ -20,11 +20,14 @@ from lib.settings import apply_provider_settings, STUB_USER_ID
 from lib.storage import storage
 
 # TTL for signed figure URLs embedded in persisted feed posts. Feeds are
-# browsed for hours/days after generation, so the 10-minute default would
-# cause visible 403s. 24h is long enough to feel permanent to a user but
-# still bounds the blast radius of a leaked URL compared to the old
-# unauthenticated StaticFiles mount.
-FIGURE_URL_TTL_SECONDS = 86400
+# browsed for hours/days AND weeks after generation (bookmarks, older
+# threads, reading-list revisits), and the URL is baked into the feed
+# JSONB at generation time — if it expires, the image 404s even though
+# the post itself is still fine. 30 days is long enough to cover typical
+# revisit patterns while still bounding the blast radius of a leaked
+# URL; the frontend can recover past that by re-fetching
+# GET /papers/{paper_id}/figures for fresh short-lived tokens.
+FIGURE_URL_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 
 logger = structlog.get_logger(__name__)
 
