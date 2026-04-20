@@ -226,6 +226,10 @@ async def regenerate_post(
     request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    # Each regeneration is one LLM call; without a cap a user could
+    # regenerate every post in a 20-post feed repeatedly and bypass the
+    # per-day generations budget entirely. Share that budget here.
+    _rl: None = Depends(RateLimit("feed_generation", settings.rate_limit_generations_per_day)),
 ) -> dict[str, str]:
     """Regenerate a single post in a feed. Same persona and post type, fresh chunks."""
     row = await db.fetchrow(

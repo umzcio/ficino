@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from audit import record_audit
 from config import settings
 from auth import AuthUser, get_current_user
+from auth.rate_limit import RateLimit
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -163,6 +164,7 @@ async def create_reading_list(
     body: ReadingListCreate,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("feed_generation", settings.rate_limit_generations_per_day)),
 ) -> dict[str, object]:
     """Create a reading list. Dispatches AI ordering if paper_ids provided."""
     # If a corpus_id is supplied, verify it belongs to the caller before using it.
@@ -359,6 +361,10 @@ async def generate_chapter(
     chapter_index: int,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    # Chapter generation fans out ~12 persona LLM calls per invocation —
+    # the single biggest LLM spend amplifier in the app. Share the
+    # generations budget with /feed/generate.
+    _rl: None = Depends(RateLimit("feed_generation", settings.rate_limit_generations_per_day)),
 ) -> dict[str, str]:
     """Generate the feed for a chapter. Chapter must be unlocked or complete."""
     # Verify the reading list belongs to the user

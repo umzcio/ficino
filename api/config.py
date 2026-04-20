@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     rate_limit_uploads_per_day: int = 50
     rate_limit_generations_per_day: int = 20
     rate_limit_user_posts_per_day: int = 30
+    # Covers first-time paper summaries (one call per paper), group-chat
+    # synthesis creations, and any other one-shot LLM dispatch that isn't
+    # a full feed generation.
+    rate_limit_summary_per_day: int = 30
 
     # App
     environment: str = "development"

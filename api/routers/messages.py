@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from config import settings
 from auth import AuthUser, get_current_user
+from auth.rate_limit import RateLimit
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -107,6 +108,11 @@ async def get_paper_summary(
     paper_id: str,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    # Polling happens on the separate /status/{task_id} endpoint; this
+    # route only dispatches a Celery summary task when no summary exists
+    # (or a stuck one needs re-dispatch). Rate-limiting it caps the
+    # per-paper fan-out without affecting the fast cached-read path.
+    _rl: None = Depends(RateLimit("summary", settings.rate_limit_summary_per_day)),
 ) -> dict[str, object]:
     """Get or trigger generation of a paper summary."""
     # Check paper exists and belongs to user
@@ -254,6 +260,7 @@ async def create_group_chat(
     body: SynthesisCreateRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("summary", settings.rate_limit_summary_per_day)),
 ) -> dict[str, str]:
     """Create a new corpus synthesis group chat."""
     if len(body.paper_ids) < 2:
