@@ -674,13 +674,25 @@ Respond as {target['name']} ({target['handle']})."""
         # Refresh the in-memory copy so the response body reflects current DB state.
         existing_messages.append(new_turn)
     else:
+        # Two concurrent zaps that both see no existing row would both
+        # INSERT and the second would 500 on post_replies_feed_post_uq.
+        # On conflict, append the new interjection instead — and re-sync
+        # existing_messages from the authoritative row so the response
+        # reflects whatever the other writer just landed.
         row = await db.fetchrow(
             """INSERT INTO post_replies (feed_id, post_index, persona_key, messages)
-               VALUES ($1, $2, $3, $4) RETURNING id""",
-            body.feed_id, body.post_index, body.source_persona_key, json.dumps(existing_messages + [new_turn]),
+               VALUES ($1, $2, $3, $4::jsonb)
+               ON CONFLICT (feed_id, post_index) DO UPDATE
+                 SET messages = post_replies.messages || EXCLUDED.messages,
+                     updated_at = NOW()
+               RETURNING id, messages""",
+            body.feed_id, body.post_index, body.source_persona_key, new_turn_json,
         )
-        existing_messages.append(new_turn)
         reply_id = str(row["id"])
+        existing_messages = (
+            row["messages"] if isinstance(row["messages"], list)
+            else json.loads(row["messages"])
+        )
 
     logger.info("zap_generated", target=body.target_persona_key, source=body.source_persona_key)
 

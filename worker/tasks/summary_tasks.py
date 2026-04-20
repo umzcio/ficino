@@ -237,6 +237,28 @@ def generate_corpus_synthesis(
     log.info("corpus_synthesis_start", papers=len(paper_ids))
 
     try:
+        # Short-circuit if a prior run already produced non-empty messages
+        # for this synthesis. The outer POST handler allocates the
+        # synthesis_id up front, so a retry after the LLM call succeeded
+        # but a downstream step crashed would otherwise re-spend on the
+        # synthesis and write over the completed row.
+        existing = fetchrow(
+            "SELECT messages FROM corpus_syntheses WHERE id = $1",
+            synthesis_id,
+        )
+        if existing:
+            existing_messages = existing["messages"]
+            if isinstance(existing_messages, str):
+                existing_messages = json.loads(existing_messages)
+            if existing_messages:
+                log.info("corpus_synthesis_idempotent_skip", messages=len(existing_messages))
+                return {
+                    "status": "complete",
+                    "synthesis_id": synthesis_id,
+                    "message_count": len(existing_messages),
+                    "idempotent": True,
+                }
+
         # Scope provider settings to the requesting user so the multi-paper
         # Claude call bills their keys, not whichever user's config is
         # cached in this Celery prefork child from a prior task.
@@ -287,11 +309,29 @@ def generate_corpus_synthesis(
             log.warn("synthesis_parse_failed", preview=cleaned[:200])
             messages = [{"role": "synthesis", "type": "summary", "content": cleaned}]
 
-        # Store
+        # If the regex didn't match at all (not a parse failure, just no
+        # JSON array in the LLM output), we'd previously persist messages=[]
+        # and leave the user staring at an empty group chat. Mirror the
+        # paper-summary fallback instead.
+        if not messages:
+            messages = [{
+                "role": "synthesis",
+                "type": "summary",
+                "content": cleaned or "(no content)",
+            }]
+
+        # Store. ON CONFLICT ensures that a retry after the INSERT succeeded
+        # but a post-INSERT step crashed doesn't raise UniqueViolationError
+        # (the synthesis_id is allocated by the API and stays stable across
+        # retries) — the earlier idempotency guard catches the already-
+        # complete case, so this handles only the partial-write path.
         messages_json = json.dumps(messages, default=str)
         execute(
             """INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages)
-               VALUES ($1, $2, $3, $4, $5)""",
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (id) DO UPDATE SET
+                 messages = EXCLUDED.messages,
+                 generated_at = NOW()""",
             synthesis_id, user_id, name,
             paper_ids, messages_json,
         )

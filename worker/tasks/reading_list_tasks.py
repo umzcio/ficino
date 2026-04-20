@@ -251,11 +251,33 @@ def generate_chapter(
 
         # Load the chapter
         chapter = fetchrow(
-            "SELECT id, paper_ids, status FROM reading_list_chapters WHERE reading_list_id = $1 AND chapter_index = $2",
+            "SELECT id, paper_ids, status, feed_id FROM reading_list_chapters WHERE reading_list_id = $1 AND chapter_index = $2",
             reading_list_id, chapter_index,
         )
         if not chapter:
             raise ValueError(f"Chapter {chapter_index} not found")
+
+        # Idempotency: if this chapter already has a feed attached, a prior
+        # run of this task (or the same task retrying) succeeded. Without
+        # this guard a retry would generate a second feed with a fresh UUID
+        # — orphaning the first row and doubling the ~12 persona LLM calls.
+        if chapter["feed_id"]:
+            existing_feed = fetchrow(
+                "SELECT id, post_count FROM feeds WHERE id = $1 AND user_id = $2",
+                str(chapter["feed_id"]), effective_user_id,
+            )
+            if existing_feed and (existing_feed["post_count"] or 0) > 0:
+                log.info(
+                    "generate_chapter_idempotent_skip",
+                    feed_id=str(existing_feed["id"]),
+                    post_count=existing_feed["post_count"],
+                )
+                return {
+                    "status": "complete",
+                    "feed_id": str(existing_feed["id"]),
+                    "post_count": existing_feed["post_count"],
+                    "idempotent": True,
+                }
 
         # Cumulative paper IDs: all papers up to and including this chapter
         paper_sequence = [str(p) for p in rl["paper_sequence"]]
@@ -271,9 +293,15 @@ def generate_chapter(
 
         log.info("chapter_scope", chapter_papers=len(chapter_paper_ids), cumulative_papers=len(cumulative_paper_ids))
 
-        # Generate a feed scoped to these papers
-        # We'll call generate_feed directly with the paper IDs
-        feed_id = str(uuid.uuid4())
+        # Generate a feed scoped to these papers.
+        # Deterministic feed_id per (reading_list_id, chapter_index) so a
+        # retry of this task uses the same id and the ON CONFLICT clause
+        # on the INSERT below can upsert instead of creating an orphan
+        # row each time (pairs with the chapter.feed_id short-circuit
+        # above to cover the race + retry cases).
+        feed_id = str(
+            uuid.uuid5(uuid.NAMESPACE_DNS, f"ficino:chapter:{reading_list_id}:{chapter_index}")
+        )
         user_settings = apply_provider_settings(effective_user_id)
         num_posts = user_settings.get("posts_per_generation", 12)
         # Opt-out persona enablement — mirror persona_tasks.generate_feed.
@@ -377,7 +405,12 @@ def generate_chapter(
 
         execute(
             """INSERT INTO feeds (id, user_id, corpus_id, posts, paper_count, post_count, generation_duration_ms)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT (id) DO UPDATE SET
+                 posts = EXCLUDED.posts,
+                 paper_count = EXCLUDED.paper_count,
+                 post_count = EXCLUDED.post_count,
+                 generated_at = NOW()""",
             feed_id, effective_user_id, corpus_id,
             posts_json, len(cumulative_paper_ids), len(posts), 0,
         )
