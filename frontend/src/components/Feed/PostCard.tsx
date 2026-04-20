@@ -120,6 +120,14 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
   const [replyLoading, setReplyLoading] = useState(false)
   const [repliesLoaded, setRepliesLoaded] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Menu uses a document-level click-outside handler instead of a
+  // fixed-inset overlay because every PostCard is wrapped in SwipeToAct,
+  // which applies `transform: translateX(...)` and creates a stacking
+  // context — overlays positioned with `fixed inset-0` inside a
+  // transformed parent are clipped to that parent's bounds, not the
+  // viewport. A click on another post's 3-dot would never land on the
+  // overlay and the first menu would stay stuck open.
+  const menuWrapperRef = useRef<HTMLDivElement>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [noteEditing, setNoteEditing] = useState(false)
   const [noteText, setNoteText] = useState(annotation || '')
@@ -157,6 +165,28 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
       document.removeEventListener('keydown', handleKey)
     }
   }, [zapOpen])
+
+  // Close the 3-dot post menu on click outside or Escape. Document-level
+  // listener rather than an overlay so it works even when the card is
+  // inside SwipeToAct's transformed subtree (which creates a stacking
+  // context and clips fixed-inset overlays to the card bounds).
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (menuWrapperRef.current && !menuWrapperRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [menuOpen])
 
   // Same click-outside / Escape pattern for the per-message 3-dot menu.
   useEffect(() => {
@@ -400,7 +430,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
               FIGURE
             </span>
           )}
-          <div className="ml-auto relative">
+          <div ref={menuWrapperRef} className="ml-auto relative">
             <button
               aria-label="More options"
               aria-haspopup="menu"
@@ -412,7 +442,6 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
             </button>
             {menuOpen && (
               <>
-                <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} />
                 <div role="menu" className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[220px] max-w-[calc(100vw-2rem)]">
                   <MenuItem icon={Copy} label="Copy text" onClick={(e) => {
                     e.stopPropagation(); setMenuOpen(false)
