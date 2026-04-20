@@ -380,6 +380,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
                 onChange={(e) => setDmInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendDm() } }}
                 placeholder={`Message ${p.handle}...`}
+                aria-label={`Message ${p.name}`}
                 className="flex-1 bg-bg-hover border border-border rounded-full px-4 py-2.5 text-[14px] text-text outline-none focus:border-gold/40 transition-colors"
                 disabled={dmLoading}
               />

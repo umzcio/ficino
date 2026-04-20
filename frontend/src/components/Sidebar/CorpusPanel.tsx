@@ -129,10 +129,16 @@ function PaperCard({
 
   return (
     <div className="py-2 group">
-      {/* Headline row — clickable */}
-      <div
-        className="flex items-start gap-2 cursor-pointer"
+      {/* Headline row — clickable. A real <button> so keyboard and SR
+          users can expand a paper to manage tags, open the summary, or
+          delete. Reset the native button styling with bg-transparent /
+          border-none / p-0 / text-left so the expanded layout below
+          (which assumes block-level children) renders unchanged. */}
+      <button
+        type="button"
         onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex items-start gap-2 cursor-pointer w-full text-left bg-transparent border-none p-0"
       >
         <div className="flex-1 min-w-0">
           {/* Category tag from paper tags */}
@@ -169,14 +175,14 @@ function PaperCard({
             </p>
           )}
         </div>
-        <div className="shrink-0 mt-0.5">
+        <div className="shrink-0 mt-0.5" aria-hidden="true">
           {expanded ? (
             <ChevronDown size={14} className="text-text-muted" />
           ) : (
             <ChevronRight size={14} className="text-text-muted" />
           )}
         </div>
-      </div>
+      </button>
 
       {/* Expanded detail */}
       {expanded && (

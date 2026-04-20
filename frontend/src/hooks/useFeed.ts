@@ -117,7 +117,11 @@ export function useFeed(workspaceId?: string) {
     }
 
     timeoutRef.current = setTimeout(poll, 1000)
-  }, [])
+    // Depend on workspaceId so `cacheFeed(feed, workspaceId)` above writes
+    // under the current workspace key. With an empty deps array, a late
+    // completion after a workspace switch would cache the new feed under
+    // the previous workspace — offline reads from the new workspace miss.
+  }, [workspaceId])
 
   const generate = useCallback(async (corpusId?: string, tagFilter?: string[], appendToFeedId?: string, tabFocus?: string, personaKey?: string, numPosts?: number) => {
     setFeedState('generating')
