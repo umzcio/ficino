@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, ArrowRight } from 'lucide-react'
 import { createUserPost } from '../../lib/api'
 import { useKeyboardAwareInput } from '../../hooks/useKeyboardAwareInput'
 
@@ -9,12 +9,17 @@ interface ComposeBoxProps {
   userDisplayName?: string
   userHandle?: string
   onUserClick?: () => void
+  onViewProfileClick?: () => void
 }
 
-export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You', userHandle = '@you', onUserClick }: ComposeBoxProps) {
+export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You', userHandle = '@you', onUserClick, onViewProfileClick }: ComposeBoxProps) {
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // One-shot "Asked — view reply in your profile" nudge after a successful
+  // submit. Lives here rather than a global toast so it's anchored to the
+  // compose box and disappears the moment the user starts typing again.
+  const [justPosted, setJustPosted] = useState(false)
   // Scrolls the textarea into view when the iOS/Android keyboard opens,
   // so the input isn't hidden behind it.
   const inputRef = useKeyboardAwareInput<HTMLTextAreaElement>()
@@ -27,6 +32,7 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
     try {
       await createUserPost(text, workspaceId || undefined)
       setContent('')
+      setJustPosted(true)
       onPostCreated()
     } catch (err) {
       // Surface failures both visually and via the live region so neither
@@ -60,7 +66,10 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
           <textarea
             ref={inputRef}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => {
+              setContent(e.target.value)
+              if (justPosted) setJustPosted(false)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
@@ -73,6 +82,19 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
             rows={1}
             disabled={loading}
           />
+          {justPosted && !error && (
+            <button
+              type="button"
+              onClick={() => {
+                setJustPosted(false)
+                onViewProfileClick?.()
+              }}
+              className="mt-1 flex items-center gap-1 text-[12px] text-gold bg-transparent border-none cursor-pointer hover:underline px-0"
+            >
+              Asked. View reply in your profile
+              <ArrowRight size={12} />
+            </button>
+          )}
           {error && (
             <div
               role="alert"

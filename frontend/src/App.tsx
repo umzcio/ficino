@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
-  Zap, Loader2, BookOpen
+  Zap, Loader2, BookOpen, User
 } from 'lucide-react'
 import type { FeedPost } from './types'
 import { useCorpus } from './hooks/useCorpus'
@@ -47,7 +47,6 @@ import { WorkspaceBottomSheet } from './components/Nav/WorkspaceBottomSheet'
 import { MobileDrawer } from './components/Nav/MobileDrawer'
 import { PostDetail } from './components/Feed/PostDetail'
 import { ComposeBox } from './components/Feed/ComposeBox'
-import { UserPostCard } from './components/Feed/UserPostCard'
 import { UserProfile } from './components/Personas/UserProfile'
 import { usePersonasLoader, PersonasProvider } from './hooks/usePersonas'
 import { useUserPosts } from './hooks/useUserPosts'
@@ -61,7 +60,7 @@ import { OfflineBanner } from './components/Nav/OfflineBanner'
 import { DownloadProgress } from './components/Nav/DownloadProgress'
 import { downloadWorkspace, type DownloadProgress as DlProgress } from './lib/workspace-download'
 
-type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'settings'
+type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
 
 const NAV_ITEMS: { icon: typeof Home; view: AppView; label: string }[] = [
   { icon: Home, view: 'feed', label: 'Home' },
@@ -70,6 +69,7 @@ const NAV_ITEMS: { icon: typeof Home; view: AppView; label: string }[] = [
   { icon: Mail, view: 'messages', label: 'Messages' },
   { icon: BookOpen, view: 'reading-lists', label: 'Reading Lists' },
   { icon: Bookmark, view: 'bookmarks', label: 'Saved' },
+  { icon: User, view: 'profile', label: 'Profile' },
   { icon: Settings, view: 'settings', label: 'Settings' },
 ]
 
@@ -129,6 +129,7 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
     { icon: Search, view: 'search', label: 'Explore' },
     { icon: Mail, view: 'messages', label: 'Messages' },
     { icon: Bookmark, view: 'bookmarks', label: 'Saved' },
+    { icon: User, view: 'profile', label: 'Profile' },
   ]
   let longPressTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -516,18 +517,17 @@ function AppContent() {
             onDownloadWorkspace={handleDownloadWorkspace}
           />
         )
+      case 'profile':
+        return (
+          <UserProfile
+            workspaceId={ws.activeId}
+            displayName={appSettings.settings?.user_display_name as string || 'You'}
+            handle={appSettings.settings?.user_handle as string || '@you'}
+            onBack={() => setActiveView('feed')}
+            onPersonaClick={setSelectedPersona}
+          />
+        )
       default:
-        if (selectedPersona === '__user__') {
-          return (
-            <UserProfile
-              workspaceId={ws.activeId}
-              displayName={appSettings.settings?.user_display_name as string || 'You'}
-              handle={appSettings.settings?.user_handle as string || '@you'}
-              onBack={() => setSelectedPersona(null)}
-              onPersonaClick={setSelectedPersona}
-            />
-          )
-        }
         if (selectedPersona) {
           return (
             // `key={selectedPersona}` forces React to treat every persona
@@ -610,22 +610,9 @@ function AppContent() {
               onPostCreated={userPosts.refresh}
               userDisplayName={appSettings.settings?.user_display_name as string || 'You'}
               userHandle={appSettings.settings?.user_handle as string || '@you'}
-              onUserClick={() => setSelectedPersona('__user__')}
+              onUserClick={() => setActiveView('profile')}
+              onViewProfileClick={() => setActiveView('profile')}
             />
-            {userPosts.posts.length > 0 && (
-              <div>
-                {userPosts.posts.map((up) => (
-                  <UserPostCard
-                    key={up.id}
-                    post={up}
-                    userDisplayName={appSettings.settings?.user_display_name as string || 'You'}
-                    userHandle={appSettings.settings?.user_handle as string || '@you'}
-                    onDeleted={userPosts.refresh}
-                    onPersonaClick={setSelectedPersona}
-                  />
-                ))}
-              </div>
-            )}
             <PullToRefresh
               onRefresh={async () => {
                 if (!feed.feedId) return
