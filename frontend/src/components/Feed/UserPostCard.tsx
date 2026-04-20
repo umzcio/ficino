@@ -79,12 +79,21 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
       {/* Archivist reply */}
       {status === 'pending' && (
         <div role="status" aria-live="polite" aria-atomic="true" className="px-4 py-3 flex gap-3 bg-bg-hover/30 border-l-2 border-[#8b92a5]/30 ml-0">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-            style={{ backgroundColor: '#8b92a520', border: '1.5px solid #8b92a550', color: '#8b92a5' }}
-          >
-            {archivist?.initials || 'TA'}
-          </div>
+          {archivist?.avatar_url ? (
+            <img
+              src={archivist.avatar_url}
+              alt="The Archivist"
+              className="w-10 h-10 rounded-full shrink-0 object-cover"
+              style={{ border: '1.5px solid #8b92a550' }}
+            />
+          ) : (
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+              style={{ backgroundColor: '#8b92a520', border: '1.5px solid #8b92a550', color: '#8b92a5' }}
+            >
+              {archivist?.initials || 'TA'}
+            </div>
+          )}
           <div className="flex items-center gap-2 text-[13px] text-text-muted">
             <Loader2 size={14} className="animate-spin" />
             <span>The Archivist is searching your corpus...</span>
