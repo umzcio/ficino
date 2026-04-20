@@ -60,12 +60,17 @@ def retrieve_chunks(
     query: str,
     paper_ids: list[str] | None = None,
     top_k: int = 20,
+    query_embedding: list[float] | None = None,
 ) -> list[dict[str, object]]:
     """Retrieve top-k relevant chunks via two-stage hybrid search.
 
     Stage 1: vector-nearest CANDIDATE_POOL chunks via HNSW.
     Stage 2: re-rank those candidates with the hybrid vector + BM25 score.
     Stage 3 (optional): cross-encoder reranker over top top_k*RERANK_MULTIPLIER.
+
+    If `query_embedding` is provided, skip the per-call embed_single_sync
+    hop — feed generation batches all persona retrieval queries through
+    embed_texts_sync once and passes the precomputed vectors in here.
     """
     logger.info("retrieval_start", query=query[:100], paper_ids=paper_ids, top_k=top_k)
 
@@ -77,8 +82,9 @@ def retrieve_chunks(
     if rerank_provider != "none":
         sql_top_k = min(CANDIDATE_POOL, max(top_k * RERANK_MULTIPLIER, top_k))
 
-    # Generate query embedding
-    query_embedding = embed_single_sync(query)
+    # Generate query embedding if the caller didn't precompute one.
+    if query_embedding is None:
+        query_embedding = embed_single_sync(query)
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
     # Stage 1 + stage 2 are one SQL statement — the candidate CTE is
@@ -208,16 +214,26 @@ def retrieve_for_persona(
     paper_ids: list[str] | None = None,
     top_k: int = 10,
     liked_paper_titles: list[str] | None = None,
+    query_embedding: list[float] | None = None,
 ) -> list[dict[str, object]]:
     """Retrieve chunks tailored for a specific persona's focus area.
 
     Each persona has a preferred section focus that influences the query.
     If liked_paper_titles is provided (from Phase 3 training signal),
     chunks from those papers get a score boost so they surface more often.
+
+    Callers that fan out over multiple personas should batch-embed all
+    queries via embed_texts_sync once and pass each persona's vector in
+    `query_embedding` to skip redundant per-persona embedding RTT.
     """
     queries = _get_retrieval_queries()
     query = queries.get(persona_key, "key findings and methodology")
-    results = retrieve_chunks(query, paper_ids=paper_ids, top_k=top_k * 2 if liked_paper_titles else top_k)
+    results = retrieve_chunks(
+        query,
+        paper_ids=paper_ids,
+        top_k=top_k * 2 if liked_paper_titles else top_k,
+        query_embedding=query_embedding,
+    )
 
     if liked_paper_titles and results:
         # Boost scores for chunks from papers the user has liked posts about.

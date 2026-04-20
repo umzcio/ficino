@@ -377,10 +377,31 @@ def generate_feed(
         liked_paper_titles = preferences.get("liked_paper_titles") if preferences and preferences.get("has_signal") else None
         all_chunks: dict[str, list[dict[str, object]]] = {}
         active_personas = {k: v for k, v in persona_lib.PERSONAS.items() if k in enabled_personas}
+
+        # Batch-embed every persona's retrieval query in a single call
+        # rather than embedding them one-by-one inside retrieve_chunks.
+        # For 6 personas at ~400ms per embedding this collapses ~2.4s of
+        # serial RTT into one ~400ms batch before any LLM call starts.
+        from lib.embedder import embed_texts_sync
+        persona_queries = retrieval._get_retrieval_queries()
+        query_texts = [
+            persona_queries.get(k, "key findings and methodology")
+            for k in active_personas
+        ]
+        try:
+            query_vectors = embed_texts_sync(query_texts, input_type="query")
+            persona_query_embeddings = dict(zip(active_personas.keys(), query_vectors))
+        except Exception as e:
+            # Fall back to per-persona embedding inside retrieve_chunks so a
+            # single embed_texts_sync failure doesn't crash feed generation.
+            log.warning("persona_query_batch_embed_failed", error=str(e))
+            persona_query_embeddings = {}
+
         for persona_key in active_personas:
             chunks = retrieval.retrieve_for_persona(
                 persona_key, paper_ids=paper_ids, top_k=10,
                 liked_paper_titles=liked_paper_titles,
+                query_embedding=persona_query_embeddings.get(persona_key),
             )
             all_chunks[persona_key] = chunks
             log.info("persona_chunks_retrieved", persona=persona_key, chunks=len(chunks))
