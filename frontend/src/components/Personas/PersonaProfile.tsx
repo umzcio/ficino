@@ -141,8 +141,11 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
             <div className="text-xl font-bold text-text">{p.name}</div>
             <div className="text-[15px] text-text-muted">{p.handle}</div>
           </div>
-          {/* Get their take button — generates 3 posts from this persona, appended to current feed */}
-          {onGenerateTake && (
+          {/* Get their take button — generates 3 posts from this persona,
+              appended to current feed. Hidden for the Archivist because the
+              Archivist is reply-only / feed_eligible=false; its "work" is
+              answering corpus questions, not publishing posts. */}
+          {onGenerateTake && !isArchivist && (
             <button
               onClick={() => onGenerateTake(personaKey)}
               disabled={generating || !canGenerate}
