@@ -308,7 +308,16 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
   const isThread = post.post_type === 'thread' && post.thread_posts && post.thread_posts.length > 0
   const paper = post.paper_ref
   const apiBase = import.meta.env.VITE_API_BASE || '/ficino/api'
-  const figSrc = post.figure_url ? `${apiBase}${post.figure_url}` : ''
+  // figure_url may be absolute (Supabase signed URL on SaaS) or relative
+  // (self-host `/figures/…?token=…`). Prefix apiBase only for the relative
+  // case — blindly concatenating onto an absolute URL produces
+  // "<apiBase>https://supabase.co/…" which the browser parses as a bogus
+  // host and 404s.
+  const figSrc = !post.figure_url
+    ? ''
+    : /^https?:\/\//i.test(post.figure_url)
+      ? post.figure_url
+      : `${apiBase}${post.figure_url}`
 
   return (
     <article

@@ -108,7 +108,13 @@ function collectFigureUrls(feeds: Feed[]): string[] {
   for (const feed of feeds) {
     for (const post of feed.posts) {
       if (post.figure_url) {
-        urls.add(`${API_BASE}${post.figure_url}`)
+        // See PostCard.tsx — absolute URLs (Supabase signed) pass through;
+        // relative ones (self-host /figures/...) get the API_BASE prefix.
+        urls.add(
+          /^https?:\/\//i.test(post.figure_url)
+            ? post.figure_url
+            : `${API_BASE}${post.figure_url}`,
+        )
       }
     }
   }
