@@ -247,6 +247,14 @@ def extract_text_pymupdf(file_path: str) -> str:
     return result
 
 
+# Per-paper cap on typed figures kept in storage. A crafted (or just
+# long / figure-dense) PDF could ship hundreds of detector-qualified
+# figures into downstream vision-description + storage writes, all
+# billed to the paper owner. 50 is well above any real research paper
+# (median ~6, p99 ~25) and saves both API budget and IDB cache bloat.
+MAX_FIGURES_PER_PAPER = 50
+
+
 def extract_figures(file_path: str) -> list[dict[str, object]]:
     """Detect and extract *typed* scientific figures via a vision model.
 
@@ -345,6 +353,15 @@ def extract_figures(file_path: str) -> list[dict[str, object]]:
                 confidence=round(det["confidence"], 2),
                 size=f"{crop.width}x{crop.height}",
             )
+
+    if len(figures) > MAX_FIGURES_PER_PAPER:
+        logger.warn(
+            "figure_extract_capped",
+            file_path=file_path,
+            extracted=len(figures),
+            cap=MAX_FIGURES_PER_PAPER,
+        )
+        figures = figures[:MAX_FIGURES_PER_PAPER]
 
     logger.info("figure_extract_complete", file_path=file_path, count=len(figures))
     return figures

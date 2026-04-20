@@ -86,7 +86,16 @@ async def generate_response(
             return content
     else:
         import anthropic
-        client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"], timeout=120.0)
+        # max_retries=0 pins the SDK off its default of 2 retries. At 120s
+        # timeout × 3 total attempts (1 + 2 retries) a flaky Anthropic
+        # upstream would otherwise hold a uvicorn worker for up to 6
+        # minutes; 5 concurrent /replies from one user can pin most of
+        # the pool. We already handle transient failures higher up.
+        client = anthropic.AsyncAnthropic(
+            api_key=cfg["anthropic_api_key"],
+            timeout=120.0,
+            max_retries=0,
+        )
         # Prior code omitted `temperature`, so every Claude call ran at the
         # provider default (~1.0) regardless of the per-persona temperature
         # column. Pass it through so personas keep their distinctive voices.

@@ -679,11 +679,20 @@ def generate_feed(
         posts_json = json.dumps(all_posts, default=str)
 
         if append_to_feed_id:
+            # Append the NEW slice only, with Postgres doing the concat so
+            # two concurrent "Generate more" dispatches can't clobber each
+            # other (the read-then-whole-array-write form this replaces
+            # lost the first writer's slice under a double-click). The
+            # _task_id tag on each new post plus the task-entry
+            # idempotency guard still protects against same-task retries.
+            new_posts_json = json.dumps(posts, default=str)
             execute(
-                """UPDATE feeds SET posts = $1, post_count = $2, generation_duration_ms = generation_duration_ms + $3
-                   WHERE id = $4 AND user_id = $5""",
-                posts_json,
-                len(all_posts),
+                """UPDATE feeds
+                   SET posts = posts || $1::jsonb,
+                       post_count = jsonb_array_length(posts || $1::jsonb),
+                       generation_duration_ms = generation_duration_ms + $2
+                   WHERE id = $3 AND user_id = $4""",
+                new_posts_json,
                 duration_ms,
                 feed_id,
                 effective_user_id,
