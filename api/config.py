@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     generation_limit_per_day: int = 20
     cors_origins: str = "https://ficino.app,https://ficino.ai,https://ficino.local"
+
+    # Cookie Domain attribute. Set to a parent like ".ficino.app" on hosted
+    # deploys where the frontend (ficino.app) and api (api.ficino.app) are
+    # on different subdomains and the frontend JS needs to read the CSRF
+    # cookie. Leave blank on self-host where everything is same-origin;
+    # browser uses host-only cookies by default.
+    cookie_domain: str = ""
     upload_dir: str = "/app/uploads"
     figures_dir: str = "/app/figures"
 

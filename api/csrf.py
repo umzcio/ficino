@@ -68,14 +68,22 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         # just-authenticated client gets a token before its next POST.
         if method in ("GET", "HEAD") and CSRF_COOKIE_NAME not in request.cookies:
             token = secrets.token_urlsafe(32)
-            response.set_cookie(
-                key=CSRF_COOKIE_NAME,
-                value=token,
-                httponly=False,  # JS needs to read it
-                samesite="lax",
-                secure=settings.environment != "development",
-                max_age=60 * 60 * 24 * 7,  # 7d, matches session cookie
-                path="/",
-            )
+            # Domain is parameterized because a hosted deploy with frontend
+            # and api on separate subdomains (ficino.app / api.ficino.app)
+            # needs Domain=.ficino.app so ficino.app JS can actually read
+            # the cookie and echo it back as the header. Self-host runs
+            # same-origin and should use host-only cookies (cookie_domain="").
+            cookie_kwargs = {
+                "key": CSRF_COOKIE_NAME,
+                "value": token,
+                "httponly": False,  # JS needs to read it
+                "samesite": "lax",
+                "secure": settings.environment != "development",
+                "max_age": 60 * 60 * 24 * 7,  # 7d
+                "path": "/",
+            }
+            if settings.cookie_domain:
+                cookie_kwargs["domain"] = settings.cookie_domain
+            response.set_cookie(**cookie_kwargs)
 
         return response
