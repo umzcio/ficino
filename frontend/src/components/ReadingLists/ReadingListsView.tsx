@@ -101,10 +101,23 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
       ) : (
         <div>
           {lists.map((list) => (
+            // Can't convert to a real <button> — the Delete control below
+            // is a real button and nesting buttons is invalid HTML. Use
+            // role="button" + tabIndex + Enter/Space handler so keyboard
+            // users can open the list; Delete stays independently tabbable.
             <div
               key={list.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open reading list: ${list.name}`}
               className="flex items-center gap-3 px-4 py-3.5 border-b border-border hover:bg-bg-hover transition-colors cursor-pointer"
               onClick={() => setSelectedListId(list.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setSelectedListId(list.id)
+                }
+              }}
             >
               <BookOpen size={20} className="text-gold shrink-0" />
               <div className="flex-1 min-w-0">

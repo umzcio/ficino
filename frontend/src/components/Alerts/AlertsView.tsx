@@ -40,10 +40,24 @@ function AlertCard({ alert, onMarkRead, onDismiss, onAction }: {
   const Icon = config.icon
 
   return (
+    // role="button" instead of <button> because the Dismiss control below
+    // is already a real button and nesting buttons is invalid HTML. Enter
+    // / Space fires the same mark-read + action the click path takes, so
+    // keyboard users can actually progress through their alert list.
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`${config.label}: ${alert.title}`}
       className="px-4 py-3.5 flex gap-3 border-b border-border cursor-pointer hover:bg-bg-hover transition-colors"
       style={{ backgroundColor: alert.read ? 'transparent' : 'color-mix(in srgb, var(--color-gold) 3%, transparent)' }}
       onClick={() => { onMarkRead(); onAction?.() }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onMarkRead()
+          onAction?.()
+        }
+      }}
     >
       {/* Unread dot */}
       <div className="flex flex-col items-center pt-1.5 w-3 shrink-0">

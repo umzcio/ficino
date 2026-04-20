@@ -51,12 +51,23 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
     }
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleClick()
+    }
+  }
+
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label="Upload papers — drag files here or press Enter to browse"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       className={`
         border-2 border-dashed rounded-xl p-6 cursor-pointer
         flex flex-col items-center gap-3 transition-all duration-150
@@ -67,10 +78,9 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
       `}
     >
       <label htmlFor="pdf-upload" className="sr-only">Upload PDFs</label>
-      {/* sr-only (not `hidden`) keeps the input focusable in the tab order —
-          display:none would remove it entirely and leave keyboard users with
-          no way to open the file picker. Enter/Space on the focused input
-          still triggers the native file dialog. */}
+      {/* sr-only (not `hidden`) keeps the input in the tab order — the
+          role="button" + onKeyDown above makes the visible surface
+          keyboard-activatable too, so SR users can tab to either one. */}
       <input
         ref={inputRef}
         id="pdf-upload"
@@ -80,6 +90,8 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
         onChange={handleInputChange}
         className="sr-only"
       />
+      {/* Uploading state announced via polite live region below; here
+          we just render the visible spinner + label. */}
       {uploading ? (
         <>
           <Loader2 size={24} className="text-gold animate-spin" />
@@ -87,7 +99,7 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
         </>
       ) : (
         <>
-          <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center" aria-hidden="true">
             {dragOver ? (
               <FileText size={20} className="text-gold" />
             ) : (
@@ -104,8 +116,15 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
           </div>
         </>
       )}
+      {/* Live region: SR users hear "Uploading" when the state flips on
+          and silence when it flips off. Decoupled from the visual spinner
+          so assistive tech announces the transition even if focus is on
+          another region. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {uploading ? 'Uploading papers' : ''}
+      </span>
       {error && (
-        <p className="text-xs text-red-400 mt-2 text-center">{error}</p>
+        <p role="alert" className="text-xs text-red-400 mt-2 text-center">{error}</p>
       )}
     </div>
   )

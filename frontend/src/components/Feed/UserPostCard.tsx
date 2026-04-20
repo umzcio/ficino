@@ -110,23 +110,34 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
         <>
           <div role="status" aria-live="polite" className="sr-only">The Archivist replied.</div>
           <article className="px-4 py-3.5 flex gap-3 bg-bg-hover/20 border-l-2 border-[#8b92a5]/30 ml-0">
-          {archivist?.avatar_url ? (
-            <img
-              src={archivist.avatar_url}
-              alt="The Archivist"
-              className="w-10 h-10 rounded-full shrink-0 object-cover cursor-pointer"
-              style={{ border: '1.5px solid #8b92a550' }}
-              onClick={() => onPersonaClick?.('archivist')}
-            />
-          ) : (
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 cursor-pointer"
-              style={{ backgroundColor: '#8b92a520', border: '1.5px solid #8b92a550', color: '#8b92a5' }}
-              onClick={() => onPersonaClick?.('archivist')}
-            >
-              {archivist?.initials || 'TA'}
-            </div>
-          )}
+          {/* Avatar is a real <button type="button"> so keyboard users can
+              activate it with Enter / Space — previously the img / div
+              had only onClick, so SR users heard "graphic" with no affordance
+              and keyboard users couldn't reach the profile at all. */}
+          <button
+            type="button"
+            onClick={() => onPersonaClick?.('archivist')}
+            aria-label={`Open ${archivist?.name || 'The Archivist'} profile`}
+            className="w-10 h-10 p-0 rounded-full shrink-0 cursor-pointer bg-transparent border-none overflow-hidden"
+            style={{ border: '1.5px solid #8b92a550' }}
+          >
+            {archivist?.avatar_url ? (
+              <img
+                src={archivist.avatar_url}
+                alt=""
+                className="w-full h-full object-cover block"
+                aria-hidden="true"
+              />
+            ) : (
+              <span
+                className="w-full h-full flex items-center justify-center text-[11px] font-bold"
+                style={{ backgroundColor: '#8b92a520', color: '#8b92a5' }}
+                aria-hidden="true"
+              >
+                {archivist?.initials || 'TA'}
+              </span>
+            )}
+          </button>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 mb-0.5">
               <button

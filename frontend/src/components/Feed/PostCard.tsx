@@ -600,12 +600,18 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
           </p>
         )}
 
-        {/* Figure block */}
+        {/* Figure block. A real <button> (type="button" so it doesn't
+            submit any enclosing form, unstyled to preserve the layout)
+            so keyboard users can activate the lightbox with Enter /
+            Space — SR users hear the label instead of "image button". */}
         {isFigure && (post.figure_caption || post.figure_url) && (
           <div className="mb-2.5">
-            <div
+            <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); if (figSrc) setFigureExpanded(true) }}
-              className="border border-border rounded-xl overflow-hidden bg-bg-hover relative cursor-zoom-in hover:border-gold/25 transition-colors"
+              aria-label={figSrc ? (post.figure_caption ? `Zoom figure: ${post.figure_caption}` : 'Zoom figure') : 'Figure not available'}
+              disabled={!figSrc}
+              className="block w-full p-0 text-left border border-border rounded-xl overflow-hidden bg-bg-hover relative cursor-zoom-in hover:border-gold/25 transition-colors disabled:cursor-default"
             >
               <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5 bg-bg/80 backdrop-blur-sm border border-gold/20 rounded-md px-2 py-0.5">
                 <ImageIcon size={10} className="text-gold" />
@@ -629,7 +635,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                   [Figure not available]
                 </div>
               )}
-            </div>
+            </button>
             {post.figure_caption && (
               <div className="flex items-start gap-1.5 mt-1.5 px-0.5">
                 <FileText size={11} className="text-text-muted shrink-0 mt-0.5" />
@@ -668,10 +674,23 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
           const quotedPersona = quoted?.[1]
           return (
             <div
+              role={quotedKey && onPersonaClick ? 'button' : undefined}
+              tabIndex={quotedKey && onPersonaClick ? 0 : undefined}
+              aria-label={quotedKey && onPersonaClick && quotedPersona
+                ? `Open ${quotedPersona.name} profile`
+                : undefined
+              }
               className="border border-border rounded-2xl px-3.5 py-3 mb-2.5 bg-transparent cursor-pointer hover:bg-bg-hover transition-colors"
               onClick={(e) => {
                 e.stopPropagation()
                 if (quotedKey && onPersonaClick) onPersonaClick(quotedKey)
+              }}
+              onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && quotedKey && onPersonaClick) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onPersonaClick(quotedKey)
+                }
               }}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -787,15 +806,29 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
           </div>
         )}
 
-        {/* Annotation display */}
+        {/* Annotation display. role + tabIndex + onKeyDown so keyboard
+            users can re-open the note editor with Enter or Space instead
+            of losing access the moment the note is saved. */}
         {annotation && !noteEditing && (
           <div
+            role="button"
+            tabIndex={0}
+            aria-label="Edit note"
             className="mb-2 px-3 py-2 border-l-2 border-gold/30 bg-gold/4 rounded-r-lg cursor-pointer hover:bg-gold/8 transition-colors"
             onClick={(e) => {
               e.stopPropagation()
               setNoteText(annotation)
               setNoteEditing(true)
               setTimeout(() => noteRef.current?.focus(), 50)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+                setNoteText(annotation)
+                setNoteEditing(true)
+                setTimeout(() => noteRef.current?.focus(), 50)
+              }
             }}
           >
             <div className="text-[11px] text-gold/60 font-semibold uppercase tracking-wider mb-0.5">Your note</div>
