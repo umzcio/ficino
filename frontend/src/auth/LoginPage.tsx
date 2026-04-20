@@ -141,7 +141,7 @@ export function LoginPage() {
           <img
             src="/ficino-logo-dark.png"
             alt="Ficino"
-            className="h-12 mx-auto mb-3"
+            className="h-8 mx-auto mb-3"
           />
           <p className="text-[14px] text-text-muted">{subtitle}</p>
         </div>
