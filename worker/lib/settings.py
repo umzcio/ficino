@@ -119,6 +119,32 @@ def get_user_settings(user_id: str | None = None) -> dict:
             merged[key] = {**merged[key], **value}
         else:
             merged[key] = value
+
+    # Hosted deploy: the operator's env config is authoritative for provider
+    # and API-key settings; per-user DB values (and the module-level
+    # "ollama"-biased DEFAULTS that apply when a user has no settings row
+    # yet) must not override. The API's PUT /settings already drops these
+    # keys on write, but a brand-new user has no row at all — without this
+    # override their first task would pick up DEFAULTS["embed_provider"] =
+    # "ollama" and hang trying to reach Ollama from Railway.
+    if os.getenv("PUBLIC_DEPLOYMENT", "").lower() in ("1", "true", "yes"):
+        env_override = {
+            "llm_provider":        os.getenv("LLM_PROVIDER"),
+            "embed_provider":      os.getenv("EMBED_PROVIDER"),
+            "vision_provider":     os.getenv("VISION_PROVIDER"),
+            "claude_model":        os.getenv("CLAUDE_MODEL"),
+            "anthropic_api_key":   os.getenv("ANTHROPIC_API_KEY"),
+            "openai_api_key":      os.getenv("OPENAI_API_KEY"),
+            "voyage_api_key":      os.getenv("VOYAGE_API_KEY"),
+            "cohere_api_key":      os.getenv("COHERE_API_KEY"),
+            "voyage_embed_model":  os.getenv("VOYAGE_EMBED_MODEL"),
+            "rerank_provider":     os.getenv("RERANK_PROVIDER"),
+            "context_provider":    os.getenv("CONTEXT_PROVIDER"),
+            "context_anthropic_model": os.getenv("CONTEXT_ANTHROPIC_MODEL"),
+        }
+        for k, v in env_override.items():
+            if v:
+                merged[k] = v
     return merged
 
 
