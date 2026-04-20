@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, Loader2, Send, MessagesSquare } from 'lucide-react'
 import { usePersonas } from '../../hooks/usePersonas'
-import { getPersonaStats, getPersonaDm, sendPersonaDm, getPersonaReplies, type ReplyMessage, type PersonaReplyItem } from '../../lib/api'
+import { getPersonaStats, getPersonaDm, sendPersonaDm, getPersonaReplies, listUserPosts, type ReplyMessage, type PersonaReplyItem, type UserPost } from '../../lib/api'
 import type { FeedPost } from '../../types'
 import { PostCard, InlineMd } from '../Feed/PostCard'
+import { UserPostCard } from '../Feed/UserPostCard'
 
 interface PersonaProfileProps {
   personaKey: string
@@ -29,6 +30,13 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
   // they aren't top-level posts.
   const [replies, setReplies] = useState<PersonaReplyItem[]>([])
   const [repliesLoaded, setRepliesLoaded] = useState(false)
+  // The Archivist is reply-only + not feed-eligible, so its standard
+  // Posts tab is always empty. Instead, surface the user's Ask-Your-
+  // Corpus posts (user_posts with inline Archivist replies) — that's
+  // the work the Archivist actually does.
+  const isArchivist = personaKey === 'archivist'
+  const [corpusPosts, setCorpusPosts] = useState<UserPost[]>([])
+  const [corpusPostsLoaded, setCorpusPostsLoaded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -52,6 +60,16 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
         .finally(() => setRepliesLoaded(true))
     }
   }, [tab, personaKey, repliesLoaded])
+
+  // Lazy-load corpus Q&A for the Archivist's Posts tab.
+  useEffect(() => {
+    if (isArchivist && tab === 'posts' && !corpusPostsLoaded) {
+      listUserPosts()
+        .then(setCorpusPosts)
+        .catch(() => setCorpusPosts([]))
+        .finally(() => setCorpusPostsLoaded(true))
+    }
+  }, [isArchivist, tab, corpusPostsLoaded])
 
   useEffect(() => {
     if (tab === 'dm' && !dmLoaded) {
@@ -170,7 +188,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       </div>
 
       {/* Tabs */}
-      <PersonaTabs active={tab} onSelect={setTab} accentColor={p.color} />
+      <PersonaTabs active={tab} onSelect={setTab} accentColor={p.color} isArchivist={isArchivist} />
 
       {/* Content */}
       {tab === 'posts' && (
@@ -180,7 +198,26 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
           aria-labelledby="persona-tab-posts"
           tabIndex={0}
         >
-          {personaPosts.length === 0 ? (
+          {isArchivist ? (
+            !corpusPostsLoaded ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 size={20} className="animate-spin" style={{ color: p.color }} />
+              </div>
+            ) : corpusPosts.length === 0 ? (
+              <div className="py-16 text-center text-text-muted text-sm">
+                No corpus questions yet. Use the compose box on the feed to ask {p.name} a question.
+              </div>
+            ) : (
+              corpusPosts.map((post) => (
+                <UserPostCard
+                  key={post.id}
+                  post={post}
+                  userDisplayName="You"
+                  userHandle="@you"
+                />
+              ))
+            )
+          ) : personaPosts.length === 0 ? (
             <div className="py-16 text-center text-text-muted text-sm">
               No posts from {p.name} in the current feed.
             </div>
@@ -363,25 +400,35 @@ const PERSONA_TABS: { key: 'posts' | 'replies' | 'dm'; label: string }[] = [
   { key: 'dm', label: 'Messages' },
 ]
 
-function PersonaTabs({ active, onSelect, accentColor }: {
+// Archivist doesn't write top-level posts or jump into threads, so
+// re-label "Posts" as "Corpus Q&A" (the actual content that tab shows)
+// and hide Replies entirely.
+const ARCHIVIST_TABS: { key: 'posts' | 'replies' | 'dm'; label: string }[] = [
+  { key: 'posts', label: 'Corpus Q&A' },
+  { key: 'dm', label: 'Messages' },
+]
+
+function PersonaTabs({ active, onSelect, accentColor, isArchivist }: {
   active: 'posts' | 'replies' | 'dm'
   onSelect: (tab: 'posts' | 'replies' | 'dm') => void
   accentColor: string
+  isArchivist: boolean
 }) {
+  const tabs = isArchivist ? ARCHIVIST_TABS : PERSONA_TABS
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
     e.preventDefault()
     const dir = e.key === 'ArrowRight' ? 1 : -1
-    const nextIndex = (index + dir + PERSONA_TABS.length) % PERSONA_TABS.length
-    const nextKey = PERSONA_TABS[nextIndex].key
+    const nextIndex = (index + dir + tabs.length) % tabs.length
+    const nextKey = tabs[nextIndex].key
     onSelect(nextKey)
     tabRefs.current[nextKey]?.focus()
   }
 
   return (
     <div className="flex border-b border-border" role="tablist" aria-label="Persona sections">
-      {PERSONA_TABS.map(({ key, label }, i) => (
+      {tabs.map(({ key, label }, i) => (
         <button
           key={key}
           ref={(el) => { tabRefs.current[key] = el }}
