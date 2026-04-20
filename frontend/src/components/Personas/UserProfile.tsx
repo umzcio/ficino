@@ -11,7 +11,7 @@ interface UserProfileProps {
 }
 
 export function UserProfile({ workspaceId, displayName, handle, onBack, onPersonaClick }: UserProfileProps) {
-  const { posts } = useUserPosts(workspaceId)
+  const { posts, refresh } = useUserPosts(workspaceId)
 
   return (
     <div>
@@ -58,6 +58,7 @@ export function UserProfile({ workspaceId, displayName, handle, onBack, onPerson
             post={post}
             userDisplayName={displayName}
             userHandle={handle}
+            onDeleted={refresh}
             onPersonaClick={onPersonaClick}
           />
         ))

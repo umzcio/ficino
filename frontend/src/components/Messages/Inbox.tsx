@@ -30,15 +30,31 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Without the try/finally a single rejection from any of the three
+    // list calls (transient 5xx, offline) leaves loading=true forever
+    // and the user sees a spinner they can't recover from without a
+    // full reload. Log and surface-through via empty lists instead.
+    let active = true
     async function load() {
       setLoading(true)
-      const [p, g, t] = await Promise.all([listPaperConversations(workspaceId), listGroupChats(), listReplyConversations()])
-      setPapers(p)
-      setGroups(g)
-      setThreads(t)
-      setLoading(false)
+      try {
+        const [p, g, t] = await Promise.all([
+          listPaperConversations(workspaceId),
+          listGroupChats(),
+          listReplyConversations(),
+        ])
+        if (!active) return
+        setPapers(p)
+        setGroups(g)
+        setThreads(t)
+      } catch (err) {
+        if (active) console.warn('Inbox load failed:', err)
+      } finally {
+        if (active) setLoading(false)
+      }
     }
     load()
+    return () => { active = false }
   }, [workspaceId])
 
   return (
