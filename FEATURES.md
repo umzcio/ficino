@@ -1,5 +1,21 @@
 # Ficino — Product Roadmap
 
+Ficino ships to **two deploy targets from a single codebase**:
+
+- **Self-host** via `docker compose up` — runs on a laptop, home server, or
+  university VM. Defaults lean on Ollama for free local inference. The
+  PWA gives mobile access to the user's own instance. No account, no
+  SaaS billing, AGPL license.
+- **SaaS** at **[ficino.app](https://ficino.app)** — hosted on Railway
+  (api, worker, frontend, Redis) backed by Supabase (Postgres + pgvector,
+  Auth, object storage). Anthropic Claude + Voyage embeddings behind the
+  scenes. Cloudflare Turnstile on every auth surface. Invite-only in
+  beta. See `docs/saas-deploy.md` for the operator runbook.
+
+Self-host is unchanged by the SaaS deploy. Every change gates the
+SaaS-specific behaviour behind an env flag (`PUBLIC_DEPLOYMENT`,
+`STORAGE_PROVIDER`, `AUTH_PROVIDER`).
+
 ---
 
 ## Shipped
@@ -20,7 +36,7 @@ Everything below is live in production.
 |---------|-------------|
 | **Research-grounded prompts** | Five personas with detailed system prompts engineered from research on science communication, the replication crisis, and academic social media discourse. Each persona has specific "moves," voice rules, interaction rules, and post-type behaviors |
 | **DB-stored personas** | All persona data (metadata, prompts, retrieval queries, avatars, bios) lives in a single `personas` table. Adding a persona is one INSERT, zero code changes |
-| **Persona profiles** | Click any persona name → Twitter-style profile with Midjourney avatar, AI-generated bio, and three tabs: **Posts** (this persona's top-level feed posts), **Replies** (every interjection this persona made into other threads, with full parent-post context), **Messages** (private DM conversation) |
+| **Persona profiles** | Click any persona name → Twitter-style profile with Midjourney avatar, AI-generated bio, and three tabs: **Posts** (this persona's top-level feed posts), **Replies** (every interjection this persona made into other threads, with full parent-post context), **Messages** (private DM conversation). The Archivist is a special case — it's reply-only (never publishes to feeds), so its profile swaps "Posts" for a **Corpus Q&A** tab that lists the user's Ask-Your-Corpus conversations, hides the Replies tab, and suppresses the "Get their take" button |
 | **Opt-out persona enablement** | Every DB persona with `feed_eligible=true` is enabled by default; the user opts out via `personas_enabled[key]=false` in settings. Personas added via migration appear in every user's feed automatically with no seed-data update required |
 | **Persona DMs** | Message any persona directly. They respond in character, grounded in your corpus via RAG. Conversations persist across sessions |
 | **Organic interjections** | After 2+ user replies in a thread, another persona may jump in (~70% chance) if the conversation topic overlaps their expertise. Selective, opinionated, and unprompted |
@@ -120,8 +136,8 @@ Everything below is live in production.
 | **Light/dark mode** | Instant theme switching via CSS custom properties. Warm white light palette with adjusted gold accent |
 | **Font size** | Small, normal, large — applies via root font-size |
 | **Post spacing** | Compact, comfortable — adjusts article padding |
-| **LLM provider** | Toggle between Ollama (local, free) and Claude/OpenAI APIs |
-| **Model selection** | Pick from installed Ollama models via dropdown |
+| **LLM provider** | Toggle between Ollama (local, free) and Claude/OpenAI APIs. **SaaS users can't change this** — `PUBLIC_DEPLOYMENT=true` swaps the provider controls for a "Managed by Ficino" panel and the settings-update endpoint silently drops any provider-override write. Operator env (Railway variables) is the single source of truth on hosted deploys |
+| **Model selection** | Pick from installed Ollama models via dropdown (self-host only) |
 | **Persona controls** | Enable/disable personas, adjust temperature, tune post type weights |
 | **Paper processing** | Extraction mode (auto/PyMuPDF/vision), chunk size |
 
@@ -144,8 +160,13 @@ Everything below is live in production.
 |---------|-------------|
 | **Pluggable providers** | `AUTH_PROVIDER` env var selects auth mode: `none` (no login, self-hosted default), `basic` (email/password), `supabase` (JWT for production). Switch with one env change, no code changes |
 | **Basic auth** | bcrypt password hashing, Redis session storage (7-day sliding TTL), HTTP-only cookies. First user registration auto-allowed, subsequent controlled by `ALLOW_REGISTRATION` |
-| **Supabase auth** | JWT verification via `SUPABASE_JWT_SECRET`. Users auto-created in local DB on first login. Frontend uses `@supabase/supabase-js` for auth flows |
-| **Auth abstraction** | Single `get_current_user` FastAPI dependency replaces all user identity logic. Routes never know which provider is active. Frontend discovers provider via `GET /auth/provider` |
+| **Supabase auth** | JWT verification via JWKS endpoint (supports ES256/RS256 asymmetric keys as well as legacy HS256 HMAC). Users auto-created in local DB on first login; a Default workspace is seeded alongside so the app has somewhere to put their first paper. Frontend uses `@supabase/supabase-js` for auth flows |
+| **Cloudflare Turnstile captcha** | On Supabase deploys, every authenticator call (sign-in, sign-up, password reset, OTP verify) routes a Turnstile token through `options.captchaToken`. Site key in `VITE_TURNSTILE_SITE_KEY`, secret in the Supabase dashboard. Self-host leaves the site key unset → widget silently no-ops |
+| **OTP-code password recovery** | Reset password email includes `{{ .Token }}` so the user can type the code into an in-app form instead of clicking a link. Defends against corporate link scanners (Microsoft ATP Safe Links, Google pre-fetch) that burn single-use reset tokens before the recipient can click. Flow: "Forgot password?" → email lands with code → Login page `verify-code` mode takes email + code + new password → `verifyOtp({type:'recovery'})` then `updateUser({password})` |
+| **Admin-set password override** | Operator script at `/tmp/set-my-password.sh` hits Supabase's admin API to rewrite a user's password directly — bypasses email entirely when corporate scanners break the normal flow |
+| **Sign out** | Settings → Account → Session panel. Shows the signed-in email + a Sign Out button; also clears per-browser IndexedDB so the next user on the device doesn't see a previous session's cached data |
+| **Auth abstraction** | Single `get_current_user` FastAPI dependency replaces all user identity logic. Routes never know which provider is active. Frontend discovers provider + deploy mode via `GET /auth/provider` |
+| **CSRF posture** | Double-submit cookie under `none` / `basic` providers. Skipped entirely under `supabase` — the Authorization-header-bearer flow is structurally immune to CSRF (no auto-attached credential a cross-origin page could exploit) |
 
 ### PWA + Offline Mode
 | Feature | Description |
@@ -158,6 +179,18 @@ Everything below is live in production.
 | **Download workspace** | One-click download of an entire workspace: feeds, papers, bookmarks, annotations, likes, paper summaries, figure images. Progress modal with cancel support. Sync timestamp tracked per workspace |
 | **Offline & Storage settings** | Settings section showing cache size, per-workspace sync status, download/sync buttons, and clear offline data |
 | **Sync indicator** | "Synced Xm/Xh ago" in feed header metadata line. Amber warning when stale (>24h) |
+
+### Mobile
+| Feature | Description |
+|---------|-------------|
+| **Responsive primitives** | Dropdown / context-menu widths clamp to `max-w-[calc(100vw-2rem)]` so PostCard menus never overflow a 390px phone. Every icon-only button has ≥44×44 px hit region (WCAG 2.5.5). `env(safe-area-inset-*)` padding on the bottom nav + sticky headers so the iPhone home indicator and notch stop clipping content. Global `-webkit-tap-highlight-color: transparent` + touch-callout disabled on chrome, preserved on prose so quotes still copy |
+| **Edge swipe-back** | Right-drag from the left edge of any detail view (post, persona profile, user profile, reading list chapter) triggers back navigation. Matches iOS native muscle memory. Mounted as an invisible 20 px strip that's axis-locked to ignore vertical scroll |
+| **Swipeable feed tabs** | Horizontal drag across the feed advances/retreats between For You / Debates / Methods / Findings. Commits at 80 px + 0.2 velocity. Additive — tabs remain tappable |
+| **Pull-to-refresh** | Pull the feed down at `scrollY=0` → gold spinner rotates with pull progress, fires a feed reload on release past threshold. Rubber-band beyond threshold for natural feel |
+| **Swipe-to-act on cards** | Swipe-left on any PostCard reveals a Like gutter; swipe-right reveals a Reply gutter. Commits at 80 px, haptic on commit. Axis-locked with an 8 px dead-zone so vertical scroll wins when the user's first motion is downward. Disabled while a menu, reply textarea, or zap panel is open |
+| **Keyboard-aware inputs** | `window.visualViewport` listener scrolls the focused input into view when the on-screen keyboard opens. Wired into ComposeBox (Ask-Your-Corpus) and LoginPage |
+| **Haptic feedback** | `navigator.vibrate(10)` on like, bookmark, and swipe commits. Graceful no-op on iOS Safari (no Vibration API) |
+| **Gesture library** | `@use-gesture/react` (~15 KB gz) for useDrag primitives; axis-locking, tap filtering, and velocity are standardized in one place |
 
 ---
 
@@ -173,13 +206,21 @@ User-created personas with custom name, handle, color, system prompt, and retrie
 
 ## Distribution Model
 
-Ficino ships as a **self-hosted Docker Compose project** — the same model as Ollama, Immich, or Paperless-ngx.
+Ficino ships to **two deploy targets from a single codebase**:
 
-- No SaaS. No managing other people's data. No billing infrastructure.
-- Users run it on their own laptop, home server, or university VM
-- The PWA gives mobile access to their own instance
+**Self-host** — same model as Ollama / Immich / Paperless-ngx.
 - `git clone && docker compose up` is the install
-- AGPL license: self-host freely, cloud providers must open-source changes
+- Runs on a laptop, home server, or university VM
+- Defaults to Ollama for free local inference (`AUTH_PROVIDER=none`, `STORAGE_PROVIDER=local`)
+- The PWA gives mobile access to the user's own instance
+- Users bring (or omit) their own API keys for Claude / Voyage / etc. via the Settings → AI panel
+- AGPL license: self-host freely, cloud providers must open-source their changes
+
+**SaaS** — hosted at [ficino.app](https://ficino.app).
+- Railway (api + worker + frontend + managed Redis) + Supabase (Postgres/pgvector, Auth, object storage) + Cloudflare (DNS + Turnstile captcha) + Mailgun (SMTP)
+- Invite-only beta; sign-ups disabled in Supabase Auth until we're ready for wider access
+- Operator env controls everything provider-side — users only see their content, not the LLM plumbing (`PUBLIC_DEPLOYMENT=true`)
+- Same codebase, gated behind env flags. Anyone can stand up their own instance via `docs/saas-deploy.md`
 
 ---
 
@@ -209,13 +250,16 @@ Visual map of how papers in your corpus cite each other. Surfaces structural rel
 
 ## Production
 
-Required for ficino.ai public deployment.
+Required for ficino.app public deployment.
 
 | Item | Status |
 |------|--------|
-| Auth & user management | **Shipped** — pluggable AUTH_PROVIDER (none/basic/supabase) |
+| Auth & user management | **Shipped** — pluggable AUTH_PROVIDER (none/basic/supabase), Turnstile captcha, OTP-code password recovery |
 | Rate limiting & cost controls | **Shipped** — Redis-based per-user rate limits on uploads (50/day), feed generation (20/day), user posts (30/day). Configurable via env. Skipped for AUTH_PROVIDER=none |
 | Retrieval debug view (dev only) | **Shipped** — three-dots menu → Debug view (dev builds only) |
-| Logging & error tracking | Deferred — structlog in place for container logs. Will pick a service (Sentry, Betterstack, or Supabase logs) when ficino.ai hosting stack is finalized |
-| Connection pooling optimization | **Shipped** — Worker uses persistent asyncpg pool (min 2, max 10) with shared event loop. API pool unchanged (min 5, max 20). Eliminates per-query connection churn |
-| Security headers & CORS lockdown | **Shipped** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS + CSP in production, CORS locked to specific origins |
+| Logging & error tracking | Deferred — structlog in place for container logs. Will pick a service (Sentry, Betterstack, Axiom) once beta-tester volume warrants it |
+| Connection pooling optimization | **Shipped** — env-configurable pool sizes (`DB_POOL_MIN_SIZE` / `DB_POOL_MAX_SIZE`) on both api and worker. Railway defaults 2-8 (api) / 1-5 (worker) to fit Supabase session pooler's 15-client cap |
+| Security headers & CORS lockdown | **Shipped** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS + CSP in production, CORS locked to specific origins, CORSMiddleware moved to outermost layer so CSRF/header-middleware rejections still carry ACAO |
+| SaaS deploy (Railway + Supabase) | **Shipped** — full operator runbook at `docs/saas-deploy.md`. Three Railway services + managed Redis, one Supabase project, Cloudflare DNS + Turnstile, Mailgun SMTP. Same frontend bundle as self-host; env flags toggle the hosted behaviour |
+| Object storage backend | **Shipped** — pluggable via `STORAGE_PROVIDER=local|supabase`. Local is the self-host default (filesystem under `/app/uploads`, `/app/figures`); Supabase uses a single private bucket keyed by `{user_id}/{paper_id}.pdf` and `.../figures/{filename}.png` with signed-URL figure access (30-day TTL). Workers download PDFs to a tempfile for fitz/marker/PIL and release on cleanup |
+| Mobile responsiveness | **Shipped** — see the Mobile section above. Dropdowns clamped, touch targets ≥44 px, safe-area insets, edge swipe-back, swipeable tabs, pull-to-refresh, swipe-to-act, keyboard-aware inputs, haptics |

@@ -13,14 +13,14 @@
 <p align="center">
   <strong>AI-powered academic discourse engine</strong><br/>
   Transform dense research papers into a simulated social media feed where AI personas debate the findings.<br/><br/>
-  <a href="https://ficino.ai">ficino.ai</a> · <a href="https://docs.ficino.ai">Docs</a> · <a href="https://github.com/umzcio/ficino/blob/main/FEATURES.md">Roadmap</a>
+  <a href="https://ficino.app">ficino.app</a> · <a href="https://docs.ficino.ai">Docs</a> · <a href="https://github.com/umzcio/ficino/blob/main/FEATURES.md">Roadmap</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-beta-c8a96e?style=flat-square" alt="Beta" />
   <img src="https://img.shields.io/badge/license-AGPL--v3-c8a96e?style=flat-square" alt="AGPL v3" />
   <img src="https://img.shields.io/badge/stack-React%20%7C%20FastAPI%20%7C%20Celery%20%7C%20pgvector-4a9eff?style=flat-square" alt="Stack" />
-  <img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20Claude-34d399?style=flat-square" alt="LLM" />
+  <img src="https://img.shields.io/badge/LLM-Claude%20%7C%20OpenAI%20%7C%20Ollama-34d399?style=flat-square" alt="LLM" />
 </p>
 
 ---
@@ -134,7 +134,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 ### Authentication
 - **Pluggable**: `AUTH_PROVIDER=none` (default, no login), `basic` (email/password), or `supabase` (JWT)
 - **Self-hosted**: `none` for single-user, `basic` for multi-user with bcrypt + Redis sessions
-- **Production**: `supabase` for ficino.ai with Supabase Auth + hosted Postgres
+- **SaaS**: `supabase` powers ficino.app — Supabase Auth with ES256 JWT verification via JWKS, Cloudflare Turnstile captcha on every auth action, OTP-code password recovery (survives Microsoft Safe Links pre-fetch), Sign Out button in Settings
 - **One env change**: switch providers without code changes
 
 ### PWA + Offline Mode
@@ -144,20 +144,32 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Download workspace**: one-click pre-cache of an entire workspace (feeds, papers, summaries, figures) for airplane-mode reading
 - **Sync indicator**: per-workspace "synced Xm ago" shown in Settings → Storage; amber warning when stale (>24h)
 
+### Mobile
+- **Gesture-first**: swipe between feed tabs, pull-to-refresh, edge swipe-back on detail views (`@use-gesture/react` with axis-lock so horizontal swipes never fight vertical scroll)
+- **Swipe-to-act on posts**: swipe-left reveals Like + Bookmark; swipe-right reveals Reply — same pattern as iOS Mail
+- **Safe-area aware**: bottom nav clears the iPhone home indicator, headers clear the notch (`env(safe-area-inset-*)` + `viewport-fit=cover`)
+- **Touch targets**: every action icon has a ~44×44 px hit zone without visual bloat
+- **Keyboard-aware compose**: active input scrolls into view when the iOS keyboard opens (`visualViewport` API)
+- **Haptics**: short vibration on like / bookmark / swipe-commit where supported (Android Chrome; silent on iOS Safari)
+- **Responsive primitives**: dropdowns clamp to `calc(100vw - 2rem)`; drawer fits the smallest phones
+
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | React + Vite + TypeScript + TailwindCSS v4 + PWA (Workbox + IndexedDB) |
+| **Frontend** | React + Vite + TypeScript + TailwindCSS v4 + PWA (Workbox + IndexedDB) + `@use-gesture/react` |
 | **Backend API** | FastAPI (Python 3.11+), async, raw SQL with asyncpg |
 | **Workers** | Celery + Redis (ingestion, feed generation, alerts) |
-| **Database** | PostgreSQL + pgvector (hybrid vector + BM25 search) |
-| **LLM** | Ollama (local) or Anthropic Claude / OpenAI APIs |
-| **Embeddings** | bge-m3 (1024d, Ollama) or text-embedding-3-small (OpenAI) |
-| **PDF Processing** | PyMuPDF + Vision fallback (gemma4) |
-| **Deployment** | Docker Compose (5 containers) |
+| **Database** | PostgreSQL + pgvector (hybrid vector + BM25 search) — self-host: local Postgres; SaaS: Supabase |
+| **Auth** | Pluggable: `none` / `basic` (bcrypt + Redis sessions) / `supabase` (ES256 JWT via JWKS) |
+| **LLM** | Anthropic Claude, OpenAI, or Ollama (env-driven defaults; no hardcoded provider) |
+| **Embeddings** | voyage-3 (SaaS default), text-embedding-3-small (OpenAI), or bge-m3 (1024d, Ollama) |
+| **PDF Processing** | PyMuPDF + Vision fallback (Claude Sonnet or local multimodal model) |
+| **Object Storage** | Local disk (self-host) or Supabase Storage with RLS (SaaS) |
+| **Bot Protection** | Cloudflare Turnstile (SaaS) — site key baked into frontend, secret on Supabase |
+| **Deployment** | Docker Compose (self-host) or Railway + Supabase + Cloudflare (SaaS at ficino.app) |
 
 ---
 
@@ -202,18 +214,27 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 
 ## Quick Start
 
-### Prerequisites
+Ficino ships two deploy targets from a single codebase:
 
+### Option A — Use the hosted SaaS
+
+Head to **[ficino.app](https://ficino.app)**, create an account, and upload your first PDF. No install required.
+Campus-friendly: email/password with Supabase Auth, Turnstile captcha, and OTP-code password recovery that survives corporate link scanners.
+
+### Option B — Self-host with Docker
+
+Best for labs, classrooms, or anyone who wants their corpus to stay on-prem.
+
+**Prerequisites:**
 - Docker & Docker Compose
-- Ollama running on the host with at least one LLM and embedding model:
+- Either an LLM API key (Anthropic or OpenAI) *or* a local Ollama install with at least one LLM and embedding model:
   ```bash
   ollama pull qwen3.5
   ollama pull bge-m3
   ollama pull gemma4  # optional, for vision fallback
   ```
 
-### Setup
-
+**Setup:**
 ```bash
 # Clone the repo
 git clone https://github.com/umzcio/ficino.git
@@ -221,7 +242,7 @@ cd ficino
 
 # Configure environment
 cp .env.example .env
-# Edit .env if needed (defaults work with local Ollama + no auth)
+# Edit .env — pick your LLM provider, set AUTH_PROVIDER=none|basic, etc.
 
 # Launch
 docker compose up -d
@@ -230,6 +251,8 @@ docker compose up -d
 ```
 
 All five services (frontend, api, worker, postgres, redis) start automatically with health checks.
+
+See [docs.ficino.ai](https://docs.ficino.ai) for the full self-host guide and the Railway + Supabase SaaS deploy walkthrough.
 
 ---
 
@@ -314,7 +337,7 @@ ficino/
 
 **Why pgvector with hybrid search?** Keeps everything in one database, one query language. At our scale (~4,000 vectors), pgvector handles this trivially. Hybrid search catches both semantic similarity and exact term matches (author names, technical vocabulary).
 
-**Why Ollama first?** Zero API cost during development. Switch to Claude/OpenAI for production with a single .env change.
+**Why pluggable LLM providers?** No hardcoded vendor. Env-driven defaults (`LLM_PROVIDER`, `EMBED_PROVIDER`, `VISION_PROVIDER`) let you run fully local on Ollama for zero-cost development, or point at Anthropic/OpenAI in production. The hosted SaaS ships Claude + Voyage by default; the Docker Compose bundle defaults to Ollama so `docker compose up -d` works offline.
 
 **Why section-aware chunking?** A methods chunk retrieved alongside a findings chunk creates confused personas. Section labels mean personas can focus on their domain: methodology critiques come from methods chunks, hype posts come from findings chunks.
 
@@ -327,7 +350,7 @@ See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
 - Custom personas (user-created, one INSERT to the DB)
 - Export feed (markdown/PDF for dissertation use)
 - Citation graph (visual map of inter-paper citations)
-- Production hardening for ficino.ai deployment
+- Production hardening for ficino.app deployment
 
 ---
 
@@ -335,7 +358,7 @@ See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
 
 [AGPL v3](LICENSE) — open source, self-host freely. If you run it as a service, you must open-source your changes.
 
-Commercial cloud hosting available at [ficino.ai](https://ficino.ai) (coming soon).
+Hosted SaaS live at [ficino.app](https://ficino.app) — sign up with email, no install required.
 
 ---
 
