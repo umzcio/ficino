@@ -23,10 +23,15 @@ async def list_annotations(
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all annotations for the current user."""
+    # Only recent notes are needed for the hydrated Map on mount; the
+    # dashboard UI for scanning all notes loads a paginated view. 1000
+    # is well above any practical annotation count per user and keeps
+    # the hot path bounded.
     rows = await db.fetch(
         """SELECT id, feed_id, post_index, body, created_at, updated_at
            FROM annotations WHERE user_id = $1
-           ORDER BY updated_at DESC""",
+           ORDER BY updated_at DESC
+           LIMIT 1000""",
         user.id,
     )
     return [

@@ -28,11 +28,16 @@ async def list_bookmarks(
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all bookmarked posts for the current user, newest first."""
+    # Cap at 500 to keep the list mount fast. Each bookmark carries a
+    # ~2KB JSONB post_snapshot; an unbounded list at 5000 bookmarks is
+    # ~10 MB per app mount. Enough headroom for a power user to scroll,
+    # and a dedicated paginated view can come later if needed.
     rows = await db.fetch(
         """SELECT id, feed_id, post_index, message_index, post_snapshot, bookmarked_at
            FROM bookmarks
            WHERE user_id = $1
-           ORDER BY bookmarked_at DESC""",
+           ORDER BY bookmarked_at DESC
+           LIMIT 500""",
         user.id,
     )
     results = []

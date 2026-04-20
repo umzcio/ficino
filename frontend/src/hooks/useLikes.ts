@@ -8,8 +8,13 @@ export function useLikes(feedId: string | null) {
 
   useEffect(() => {
     if (!feedId) return
+    // Without this sentinel, switching from a slow-responding feed A to
+    // a fast-responding feed B would let A's late response overwrite
+    // B's already-rendered likes state (Round 9 #15).
+    let active = true
     listLikesForFeed(feedId)
       .then((data) => {
+        if (!active) return
         cacheLikes(feedId, data).catch(() => {})
         setLikedPosts(new Set(data.posts))
         setLikedReplies(new Set(Object.keys(data.replies)))
@@ -17,12 +22,14 @@ export function useLikes(feedId: string | null) {
       .catch(async () => {
         try {
           const cached = await getCachedLikes(feedId)
+          if (!active) return
           if (cached) {
             setLikedPosts(new Set(cached.posts))
             setLikedReplies(new Set(Object.keys(cached.replies)))
           }
         } catch { /* ignore */ }
       })
+    return () => { active = false }
   }, [feedId])
 
   const isLiked = useCallback(

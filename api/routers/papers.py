@@ -151,7 +151,8 @@ async def list_papers(
                LEFT JOIN tags t ON pt.tag_id = t.id
                WHERE p.user_id = $1 AND p.corpus_id = $2
                GROUP BY p.id
-               ORDER BY p.uploaded_at DESC""",
+               ORDER BY p.uploaded_at DESC
+               LIMIT 500""",
             user.id, workspace_id,
         )
     else:
@@ -168,7 +169,8 @@ async def list_papers(
                LEFT JOIN tags t ON pt.tag_id = t.id
                WHERE p.user_id = $1
                GROUP BY p.id
-               ORDER BY p.uploaded_at DESC""",
+               ORDER BY p.uploaded_at DESC
+               LIMIT 500""",
             user.id,
         )
     papers = []
