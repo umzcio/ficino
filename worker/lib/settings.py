@@ -35,23 +35,34 @@ def get_active(setting_key: str, env_key: str, default: str = "") -> str:
 
 STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
+# Provider defaults come from env, not from a hard-coded string. Docker-compose
+# self-host sets LLM_PROVIDER=ollama in .env; Railway / SaaS sets it to "api".
+# No deploy target biases the other — if the env is unset we fall back to
+# "ollama" purely because it's the zero-config local-only option a fresh
+# self-host clone is expected to run on.
 DEFAULTS = {
-    "llm_provider": "ollama",
-    "embed_provider": "ollama",
-    "claude_model": "claude-sonnet-4-6",
-    "ollama_llm_model": "qwen3.5:latest",
-    "ollama_embed_model": "bge-m3:latest",
-    "vision_provider": "ollama",
-    "ollama_vision_model": "gemma4:latest",
-    # Cross-encoder rerank of retrieval candidates. "none" = off (default).
-    "rerank_provider": "none",
-    "rerank_local_model": "BAAI/bge-reranker-v2-m3",
-    "rerank_voyage_model": "rerank-2-lite",
-    "rerank_cohere_model": "rerank-v3.5",
+    "llm_provider":   os.getenv("LLM_PROVIDER", "ollama"),
+    "embed_provider": os.getenv("EMBED_PROVIDER", "ollama"),
+    "vision_provider": os.getenv("VISION_PROVIDER", "ollama"),
+    "claude_model":   os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
+    "ollama_llm_model":    os.getenv("OLLAMA_LLM_MODEL", "qwen3.5:latest"),
+    "ollama_embed_model":  os.getenv("OLLAMA_EMBED_MODEL", "bge-m3:latest"),
+    "ollama_vision_model": os.getenv("OLLAMA_VISION_MODEL", "gemma4:latest"),
+    "voyage_embed_model":  os.getenv("VOYAGE_EMBED_MODEL", "voyage-4-large"),
+    "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+    "openai_api_key":    os.getenv("OPENAI_API_KEY", ""),
+    "voyage_api_key":    os.getenv("VOYAGE_API_KEY", ""),
+    "cohere_api_key":    os.getenv("COHERE_API_KEY", ""),
+    # Cross-encoder rerank of retrieval candidates. "none" = off.
+    "rerank_provider":    os.getenv("RERANK_PROVIDER", "none"),
+    "rerank_local_model":  os.getenv("RERANK_LOCAL_MODEL", "BAAI/bge-reranker-v2-m3"),
+    "rerank_voyage_model": os.getenv("RERANK_VOYAGE_MODEL", "rerank-2-lite"),
+    "rerank_cohere_model": os.getenv("RERANK_COHERE_MODEL", "rerank-v3.5"),
     # Per-chunk contextual prefix generation at ingest time. "none" = off.
-    "context_provider": "none",
-    "context_anthropic_model": "claude-haiku-4-5",
-    "context_ollama_model": "qwen3.5:latest",
+    "context_provider":        os.getenv("CONTEXT_PROVIDER", "none"),
+    "context_anthropic_model": os.getenv("CONTEXT_ANTHROPIC_MODEL", "claude-haiku-4-5"),
+    "context_ollama_model":    os.getenv("CONTEXT_OLLAMA_MODEL", "qwen3.5:latest"),
+    # Non-provider settings — safe to default as data, not env.
     "personas_enabled": {
         "skeptic": True,
         "hype": True,
@@ -120,31 +131,18 @@ def get_user_settings(user_id: str | None = None) -> dict:
         else:
             merged[key] = value
 
-    # Hosted deploy: the operator's env config is authoritative for provider
-    # and API-key settings; per-user DB values (and the module-level
-    # "ollama"-biased DEFAULTS that apply when a user has no settings row
-    # yet) must not override. The API's PUT /settings already drops these
-    # keys on write, but a brand-new user has no row at all — without this
-    # override their first task would pick up DEFAULTS["embed_provider"] =
-    # "ollama" and hang trying to reach Ollama from Railway.
+    # Hosted deploy: the operator's env is authoritative for provider
+    # selection and API keys. DEFAULTS already read from env so a fresh
+    # user (no settings row) gets env values. But an EXISTING user row
+    # may carry stale "ollama" values from a prior self-host install
+    # that got migrated to SaaS — reassert env over those so they can't
+    # accidentally point the worker at an Ollama instance that isn't
+    # reachable from the hosted runtime.
     if os.getenv("PUBLIC_DEPLOYMENT", "").lower() in ("1", "true", "yes"):
-        env_override = {
-            "llm_provider":        os.getenv("LLM_PROVIDER"),
-            "embed_provider":      os.getenv("EMBED_PROVIDER"),
-            "vision_provider":     os.getenv("VISION_PROVIDER"),
-            "claude_model":        os.getenv("CLAUDE_MODEL"),
-            "anthropic_api_key":   os.getenv("ANTHROPIC_API_KEY"),
-            "openai_api_key":      os.getenv("OPENAI_API_KEY"),
-            "voyage_api_key":      os.getenv("VOYAGE_API_KEY"),
-            "cohere_api_key":      os.getenv("COHERE_API_KEY"),
-            "voyage_embed_model":  os.getenv("VOYAGE_EMBED_MODEL"),
-            "rerank_provider":     os.getenv("RERANK_PROVIDER"),
-            "context_provider":    os.getenv("CONTEXT_PROVIDER"),
-            "context_anthropic_model": os.getenv("CONTEXT_ANTHROPIC_MODEL"),
-        }
-        for k, v in env_override.items():
-            if v:
-                merged[k] = v
+        for k, env_key in _SETTINGS_TO_ENV.items():
+            env_val = os.getenv(env_key)
+            if env_val:
+                merged[k] = env_val
     return merged
 
 
