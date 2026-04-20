@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { PaperUpload } from '../Upload/PaperUpload'
 import { CorpusPanel } from '../Sidebar/CorpusPanel'
@@ -32,12 +32,31 @@ export function MobileDrawer({
   const dialogRef = useRef<HTMLDivElement>(null)
   useFocusTrap(open, dialogRef)
 
+  // Esc closes the drawer from inside any child input. The global
+  // keyboard-shortcut handler skips Esc when focus is on an INPUT/
+  // TEXTAREA tag, so a user with focus on the upload filename input
+  // (or any other input inside this drawer) was previously trapped
+  // with no keyboard way out. Dialog-scoped listener bypasses that rule.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
   if (!open) return null
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop. aria-hidden so SR users focus the dialog itself
+          rather than the click-catching overlay. */}
       <div
+        aria-hidden="true"
         className="fixed inset-0 bg-black/60 z-50"
         onClick={onClose}
       />

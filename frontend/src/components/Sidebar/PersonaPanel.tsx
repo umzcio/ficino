@@ -16,10 +16,14 @@ export function PersonaPanel({ enabledPersonas, onPersonaClick }: PersonaPanelPr
         Personas ({entries.length})
       </div>
       {entries.map(([key, p]) => (
+        // role="menuitem" without a role="menu" parent was invalid ARIA
+        // and confused SR users. A plain <button> in a list of buttons
+        // is already correct semantics; wrapping the list in role="menu"
+        // would be the other valid option but would imply keyboard
+        // arrow-key navigation we don't actually implement.
         <button
           key={key}
           type="button"
-          role="menuitem"
           aria-label={p.name}
           onClick={() => onPersonaClick?.(key)}
           className="w-full text-left flex items-center gap-2.5 py-1.5 cursor-pointer hover:bg-bg rounded-lg px-1 -mx-1 transition-colors border-none bg-transparent"

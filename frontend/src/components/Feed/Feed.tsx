@@ -126,8 +126,15 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
 
   if (feedState === 'error') {
     return (
-      <div {...panelProps} className="flex flex-col items-center justify-center py-20 text-persona-skeptic">
-        <AlertCircle size={32} className="mb-4" />
+      // role="alert" so SR users who heard "Generating…" above are told
+      // when the attempt fails instead of being left in silence.
+      <div
+        {...panelProps}
+        role="alert"
+        aria-atomic="true"
+        className="flex flex-col items-center justify-center py-20 text-persona-skeptic"
+      >
+        <AlertCircle size={32} className="mb-4" aria-hidden="true" />
         <p className="text-sm font-medium mb-1">Generation failed</p>
         <p className="text-xs text-text-muted max-w-[300px] text-center">{error}</p>
       </div>

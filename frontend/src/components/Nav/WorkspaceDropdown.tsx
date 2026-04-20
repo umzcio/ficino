@@ -38,15 +38,18 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
+        aria-label={`Switch workspace (current: ${active.name})`}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="flex items-center gap-1 text-[13px] text-text-muted hover:text-gold bg-transparent border-none cursor-pointer transition-colors px-0"
       >
-        <Folder size={11} />
+        <Folder size={11} aria-hidden="true" />
         <span className="max-w-[120px] truncate">{active.name}</span>
-        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={12} aria-hidden="true" className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-2 w-[220px] bg-bg border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+        <div role="menu" aria-label="Workspaces" className="absolute top-full left-0 mt-2 w-[220px] bg-bg border border-border rounded-xl shadow-lg z-50 overflow-hidden">
           <div className="px-3 py-2 text-[11px] text-text-muted font-semibold tracking-wider uppercase border-b border-border">
             Workspaces
           </div>

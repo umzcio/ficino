@@ -194,7 +194,10 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
       )}
 
       {status === 'error' && (
-        <div className="px-4 py-3 flex gap-3 border-l-2 border-persona-skeptic/30 ml-0">
+        // role="alert" — the pending + complete states already have a
+        // polite live region above, but error was silent, leaving SR
+        // users unaware their question failed.
+        <div role="alert" aria-atomic="true" className="px-4 py-3 flex gap-3 border-l-2 border-persona-skeptic/30 ml-0">
           <div className="text-[13px] text-persona-skeptic ml-13">
             The Archivist encountered an error. Try again or check your LLM provider settings.
           </div>

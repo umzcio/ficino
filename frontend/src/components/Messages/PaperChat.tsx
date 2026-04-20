@@ -158,8 +158,11 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
           <p className="text-xs text-text-muted">{error}</p>
         </div>
       ) : loading || (summary?.status === 'generating') ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <Loader2 size={28} className="text-gold animate-spin" />
+        // aria-live so SR users who opened this view hear that summary
+        // generation is underway. Without the live region the 30-60s
+        // wait is silent. aria-busy signals "content being produced".
+        <div role="status" aria-live="polite" aria-busy="true" className="flex flex-col items-center justify-center py-20 gap-3">
+          <Loader2 size={28} className="text-gold animate-spin" aria-hidden="true" />
           <p className="text-sm text-text-muted">
             {summary?.messages?.length === 0 ? 'Generating summary...' : 'Loading...'}
           </p>

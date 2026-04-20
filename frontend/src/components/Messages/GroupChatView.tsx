@@ -86,8 +86,10 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 size={28} className="text-gold animate-spin" />
+        // Group synthesis takes many seconds; announce it so SR users
+        // aren't left in silence while Claude works through the prompts.
+        <div role="status" aria-live="polite" aria-busy="true" aria-label="Generating group synthesis" className="flex items-center justify-center py-20">
+          <Loader2 size={28} className="text-gold animate-spin" aria-hidden="true" />
         </div>
       ) : chat?.messages && chat.messages.length > 0 ? (
         <div className="py-3 space-y-2">
