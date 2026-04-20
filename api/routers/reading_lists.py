@@ -224,6 +224,7 @@ async def create_reading_list(
     task = celery_app.send_task(
         "tasks.reading_list_tasks.propose_ordering",
         args=[paper_ids, body.corpus_id, list_id],
+        kwargs={"user_id": user.id},
         queue="persona",
     )
 

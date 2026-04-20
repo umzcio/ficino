@@ -11,6 +11,7 @@ from celery_app import app
 from lib import claude_client
 from lib.db import execute, fetch, fetchrow
 from lib.sanitize import fence_untrusted
+from lib.settings import apply_provider_settings, STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
 
@@ -124,10 +125,18 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
                 # Same task retrying after a mid-flight crash — fall through
                 # and regenerate over the half-written row.
 
-        # Get paper info
-        paper = fetchrow("SELECT title, filename, authors FROM papers WHERE id = $1", paper_id)
+        # Get paper info — include user_id so the provider settings below
+        # (LLM key, model choice) bill the paper owner, not whichever
+        # user's config was cached in this Celery prefork child.
+        paper = fetchrow(
+            "SELECT title, filename, authors, user_id FROM papers WHERE id = $1",
+            paper_id,
+        )
         if not paper:
             raise ValueError(f"Paper {paper_id} not found")
+
+        paper_user_id = str(paper["user_id"]) if paper["user_id"] else STUB_USER_ID
+        apply_provider_settings(paper_user_id)
 
         title = paper["title"] or paper["filename"]
 
@@ -228,6 +237,11 @@ def generate_corpus_synthesis(
     log.info("corpus_synthesis_start", papers=len(paper_ids))
 
     try:
+        # Scope provider settings to the requesting user so the multi-paper
+        # Claude call bills their keys, not whichever user's config is
+        # cached in this Celery prefork child from a prior task.
+        apply_provider_settings(user_id)
+
         # Gather key chunks from each paper
         paper_sections: list[str] = []
         for pid in paper_ids:

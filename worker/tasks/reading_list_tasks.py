@@ -50,6 +50,7 @@ def propose_ordering(
     paper_ids: list[str],
     corpus_id: str | None = None,
     list_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict:
     """Analyze papers and propose an optimal reading order with rationale.
 
@@ -65,7 +66,10 @@ def propose_ordering(
     start = time.time()
 
     try:
-        apply_provider_settings()
+        # Scope provider settings to the requesting user so the ordering
+        # LLM call bills their keys, not whichever user's config leaked
+        # from the prior task in this Celery prefork child.
+        apply_provider_settings(user_id)
 
         # Load paper metadata + sample chunks for each paper
         papers_context = []

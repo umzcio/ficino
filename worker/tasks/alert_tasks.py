@@ -17,7 +17,7 @@ from celery_app import app
 from lib import claude_client
 from lib.db import execute, fetch, fetchrow
 from lib.retrieval import retrieve_chunks
-from lib.settings import STUB_USER_ID
+from lib.settings import apply_provider_settings, STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
 
@@ -66,6 +66,11 @@ def check_contradictions(self: Task, paper_id: str) -> dict[str, object]:
 
         paper_title = paper["title"] or paper["filename"]
         paper_user_id = str(paper["user_id"]) if paper["user_id"] else STUB_USER_ID
+
+        # Scope provider settings to the paper owner so the ~24 classify
+        # calls below run under their LLM key / model config, not whoever
+        # happened to leave settings cached in this prefork child.
+        apply_provider_settings(paper_user_id)
 
         # Get other complete papers in the same workspace. Bounded to 8 so a
         # large corpus doesn't fan out to 3×N LLM calls per upload (200-paper
@@ -187,6 +192,11 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
             return {"status": "skipped"}
 
         owner_id = str(feed["user_id"])
+        # check_post_feed itself runs no LLM calls today, but any future
+        # addition (e.g. disagreement-summarization) would otherwise
+        # inherit whatever user's settings leaked from the prior task.
+        apply_provider_settings(owner_id)
+
         posts = feed["posts"]
         if isinstance(posts, str):
             posts = json.loads(posts)
