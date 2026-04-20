@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { FeedPost } from '../types'
 import {
   listBookmarks,
@@ -66,23 +66,32 @@ export function useBookmarks() {
     [refresh]
   )
 
+  // Index bookmarks once per state change into a Map keyed by
+  // feedId:postIndex:messageIndex. PostCard calls isBookmarked /
+  // isReplyBookmarked during render for every row, so linear scans
+  // here produced O(posts × bookmarks) work per feed render. A 20-post
+  // feed × 500 bookmarks = 10k comparisons on every re-render.
+  const bookmarkIndex = useMemo(() => {
+    const map = new Map<string, BookmarkItem>()
+    for (const b of bookmarks) {
+      const mi = b.message_index ?? -1
+      map.set(`${b.feed_id}:${b.post_index}:${mi}`, b)
+    }
+    return map
+  }, [bookmarks])
+
   const isBookmarked = useCallback(
     (feedId: string, postIndex: number): string | null => {
-      const found = bookmarks.find(
-        (b) => b.feed_id === feedId && b.post_index === postIndex && (b.message_index ?? -1) === -1
-      )
-      return found?.id ?? null
+      return bookmarkIndex.get(`${feedId}:${postIndex}:-1`)?.id ?? null
     },
-    [bookmarks]
+    [bookmarkIndex]
   )
 
   const isReplyBookmarked = useCallback(
     (feedId: string, postIndex: number, messageIndex: number): boolean => {
-      return bookmarks.some(
-        (b) => b.feed_id === feedId && b.post_index === postIndex && b.message_index === messageIndex
-      )
+      return bookmarkIndex.has(`${feedId}:${postIndex}:${messageIndex}`)
     },
-    [bookmarks]
+    [bookmarkIndex]
   )
 
   return { bookmarks, loading, toggle, remove, isBookmarked, isReplyBookmarked, refresh }

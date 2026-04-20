@@ -100,7 +100,21 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
 
   if (!p) return null
 
-  const personaPosts = posts?.filter(post => post.persona === personaKey && !post.deleted) || []
+  // Build the persona's posts list and an id→original-index map in
+  // one pass instead of calling posts.indexOf() per iteration inside
+  // the render map below (which was O(N×M): 50 posts × 20 of this
+  // persona = 1000 linear scans per re-render).
+  const personaPosts: FeedPost[] = []
+  const originalIndexByPost = new Map<FeedPost, number>()
+  if (posts) {
+    for (let i = 0; i < posts.length; i++) {
+      const post = posts[i]
+      if (post.persona === personaKey && !post.deleted) {
+        personaPosts.push(post)
+        originalIndexByPost.set(post, i)
+      }
+    }
+  }
 
   return (
     <div>
@@ -228,7 +242,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
             </div>
           ) : (
             personaPosts.map((post, i) => {
-              const originalIndex = posts?.indexOf(post) ?? i
+              const originalIndex = originalIndexByPost.get(post) ?? i
               return (
                 <PostCard
                   key={post.id ?? i}

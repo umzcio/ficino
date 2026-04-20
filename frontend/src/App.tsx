@@ -398,6 +398,40 @@ function AppContent() {
       })
   }, [ws.workspaces])
 
+  // Stable callbacks for FeedContent props. Without these every
+  // AppContent render (any keystroke in compose input, every
+  // paperTldr refresh, every scroll state flicker) produced fresh
+  // callback identities, invalidating FeedContent's inner useCallbacks
+  // and defeating PostCard's React.memo. Each depends on exactly the
+  // state it reads.
+  const handleBookmarkToggleOuter = useCallback(
+    (fid: string, idx: number, post: FeedPost) => bm.toggle(fid, idx, post),
+    [bm],
+  )
+  const handleReplyBookmark = useCallback(
+    (fid: string, postIdx: number, msgIdx: number, snapshot: unknown) =>
+      bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx),
+    [bm],
+  )
+  const handleIsReplyBookmarked = useCallback(
+    (postIdx: number, msgIdx: number) =>
+      feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false,
+    [feed.feedId, bm],
+  )
+  const handlePostClick = useCallback((idx: number) => {
+    feedScrollRef.current = document.querySelector('main')?.scrollTop ?? 0
+    setSelectedPostIndex(idx)
+    document.querySelector('main')?.scrollTo(0, 0)
+  }, [])
+  const handleGenerate = useCallback(() => {
+    feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined, TAB_FOCUS[activeTab])
+  }, [feed, ws.activeId, activeTag, activeTab])
+  const handlePullToRefresh = useCallback(async () => {
+    if (!feed.feedId) return
+    const fresh = await getFeed(feed.feedId)
+    feed.loadFeed(fresh as unknown as { id: string; posts: unknown[] })
+  }, [feed])
+
   const handleCancelDownload = useCallback(() => {
     dlAbortRef.current?.abort()
     dlAbortRef.current = null
@@ -631,13 +665,7 @@ function AppContent() {
               onUserClick={() => setActiveView('profile')}
               onViewProfileClick={() => setActiveView('profile')}
             />
-            <PullToRefresh
-              onRefresh={async () => {
-                if (!feed.feedId) return
-                const fresh = await getFeed(feed.feedId)
-                feed.loadFeed(fresh as unknown as { id: string; posts: unknown[] })
-              }}
-            >
+            <PullToRefresh onRefresh={handlePullToRefresh}>
               <SwipeableTabs activeIndex={activeTab} tabCount={4} onChange={setActiveTab}>
                 <FeedContent
                   posts={feed.posts}
@@ -647,21 +675,15 @@ function AppContent() {
                   error={feed.error}
                   activeTab={activeTab}
                   isBookmarked={bm.isBookmarked}
-                  onBookmarkToggle={(fid, idx, post) => bm.toggle(fid, idx, post)}
+                  onBookmarkToggle={handleBookmarkToggleOuter}
                   getAnnotation={notes.getNote}
                   onAnnotationSave={notes.save}
                   onAnnotationDelete={notes.remove}
-                  onPostClick={(idx) => {
-                    feedScrollRef.current = document.querySelector('main')?.scrollTop ?? 0
-                    setSelectedPostIndex(idx)
-                    document.querySelector('main')?.scrollTo(0, 0)
-                  }}
+                  onPostClick={handlePostClick}
                   onPersonaClick={setSelectedPersona}
-                  onReplyBookmark={(fid, postIdx, msgIdx, snapshot) => bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx)}
-                  isReplyBookmarked={(postIdx, msgIdx) => feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false}
-                  onGenerate={() => {
-                    feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined, TAB_FOCUS[activeTab])
-                  }}
+                  onReplyBookmark={handleReplyBookmark}
+                  isReplyBookmarked={handleIsReplyBookmarked}
+                  onGenerate={handleGenerate}
                 />
               </SwipeableTabs>
             </PullToRefresh>
