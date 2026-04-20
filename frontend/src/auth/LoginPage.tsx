@@ -16,11 +16,15 @@ const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | u
 // alongside a new password. This sidesteps corporate link scanners
 // (Microsoft ATP Safe Links, Google pre-fetch) that burn single-use
 // reset tokens before the recipient clicks.
-type Mode = 'login' | 'register' | 'forgot' | 'verify-code' | 'reset'
+// `verify-signup` and `invite` are the same pattern for the Confirm
+// Signup and Invite User email templates — same Safe-Links-survives
+// motivation, different Supabase verifyOtp type.
+type Mode = 'login' | 'register' | 'forgot' | 'verify-code' | 'verify-signup' | 'invite' | 'reset'
 
 export function LoginPage() {
   const {
-    signIn, signUp, sendPasswordReset, updatePassword, verifyRecoveryCode,
+    signIn, signUp, sendPasswordReset, updatePassword,
+    verifyRecoveryCode, verifySignupCode, verifyInviteCode,
     error, info, publicDeployment, passwordRecovery,
   } = useAuth()
   const [email, setEmail] = useState('')
@@ -41,7 +45,7 @@ export function LoginPage() {
   // Modes that hit Supabase's captcha-protected endpoints. The final
   // updatePassword call in 'reset' mode uses an already-elevated session,
   // so it doesn't need a fresh Turnstile token.
-  const modeNeedsCaptcha = mode === 'login' || mode === 'register' || mode === 'forgot' || mode === 'verify-code'
+  const modeNeedsCaptcha = mode === 'login' || mode === 'register' || mode === 'forgot' || mode === 'verify-code' || mode === 'verify-signup' || mode === 'invite'
   const haveCaptcha = !captchaEnabled || !modeNeedsCaptcha || captchaToken.length > 0
 
   // Reset the Turnstile widget after a token is consumed so the next
@@ -68,8 +72,33 @@ export function LoginPage() {
         resetCaptcha()
       } else if (mode === 'register') {
         if (!email || !password) return
-        await signUp(email, password, captchaToken || undefined)
+        const { needsConfirmation } = await signUp(email, password, captchaToken || undefined)
         resetCaptcha()
+        // Supabase returned a user but no session → email confirmation is
+        // required. Advance to the OTP-code screen so the user can type
+        // the code from the confirmation email. If session came back,
+        // onAuthStateChange has already logged the user in.
+        if (needsConfirmation) {
+          setMode('verify-signup')
+          setPassword('')
+          setConfirmPassword('')
+        }
+      } else if (mode === 'verify-signup') {
+        if (!email || !code) return
+        const ok = await verifySignupCode(email, code, captchaToken || undefined)
+        resetCaptcha()
+        if (ok) {
+          setCode('')
+        }
+      } else if (mode === 'invite') {
+        if (!email || !code || !password || password !== confirmPassword) return
+        const ok = await verifyInviteCode(email, code, password, captchaToken || undefined)
+        resetCaptcha()
+        if (ok) {
+          setCode('')
+          setPassword('')
+          setConfirmPassword('')
+        }
       } else if (mode === 'forgot') {
         if (!email) return
         await sendPasswordReset(email, captchaToken || undefined)
@@ -108,6 +137,8 @@ export function LoginPage() {
     register: 'Create your account',
     forgot: 'Reset your password',
     'verify-code': 'Enter the code from your email',
+    'verify-signup': 'Confirm your email',
+    invite: 'Accept your invite',
     reset: 'Set a new password',
   }[mode]
 
@@ -116,6 +147,8 @@ export function LoginPage() {
     register: 'Create account',
     forgot: 'Send reset code',
     'verify-code': 'Update password',
+    'verify-signup': 'Confirm email',
+    invite: 'Accept invite',
     reset: 'Update password',
   }[mode]
 
@@ -126,13 +159,15 @@ export function LoginPage() {
     (mode === 'register' && (!email || !password)) ||
     (mode === 'forgot' && !email) ||
     (mode === 'verify-code' && (!code || !password || password !== confirmPassword)) ||
+    (mode === 'verify-signup' && (!email || !code)) ||
+    (mode === 'invite' && (!email || !code || !password || password !== confirmPassword)) ||
     (mode === 'reset' && (!password || password !== confirmPassword))
 
-  const showEmailField = mode === 'login' || mode === 'register' || mode === 'forgot'
-  const showEmailReadonly = mode === 'verify-code'
-  const showCodeField = mode === 'verify-code'
-  const showPasswordField = mode === 'login' || mode === 'register' || mode === 'verify-code' || mode === 'reset'
-  const showConfirmField = mode === 'verify-code' || mode === 'reset'
+  const showEmailField = mode === 'login' || mode === 'register' || mode === 'forgot' || mode === 'invite'
+  const showEmailReadonly = mode === 'verify-code' || mode === 'verify-signup'
+  const showCodeField = mode === 'verify-code' || mode === 'verify-signup' || mode === 'invite'
+  const showPasswordField = mode === 'login' || mode === 'register' || mode === 'verify-code' || mode === 'invite' || mode === 'reset'
+  const showConfirmField = mode === 'verify-code' || mode === 'invite' || mode === 'reset'
 
   return (
     <div className="min-h-screen bg-bg flex items-center justify-center px-4">
@@ -187,23 +222,25 @@ export function LoginPage() {
               />
             </div>
           )}
-          {showPasswordField && (
-            <div>
-              <label htmlFor="login-password" className="sr-only">
-                {mode === 'verify-code' || mode === 'reset' ? 'New password' : 'Password'}
-              </label>
-              <input
-                id="login-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={mode === 'verify-code' || mode === 'reset' ? 'New password' : 'Password'}
-                aria-label={mode === 'verify-code' || mode === 'reset' ? 'New password' : 'Password'}
-                className="w-full bg-bg-hover border border-border rounded-lg px-4 py-3 text-[15px] text-text placeholder:text-text-muted outline-none focus:border-gold/40 transition-colors"
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              />
-            </div>
-          )}
+          {showPasswordField && (() => {
+            const isNewPwMode = mode === 'verify-code' || mode === 'invite' || mode === 'reset'
+            const label = isNewPwMode ? 'New password' : 'Password'
+            return (
+              <div>
+                <label htmlFor="login-password" className="sr-only">{label}</label>
+                <input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={label}
+                  aria-label={label}
+                  className="w-full bg-bg-hover border border-border rounded-lg px-4 py-3 text-[15px] text-text placeholder:text-text-muted outline-none focus:border-gold/40 transition-colors"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                />
+              </div>
+            )
+          })()}
           {showConfirmField && (
             <div>
               <label htmlFor="login-password-confirm" className="sr-only">Confirm new password</label>
@@ -279,6 +316,12 @@ export function LoginPage() {
                   Don't have an account? Sign up
                 </button>
               )}
+              <button
+                onClick={() => { setMode('invite'); setCode(''); setPassword(''); setConfirmPassword(''); }}
+                className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline block mx-auto"
+              >
+                Have an invite code?
+              </button>
             </>
           )}
           {mode === 'register' && showSignUp && (
@@ -303,6 +346,22 @@ export function LoginPage() {
               className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline block mx-auto"
             >
               Didn't get a code? Send another
+            </button>
+          )}
+          {mode === 'verify-signup' && (
+            <button
+              onClick={() => { setMode('register'); setCode(''); }}
+              className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline block mx-auto"
+            >
+              Didn't get a code? Sign up again
+            </button>
+          )}
+          {mode === 'invite' && (
+            <button
+              onClick={() => { setMode('login'); setCode(''); setPassword(''); setConfirmPassword(''); }}
+              className="text-[13px] text-gold bg-transparent border-none cursor-pointer hover:underline block mx-auto"
+            >
+              Back to sign in
             </button>
           )}
         </div>

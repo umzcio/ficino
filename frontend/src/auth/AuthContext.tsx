@@ -31,7 +31,10 @@ interface AuthContextValue {
   // Protection → Captcha is enabled. Basic-auth / none providers ignore
   // it; the parameter is plumbed through uniformly.
   signIn: (email: string, password: string, captchaToken?: string) => Promise<void>
-  signUp: (email: string, password: string, captchaToken?: string) => Promise<void>
+  // Returns needsConfirmation=true when Supabase requires the user to
+  // verify their email before the session is established. The caller
+  // advances to the verify-signup screen in that case.
+  signUp: (email: string, password: string, captchaToken?: string) => Promise<{ needsConfirmation: boolean }>
   signOut: () => Promise<void>
   sendPasswordReset: (email: string, captchaToken?: string) => Promise<void>
   updatePassword: (newPassword: string) => Promise<void>
@@ -40,6 +43,14 @@ interface AuthContextValue {
   // Google Safe Browsing) where link-scanning burns single-use tokens
   // before the user can click.
   verifyRecoveryCode: (email: string, code: string, newPassword: string, captchaToken?: string) => Promise<boolean>
+  // Same Safe-Links-survives motivation, signup path: the confirm-email
+  // template carries {{ .Token }} and the user types it in. On success
+  // Supabase establishes the session — no password reset needed since
+  // the password was set at signUp time.
+  verifySignupCode: (email: string, code: string, captchaToken?: string) => Promise<boolean>
+  // Invite flow: admin sends an invite, the email carries {{ .Token }}.
+  // The user types the code + sets a password in one shot.
+  verifyInviteCode: (email: string, code: string, newPassword: string, captchaToken?: string) => Promise<boolean>
   error: string | null
   info: string | null
 }
@@ -51,11 +62,13 @@ const AuthCtx = createContext<AuthContextValue>({
   publicDeployment: false,
   passwordRecovery: false,
   signIn: async () => {},
-  signUp: async () => {},
+  signUp: async () => ({ needsConfirmation: false }),
   signOut: async () => {},
   sendPasswordReset: async () => {},
   updatePassword: async () => {},
   verifyRecoveryCode: async () => false,
+  verifySignupCode: async () => false,
+  verifyInviteCode: async () => false,
   error: null,
   info: null,
 })
@@ -200,8 +213,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [provider])
 
-  const signUp = useCallback(async (email: string, password: string, captchaToken?: string) => {
+  const signUp = useCallback(async (email: string, password: string, captchaToken?: string): Promise<{ needsConfirmation: boolean }> => {
     setError(null)
+    setInfo(null)
     if (provider === 'basic') {
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
@@ -212,19 +226,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!res.ok) {
         const data = await res.json()
         setError(data.detail || 'Registration failed')
-        return
+        return { needsConfirmation: false }
       }
       // Fetch user profile
       const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
       if (meRes.ok) setUser(await meRes.json())
+      return { needsConfirmation: false }
     } else if (provider === 'supabase') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supabase = _supabaseClient as any
-      const { error: err } = await supabase.auth.signUp({
+      const { data, error: err } = await supabase.auth.signUp({
         email, password,
         options: captchaToken ? { captchaToken } : undefined,
       })
-      if (err) setError(err.message)
+      if (err) {
+        setError(err.message)
+        return { needsConfirmation: false }
+      }
+      // When "Confirm email" is ON in Supabase Auth settings, signUp
+      // returns a user but no session — the confirmation email has been
+      // sent. The caller advances to verify-signup so the user can enter
+      // the OTP code from the email. When confirmation is OFF, a session
+      // is returned directly and onAuthStateChange logs the user in.
+      const needsConfirmation = !data?.session
+      if (needsConfirmation) {
+        setInfo('Check your email for a confirmation code.')
+      }
+      return { needsConfirmation }
     }
+    return { needsConfirmation: false }
   }, [provider])
 
   const sendPasswordReset = useCallback(async (email: string, captchaToken?: string) => {
@@ -281,6 +311,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return true
   }, [provider])
 
+  const verifySignupCode = useCallback(async (email: string, code: string, captchaToken?: string): Promise<boolean> => {
+    setError(null)
+    setInfo(null)
+    if (provider !== 'supabase') {
+      setError('Signup confirmation is only available with Supabase auth.')
+      return false
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = _supabaseClient as any
+    const { data, error: vErr } = await supabase.auth.verifyOtp({
+      email,
+      token: code.trim(),
+      type: 'signup',
+      options: captchaToken ? { captchaToken } : undefined,
+    })
+    if (vErr || !data?.session) {
+      setError(vErr?.message || 'Invalid or expired code.')
+      return false
+    }
+    setInfo('Email confirmed — you are signed in.')
+    return true
+  }, [provider])
+
+  const verifyInviteCode = useCallback(async (email: string, code: string, newPassword: string, captchaToken?: string): Promise<boolean> => {
+    setError(null)
+    setInfo(null)
+    if (provider !== 'supabase') {
+      setError('Invite confirmation is only available with Supabase auth.')
+      return false
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = _supabaseClient as any
+    const { data, error: vErr } = await supabase.auth.verifyOtp({
+      email,
+      token: code.trim(),
+      type: 'invite',
+      options: captchaToken ? { captchaToken } : undefined,
+    })
+    if (vErr || !data?.session) {
+      setError(vErr?.message || 'Invalid or expired code.')
+      return false
+    }
+    // verifyOtp established the session; the invite flow also requires
+    // the user to set a password before they can sign in next time.
+    const { error: uErr } = await supabase.auth.updateUser({ password: newPassword })
+    if (uErr) {
+      setError(uErr.message)
+      return false
+    }
+    setInfo('Invite accepted — you are signed in.')
+    return true
+  }, [provider])
+
   const updatePassword = useCallback(async (newPassword: string) => {
     setError(null)
     setInfo(null)
@@ -322,7 +405,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthCtx.Provider value={{
       user, loading, provider, publicDeployment, passwordRecovery,
       signIn, signUp, signOut, sendPasswordReset, updatePassword,
-      verifyRecoveryCode,
+      verifyRecoveryCode, verifySignupCode, verifyInviteCode,
       error, info,
     }}>
       {children}
