@@ -345,3 +345,36 @@ def generate_text_sync(
 def classify_contradiction_sync(chunk_a: str, chunk_b: str) -> str:
     """Synchronous wrapper for use in Celery tasks."""
     return _run_on_llm_loop(classify_contradiction(chunk_a, chunk_b))
+
+
+async def _classify_contradictions_batch(
+    pairs: list[tuple[str, str]], concurrency: int = 5,
+) -> list[str]:
+    """Classify a list of chunk pairs with bounded concurrent API calls.
+
+    Errors per-pair don't abort the batch — they come back as "error" so
+    the caller can log and continue. That matches the prior per-pair
+    try/except behaviour where one hiccup didn't kill the whole check.
+    """
+    sem = asyncio.Semaphore(concurrency)
+
+    async def one(chunk_a: str, chunk_b: str) -> str:
+        async with sem:
+            try:
+                return await classify_contradiction(chunk_a, chunk_b)
+            except Exception as e:
+                logger.warning("contradiction_classify_failed", error=str(e))
+                return "error"
+
+    return await asyncio.gather(*(one(a, b) for a, b in pairs))
+
+
+def classify_contradictions_batch_sync(
+    pairs: list[tuple[str, str]], concurrency: int = 5,
+) -> list[str]:
+    """Batched, bounded-concurrent classify for Celery tasks.
+
+    Collapses what was ~24 serial Claude calls (~17s on p95) into one
+    gather with at most `concurrency` in flight at a time (~3–4s).
+    """
+    return _run_on_llm_loop(_classify_contradictions_batch(pairs, concurrency))

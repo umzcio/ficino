@@ -53,15 +53,19 @@ def check_contradictions(self: Task, paper_id: str) -> dict[str, object]:
     log.info("contradiction_check_start")
 
     try:
-        # Get the new paper's info
+        # Fetch the owning user_id too so every alert we create below is
+        # scoped to the paper owner rather than the STUB_USER_ID fallback
+        # inside _create_alert — under SaaS that fallback would orphan the
+        # contradiction signal to a user nobody can read.
         paper = fetchrow(
-            "SELECT id, title, filename, corpus_id FROM papers WHERE id = $1",
+            "SELECT id, title, filename, corpus_id, user_id FROM papers WHERE id = $1",
             paper_id,
         )
         if not paper:
             return {"status": "skipped", "reason": "paper_not_found"}
 
         paper_title = paper["title"] or paper["filename"]
+        paper_user_id = str(paper["user_id"]) if paper["user_id"] else STUB_USER_ID
 
         # Get other complete papers in the same workspace. Bounded to 8 so a
         # large corpus doesn't fan out to 3×N LLM calls per upload (200-paper
@@ -89,52 +93,75 @@ def check_contradictions(self: Task, paper_id: str) -> dict[str, object]:
         if not new_chunks:
             return {"status": "skipped", "reason": "no_chunks"}
 
-        contradictions_found = 0
+        # Batch-fetch chunks for every other paper in one SQL instead of
+        # one fetch per iteration (was 8 sequential RTT). Group in Python.
+        other_ids = [str(o["id"]) for o in other_papers]
+        other_chunk_rows = fetch(
+            """SELECT paper_id, content, section FROM chunks
+               WHERE paper_id = ANY($1)
+                 AND section NOT IN ('references', 'bibliography', 'acknowledgments', 'funding')
+               ORDER BY paper_id, chunk_index""",
+            other_ids,
+        )
+        chunks_by_paper: dict[str, list[dict]] = {}
+        for row in other_chunk_rows:
+            chunks_by_paper.setdefault(str(row["paper_id"]), []).append(
+                {"content": row["content"], "section": row["section"]}
+            )
 
+        # Build every sample pair up front so we can classify them all
+        # concurrently. `pair_meta` keeps enough info to attribute a
+        # contradiction hit back to its (other_paper, chunk_a, chunk_b).
+        import random
+        pairs: list[tuple[str, str]] = []
+        pair_meta: list[tuple[str, str, str, str]] = []  # (other_id, other_title, chunk_a, chunk_b)
         for other in other_papers:
             other_id = str(other["id"])
             other_title = other["title"] or other["filename"]
-
-            # Get key chunks from the other paper
-            other_chunks = fetch(
-                """SELECT content, section FROM chunks
-                   WHERE paper_id = $1 AND section NOT IN ('references', 'bibliography', 'acknowledgments', 'funding')
-                   ORDER BY chunk_index LIMIT 8""",
-                other_id,
-            )
-
+            other_chunks = chunks_by_paper.get(other_id) or []
+            # Cap each other paper's chunks LIMIT 8 to match the prior
+            # behaviour (we fetched 8 per paper before the batching).
+            other_chunks = other_chunks[:8]
             if not other_chunks:
                 continue
-
-            # Sample a few cross-paper pairs and classify
-            import random
-            pairs = []
             for _ in range(3):
                 nc = random.choice(new_chunks)
                 oc = random.choice(other_chunks)
                 pairs.append((nc["content"], oc["content"]))
+                pair_meta.append((other_id, other_title, nc["content"], oc["content"]))
 
-            for chunk_a, chunk_b in pairs:
-                try:
-                    result = claude_client.classify_contradiction_sync(chunk_a, chunk_b)
-                    if result == "contradicts":
-                        contradictions_found += 1
-                        _create_alert(
-                            alert_type="contradiction",
-                            title=f"Contradiction detected",
-                            body=f'"{paper_title}" challenges a finding in "{other_title}". The papers present conflicting evidence on overlapping topics.',
-                            metadata={
-                                "new_paper_id": paper_id,
-                                "other_paper_id": other_id,
-                                "new_paper_title": paper_title,
-                                "other_paper_title": other_title,
-                                "chunk_a_preview": chunk_a[:200],
-                                "chunk_b_preview": chunk_b[:200],
-                            },
-                        )
-                        break  # One contradiction alert per paper pair is enough
-                except Exception as e:
-                    log.warn("contradiction_classify_failed", error=str(e))
+        if not pairs:
+            log.info("no_pairs_to_classify")
+            return {"status": "complete", "contradictions": 0}
+
+        # One bounded-concurrent batch instead of up to 24 serial Claude
+        # calls. At concurrency=5 this drops worst-case ~17s serial to ~3s.
+        results = claude_client.classify_contradictions_batch_sync(pairs, concurrency=5)
+
+        contradictions_found = 0
+        seen_other_ids: set[str] = set()
+        for (other_id, other_title, chunk_a, chunk_b), verdict in zip(pair_meta, results):
+            # One contradiction alert per paper pair is enough — preserves
+            # the serial loop's early `break` semantics after a hit.
+            if other_id in seen_other_ids:
+                continue
+            if verdict == "contradicts":
+                contradictions_found += 1
+                seen_other_ids.add(other_id)
+                _create_alert(
+                    alert_type="contradiction",
+                    title=f"Contradiction detected",
+                    body=f'"{paper_title}" challenges a finding in "{other_title}". The papers present conflicting evidence on overlapping topics.',
+                    metadata={
+                        "new_paper_id": paper_id,
+                        "other_paper_id": other_id,
+                        "new_paper_title": paper_title,
+                        "other_paper_title": other_title,
+                        "chunk_a_preview": chunk_a[:200],
+                        "chunk_b_preview": chunk_b[:200],
+                    },
+                    user_id=paper_user_id,
+                )
 
         log.info("contradiction_check_complete", contradictions=contradictions_found)
         return {"status": "complete", "contradictions": contradictions_found}
