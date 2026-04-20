@@ -423,7 +423,11 @@ function AppContent() {
     setSelectedPostIndex(idx)
     document.querySelector('main')?.scrollTo(0, 0)
   }, [])
-  const handleGenerate = useCallback(() => {
+  // Distinct from the keyboard-shortcut `handleGenerate` below: this
+  // one appends to the active feed if one exists (driven from
+  // FeedContent's in-view "Generate more" button), whereas the
+  // shortcut handler always creates a fresh feed.
+  const handleGenerateMore = useCallback(() => {
     feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined, TAB_FOCUS[activeTab])
   }, [feed, ws.activeId, activeTag, activeTab])
   const handlePullToRefresh = useCallback(async () => {
@@ -683,7 +687,7 @@ function AppContent() {
                   onPersonaClick={setSelectedPersona}
                   onReplyBookmark={handleReplyBookmark}
                   isReplyBookmarked={handleIsReplyBookmarked}
-                  onGenerate={handleGenerate}
+                  onGenerate={handleGenerateMore}
                 />
               </SwipeableTabs>
             </PullToRefresh>
