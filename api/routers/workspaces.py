@@ -49,16 +49,21 @@ async def list_workspaces(
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
     """List all workspaces with paper/feed counts."""
+    # Previous query LEFT JOINed papers × feeds on the same corpus_id
+    # and used COUNT(DISTINCT ...) to undo the cartesian product. With
+    # 100 papers × 50 feeds that's 5000 intermediate rows per workspace
+    # before aggregation. Split into two scalar subqueries (each goes
+    # through the corpus_id index) plus a last-activity lookup.
     rows = await db.fetch(
         """SELECT c.id, c.name, c.created_at,
-                  COUNT(DISTINCT p.id) FILTER (WHERE p.id IS NOT NULL) AS paper_count,
-                  COUNT(DISTINCT f.id) FILTER (WHERE f.id IS NOT NULL) AS feed_count,
-                  MAX(COALESCE(f.generated_at, p.uploaded_at)) AS last_activity
+                  (SELECT COUNT(*) FROM papers p WHERE p.corpus_id = c.id) AS paper_count,
+                  (SELECT COUNT(*) FROM feeds f WHERE f.corpus_id = c.id) AS feed_count,
+                  GREATEST(
+                    (SELECT MAX(generated_at) FROM feeds WHERE corpus_id = c.id),
+                    (SELECT MAX(uploaded_at) FROM papers WHERE corpus_id = c.id)
+                  ) AS last_activity
            FROM corpora c
-           LEFT JOIN papers p ON p.corpus_id = c.id
-           LEFT JOIN feeds f ON f.corpus_id = c.id
            WHERE c.user_id = $1
-           GROUP BY c.id
            ORDER BY last_activity DESC NULLS LAST""",
         user.id,
     )

@@ -136,9 +136,36 @@ async def _fetch(query: str, *args: object) -> list[asyncpg.Record]:
             return await conn.fetch(query, *args)
 
 
+async def _executemany(query: str, rows: list[tuple]) -> None:
+    """Async side of executemany — batches N rows into one RTT."""
+    if not rows:
+        return
+    try:
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany(query, rows)
+    except BaseException as exc:
+        if not _is_pool_closed_error(exc):
+            raise
+        logger.warn("worker_db_pool_closed_rebuilding", op="executemany", error=str(exc))
+        await _reset_pool()
+        pool = await _ensure_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany(query, rows)
+
+
 def execute(query: str, *args: object) -> str:
     """Execute a query (INSERT/UPDATE/DELETE). Sync wrapper."""
     return _run(_execute(query, *args))
+
+
+def executemany(query: str, rows: list[tuple]) -> None:
+    """Batch-execute a parameterized statement over many row tuples.
+
+    Use instead of `for row in rows: execute(query, *row)` — collapses
+    N round-trips to one. No-ops on an empty list.
+    """
+    _run(_executemany(query, rows))
 
 
 def fetchrow(query: str, *args: object) -> asyncpg.Record | None:

@@ -210,13 +210,20 @@ async def create_reading_list(
     )
     list_id = str(row["id"])
 
-    # Create one chapter per paper
-    for i, pid in enumerate(paper_ids):
-        await db.execute(
-            """INSERT INTO reading_list_chapters (reading_list_id, chapter_index, paper_ids, status)
-               VALUES ($1, $2, $3, $4)""",
-            list_id, i, [pid], "unlocked" if i == 0 else "locked",
-        )
+    # Create one chapter per paper in a single statement. The previous
+    # Python-loop version was N serial INSERTs — a 20-paper list = 20
+    # sequential RTT before the Celery dispatch. unnest WITH ORDINALITY
+    # keeps the per-paper chapter_index deterministic.
+    await db.execute(
+        """INSERT INTO reading_list_chapters
+             (reading_list_id, chapter_index, paper_ids, status)
+           SELECT $1::uuid,
+                  (row_num - 1)::int,
+                  ARRAY[pid]::uuid[],
+                  CASE WHEN row_num = 1 THEN 'unlocked' ELSE 'locked' END
+           FROM unnest($2::uuid[]) WITH ORDINALITY AS t(pid, row_num)""",
+        list_id, paper_ids,
+    )
 
     # Dispatch AI ordering. The worker persists the result directly into
     # reading_lists.{rationale, paper_sequence} so the frontend's polling

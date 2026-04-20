@@ -64,28 +64,17 @@ def _write_feed_posts_index(
     user_id is denormalized onto feed_posts so full-text search can filter
     by owner before hitting the GIN index.
     """
-    for i, p in enumerate(posts_slice):
-        post_index = base_index + i
-        # validate_post_shape already capped content at MAX_CONTENT_CHARS (2000)
-        # so feeds.posts and feed_posts now agree. The str(...) coercion stays
-        # to handle legacy rows that pre-date that validator.
-        content_text = str(p.get("content", ""))
-        execute(
-            """INSERT INTO feed_posts
-               (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
-               ON CONFLICT (feed_id, post_index) DO UPDATE SET
-                 content_text = EXCLUDED.content_text,
-                 persona = EXCLUDED.persona,
-                 post_type = EXCLUDED.post_type,
-                 category = EXCLUDED.category,
-                 paper_ref = EXCLUDED.paper_ref,
-                 data = EXCLUDED.data,
-                 deleted = EXCLUDED.deleted""",
+    # Build every (feed_id, user_id, post_index, ...) tuple first, then
+    # ship the whole set in one executemany RTT instead of 12-30 serial
+    # INSERTs per feed gen. validate_post_shape already capped content at
+    # MAX_CONTENT_CHARS (2000) so feeds.posts and feed_posts agree; the
+    # str() coercion stays to handle legacy rows that pre-date the validator.
+    rows = [
+        (
             feed_id,
             user_id,
-            post_index,
-            content_text,
+            base_index + i,
+            str(p.get("content", "")),
             p.get("persona"),
             p.get("post_type"),
             p.get("category"),
@@ -93,6 +82,23 @@ def _write_feed_posts_index(
             json.dumps(p, default=str),
             bool(p.get("deleted", False)),
         )
+        for i, p in enumerate(posts_slice)
+    ]
+    from lib.db import executemany
+    executemany(
+        """INSERT INTO feed_posts
+           (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+           ON CONFLICT (feed_id, post_index) DO UPDATE SET
+             content_text = EXCLUDED.content_text,
+             persona = EXCLUDED.persona,
+             post_type = EXCLUDED.post_type,
+             category = EXCLUDED.category,
+             paper_ref = EXCLUDED.paper_ref,
+             data = EXCLUDED.data,
+             deleted = EXCLUDED.deleted""",
+        rows,
+    )
 
 
 def _get_paper_ids_for_corpus(

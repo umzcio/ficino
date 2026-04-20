@@ -187,29 +187,33 @@ def process_paper(
             )
             log.info("metadata_stored", title=meta.get("title"), authors=len(meta.get("authors", [])))
 
-        # Auto-tag from extracted metadata
+        # Auto-tag from extracted metadata. Previously did 3 round-trips
+        # per tag (SELECT, INSERT-tag-if-missing, INSERT paper_tags) in
+        # a Python loop — for a 10-tag paper that's 30 RTT. Now two
+        # batched statements regardless of tag count: upsert all tags
+        # via ON CONFLICT DO NOTHING returning their ids, then one
+        # paper_tags insert that joins paper_id × tag_ids.
         auto_tags = meta.get("tags", [])
         if auto_tags:
-            user_id = paper_user_id
-            for tag_name in auto_tags:
-                try:
-                    tag = fetchrow(
-                        "SELECT id FROM tags WHERE user_id = $1 AND name = $2",
-                        user_id, tag_name,
+            try:
+                tag_rows = fetch(
+                    """INSERT INTO tags (user_id, name)
+                       SELECT $1::uuid, t FROM unnest($2::text[]) AS t
+                       ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+                       RETURNING id""",
+                    paper_user_id, auto_tags,
+                )
+                tag_ids = [str(r["id"]) for r in tag_rows]
+                if tag_ids:
+                    execute(
+                        """INSERT INTO paper_tags (paper_id, tag_id)
+                           SELECT $1::uuid, t::uuid FROM unnest($2::uuid[]) AS t
+                           ON CONFLICT DO NOTHING""",
+                        paper_id, tag_ids,
                     )
-                    if not tag:
-                        tag = fetchrow(
-                            "INSERT INTO tags (user_id, name) VALUES ($1, $2) RETURNING id",
-                            user_id, tag_name,
-                        )
-                    if tag:
-                        execute(
-                            "INSERT INTO paper_tags (paper_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                            paper_id, str(tag["id"]),
-                        )
-                except Exception as e:
-                    log.warn("auto_tag_failed", tag=tag_name, error=str(e))
-            log.info("auto_tags_assigned", tags=auto_tags)
+                log.info("auto_tags_assigned", tags=auto_tags)
+            except Exception as e:
+                log.warn("auto_tag_failed", tags=auto_tags, error=str(e))
 
         # --- Step 3: Chunking ---
         self.update_state(state="PROGRESS", meta={"step": "chunking", "paper_id": paper_id})
