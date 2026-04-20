@@ -216,11 +216,14 @@ async def create_reading_list(
             list_id, i, [pid], "unlocked" if i == 0 else "locked",
         )
 
-    # Dispatch AI ordering
+    # Dispatch AI ordering. The worker persists the result directly into
+    # reading_lists.{rationale, paper_sequence} so the frontend's polling
+    # loop (watching for `rationale` to appear) exits. Without list_id the
+    # ordering would just sit in Celery's result backend unused.
     celery_app = _get_celery()
     task = celery_app.send_task(
         "tasks.reading_list_tasks.propose_ordering",
-        args=[paper_ids, body.corpus_id],
+        args=[paper_ids, body.corpus_id, list_id],
         queue="persona",
     )
 

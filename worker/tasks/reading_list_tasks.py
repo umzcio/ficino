@@ -45,13 +45,22 @@ Order ALL papers. Return valid JSON only."""
 
 
 @app.task(name="tasks.reading_list_tasks.propose_ordering", bind=True, max_retries=2)
-def propose_ordering(self: Task, paper_ids: list[str], corpus_id: str | None = None) -> dict:
+def propose_ordering(
+    self: Task,
+    paper_ids: list[str],
+    corpus_id: str | None = None,
+    list_id: str | None = None,
+) -> dict:
     """Analyze papers and propose an optimal reading order with rationale.
 
-    Returns:
-        ordered_papers: list of {paper_id, position, rationale, title, authors, year}
+    When `list_id` is provided the result is persisted directly into
+    reading_lists.{rationale, paper_sequence} and any existing chapters are
+    rebuilt to match — no separate apply-ordering callback required. (The
+    api's create endpoint passes list_id; an explicit HTTP apply remains
+    available for manual reorders.) Returns the ordered list too so direct
+    callers can use the Celery result backend.
     """
-    log = logger.bind(paper_count=len(paper_ids))
+    log = logger.bind(paper_count=len(paper_ids), list_id=list_id)
     log.info("propose_ordering_start")
     start = time.time()
 
@@ -163,8 +172,41 @@ def propose_ordering(self: Task, paper_ids: list[str], corpus_id: str | None = N
             result.sort(key=lambda x: x["position"])
 
         duration_ms = int((time.time() - start) * 1000)
-        log.info("propose_ordering_complete", duration_ms=duration_ms, papers=len(result))
 
+        # Persist directly into the reading_lists row when we know which
+        # list this was for. Prior behaviour only returned the result to
+        # Celery's backend, which nothing consumed — the frontend polled
+        # forever waiting for rationale to appear and the user saw the
+        # "Archivist is analyzing your papers..." spinner indefinitely.
+        if list_id:
+            try:
+                new_sequence = [p["paper_id"] for p in result]
+                execute(
+                    "UPDATE reading_lists SET paper_sequence = $1::uuid[], rationale = $2::jsonb WHERE id = $3",
+                    new_sequence, json.dumps(result), list_id,
+                )
+                # Rebuild chapters to match the new order. Chapter 0 is
+                # unlocked, the rest start locked — matches the api's
+                # create/reorder behaviour.
+                execute(
+                    "DELETE FROM reading_list_chapters WHERE reading_list_id = $1",
+                    list_id,
+                )
+                for i, pid in enumerate(new_sequence):
+                    execute(
+                        """INSERT INTO reading_list_chapters
+                           (reading_list_id, chapter_index, paper_ids, status)
+                           VALUES ($1, $2, $3::uuid[], $4)""",
+                        list_id, i, [pid],
+                        "unlocked" if i == 0 else "locked",
+                    )
+                log.info("propose_ordering_persisted", list_id=list_id)
+            except Exception as e:
+                # Persistence failure is surfaced loudly but doesn't retry
+                # the whole task — the ordering itself already succeeded.
+                log.error("propose_ordering_persist_failed", error=str(e)[:200])
+
+        log.info("propose_ordering_complete", duration_ms=duration_ms, papers=len(result))
         return {"ordered_papers": result, "duration_ms": duration_ms}
 
     except Exception as exc:
