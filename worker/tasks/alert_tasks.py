@@ -7,6 +7,7 @@ Runs post-ingestion and post-feed-generation to detect:
 - Reading gaps and stale papers
 """
 
+import hashlib
 import json
 from collections import Counter
 
@@ -22,21 +23,48 @@ from lib.settings import apply_provider_settings, STUB_USER_ID
 logger = structlog.get_logger(__name__)
 
 
+def _dedupe_hash(*parts: str) -> str:
+    """Stable short hash for alert idempotency keys.
+
+    Sort parts first so `(paper_a, paper_b)` dedupes the same as
+    `(paper_b, paper_a)` — a contradiction is symmetric.
+    """
+    payload = "|".join(sorted(parts))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
 def _create_alert(
-    alert_type: str, title: str, body: str, metadata: dict | None = None, user_id: str | None = None
+    alert_type: str,
+    title: str,
+    body: str,
+    metadata: dict | None = None,
+    user_id: str | None = None,
+    dedupe_hash: str | None = None,
 ) -> None:
-    """Insert an alert into the database."""
+    """Insert an alert into the database.
+
+    When `dedupe_hash` is provided, INSERT ON CONFLICT DO NOTHING against
+    the partial UNIQUE index `alerts_dedupe_idx (user_id, alert_type,
+    dedupe_hash)` so a retry of check_contradictions /
+    check_post_feed / check_stale_papers doesn't pile up identical rows
+    in the user's bell. Writers that genuinely want every occurrence
+    leave dedupe_hash=None and keep the prior insert-always behaviour.
+    """
     uid = user_id or STUB_USER_ID
     execute(
-        """INSERT INTO alerts (user_id, alert_type, title, body, metadata)
-           VALUES ($1, $2, $3, $4, $5)""",
+        """INSERT INTO alerts (user_id, alert_type, title, body, metadata, dedupe_hash)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (user_id, alert_type, dedupe_hash)
+             WHERE dedupe_hash IS NOT NULL
+             DO NOTHING""",
         uid,
         alert_type,
         title,
         body,
         json.dumps(metadata or {}),
+        dedupe_hash,
     )
-    logger.info("alert_created", type=alert_type, title=title)
+    logger.info("alert_created", type=alert_type, title=title, dedup=dedupe_hash is not None)
 
 
 @app.task(
@@ -166,6 +194,7 @@ def check_contradictions(self: Task, paper_id: str) -> dict[str, object]:
                         "chunk_b_preview": chunk_b[:200],
                     },
                     user_id=paper_user_id,
+                    dedupe_hash=_dedupe_hash("contradiction", paper_id, other_id),
                 )
 
         log.info("contradiction_check_complete", contradictions=contradictions_found)
@@ -212,6 +241,7 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
                 body=f"Your latest feed has {debate_count} debate posts out of {total} — the personas are really arguing. Something in your corpus is provocative.",
                 metadata={"feed_id": feed_id, "debate_count": debate_count, "total": total},
                 user_id=owner_id,
+                dedupe_hash=_dedupe_hash("disagreement_spike", feed_id),
             )
 
         # Check for reading gaps — papers debated but never summarized.
@@ -240,6 +270,7 @@ def check_post_feed(self: Task, feed_id: str) -> dict[str, object]:
                         body=f'Personas are debating "{title}" in your feeds, but you haven\'t read its summary yet. Tap to explore.',
                         metadata={"paper_id": str(paper["id"]), "paper_title": title},
                         user_id=owner_id,
+                        dedupe_hash=_dedupe_hash("reading_gap", str(paper["id"])),
                     )
 
         log.info("post_feed_check_complete")
@@ -283,6 +314,7 @@ def check_stale_papers(self: Task) -> dict[str, object]:
                 body=f'"{title}" has been in your corpus for over a week but hasn\'t been part of any feed generation. Consider generating a feed or removing it.',
                 metadata={"paper_id": str(paper["id"]), "paper_title": title},
                 user_id=str(paper["user_id"]),
+                dedupe_hash=_dedupe_hash("stale_paper", str(paper["id"])),
             )
 
         log.info("stale_check_complete", stale_count=len(stale))

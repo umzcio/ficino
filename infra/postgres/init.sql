@@ -213,10 +213,16 @@ CREATE TABLE alerts (
   metadata JSONB DEFAULT '{}',
   read BOOLEAN DEFAULT false,
   dismissed BOOLEAN DEFAULT false,
+  -- Nullable idempotency hash. Writers that want dedupe across retries
+  -- populate this; writers that want every occurrence leave it NULL.
+  dedupe_hash TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX ON alerts (user_id, read, dismissed, created_at DESC);
+CREATE UNIQUE INDEX alerts_dedupe_idx
+  ON alerts (user_id, alert_type, dedupe_hash)
+  WHERE dedupe_hash IS NOT NULL;
 
 -- User likes (persistent like state for posts and reply messages)
 -- message_index = -1 means post-level like, 0+ means reply message index
