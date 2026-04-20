@@ -122,6 +122,15 @@ export async function listFeeds(workspaceId?: string): Promise<Feed[]> {
   return request<Feed[]>(`/feed${query}`)
 }
 
+// Metadata-only list — posts[] is empty on every feed. Use this when you
+// only need post_count / paper_count / generated_at. Hydrate full posts
+// via getFeed(id) when the user picks a specific feed.
+export async function listFeedSummaries(workspaceId?: string): Promise<Feed[]> {
+  const params = new URLSearchParams({ summary: 'true' })
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  return request<Feed[]>(`/feed?${params.toString()}`)
+}
+
 export async function regeneratePost(feedId: string, postIndex: number): Promise<{ task_id: string }> {
   return request(`/feed/${feedId}/regenerate/${postIndex}`, { method: 'POST' })
 }

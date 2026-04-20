@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { FeedPost } from '../types'
-import { generateFeed, getFeedStatus, getFeed, listFeeds } from '../lib/api'
-import { cacheFeeds, cacheFeed, getCachedFeeds } from '../lib/offline-cache'
+import { generateFeed, getFeedStatus, getFeed, listFeedSummaries } from '../lib/api'
+import { cacheFeed, getCachedFeeds } from '../lib/offline-cache'
 
 type FeedState = 'idle' | 'loading' | 'generating' | 'complete' | 'error'
 
@@ -41,12 +41,20 @@ export function useFeed(workspaceId?: string) {
       if (!mountedRef.current) return
       setFeedState('loading')
       try {
-        const feeds = await listFeeds(workspaceId)
+        // Metadata-only list so a workspace switch doesn't stream
+        // ~10 MB of JSONB the user will never read. Hydrate the latest
+        // feed's full posts with a second request when we actually need
+        // them. Past feeds only get hydrated when the user clicks one
+        // in FeedHistory.
+        const summaries = await listFeedSummaries(workspaceId)
         if (!active || !mountedRef.current) return
-        cacheFeeds(feeds, workspaceId).catch(() => {})
-        if (feeds.length > 0 && feeds[0].posts.length > 0) {
-          setPosts(feeds[0].posts as FeedPost[])
-          setFeedId(feeds[0].id)
+        const latest = summaries[0]
+        if (latest && (latest.post_count ?? 0) > 0) {
+          const full = await getFeed(latest.id)
+          if (!active || !mountedRef.current) return
+          cacheFeed(full, workspaceId).catch(() => {})
+          setPosts(full.posts as FeedPost[])
+          setFeedId(full.id)
           setFeedState('complete')
         } else {
           setPosts([])

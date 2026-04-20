@@ -259,29 +259,47 @@ async def regenerate_post(
 @router.get("", response_model=list[Feed])
 async def list_feeds(
     workspace_id: str | None = None,
+    summary: bool = False,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[Feed]:
-    """List generated feeds, optionally filtered by workspace."""
+    """List generated feeds, optionally filtered by workspace.
+
+    With `summary=true`, the `posts` column is not selected — callers that
+    only need metadata (FeedHistory, useFeed's mount-time "is there a
+    latest feed?" check) avoid shipping up to 20 × 300–800 KB JSONB
+    blobs that they never read. Hydrate full posts via `GET /feed/{id}`.
+    """
+    if summary:
+        select_cols = (
+            "id, user_id, corpus_id, tag_filter, "
+            "generated_at, generation_duration_ms, paper_count, post_count"
+        )
+    else:
+        select_cols = (
+            "id, user_id, corpus_id, tag_filter, posts, "
+            "generated_at, generation_duration_ms, paper_count, post_count"
+        )
     if workspace_id:
         rows = await db.fetch(
-            """SELECT id, user_id, corpus_id, tag_filter, posts,
-                      generated_at, generation_duration_ms, paper_count, post_count
+            f"""SELECT {select_cols}
                FROM feeds WHERE user_id = $1 AND corpus_id = $2 ORDER BY generated_at DESC LIMIT 20""",
             user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
-            """SELECT id, user_id, corpus_id, tag_filter, posts,
-                      generated_at, generation_duration_ms, paper_count, post_count
+            f"""SELECT {select_cols}
                FROM feeds WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 20""",
             user.id,
         )
     feeds = []
     for row in rows:
-        posts_data = row["posts"]
-        if isinstance(posts_data, str):
-            posts_data = json.loads(posts_data)
+        if summary:
+            posts_data: list[dict[str, object]] = []
+        else:
+            posts_data = row["posts"]
+            if isinstance(posts_data, str):
+                posts_data = json.loads(posts_data)
         feeds.append(Feed(
             id=row["id"],
             user_id=row["user_id"],

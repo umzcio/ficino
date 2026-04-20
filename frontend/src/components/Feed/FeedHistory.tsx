@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Clock, ChevronDown, ChevronUp } from 'lucide-react'
-import { listFeeds } from '../../lib/api'
+import { listFeedSummaries, getFeed } from '../../lib/api'
 import type { Feed } from '../../types'
 
 interface FeedHistoryProps {
@@ -24,10 +24,12 @@ export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHist
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
-    listFeeds(workspaceId).then(setFeeds).catch(() => {})
+    // Metadata-only listing — full posts are fetched via getFeed() when
+    // the user actually clicks a past feed below.
+    listFeedSummaries(workspaceId).then(setFeeds).catch(() => {})
   }, [currentFeedId, workspaceId]) // refresh when a new feed is generated or workspace changes
 
-  const pastFeeds = feeds.filter((f) => f.posts.length > 0)
+  const pastFeeds = feeds.filter((f) => (f.post_count ?? 0) > 0)
 
   if (pastFeeds.length <= 1) return null
 
@@ -49,7 +51,17 @@ export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHist
           {pastFeeds.map((feed) => (
             <button
               key={feed.id}
-              onClick={() => { onLoadFeed(feed); setExpanded(false) }}
+              onClick={async () => {
+                // Hydrate full posts only when the user picks this feed,
+                // rather than front-loading 20 × feed body on every
+                // history open.
+                try {
+                  const full = await getFeed(feed.id)
+                  onLoadFeed(full)
+                } finally {
+                  setExpanded(false)
+                }
+              }}
               className="w-full text-left px-3 py-2 rounded-lg flex items-center justify-between bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors"
               style={{
                 backgroundColor: feed.id === currentFeedId ? 'color-mix(in srgb, var(--color-gold) 8%, transparent)' : undefined,
