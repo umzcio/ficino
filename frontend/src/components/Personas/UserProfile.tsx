@@ -1,5 +1,6 @@
 import { useUserPosts } from '../../hooks/useUserPosts'
 import { UserPostCard } from '../Feed/UserPostCard'
+import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface UserProfileProps {
   workspaceId: string | null
@@ -14,11 +15,12 @@ export function UserProfile({ workspaceId, displayName, handle, onBack, onPerson
 
   return (
     <div>
+      <SwipeBackEdge onBack={onBack} />
       {/* Profile header */}
       <div className="border-b border-border px-4 py-3 flex items-center gap-3">
         <button
           onClick={onBack}
-          className="bg-transparent border-none cursor-pointer text-text p-1 hover:bg-bg-hover rounded-full"
+          className="bg-transparent border-none cursor-pointer text-text p-2 hover:bg-bg-hover rounded-full"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         </button>

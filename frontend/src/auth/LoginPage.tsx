@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import { useAuth } from './AuthContext'
+import { useKeyboardAwarePage } from '../hooks/useKeyboardAwareInput'
 
 // Supabase → Auth → Attack Protection → Captcha, when enabled, requires
 // every sign-in / sign-up / reset / verifyOtp call to include a
@@ -32,6 +33,10 @@ export function LoginPage() {
   const turnstileRef = useRef<TurnstileInstance>(null)
 
   const showSignUp = !publicDeployment
+  // Scrolls whichever input is focused into view when the mobile
+  // keyboard opens. Document-level variant because this form swaps
+  // inputs based on mode and managing per-input refs would be awkward.
+  useKeyboardAwarePage()
   const captchaEnabled = Boolean(TURNSTILE_SITE_KEY)
   // Modes that hit Supabase's captcha-protected endpoints. The final
   // updatePassword call in 'reset' mode uses an already-elevated session,

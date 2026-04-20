@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { Send, Loader2 } from 'lucide-react'
 import { createUserPost } from '../../lib/api'
+import { useKeyboardAwareInput } from '../../hooks/useKeyboardAwareInput'
 
 interface ComposeBoxProps {
   workspaceId: string | null
@@ -14,7 +15,9 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  // Scrolls the textarea into view when the iOS/Android keyboard opens,
+  // so the input isn't hidden behind it.
+  const inputRef = useKeyboardAwareInput<HTMLTextAreaElement>()
 
   const handleSubmit = async () => {
     const text = content.trim()

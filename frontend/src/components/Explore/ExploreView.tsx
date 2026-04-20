@@ -179,7 +179,7 @@ function SearchBar() {
           <button
             onClick={() => { setQuery(''); setResults(null) }}
             aria-label="Clear search"
-            className="bg-transparent border-none cursor-pointer p-1 text-text-muted hover:text-text"
+            className="bg-transparent border-none cursor-pointer p-2 rounded-full text-text-muted hover:text-text"
           >
             <X size={14} />
           </button>

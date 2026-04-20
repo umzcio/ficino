@@ -9,6 +9,7 @@ import {
 } from '../../lib/api'
 import type { Feed, FeedPost } from '../../types'
 import { PostCard } from '../Feed/PostCard'
+import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface Props {
   listId: string
@@ -126,9 +127,10 @@ export function ReadingListDetail({ listId, onBack }: Props) {
 
     return (
       <div>
+        <SwipeBackEdge onBack={() => setViewMode('overview')} />
         <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3">
           <div className="flex items-center gap-3">
-            <button onClick={() => setViewMode('overview')} aria-label="Back to overview" className="bg-transparent border-none cursor-pointer text-text p-1 hover:bg-bg-hover rounded-full">
+            <button onClick={() => setViewMode('overview')} aria-label="Back to overview" className="bg-transparent border-none cursor-pointer text-text p-2 hover:bg-bg-hover rounded-full">
               <ArrowLeft size={20} />
             </button>
             <div>
@@ -193,9 +195,10 @@ export function ReadingListDetail({ listId, onBack }: Props) {
   // Overview: paper order + chapters
   return (
     <div>
+      <SwipeBackEdge onBack={onBack} />
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} aria-label="Back to reading lists" className="bg-transparent border-none cursor-pointer text-text p-1 hover:bg-bg-hover rounded-full">
+          <button onClick={onBack} aria-label="Back to reading lists" className="bg-transparent border-none cursor-pointer text-text p-2 hover:bg-bg-hover rounded-full">
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -244,7 +247,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
                   onClick={() => handleMoveUp(i)}
                   disabled={i === 0}
                   aria-label="Move up"
-                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-0.5"
+                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-2 rounded-full"
                 >
                   <GripVertical size={12} className="rotate-180" />
                 </button>
@@ -252,7 +255,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
                   onClick={() => handleMoveDown(i)}
                   disabled={i === list.papers.length - 1}
                   aria-label="Move down"
-                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-0.5"
+                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-2 rounded-full"
                 >
                   <GripVertical size={12} />
                 </button>

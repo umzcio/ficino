@@ -3,6 +3,7 @@ import type { FeedPost } from '../../types'
 import { usePersonas, type PersonaMap } from '../../hooks/usePersonas'
 import { useLikes } from '../../hooks/useLikes'
 import { PostCard, InlineMd } from './PostCard'
+import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface PostDetailProps {
   post: FeedPost
@@ -126,6 +127,7 @@ export function PostDetail({
 
   return (
     <div>
+      <SwipeBackEdge onBack={onBack} />
       {/* Header */}
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3 flex items-center gap-4">
         <button

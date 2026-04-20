@@ -12,6 +12,8 @@ import { PaperUpload } from './components/Upload/PaperUpload'
 import { CorpusPanel } from './components/Sidebar/CorpusPanel'
 import { PersonaPanel } from './components/Sidebar/PersonaPanel'
 import { FeedContent } from './components/Feed/Feed'
+import { SwipeableTabs } from './components/_shared/SwipeableTabs'
+import { PullToRefresh } from './components/_shared/PullToRefresh'
 import { FeedHistory } from './components/Feed/FeedHistory'
 // Route-level views are code-split via lazy() so Rollup does NOT emit
 // <link rel="modulepreload"> for them on first paint. Each view loads on
@@ -131,7 +133,7 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
   let longPressTimer: ReturnType<typeof setTimeout> | null = null
 
   return (
-    <nav aria-label="Mobile navigation" className="fixed bottom-0 left-0 right-0 bg-bg/95 backdrop-blur-md border-t border-border flex md:hidden z-50">
+    <nav aria-label="Mobile navigation" className="fixed bottom-0 left-0 right-0 bg-bg/95 backdrop-blur-md border-t border-border flex md:hidden z-50 pb-[env(safe-area-inset-bottom)]">
       {items.map(({ icon: Icon, view, label }) => (
         <button
           key={view}
@@ -183,7 +185,7 @@ function FeedHeader({
   }
 }) {
   return (
-    <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5 flex items-center justify-between">
+    <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3.5 pt-[calc(0.875rem+env(safe-area-inset-top))] flex items-center justify-between">
       <div>
         <div className="flex items-center gap-2">
           <button
@@ -624,30 +626,38 @@ function AppContent() {
                 ))}
               </div>
             )}
-            <FeedContent
-              posts={feed.posts}
-              feedId={feed.feedId}
-              feedState={feed.feedState}
-              generatingMeta={feed.generatingMeta}
-              error={feed.error}
-              activeTab={activeTab}
-              isBookmarked={bm.isBookmarked}
-              onBookmarkToggle={(fid, idx, post) => bm.toggle(fid, idx, post)}
-              getAnnotation={notes.getNote}
-              onAnnotationSave={notes.save}
-              onAnnotationDelete={notes.remove}
-              onPostClick={(idx) => {
-                feedScrollRef.current = document.querySelector('main')?.scrollTop ?? 0
-                setSelectedPostIndex(idx)
-                document.querySelector('main')?.scrollTo(0, 0)
+            <PullToRefresh
+              onRefresh={async () => {
+                if (feed.feedId) await feed.loadFeed(feed.feedId)
               }}
-              onPersonaClick={setSelectedPersona}
-              onReplyBookmark={(fid, postIdx, msgIdx, snapshot) => bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx)}
-              isReplyBookmarked={(postIdx, msgIdx) => feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false}
-              onGenerate={() => {
-                feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined, TAB_FOCUS[activeTab])
-              }}
-            />
+            >
+              <SwipeableTabs activeIndex={activeTab} tabCount={4} onChange={setActiveTab}>
+                <FeedContent
+                  posts={feed.posts}
+                  feedId={feed.feedId}
+                  feedState={feed.feedState}
+                  generatingMeta={feed.generatingMeta}
+                  error={feed.error}
+                  activeTab={activeTab}
+                  isBookmarked={bm.isBookmarked}
+                  onBookmarkToggle={(fid, idx, post) => bm.toggle(fid, idx, post)}
+                  getAnnotation={notes.getNote}
+                  onAnnotationSave={notes.save}
+                  onAnnotationDelete={notes.remove}
+                  onPostClick={(idx) => {
+                    feedScrollRef.current = document.querySelector('main')?.scrollTop ?? 0
+                    setSelectedPostIndex(idx)
+                    document.querySelector('main')?.scrollTo(0, 0)
+                  }}
+                  onPersonaClick={setSelectedPersona}
+                  onReplyBookmark={(fid, postIdx, msgIdx, snapshot) => bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx)}
+                  isReplyBookmarked={(postIdx, msgIdx) => feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false}
+                  onGenerate={() => {
+                    feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, feed.feedId || undefined, TAB_FOCUS[activeTab])
+                  }}
+                />
+              </SwipeableTabs>
+            </PullToRefresh>
           </>
         )
     }
@@ -659,7 +669,7 @@ function AppContent() {
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-bg focus:text-text focus:border focus:border-gold focus:px-3 focus:py-1.5 focus:rounded">Skip to main content</a>
         <div className="max-w-[1050px] mx-auto flex min-h-screen">
           <LeftNav active={activeView} onNavigate={setActiveView} alertCount={alertsHook.unreadCount} />
-          <main id="main" className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-16 md:pb-0 overflow-hidden">
+          <main id="main" className="flex-1 border-r border-border w-full md:max-w-[600px] min-w-0 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0 overflow-hidden">
             {/* Visually-hidden landmark heading: every authenticated view
                 currently jumps to <h2>, which AXE flags as a missing h1.
                 A single sr-only h1 establishes the document root for

@@ -11,6 +11,8 @@ import { InlineMd } from './_shared/InlineMd'
 import { FigureLightbox } from './_shared/FigureLightbox'
 import { Avatar } from './_shared/Avatar'
 import { formatNum } from './_shared/formatNum'
+import { haptic } from '../../hooks/useHaptic'
+import { SwipeToAct } from '../_shared/SwipeToAct'
 
 // Re-export for existing consumers that imported InlineMd from PostCard.
 export { InlineMd } from './_shared/InlineMd'
@@ -35,7 +37,7 @@ function ActionBtn({
       onMouseLeave={() => setHovered(false)}
       aria-label={count !== undefined ? `${label}: ${count}` : label}
       aria-pressed={active}
-      className="flex items-center gap-[5px] px-2.5 py-1.5 rounded-[20px] text-[13px] flex-1 justify-center max-w-[80px] border-none bg-transparent cursor-pointer transition-all duration-100"
+      className="flex items-center gap-[5px] px-3 py-2.5 rounded-[20px] text-[13px] flex-1 justify-center max-w-[80px] min-h-[44px] border-none bg-transparent cursor-pointer transition-all duration-100"
       style={{
         color: isLit ? color : 'var(--color-text-muted)',
         backgroundColor: isLit ? color + '15' : 'transparent',
@@ -320,6 +322,14 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
       : `${apiBase}${post.figure_url}`
 
   return (
+    <SwipeToAct
+      onSwipeLeft={onLikeToggle ? () => onLikeToggle(postIndex, post.persona, post.post_type, post.category) : undefined}
+      onSwipeRight={() => { setReplyOpen(true); haptic(10) }}
+      // Disable during reply edit (the reply textarea gets horizontal drags)
+      // and while a menu or zap panel is open so the user isn't fighting
+      // the gesture for the surface they care about.
+      disabled={replyOpen || menuOpen || zapOpen !== null}
+    >
     <article
       className="border-b border-border px-4 py-3.5 flex gap-3 hover:bg-bg-hover transition-colors cursor-pointer relative"
       style={{
@@ -403,7 +413,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }} />
-                <div role="menu" className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[220px]">
+                <div role="menu" className="absolute right-0 top-8 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[220px] max-w-[calc(100vw-2rem)]">
                   <MenuItem icon={Copy} label="Copy text" onClick={(e) => {
                     e.stopPropagation(); setMenuOpen(false)
                     const text = isThread && post.thread_posts ? post.thread_posts.join('\n\n') : post.content
@@ -823,7 +833,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
               label="Pass to persona"
             />
             {zapOpen === -1 && (
-              <div className="absolute bottom-full left-0 mb-1 w-56 bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20" onClick={e => e.stopPropagation()}>
+              <div className="absolute bottom-full left-0 mb-1 w-56 max-w-[calc(100vw-2rem)] bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20" onClick={e => e.stopPropagation()}>
                 <div className="px-3 py-2 text-[11px] text-text-muted border-b border-border font-medium">Have a persona respond</div>
                 {allPersonas.filter(pp => pp.personaKey !== post.persona).map(pp => (
                   <button
@@ -847,7 +857,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
             count={post.likes + (liked ? 1 : 0)}
             color="var(--color-like)"
             active={liked}
-            onClick={() => onLikeToggle?.(postIndex, post.persona, post.post_type, post.category)}
+            onClick={() => { haptic(10); onLikeToggle?.(postIndex, post.persona, post.post_type, post.category) }}
             label="Like"
           />
           <ActionBtn
@@ -855,7 +865,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
             count={post.bookmarks + (bookmarked ? 1 : 0)}
             color="var(--color-gold)"
             active={bookmarked}
-            onClick={() => onBookmarkToggle?.(post, postIndex)}
+            onClick={() => { haptic(10); onBookmarkToggle?.(post, postIndex) }}
             label="Bookmark"
           />
         </div>
@@ -946,7 +956,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                                 label="Pass to persona"
                               />
                               {zapOpen === i && (
-                                <div className="absolute bottom-full left-0 mb-1 w-56 bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20" onClick={e => e.stopPropagation()}>
+                                <div className="absolute bottom-full left-0 mb-1 w-56 max-w-[calc(100vw-2rem)] bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20" onClick={e => e.stopPropagation()}>
                                   <div className="px-3 py-2 text-[11px] text-text-muted border-b border-border font-medium">Have a persona respond to this</div>
                                   {allPersonas.filter(pp => pp.personaKey !== (msg.persona || post.persona)).map(pp => (
                                     <button
@@ -1010,7 +1020,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                             {msgMenuOpen === i && (
                               <div
                                 role="menu"
-                                className="absolute right-0 bottom-full mb-1 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[200px]"
+                                className="absolute right-0 bottom-full mb-1 z-30 bg-bg border border-border rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.35)] py-1.5 min-w-[200px] max-w-[calc(100vw-2rem)]"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <MenuItem
@@ -1145,7 +1155,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                     <ul
                       role="listbox"
                       id="mention-listbox"
-                      className="absolute bottom-full left-0 mb-1 w-64 bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20 list-none p-0 m-0"
+                      className="absolute bottom-full left-0 mb-1 w-64 max-w-[calc(100vw-2rem)] bg-bg border border-border rounded-xl shadow-lg overflow-hidden z-20 list-none p-0 m-0"
                     >
                       {mentionFiltered.map((mp, i) => (
                         <li
@@ -1187,6 +1197,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
         </div>
       )}
     </article>
+    </SwipeToAct>
   )
 }
 

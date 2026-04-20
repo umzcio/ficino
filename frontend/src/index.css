@@ -56,6 +56,28 @@
 
 * {
   box-sizing: border-box;
+  /* Kill iOS Safari's default blue tap flash on every element — the app
+     supplies its own hover/active affordances and the blue rectangle just
+     reads as an old mobile-web aesthetic. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS long-press on buttons pops a copy/share sheet by default; suppress
+   on interactive chrome so long-press can be reserved for app gestures
+   (e.g. long-press Home → workspace switcher). Prose / readable content
+   stays selectable + callout-enabled via the explicit override below. */
+button, [role="button"], [role="menuitem"] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Keep copy-paste on posts + reply bodies — users quote chunks from
+   papers into emails / docs and the callout menu is actually useful. */
+article p, article blockquote, .prose {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 body {

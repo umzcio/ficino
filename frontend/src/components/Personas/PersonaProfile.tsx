@@ -5,6 +5,7 @@ import { getPersonaStats, getPersonaDm, sendPersonaDm, getPersonaReplies, listUs
 import type { FeedPost } from '../../types'
 import { PostCard, InlineMd } from '../Feed/PostCard'
 import { UserPostCard } from '../Feed/UserPostCard'
+import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface PersonaProfileProps {
   personaKey: string
@@ -103,6 +104,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
 
   return (
     <div>
+      <SwipeBackEdge onBack={onBack} />
       {/* Header */}
       <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur-[12px] border-b border-border px-4 py-3 flex items-center gap-4">
         <button
