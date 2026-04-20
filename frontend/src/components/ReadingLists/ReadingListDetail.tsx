@@ -247,17 +247,17 @@ export function ReadingListDetail({ listId, onBack }: Props) {
                   onClick={() => handleMoveUp(i)}
                   disabled={i === 0}
                   aria-label="Move up"
-                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-2 rounded-full"
+                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-2.5 rounded-full"
                 >
-                  <GripVertical size={12} className="rotate-180" />
+                  <GripVertical size={14} className="rotate-180" />
                 </button>
                 <button
                   onClick={() => handleMoveDown(i)}
                   disabled={i === list.papers.length - 1}
                   aria-label="Move down"
-                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-2 rounded-full"
+                  className="bg-transparent border-none cursor-pointer text-text-muted hover:text-text disabled:opacity-20 p-2.5 rounded-full"
                 >
-                  <GripVertical size={12} />
+                  <GripVertical size={14} />
                 </button>
               </div>
             </div>

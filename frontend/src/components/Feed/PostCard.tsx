@@ -435,7 +435,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
               aria-label="More options"
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              className="bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full"
+              className="bg-transparent border-none cursor-pointer p-2.5 hover:bg-bg-hover rounded-full"
               onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
             >
               <MoreHorizontal size={16} className="text-text-muted" />
@@ -1071,7 +1071,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                               aria-label="More options"
                               aria-haspopup="menu"
                               aria-expanded={msgMenuOpen === i}
-                              className="bg-transparent border-none cursor-pointer p-1 ml-1 hover:bg-bg-hover rounded-full"
+                              className="bg-transparent border-none cursor-pointer p-2.5 ml-1 hover:bg-bg-hover rounded-full"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setMsgMenuOpen(msgMenuOpen === i ? null : i)

@@ -87,12 +87,15 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                     {ws.id === active.id && <Check size={14} className="text-gold shrink-0" />}
                   </button>
                   {ws.name !== 'Default' && (
-                    <div className="flex items-center gap-0.5 pr-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                    // Always visible on touch (no hover gesture); desktop
+                    // keeps the hover-reveal uncluttered. Icons enlarged
+                    // to ~44px tap surface via p-2.5.
+                    <div className="flex items-center gap-0.5 pr-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                       {onDownload && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onDownload(ws.id); setOpen(false) }}
                           aria-label={`Download ${ws.name} for offline`}
-                          className="p-1 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
+                          className="p-2.5 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
                         >
                           <Download size={12} className="text-text-muted" />
                         </button>
@@ -100,14 +103,14 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                       <button
                         onClick={(e) => { e.stopPropagation(); setRenamingId(ws.id); setRenameValue(ws.name) }}
                         aria-label={`Rename ${ws.name}`}
-                        className="p-1 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
+                        className="p-2.5 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
                       >
                         <Pencil size={12} className="text-text-muted" />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); onDelete(ws.id); setOpen(false) }}
                         aria-label={`Delete ${ws.name}`}
-                        className="p-1 rounded hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
+                        className="p-2.5 rounded hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
                       >
                         <Trash2 size={12} className="text-persona-skeptic" />
                       </button>

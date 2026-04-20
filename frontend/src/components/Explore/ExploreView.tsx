@@ -202,7 +202,10 @@ function SearchBar() {
                     Papers ({results.papers.length})
                   </div>
                   {results.papers.map((p) => (
-                    <div key={p.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
+                    // No onClick wired yet — drop the cursor-pointer /
+                    // hover styling so SR users don't get a "clickable"
+                    // affordance for a target that goes nowhere.
+                    <div key={p.id} className="px-4 py-2.5 flex items-center gap-3 border-b border-border last:border-b-0">
                       <FileText size={14} className="text-text-muted shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="text-[13px] text-text font-medium truncate">{p.title}</div>
@@ -222,7 +225,7 @@ function SearchBar() {
                     Passages ({results.chunks.length})
                   </div>
                   {results.chunks.map((c) => (
-                    <div key={c.id} className="px-4 py-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
+                    <div key={c.id} className="px-4 py-2.5 border-b border-border last:border-b-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[11px] text-text-mid font-medium truncate">{c.paper_title}</span>
                         <span className="text-[10px] text-text-muted">· {c.section}</span>
@@ -245,7 +248,7 @@ function SearchBar() {
                   {results.posts.map((p, i) => {
                     const persona = personas[p.persona]
                     return (
-                      <div key={i} className="px-4 py-2.5 flex items-start gap-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-b-0">
+                      <div key={i} className="px-4 py-2.5 flex items-start gap-2.5 border-b border-border last:border-b-0">
                         {persona && (
                           persona.avatar_url ? (
                             <img src={persona.avatar_url} alt={persona.name} className="w-6 h-6 rounded-full shrink-0 mt-0.5 object-cover" style={{ border: `1px solid ${persona.color}40` }} />
@@ -363,7 +366,10 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                 </div>
               </div>
               {ws.name !== 'Default' && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all">
+                // Always visible on touch / smaller viewports (no hover
+                // to reveal). Above md breakpoint the hover-reveal
+                // pattern kicks back in so the list stays uncluttered.
+                <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-all">
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -371,14 +377,14 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                       if (name && name.trim()) onRename(ws.id, name.trim())
                     }}
                     aria-label={`Rename ${ws.name}`}
-                    className="p-1.5 rounded-lg hover:bg-gold/10 bg-transparent border-none cursor-pointer"
+                    className="p-2.5 rounded-lg hover:bg-gold/10 bg-transparent border-none cursor-pointer"
                   >
                     <Pencil size={14} className="text-text-muted" />
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); onDelete(ws.id) }}
                     aria-label={`Delete ${ws.name}`}
-                    className="p-1.5 rounded-lg hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
+                    className="p-2.5 rounded-lg hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
                   >
                     <Trash2 size={14} className="text-persona-skeptic" />
                   </button>
