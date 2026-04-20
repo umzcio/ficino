@@ -37,14 +37,21 @@ class CsrfMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         method = request.method.upper()
 
-        # Previously: full bypass when AUTH_PROVIDER=none. That left the
-        # self-hosted single-user deployment wide open to CSRF from any
-        # site the user happened to visit while logged in — the threat
-        # model isn't "local attacker only," it's "any origin can forge
-        # a request against localhost / the public deployment."
-        # The frontend already reads the ficino_csrf cookie and echoes it
-        # as X-CSRF-Token on mutating requests, so turning enforcement on
-        # regardless of auth_provider is a no-op for a conforming client.
+        # CSRF scope is cookie-based auth. Under AUTH_PROVIDER=supabase the
+        # credential is Authorization: Bearer <jwt> from localStorage,
+        # which the browser never auto-attaches to cross-origin requests,
+        # so the attack class CSRF defends against is structurally
+        # impossible — no cross-site page can make a request bearing the
+        # victim's JWT. Skip the cookie dance entirely to avoid the
+        # cross-subdomain double-submit problems on hosted deploys.
+        #
+        # AUTH_PROVIDER=basic still relies on a session cookie
+        # (ficino_session), which DOES get auto-sent — keep enforcement
+        # on for that provider. AUTH_PROVIDER=none (self-host single user)
+        # also runs CSRF to harden the local deployment against malicious
+        # sites the user happens to visit while the app is loaded.
+        if settings.auth_provider == "supabase":
+            return await call_next(request)
 
         # Enforce for state-changing methods only
         if method in CSRF_PROTECTED_METHODS and request.url.path not in CSRF_EXEMPT_PATHS:
