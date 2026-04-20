@@ -71,28 +71,35 @@ def propose_ordering(
         # from the prior task in this Celery prefork child.
         apply_provider_settings(user_id)
 
-        # Load paper metadata + sample chunks for each paper
+        # Load paper metadata + sample chunks for every paper in one
+        # query. The previous code ran two round-trips (fetchrow for the
+        # paper row, fetch for its chunks) per paper in a Python loop;
+        # a 30-paper list = 60 RTT before any LLM work. We use
+        # array_agg of the first N chunks per paper, ordered by
+        # chunk_index, via a lateral join.
+        paper_rows = fetch(
+            """SELECT p.id, p.title, p.authors, p.year, p.filename,
+                      COALESCE(c.chunks, '{}') AS chunks
+               FROM papers p
+               LEFT JOIN LATERAL (
+                 SELECT array_agg(content ORDER BY chunk_index) AS chunks
+                 FROM (
+                   SELECT content, chunk_index FROM chunks
+                   WHERE paper_id = p.id
+                   ORDER BY chunk_index
+                   LIMIT 5
+                 ) s
+               ) c ON true
+               WHERE p.id = ANY($1::uuid[])""",
+            paper_ids,
+        )
         papers_context = []
-        for pid in paper_ids:
-            paper = fetchrow(
-                "SELECT id, title, authors, year, filename FROM papers WHERE id = $1",
-                pid,
-            )
-            if not paper:
-                continue
-
-            # Get first few chunks to understand the paper's content
-            chunks = fetch(
-                """SELECT section, content FROM chunks
-                   WHERE paper_id = $1 ORDER BY chunk_index LIMIT 5""",
-                pid,
-            )
-            chunk_preview = " ".join(c["content"][:200] for c in chunks)
-
+        for paper in paper_rows:
+            chunks = paper["chunks"] or []
+            chunk_preview = " ".join(str(c)[:200] for c in chunks)
             title = paper["title"] or paper["filename"]
             authors = ", ".join(paper["authors"]) if paper["authors"] else "Unknown"
             year = paper["year"] or "Unknown"
-
             papers_context.append({
                 "paper_id": str(paper["id"]),
                 "title": title,

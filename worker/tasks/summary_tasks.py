@@ -264,26 +264,41 @@ def generate_corpus_synthesis(
         # cached in this Celery prefork child from a prior task.
         apply_provider_settings(user_id)
 
-        # Gather key chunks from each paper
+        # Gather key chunks from every paper in one SQL — the previous
+        # code did 2 round-trips per paper (paper metadata + chunks) in a
+        # Python loop, so a 10-paper synthesis = 20 RTT before the single
+        # Claude call. One LATERAL-joined aggregate instead.
+        paper_rows = fetch(
+            """SELECT p.id, p.title, p.filename,
+                      COALESCE(c.sections, ARRAY[]::text[]) AS sections,
+                      COALESCE(c.contents, ARRAY[]::text[]) AS contents
+               FROM papers p
+               LEFT JOIN LATERAL (
+                 SELECT array_agg(section ORDER BY chunk_index) AS sections,
+                        array_agg(content ORDER BY chunk_index) AS contents
+                 FROM (
+                   SELECT section, content, chunk_index FROM chunks
+                   WHERE paper_id = p.id
+                   ORDER BY chunk_index
+                   LIMIT 10
+                 ) s
+               ) c ON true
+               WHERE p.id = ANY($1::uuid[])""",
+            paper_ids,
+        )
         paper_sections: list[str] = []
-        for pid in paper_ids:
-            paper = fetchrow("SELECT title, filename, authors FROM papers WHERE id = $1", pid)
-            if not paper:
+        for paper in paper_rows:
+            sections = paper["sections"] or []
+            contents = paper["contents"] or []
+            if not contents:
                 continue
-
             title = paper["title"] or paper["filename"]
-            rows = fetch(
-                """SELECT section, content FROM chunks
-                   WHERE paper_id = $1 ORDER BY chunk_index LIMIT 10""",
-                pid,
+            fenced_title = fence_untrusted(str(title))
+            chunks_text = "\n".join(
+                f"[{section}]\n{fence_untrusted(str(content)[:300])}"
+                for section, content in zip(sections, contents)
             )
-            if rows:
-                fenced_title = fence_untrusted(str(title))
-                chunks_text = "\n".join(
-                    f"[{r['section']}]\n{fence_untrusted(str(r['content'])[:300])}"
-                    for r in rows
-                )
-                paper_sections.append(f"=== {fenced_title} ===\n{chunks_text}")
+            paper_sections.append(f"=== {fenced_title} ===\n{chunks_text}")
 
         if not paper_sections:
             raise ValueError("No chunks found for any of the papers")

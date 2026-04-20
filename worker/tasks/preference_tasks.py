@@ -132,41 +132,34 @@ def _normalize(counts: dict[str, float]) -> dict[str, float]:
 
 def _get_liked_paper_titles(user_id: str) -> list[str]:
     """Extract unique paper titles from the source chunks of liked posts."""
-    # Get feed_id + post_index for all likes
-    likes = fetch(
-        "SELECT feed_id, post_index FROM user_likes WHERE user_id = $1",
+    # Single query — extract paper_ref and every sources[*].paper_title
+    # for each liked post directly in SQL, bypassing the per-feed
+    # fetchrow + full posts JSONB pull loop. For 30 liked posts across
+    # ~20 feeds the old path did 20 round-trips and hauled ~600KB of
+    # JSONB just to read two fields per post (Round 9 #19).
+    rows = fetch(
+        """WITH liked_posts AS (
+             SELECT f.posts->ul.post_index AS post
+             FROM user_likes ul
+             JOIN feeds f ON f.id = ul.feed_id
+             WHERE ul.user_id = $1
+               AND ul.post_index >= 0
+               AND ul.post_index < jsonb_array_length(f.posts)
+           )
+           SELECT post->>'paper_ref' AS ref,
+                  src->>'paper_title' AS title
+           FROM liked_posts
+           LEFT JOIN LATERAL jsonb_array_elements(
+             COALESCE(post->'sources', '[]'::jsonb)
+           ) AS src ON true""",
         user_id,
     )
-    if not likes:
-        return []
-
-    # For each liked post, extract paper_ref from the feed's JSONB posts array
     paper_titles: set[str] = set()
-    # Group by feed to minimize queries
-    feeds: dict[str, list[int]] = defaultdict(list)
-    for like in likes:
-        feeds[str(like["feed_id"])].append(like["post_index"])
-
-    for feed_id, indices in feeds.items():
-        row = fetchrow("SELECT posts FROM feeds WHERE id = $1", feed_id)
-        if not row:
-            continue
-        posts = row["posts"]
-        if isinstance(posts, str):
-            posts = json.loads(posts)
-
-        for idx in indices:
-            if idx < len(posts):
-                post = posts[idx]
-                # Get paper_ref (the citation line)
-                ref = post.get("paper_ref")
-                if ref:
-                    paper_titles.add(ref)
-                # Also get paper titles from sources
-                for src in post.get("sources", []):
-                    title = src.get("paper_title")
-                    if title:
-                        paper_titles.add(title)
+    for row in rows:
+        if row["ref"]:
+            paper_titles.add(row["ref"])
+        if row["title"]:
+            paper_titles.add(row["title"])
 
     return list(paper_titles)
 
