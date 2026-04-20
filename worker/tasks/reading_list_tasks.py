@@ -439,25 +439,46 @@ def generate_chapter(
 
 
 def _parse_ordering_json(text: str) -> list[dict]:
-    """Extract JSON array from LLM response."""
+    """Extract JSON array from LLM response.
+
+    Tolerates common drift: bare array, fenced code block, or a
+    {"ordering": [...]} wrapper object. If the parsed shape isn't a list
+    the caller would iterate dict keys (strings) and hit AttributeError
+    on `.get()` — return [] instead so the reading list stays stuck on
+    "generating ordering" rather than crashing the whole chapter-feed
+    pipeline.
+    """
     import re
+
+    def _coerce(parsed: object) -> list[dict]:
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+        if isinstance(parsed, dict):
+            # Common wrapper shapes: {"ordering": [...]}, {"papers": [...]},
+            # {"result": [...]}. Return the first inner list we find.
+            for key in ("ordering", "papers", "result", "data"):
+                inner = parsed.get(key)
+                if isinstance(inner, list):
+                    return [item for item in inner if isinstance(item, dict)]
+        return []
+
     # Try raw parse first
     try:
-        return json.loads(text)
+        return _coerce(json.loads(text))
     except json.JSONDecodeError:
         pass
     # Try extracting from code block
     match = re.search(r'```(?:json)?\s*\n?(.*?)```', text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group(1))
+            return _coerce(json.loads(match.group(1)))
         except json.JSONDecodeError:
             pass
     # Try finding array in text
     match = re.search(r'\[.*\]', text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group(0))
+            return _coerce(json.loads(match.group(0)))
         except json.JSONDecodeError:
             pass
     return []
