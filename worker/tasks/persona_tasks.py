@@ -644,8 +644,16 @@ def generate_feed(
                         post_data["paper_ref"] = paper_ref
 
                 # Attach source chunks for transparency
+                # Persist chunk_id + paper_id on every source entry so
+                # reply-time retrieval can fetch the exact chunks the
+                # persona was grounded on at generation time, rather than
+                # re-guessing from paper_ref / ILIKE / first-N-chunks.
+                # The truncated `content` preview remains for sidebar
+                # display; the UUIDs are what the reply path loads from.
                 post_data["sources"] = [
                     {
+                        "chunk_id": c.get("id"),
+                        "paper_id": c.get("paper_id"),
                         "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
                         "section": c.get("section", "unknown"),
                         "content": str(c.get("content", ""))[:300],
@@ -868,8 +876,12 @@ def regenerate_post(
     if chunks:
         post_data["paper_ref"] = persona_lib._build_short_cite(chunks[0])
 
+    # chunk_id + paper_id enable reply-time re-fetch of the exact chunks
+    # the regenerated post was grounded on (see replies.py reply retrieval).
     post_data["sources"] = [
         {
+            "chunk_id": c.get("id"),
+            "paper_id": c.get("paper_id"),
             "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
             "section": c.get("section", "unknown"),
             "content": str(c.get("content", ""))[:300],

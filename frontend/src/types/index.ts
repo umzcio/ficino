@@ -54,7 +54,10 @@ export interface FeedPost {
   figure_url?: string
   category?: 'general' | 'debates' | 'methods' | 'findings'
   thread_posts?: string[]
-  sources?: { paper_title: string; section: string; content: string; score: number }[]
+  // chunk_id + paper_id added so reply paths can re-fetch the exact
+  // chunks the persona was grounded on at generation time. Optional for
+  // backward compatibility with posts generated before chunk-id persistence.
+  sources?: { chunk_id?: string; paper_id?: string; paper_title: string; section: string; content: string; score: number }[]
   deleted?: boolean  // soft-deleted posts are filtered from display
 }
 

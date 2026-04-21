@@ -227,8 +227,13 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
             )
 
         # Build sources
+        # chunk_id + paper_id are the anchors the Archivist's follow-up
+        # reply path uses to re-fetch these exact chunks — the user can ask
+        # a follow-up question against the same grounded context.
         sources = [
             {
+                "chunk_id": c.get("id"),
+                "paper_id": c.get("paper_id"),
                 "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
                 "section": c.get("section", "unknown"),
                 "content": str(c.get("content", ""))[:300],

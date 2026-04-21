@@ -460,7 +460,7 @@ export interface UserPost {
   id: string
   content: string
   replies: { role: string; persona: string; content: string }[]
-  sources: { paper_title: string; section: string; content: string; score: number }[]
+  sources: { chunk_id?: string; paper_id?: string; paper_title: string; section: string; content: string; score: number }[]
   status: 'pending' | 'complete' | 'error'
   created_at: string
 }
