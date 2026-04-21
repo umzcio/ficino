@@ -61,6 +61,7 @@ def retrieve_chunks(
     paper_ids: list[str] | None = None,
     top_k: int = 20,
     query_embedding: list[float] | None = None,
+    exclude_chunk_ids: list[str] | None = None,
 ) -> list[dict[str, object]]:
     """Retrieve top-k relevant chunks via two-stage hybrid search.
 
@@ -71,8 +72,15 @@ def retrieve_chunks(
     If `query_embedding` is provided, skip the per-call embed_single_sync
     hop — feed generation batches all persona retrieval queries through
     embed_texts_sync once and passes the precomputed vectors in here.
+
+    `exclude_chunk_ids` filters matching chunks out of the stage-1 pools
+    so feed-level chunk budgeting can force later personas onto fresh
+    material — without this, Chan 2023's Table 2 chunk scores high on
+    every persona's retrieval query and every post in a small-corpus
+    feed ends up citing the same numbers.
     """
-    logger.info("retrieval_start", query=query[:100], paper_ids=paper_ids, top_k=top_k)
+    logger.info("retrieval_start", query=query[:100], paper_ids=paper_ids, top_k=top_k,
+                excluded=len(exclude_chunk_ids) if exclude_chunk_ids else 0)
 
     # If a reranker is configured, pull a wider slice from SQL so the
     # cross-encoder has enough material to reorder meaningfully. Capped at
@@ -100,12 +108,22 @@ def retrieve_chunks(
 
     top_k_param = f"${len(args)}"
 
+    # Feed-level chunk-budget exclusion — passed as the LAST positional
+    # arg so the paper_filter / top_k indices above stay stable. Applies
+    # to both the vector and keyword stage-1 pools so excluded chunks
+    # never enter the hybrid rerank pool.
+    exclude_filter = ""
+    if exclude_chunk_ids:
+        args.append(exclude_chunk_ids)
+        exclude_param = f"${len(args)}"
+        exclude_filter = f"AND c.id <> ALL({exclude_param}::uuid[])"
+
     sql = f"""
     WITH candidates AS (
         -- Stage 1a: nearest CANDIDATE_POOL by vector alone. Uses HNSW index.
         SELECT c.id
         FROM chunks c
-        WHERE TRUE {paper_filter}
+        WHERE TRUE {paper_filter} {exclude_filter}
         ORDER BY c.embedding <=> $1::vector
         LIMIT $3
     ),
@@ -118,7 +136,7 @@ def retrieve_chunks(
         -- keeps Stage 2 proportional to CANDIDATE_POOL.
         SELECT c.id
         FROM chunks c
-        WHERE c.search_vector @@ plainto_tsquery('english', $2) {paper_filter}
+        WHERE c.search_vector @@ plainto_tsquery('english', $2) {paper_filter} {exclude_filter}
         ORDER BY ts_rank(c.search_vector, plainto_tsquery('english', $2)) DESC
         LIMIT $3
     )
@@ -215,6 +233,7 @@ def retrieve_for_persona(
     top_k: int = 10,
     liked_paper_titles: list[str] | None = None,
     query_embedding: list[float] | None = None,
+    exclude_chunk_ids: list[str] | None = None,
 ) -> list[dict[str, object]]:
     """Retrieve chunks tailored for a specific persona's focus area.
 
@@ -225,6 +244,11 @@ def retrieve_for_persona(
     Callers that fan out over multiple personas should batch-embed all
     queries via embed_texts_sync once and pass each persona's vector in
     `query_embedding` to skip redundant per-persona embedding RTT.
+
+    `exclude_chunk_ids` is threaded down to `retrieve_chunks` so feed
+    generation can exclude chunks already consumed by earlier posts —
+    forces each post onto fresh evidence and prevents the "three
+    personas all post about Chan 2023 Table 2" duplication.
     """
     queries = _get_retrieval_queries()
     query = queries.get(persona_key, "key findings and methodology")
@@ -233,6 +257,7 @@ def retrieve_for_persona(
         paper_ids=paper_ids,
         top_k=top_k * 2 if liked_paper_titles else top_k,
         query_embedding=query_embedding,
+        exclude_chunk_ids=exclude_chunk_ids,
     )
 
     if liked_paper_titles and results:

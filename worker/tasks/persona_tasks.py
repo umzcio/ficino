@@ -513,6 +513,45 @@ def generate_feed(
         # Maps persona_key → 0, 1, 2, ... as we encounter each slot.
         persona_slot_cursor: dict[str, int] = {}
 
+        # --- Feed-level chunk budget ---
+        # Track every chunk_id that has already grounded a post in THIS feed
+        # plus a per-paper post count. Before each post's prompt we filter
+        # out used chunks from the persona's top-K, and apply a soft paper
+        # cap so one juicy paper (e.g. Chan 2023's numerically dense Table 2)
+        # can't dominate the whole feed. If filtering leaves fewer than 5
+        # chunks we re-retrieve with exclusion so late personas don't
+        # scrape the stale bottom of their initial top-K.
+        used_chunk_ids: set[str] = set()
+        paper_post_counts: dict[str, int] = {}
+        # In append mode the existing posts already grounded on chunks;
+        # seed both counters from them so appended posts stake out new
+        # material rather than re-covering what the existing feed already did.
+        for ep in all_feed_posts:
+            ep_paper_ids_in_post: set[str] = set()
+            for src in ep.get("sources") or []:
+                if isinstance(src, dict):
+                    cid = src.get("chunk_id")
+                    if cid:
+                        used_chunk_ids.add(str(cid))
+                    pid = src.get("paper_id")
+                    if pid:
+                        ep_paper_ids_in_post.add(str(pid))
+            # Count each existing post once per paper it grounded on (usually 1).
+            for pid in ep_paper_ids_in_post:
+                paper_post_counts[pid] = paper_post_counts.get(pid, 0) + 1
+        # Count distinct papers across all personas' retrieval sets so the
+        # paper cap scales with corpus breadth. A 10-post feed on 5 papers
+        # → cap of 3/paper (forces breadth); on 2 papers → cap of 6/paper
+        # (still tight enough to stop full convergence).
+        flat_paper_ids: set[str] = set()
+        for _persona_chunks in all_chunks.values():
+            for _c in _persona_chunks:
+                _pid = _c.get("paper_id")
+                if _pid:
+                    flat_paper_ids.add(str(_pid))
+        num_papers_in_scope = max(1, len(flat_paper_ids))
+        paper_cap = max(2, (num_posts + num_papers_in_scope - 1) // num_papers_in_scope + 1)
+
         for i, assignment in enumerate(plan):
             persona_key = assignment["persona"]
             post_type = assignment["post_type"]
@@ -545,6 +584,77 @@ def generate_feed(
                 max_start = max(0, len(chunks) - window_size)
                 start = (my_slot_index * window_size) % (max_start + 1) if max_start > 0 else 0
                 chunks = chunks[start:start + window_size]
+
+            # --- Feed-level chunk budget ---
+            # Drop chunks any earlier post in this feed already used, and
+            # drop chunks from papers that have already hit the soft cap.
+            # If the filter leaves us with too few chunks, re-retrieve with
+            # exclusion so a late-slot persona doesn't end up with just
+            # the stale bottom of its original top-K.
+            over_represented_papers = {
+                pid for pid, n in paper_post_counts.items() if n >= paper_cap
+            }
+            pre_count = len(chunks)
+            filtered = [
+                c for c in chunks
+                if str(c.get("id")) not in used_chunk_ids
+                and str(c.get("paper_id")) not in over_represented_papers
+            ]
+            # If dropping over-represented papers leaves < 3 chunks, relax
+            # the paper cap for this persona (prefer over-representation to
+            # no chunks at all) — keeps the used-chunk exclusion on.
+            if len(filtered) < 3:
+                filtered = [
+                    c for c in chunks
+                    if str(c.get("id")) not in used_chunk_ids
+                ]
+
+            re_retrieved = False
+            if len(filtered) < 5 and used_chunk_ids:
+                # Re-fetch with exclusion so the SQL returns fresh top-K
+                # rather than the scrapings of the initial list. Only when
+                # we actually have a budget to enforce (used_chunk_ids
+                # non-empty) — avoids unnecessary DB hits on the first post.
+                try:
+                    fresh = retrieval.retrieve_for_persona(
+                        persona_key,
+                        paper_ids=paper_ids,
+                        top_k=10,
+                        liked_paper_titles=liked_paper_titles,
+                        query_embedding=persona_query_embeddings.get(persona_key),
+                        exclude_chunk_ids=list(used_chunk_ids),
+                    )
+                    # Also apply the paper cap to the refreshed top-K, with
+                    # the same "relax when it'd leave us empty" fallback.
+                    fresh_filtered = [
+                        c for c in fresh
+                        if str(c.get("paper_id")) not in over_represented_papers
+                    ]
+                    if len(fresh_filtered) < 3:
+                        fresh_filtered = list(fresh)
+                    if len(fresh_filtered) >= len(filtered):
+                        filtered = fresh_filtered
+                        re_retrieved = True
+                except Exception as e:
+                    log.warn("re_retrieve_failed", persona=persona_key, error=str(e))
+
+            log.info(
+                "persona_chunks_after_exclusion",
+                persona=persona_key,
+                available_count=len(filtered),
+                pre_exclusion_count=pre_count,
+                excluded_count=len(used_chunk_ids),
+                over_rep_papers=len(over_represented_papers),
+                re_retrieved=re_retrieved,
+            )
+
+            if not filtered:
+                # Every chunk available to this persona was already used by
+                # an earlier post. Skip the slot rather than regenerate on
+                # zero evidence — better no post than an ungrounded one.
+                log.info("slot_skipped_no_fresh_chunks", persona=persona_key)
+                continue
+            chunks = filtered
 
             # Pick figure BEFORE prompt if this is a figure post. The
             # figure MUST be of a type this persona is allowed to post
@@ -593,6 +703,21 @@ def generate_feed(
                 [p for p in (all_feed_posts + posts) if not p.get("deleted")]
                 if post_type in ("quote", "reply") else None
             )
+            # Build a compact summary of what prior posts in THIS feed have
+            # covered so build_post_prompt can render a "PRIOR POSTS" block
+            # telling the LLM to cover new ground. The feed-level chunk
+            # budget above already made the evidence surface distinct; this
+            # is the instructional complement — belt and suspenders.
+            prior_posts_for_this_feed = [
+                p for p in (all_feed_posts + posts) if not p.get("deleted")
+            ]
+            prior_posts_summary: list[str] = []
+            for p in prior_posts_for_this_feed:
+                _pers = p.get("persona", "unknown")
+                _pref = p.get("paper_ref") or ""
+                _content = str(p.get("content") or "")[:90].replace("\n", " ")
+                handle = (persona_lib.get_personas().get(_pers, {}) or {}).get("handle", f"@{_pers}")
+                prior_posts_summary.append(f"{handle} on {_pref}: {_content}…")
             user_prompt = persona_lib.build_post_prompt(
                 persona_key=persona_key,
                 post_type=post_type,
@@ -600,6 +725,7 @@ def generate_feed(
                 contradictions=contradictions if post_type in ("quote", "reply") else None,
                 existing_posts=reference_posts,
                 figure=selected_figure,
+                prior_posts_summary=prior_posts_summary or None,
             )
 
             try:
@@ -686,6 +812,21 @@ def generate_feed(
                 validate_post_shape(post_data, persona_key=persona_key)
 
                 posts.append(post_data)
+                # Commit this post's chunks/paper to the feed-level budget
+                # so the NEXT iteration's filter excludes them. This is the
+                # load-bearing step for the whole diversification strategy
+                # — without it, the filter above is a no-op.
+                post_paper_ids_seen: set[str] = set()
+                for src in post_data.get("sources", []) or []:
+                    if isinstance(src, dict):
+                        _cid = src.get("chunk_id")
+                        if _cid:
+                            used_chunk_ids.add(str(_cid))
+                        _pid = src.get("paper_id")
+                        if _pid:
+                            post_paper_ids_seen.add(str(_pid))
+                for _pid in post_paper_ids_seen:
+                    paper_post_counts[_pid] = paper_post_counts.get(_pid, 0) + 1
                 log.info("post_generated", post=i+1, persona=persona_key, type=post_data.get("post_type"))
 
             except Exception as e:

@@ -327,6 +327,7 @@ def build_post_prompt(
     contradictions: list[dict[str, object]] | None = None,
     existing_posts: list[dict[str, object]] | None = None,
     figure: dict[str, object] | None = None,
+    prior_posts_summary: list[str] | None = None,
 ) -> str:
     """Build the user prompt for generating a single post.
 
@@ -340,6 +341,14 @@ def build_post_prompt(
     with specific numbers) surfaced by the first post would anchor
     every subsequent quote/reply and the whole feed converged onto one
     topic.
+
+    `prior_posts_summary` is a list of one-line descriptors of posts
+    already generated in this feed (e.g. ``"@hype: Chan 2023 Table 2
+    over-reliance gap (4.24 vs 3.11)"``). When present, rendered as a
+    "PRIOR POSTS" block that tells the LLM to cover new ground rather
+    than re-hashing what earlier personas already published. Second
+    line of defense on top of the feed-level chunk-budget exclusion
+    happening in the caller.
     """
     selected_parent: dict[str, object] | None = None
     parent_anchor_block = ""
@@ -374,11 +383,26 @@ def build_post_prompt(
         f"\n\n{parent_anchor_block}\n" if parent_anchor_block else ""
     )
 
+    # Prior-posts block — tells the LLM what earlier personas already
+    # covered so this post stakes out new ground. The feed caller
+    # already excluded those earlier posts' anchor chunks from this
+    # persona's retrieval (chunk-budget layer); this block provides the
+    # explicit instruction on top of the implicit evidence shift.
+    prior_posts_section = ""
+    if prior_posts_summary:
+        lines = "\n".join(f"- {line}" for line in prior_posts_summary if line)
+        prior_posts_section = (
+            "\n\nPRIOR POSTS IN THIS FEED (cover ground these haven't — do not "
+            "restate these claims, cite their numbers, or pick their angle):\n"
+            f"{lines}\n\nIf your own retrieval only overlaps with what's "
+            "already covered above, pick a narrower angle or different paper.\n"
+        )
+
     base = f"""You are writing as {persona_info['name']} ({persona_info['handle']}) for an academic discourse feed.
 
 YOUR RETRIEVED PAPER CONTENT (this is what you have read — base your post on this):
 {context}
-{parent_section}
+{parent_section}{prior_posts_section}
 {contradiction_context}
 
 Generate a single {post_type} post. You MUST respond with valid JSON only — no other text.
