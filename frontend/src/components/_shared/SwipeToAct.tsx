@@ -1,7 +1,30 @@
 import { useDrag } from '@use-gesture/react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Heart, MessageCircle } from 'lucide-react'
 import { haptic } from '../../hooks/useHaptic'
+
+/**
+ * Touch-primary detection: the swipe-to-act gesture should only be
+ * live on devices where horizontal swipe is the natural interaction.
+ * On desktop, useDrag catches trackpad two-finger side-scrolls and
+ * accidental mouse drags, which feels intrusive — the user explicitly
+ * called this out. `(hover: none) and (pointer: coarse)` matches
+ * touch-primary devices (phones, tablets in touch mode); everything
+ * else (mouse, trackpad, stylus-over-screen) short-circuits to
+ * gesture-less passthrough.
+ */
+function useTouchDevice(): boolean {
+  const [isTouch, setIsTouch] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(hover: none) and (pointer: coarse)')
+    setIsTouch(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => setIsTouch(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return isTouch
+}
 
 /**
  * Wraps a list row (feed post, message, etc.) so horizontal swipes
@@ -39,12 +62,19 @@ export function SwipeToAct({
   disabled?: boolean
   children: ReactNode
 }) {
+  const isTouch = useTouchDevice()
   const [dx, setDx] = useState(0)
   const [committing, setCommitting] = useState<'left' | 'right' | null>(null)
 
+  // Effective disabled flag includes the touch-device check. On desktop
+  // we short-circuit the drag handler and render children bare — no
+  // transform wrapper, no gutter overlays, no useDrag listeners
+  // catching trackpad scrolls.
+  const effectivelyDisabled = disabled || !isTouch
+
   const bind = useDrag(
     ({ movement: [mx], down, last, canceled }) => {
-      if (disabled) return
+      if (effectivelyDisabled) return
       // Dead-zone: ignore the first 8 px so a small hand tremor or
       // start-of-scroll doesn't produce a visible translate.
       const effective = Math.abs(mx) < 8 ? 0 : mx - Math.sign(mx) * 8
@@ -69,6 +99,14 @@ export function SwipeToAct({
     },
     { axis: 'lock', filterTaps: true },
   )
+
+  // On desktop, render children directly. This completely removes the
+  // gesture binding + overflow-hidden wrapper — trackpad scrolls and
+  // mouse drags behave as if SwipeToAct wasn't there at all. No
+  // accidental triggers, no phantom transforms.
+  if (effectivelyDisabled) {
+    return <>{children}</>
+  }
 
   // Gutter intensity follows drag progress so the colored pad "fills in"
   // as the user reaches the threshold.
