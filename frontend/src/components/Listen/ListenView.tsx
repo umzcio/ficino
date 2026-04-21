@@ -273,10 +273,17 @@ export function ListenView({ feedId, posts }: Props) {
             {uniquePersonas.slice(0, 4).map((key, idx) => {
               const p = personas[key]
               if (!p) return null
-              return (
+              const common = {
+                key,
+                className: 'w-12 h-12 rounded-full border-2 border-bg-hover object-cover',
+                style: { zIndex: 10 - idx, boxShadow: `0 0 0 1px ${p.color}60` },
+              } as const
+              return p.avatar_url ? (
+                <img {...common} src={p.avatar_url} alt={p.name} />
+              ) : (
                 <div
-                  key={key}
-                  className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold border-2 border-bg-hover"
+                  {...common}
+                  className="w-12 h-12 rounded-full border-2 border-bg-hover flex items-center justify-center text-sm font-bold"
                   style={{
                     backgroundColor: p.color + '30',
                     color: p.color,
@@ -428,16 +435,25 @@ export function ListenView({ feedId, posts }: Props) {
                 </div>
                 {/* Avatar */}
                 {p ? (
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                    style={{
-                      backgroundColor: p.color + '28',
-                      border: `1.5px solid ${p.color}50`,
-                      color: p.color,
-                    }}
-                  >
-                    {p.initials}
-                  </div>
+                  p.avatar_url ? (
+                    <img
+                      src={p.avatar_url}
+                      alt={p.name}
+                      className="w-9 h-9 rounded-full object-cover shrink-0"
+                      style={{ boxShadow: `0 0 0 1.5px ${p.color}60` }}
+                    />
+                  ) : (
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                      style={{
+                        backgroundColor: p.color + '28',
+                        border: `1.5px solid ${p.color}50`,
+                        color: p.color,
+                      }}
+                    >
+                      {p.initials}
+                    </div>
+                  )
                 ) : (
                   <div className="w-9 h-9 rounded-full bg-border shrink-0" />
                 )}
