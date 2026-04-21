@@ -104,6 +104,22 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
     if isinstance(posts, str):
         posts = json.loads(posts)
 
+    def _record_post_error(idx: int, stage: str, detail: str) -> None:
+        # Persist a per-post audio_error to the feed JSONB so we can
+        # diagnose silent failures via SQL. Truncate aggressively — this
+        # doesn't replace logs, just gives us a DB-readable breadcrumb.
+        try:
+            execute(
+                """UPDATE feeds
+                   SET posts = jsonb_set(posts, $2::text[], $3::jsonb, true)
+                   WHERE id = $1""",
+                feed_id,
+                [str(idx), "audio_error"],
+                json.dumps(f"{stage}: {detail[:300]}"),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         personas = get_personas()
         rendered = 0
@@ -133,13 +149,9 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                 # continuing the loop since every call would fail.
                 raise
             except httpx.HTTPStatusError as exc:
-                # The voice may be locked, deprecated, or require a
-                # higher plan on this user's ElevenLabs account. Fall
-                # back to the default voice so the post still plays —
-                # better to hear Rachel read every post than silence.
                 body_preview = ""
                 try:
-                    body_preview = exc.response.text[:200]
+                    body_preview = exc.response.text[:300]
                 except Exception:  # noqa: BLE001
                     pass
                 log.warn(
@@ -150,6 +162,11 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                     status_code=exc.response.status_code,
                     body=body_preview,
                 )
+                _record_post_error(
+                    idx,
+                    f"http_{exc.response.status_code}_voice_{voice_id}",
+                    body_preview,
+                )
                 if voice_id != tts_module._DEFAULT_VOICE:
                     try:
                         mp3 = synthesize(text, tts_module._DEFAULT_VOICE)
@@ -159,10 +176,23 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                             voice_id=tts_module._DEFAULT_VOICE,
                         )
                     except Exception as fb_exc:  # noqa: BLE001
+                        fb_body = ""
+                        if isinstance(fb_exc, httpx.HTTPStatusError):
+                            try:
+                                fb_body = fb_exc.response.text[:300]
+                            except Exception:  # noqa: BLE001
+                                pass
                         log.warn(
                             "post_synthesis_fallback_failed",
                             post_index=idx,
+                            error_type=type(fb_exc).__name__,
                             error=str(fb_exc)[:200],
+                            body=fb_body,
+                        )
+                        _record_post_error(
+                            idx,
+                            f"fallback_{type(fb_exc).__name__}",
+                            f"{fb_exc} body={fb_body}",
                         )
                         mp3 = None
             except Exception as exc:  # noqa: BLE001 — network/timeouts too
@@ -173,6 +203,11 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                     voice_id=voice_id,
                     error_type=type(exc).__name__,
                     error=str(exc)[:200],
+                )
+                _record_post_error(
+                    idx,
+                    f"exception_{type(exc).__name__}",
+                    str(exc),
                 )
                 mp3 = None
 
@@ -191,6 +226,11 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                     error_type=type(exc).__name__,
                     error=str(exc)[:200],
                 )
+                _record_post_error(
+                    idx,
+                    f"upload_{type(exc).__name__}",
+                    str(exc),
+                )
                 skipped += 1
                 continue
 
@@ -205,6 +245,18 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                 [str(idx), "audio_key"],
                 json.dumps(key),
             )
+            # Clear any prior audio_error on a successful render.
+            try:
+                execute(
+                    """UPDATE feeds
+                       SET posts = posts #- $2::text[]
+                       WHERE id = $1""",
+                    feed_id,
+                    [str(idx), "audio_error"],
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            log.info("post_rendered", post_index=idx, persona=persona_key, voice_id=voice_id)
             rendered += 1
 
         execute(
