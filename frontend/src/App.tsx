@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import {
   Home, Search, Bell, Mail, Bookmark, Settings,
-  Zap, Loader2, BookOpen, User
+  Zap, Loader2, BookOpen, User, Headphones
 } from 'lucide-react'
 import type { FeedPost } from './types'
 import { useCorpus } from './hooks/useCorpus'
@@ -12,7 +12,9 @@ import { PaperUpload } from './components/Upload/PaperUpload'
 import { CorpusPanel } from './components/Sidebar/CorpusPanel'
 import { PersonaPanel } from './components/Sidebar/PersonaPanel'
 import { FeedContent } from './components/Feed/Feed'
-import { FeedAudioPlayer } from './components/Feed/FeedAudioPlayer'
+const ListenView = lazy(() =>
+  import('./components/Listen/ListenView').then((m) => ({ default: m.ListenView })),
+)
 import { SwipeableTabs } from './components/_shared/SwipeableTabs'
 import { PullToRefresh } from './components/_shared/PullToRefresh'
 import { FeedHistory } from './components/Feed/FeedHistory'
@@ -61,10 +63,11 @@ import { OfflineBanner } from './components/Nav/OfflineBanner'
 import { DownloadProgress } from './components/Nav/DownloadProgress'
 import { downloadWorkspace, type DownloadProgress as DlProgress } from './lib/workspace-download'
 
-type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
+type AppView = 'feed' | 'listen' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
 
 const NAV_ITEMS: { icon: typeof Home; view: AppView; label: string }[] = [
   { icon: Home, view: 'feed', label: 'Home' },
+  { icon: Headphones, view: 'listen', label: 'Listen' },
   { icon: Search, view: 'search', label: 'Search' },
   { icon: Bell, view: 'alerts', label: 'Alerts' },
   { icon: Mail, view: 'messages', label: 'Messages' },
@@ -127,6 +130,7 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
 }) {
   const items: { icon: typeof Home; view: AppView; label: string }[] = [
     { icon: Home, view: 'feed', label: 'Home' },
+    { icon: Headphones, view: 'listen', label: 'Listen' },
     { icon: Search, view: 'search', label: 'Explore' },
     { icon: Mail, view: 'messages', label: 'Messages' },
     { icon: Bookmark, view: 'bookmarks', label: 'Saved' },
@@ -494,6 +498,12 @@ function AppContent() {
 
   const renderMainContent = () => {
     switch (activeView) {
+      case 'listen':
+        return (
+          <Suspense fallback={<div className="py-10 text-center text-text-muted text-sm">Loading…</div>}>
+            <ListenView feedId={feed.feedId} posts={feed.posts} />
+          </Suspense>
+        )
       case 'messages':
         return (
           <MessagesView
@@ -660,7 +670,6 @@ function AppContent() {
             />
             <OfflineBanner />
             <MobileInstallBanner />
-            <FeedAudioPlayer feedId={feed.feedId} posts={feed.posts} />
             <FeedTabs active={activeTab} onSelect={setActiveTab} />
             <FeedHistory currentFeedId={feed.feedId} onLoadFeed={feed.loadFeed} workspaceId={ws.activeId} />
             <ComposeBox
