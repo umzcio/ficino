@@ -284,3 +284,59 @@ Do NOT use JSON formatting. Respond naturally.
 
     logger.info("persona_dm_sent", persona=persona_key, turns=len(existing))
     return {"id": dm_id, "messages": existing, "latest_response": persona_response}
+
+
+@router.delete("/{persona_key}/dm/{message_index}")
+async def delete_persona_dm_message(
+    persona_key: str,
+    message_index: int,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Delete a single message from a persona DM thread.
+
+    Removes one turn at `message_index` from the JSONB messages array.
+    The LLM context on the next send_persona_dm rebuilds from whatever
+    messages remain, so deleting a user turn (or a persona reply) just
+    quietly shortens the conversation from the model's perspective.
+    """
+    row = await db.fetchrow(
+        "SELECT messages FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
+        user.id, persona_key,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="No DM thread with this persona")
+
+    messages = row["messages"]
+    if isinstance(messages, str):
+        messages = json.loads(messages)
+    if not isinstance(messages, list) or message_index < 0 or message_index >= len(messages):
+        raise HTTPException(status_code=404, detail="Message index out of range")
+
+    messages.pop(message_index)
+    await db.execute(
+        "UPDATE persona_dms SET messages = $1::jsonb, updated_at = NOW() "
+        "WHERE user_id = $2 AND persona_key = $3",
+        json.dumps(messages), user.id, persona_key,
+    )
+    logger.info("persona_dm_message_deleted", persona=persona_key, index=message_index)
+    return {"messages": messages}
+
+
+@router.delete("/{persona_key}/dm")
+async def clear_persona_dm(
+    persona_key: str,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
+    """Clear the entire DM thread with a persona.
+
+    Deletes the `persona_dms` row outright so the next `get_persona_dm`
+    returns an empty thread and the LLM's context starts fresh.
+    """
+    await db.execute(
+        "DELETE FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
+        user.id, persona_key,
+    )
+    logger.info("persona_dm_cleared", persona=persona_key)
+    return {"messages": []}

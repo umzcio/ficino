@@ -285,6 +285,14 @@ export async function sendPersonaDm(key: string, message: string): Promise<{ mes
   })
 }
 
+export async function deletePersonaDmMessage(key: string, messageIndex: number): Promise<{ messages: ReplyMessage[] }> {
+  return request(`/personas/${key}/dm/${messageIndex}`, { method: 'DELETE' })
+}
+
+export async function clearPersonaDm(key: string): Promise<{ messages: ReplyMessage[] }> {
+  return request(`/personas/${key}/dm`, { method: 'DELETE' })
+}
+
 // Citations
 export async function getCitation(title: string, format: 'apa' | 'mla' = 'apa'): Promise<{ citation: string; format: string; title: string }> {
   return request(`/citations/by-title?title=${encodeURIComponent(title)}&format=${format}`)

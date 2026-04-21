@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Loader2, Send, MessagesSquare } from 'lucide-react'
+import { ArrowLeft, Loader2, Send, MessagesSquare, Trash2 } from 'lucide-react'
 import { usePersonas } from '../../hooks/usePersonas'
-import { getPersonaStats, getPersonaDm, sendPersonaDm, getPersonaReplies, listUserPosts, type ReplyMessage, type PersonaReplyItem, type UserPost } from '../../lib/api'
+import { getPersonaStats, getPersonaDm, sendPersonaDm, deletePersonaDmMessage, clearPersonaDm, getPersonaReplies, listUserPosts, type ReplyMessage, type PersonaReplyItem, type UserPost } from '../../lib/api'
 import type { FeedPost } from '../../types'
 import { PostCard, InlineMd } from '../Feed/PostCard'
 import { UserPostCard } from '../Feed/UserPostCard'
@@ -106,6 +106,31 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       // ignore
     } finally {
       setDmLoading(false)
+    }
+  }
+
+  const handleDeleteMessage = async (messageIndex: number) => {
+    // Optimistic update so the bubble vanishes immediately; if the
+    // DELETE fails we refetch from the server (catch branch below).
+    const previous = dmMessages
+    setDmMessages(msgs => msgs.filter((_, i) => i !== messageIndex))
+    try {
+      const data = await deletePersonaDmMessage(personaKey, messageIndex)
+      setDmMessages(data.messages)
+    } catch {
+      setDmMessages(previous)
+    }
+  }
+
+  const handleClearDm = async () => {
+    if (dmMessages.length === 0) return
+    if (!window.confirm(`Clear entire conversation with ${p?.name ?? 'this persona'}? This can't be undone.`)) return
+    const previous = dmMessages
+    setDmMessages([])
+    try {
+      await clearPersonaDm(personaKey)
+    } catch {
+      setDmMessages(previous)
     }
   }
 
@@ -351,6 +376,21 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
               labels — the persona is identified by the header at the
               top of this profile, matching iMessage / Twitter DM feel. */}
           <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
+            {/* Conversation toolbar — visible only when there ARE messages.
+                Gives a one-click escape hatch for starting fresh. */}
+            {dmLoaded && dmMessages.length > 0 && (
+              <div className="sticky top-0 z-10 flex justify-end px-3 py-1.5 bg-bg/90 backdrop-blur-[12px] border-b border-border">
+                <button
+                  type="button"
+                  onClick={handleClearDm}
+                  aria-label="Clear conversation"
+                  className="text-[12px] text-text-muted hover:text-persona-skeptic bg-transparent border-none cursor-pointer px-2 py-1 rounded-md flex items-center gap-1 transition-colors"
+                >
+                  <Trash2 size={12} />
+                  <span>Clear conversation</span>
+                </button>
+              </div>
+            )}
             {!dmLoaded ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 size={24} className="animate-spin" style={{ color: p.color }} />
@@ -372,28 +412,62 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
                 </p>
               </div>
             ) : (
-              <div className="py-3 px-3 flex flex-col gap-1">
+              <div className="py-3 px-3 flex flex-col">
                 {dmMessages.map((msg, i) => {
                   const isUser = msg.role === 'user'
+                  const prev = i > 0 ? dmMessages[i - 1] : undefined
+                  // Messages from the SAME sender stack with tight spacing
+                  // (like iMessage). When the sender flips the next bubble
+                  // gets extra top padding so the conversation breathes.
+                  const sameAsPrev = prev && prev.role === msg.role
+                  const spacingClass = sameAsPrev ? 'mt-1' : 'mt-4'
                   // "Tail" corner — the one corner on the bubble that
                   // stays sharper, giving the iMessage/Twitter DM feel.
                   // User tail = bottom-right; persona tail = bottom-left.
                   const bubbleClass = isUser
-                    ? 'self-end bg-gold text-bg rounded-2xl rounded-br-md'
-                    : 'self-start text-text rounded-2xl rounded-bl-md'
+                    ? 'bg-gold text-bg rounded-2xl rounded-br-md'
+                    : 'text-text rounded-2xl rounded-bl-md'
                   const bubbleStyle: React.CSSProperties = isUser
                     ? {}
                     : {
                         backgroundColor: `color-mix(in srgb, ${p.color} 18%, transparent)`,
                         border: `1px solid color-mix(in srgb, ${p.color} 28%, transparent)`,
                       }
+                  // The flex row wraps bubble + hover-delete button. The
+                  // row's justify-end/start positions the bubble on the
+                  // correct side; the group-hover trash sits just outside
+                  // the bubble on the free-side gutter.
                   return (
                     <div
                       key={i}
-                      className={`${bubbleClass} max-w-[78%] px-4 py-2 text-[14px] leading-relaxed whitespace-pre-wrap break-words`}
-                      style={bubbleStyle}
+                      className={`group relative flex items-center gap-1 ${spacingClass} ${isUser ? 'justify-end' : 'justify-start'}`}
                     >
-                      <InlineMd text={msg.content} />
+                      {isUser && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMessage(i)}
+                          aria-label="Delete message"
+                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity w-7 h-7 rounded-full bg-transparent border-none cursor-pointer flex items-center justify-center text-text-muted hover:text-persona-skeptic hover:bg-bg-hover"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                      <div
+                        className={`${bubbleClass} max-w-[78%] px-4 py-2 text-[14px] leading-relaxed whitespace-pre-wrap break-words`}
+                        style={bubbleStyle}
+                      >
+                        <InlineMd text={msg.content} />
+                      </div>
+                      {!isUser && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMessage(i)}
+                          aria-label="Delete message"
+                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity w-7 h-7 rounded-full bg-transparent border-none cursor-pointer flex items-center justify-center text-text-muted hover:text-persona-skeptic hover:bg-bg-hover"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   )
                 })}
@@ -402,7 +476,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
                   // three pulsing dots while the LLM is responding. Makes
                   // the wait feel like a real DM rather than dead air.
                   <div
-                    className="self-start text-text rounded-2xl rounded-bl-md px-4 py-2.5 flex items-center gap-1"
+                    className="self-start text-text rounded-2xl rounded-bl-md px-4 py-2.5 flex items-center gap-1 mt-4"
                     style={{
                       backgroundColor: `color-mix(in srgb, ${p.color} 18%, transparent)`,
                       border: `1px solid color-mix(in srgb, ${p.color} 28%, transparent)`,
