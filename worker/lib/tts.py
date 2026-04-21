@@ -22,16 +22,19 @@ import httpx
 _ELEVENLABS_API = "https://api.elevenlabs.io/v1/text-to-speech"
 
 
-# persona_key → ElevenLabs voice_id. See lib.persona.get_personas for the
-# full list of keys. Personas not listed fall back to _DEFAULT_VOICE.
+# persona_key → ElevenLabs voice_id. Chosen for MAXIMAL timbre contrast:
+# mixed accents (British / American / Australian / Southern US), mixed
+# gender, mixed age. Subtle timbre differences get flattened on the
+# turbo model, so we pick voices that differ on features the model
+# preserves well (accent, F0, speaking rate).
 VOICE_MAP: Final[dict[str, str]] = {
-    "skeptic":       "pNInz6obpgDQGcFmaJgB",  # Adam — deep, serious
-    "methodologist": "GBv7mTt0atIp3Br8iCZE",  # Thomas — calm, analytical
-    "practitioner":  "ErXwobaYiN019PkySvjV",  # Antoni — well-rounded, mature
-    "hype":          "EXAVITQu4vr4xnSDxMaL",  # Bella — enthusiastic
-    "gradstudent":   "TxGEqnHWrfWFTfGW9XjX",  # Josh — younger, earnest
-    "archivist":     "21m00Tcm4TlvDq8ikWAM",  # Rachel — neutral narrator
-    "amplifier":     "MF3mGyEYCl7XYWbV9V6O",  # Elli — energetic
+    "skeptic":       "onwK4e9ZLuTAKqWW03F9",  # Daniel — British news anchor, incisive
+    "methodologist": "pqHfZKP75CvOlQylNhV4",  # Bill — older American, warm narrator
+    "practitioner":  "nPczCjzI2devNBz1zQrb",  # Brian — deep mature American male
+    "hype":          "jsCqWAovK2LkecY7zXl4",  # Freya — young American female, bright
+    "gradstudent":   "TxGEqnHWrfWFTfGW9XjX",  # Josh — young American male, earnest
+    "archivist":     "XB0fDUnXU5powFXDhCwa",  # Charlotte — British female, raspy
+    "amplifier":     "oWAxZDx7w5VEj9dCyTzz",  # Grace — Southern American female, energetic
 }
 
 _DEFAULT_VOICE: Final[str] = "21m00Tcm4TlvDq8ikWAM"  # Rachel

@@ -27,6 +27,7 @@ from celery import Task
 
 from celery_app import app
 from lib.db import execute, fetchrow
+from lib.persona import get_personas
 from lib.storage import storage
 from lib.tts import TTSUnavailable, synthesize, voice_id_for
 
@@ -37,33 +38,33 @@ logger = structlog.get_logger(__name__)
 _MAX_TTS_CHARS = 4000
 
 
-def _post_to_speech_text(post: dict) -> str | None:
+def _post_to_speech_text(post: dict, display_name: str) -> str | None:
     """Flatten a feed post into the text we'll hand to ElevenLabs.
 
-    Includes the persona's handle once at the start so listeners can
-    identify the speaker even before the voice stabilizes. Thread posts
-    are joined with blank lines (TTS renders this as a breath pause).
-    Returns None for posts that shouldn't be synthesized (soft-deleted,
-    empty content).
+    Prepends the persona's display name ("Methods Skeptic.") so a
+    listener hears the speaker announced before the actual post.
+    The period gives ElevenLabs a natural beat before the content.
+    Thread posts are joined with blank lines (TTS renders this as a
+    breath pause). Returns None for posts that shouldn't be
+    synthesized (soft-deleted or empty).
     """
     if post.get("deleted"):
         return None
 
-    pieces: list[str] = []
-    handle = post.get("paper_ref") or ""  # unused, kept for future cue
-    persona_handle = post.get("persona_handle") or ""
     content = (post.get("content") or "").strip()
     if not content:
         return None
-    pieces.append(content)
 
+    pieces: list[str] = [content]
     thread_posts = post.get("thread_posts") or []
     if isinstance(thread_posts, list):
         for sub in thread_posts:
             if isinstance(sub, str) and sub.strip():
                 pieces.append(sub.strip())
 
-    joined = "\n\n".join(pieces)
+    body = "\n\n".join(pieces)
+    prefix = f"{display_name}. " if display_name else ""
+    joined = f"{prefix}{body}"
     if len(joined) > _MAX_TTS_CHARS:
         joined = joined[:_MAX_TTS_CHARS].rsplit(" ", 1)[0] + "…"
     return joined
@@ -101,16 +102,25 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
         posts = json.loads(posts)
 
     try:
+        personas = get_personas()
         rendered = 0
         skipped = 0
         for idx, post in enumerate(posts):
-            text = _post_to_speech_text(post)
+            persona_key = str(post.get("persona") or "")
+            display_name = personas.get(persona_key, {}).get("name", "") or persona_key.title()
+            text = _post_to_speech_text(post, display_name)
             if not text:
                 skipped += 1
                 continue
 
-            persona_key = str(post.get("persona") or "")
             voice_id = voice_id_for(persona_key)
+            log.info(
+                "post_synthesis_start",
+                post_index=idx,
+                persona=persona_key,
+                voice_id=voice_id,
+                chars=len(text),
+            )
 
             try:
                 mp3 = synthesize(text, voice_id)
