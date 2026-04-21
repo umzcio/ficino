@@ -254,6 +254,15 @@ def extract_text_pymupdf(file_path: str) -> str:
 # (median ~6, p99 ~25) and saves both API budget and IDB cache bloat.
 MAX_FIGURES_PER_PAPER = 50
 
+# Padding to add around the VLM-returned bbox before cropping, as a
+# fraction of page dimension. Claude's vision bboxes are often too tight
+# — axis labels, panel letters (a)/(b)/(c), and the last line of caption
+# text end up clipped at the edges. 4% on each side adds roughly 50 px
+# at 150 dpi on US Letter, enough to catch axis labels + a caption line
+# without bleeding into neighboring figures. Clamped to the page bounds
+# in the crop itself so we never overshoot.
+FIGURE_CROP_PADDING_RATIO = 0.04
+
 
 def extract_figures(file_path: str) -> list[dict[str, object]]:
     """Detect and extract *typed* scientific figures via a vision model.
@@ -312,9 +321,20 @@ def extract_figures(file_path: str) -> list[dict[str, object]]:
 
         for det in detections:
             x0n, y0n, x1n, y1n = det["bbox"]
+            # Expand the VLM bbox by a small padding ratio before cropping.
+            # The detector's bboxes are reliable for locating the figure
+            # but frequently clip axis labels, panel-letter labels, and
+            # the last caption line. Padding a few percent out on each
+            # side recovers those edges; the clamp to [0,1] ensures we
+            # never read past the page.
+            pad = FIGURE_CROP_PADDING_RATIO
+            px0 = max(0.0, x0n - pad)
+            py0 = max(0.0, y0n - pad)
+            px1 = min(1.0, x1n + pad)
+            py1 = min(1.0, y1n + pad)
             crop_box = (
-                int(x0n * page_w), int(y0n * page_h),
-                int(x1n * page_w), int(y1n * page_h),
+                int(px0 * page_w), int(py0 * page_h),
+                int(px1 * page_w), int(py1 * page_h),
             )
             crop = page_img.crop(crop_box)
             if crop.mode not in ("RGB", "RGBA", "L", "1"):
