@@ -88,11 +88,37 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       getPersonaDm(personaKey).then((data) => {
         setDmMessages(data.messages)
         setDmLoaded(true)
+        // Scroll the INTERNAL messages container to its bottom (shows
+        // the most recent message). Does not touch viewport scroll.
         setTimeout(scrollMessagesToBottom, 100)
       }).catch(() => setDmLoaded(true))
-      setTimeout(() => inputRef.current?.focus(), 200)
+      // preventScroll: true blocks the browser's default behaviour of
+      // yanking the viewport to reveal the focused input. Without this,
+      // clicking the Messages tab made the whole page jump to the
+      // bottom to bring the DM input into view — the user lost their
+      // place on the profile above. With preventScroll the page stays
+      // anchored at whatever position the tab click left it at.
+      setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 200)
     }
   }, [tab, personaKey, dmLoaded])
+
+  // When the user switches TO the DM tab, also bring the tab panel to
+  // the top of the viewport so they land on the conversation rather
+  // than somewhere in the middle of the profile banner above it. Uses
+  // a plain scrollIntoView at block:start — in contrast to the focus()
+  // scroll-to-reveal, this is a ONE-shot intentional motion right at
+  // tab-switch time, and it targets the panel wrapper rather than the
+  // DM input.
+  const dmPanelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (tab !== 'dm') return
+    const el = dmPanelRef.current
+    if (!el) return
+    // One animation frame delay so the panel is mounted before we
+    // measure its position. `block: 'start'` anchors the panel's top
+    // to the top of the viewport (modulo the sticky header above).
+    requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }, [tab])
 
   const handleSendDm = async () => {
     if (!dmInput.trim() || dmLoading) return
@@ -358,16 +384,20 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       )}
       {tab === 'dm' && (
         <div
+          ref={dmPanelRef}
           role="tabpanel"
           id="persona-panel-dm"
           aria-labelledby="persona-tab-dm"
           tabIndex={0}
-          className="flex flex-col"
+          className="flex flex-col scroll-mt-[60px]"
           // Constrain to a real height so the inner messages container
           // can actually scroll internally instead of pushing the whole
           // page down on new messages. 100dvh accounts for mobile
           // browser chrome; the subtractions cover the sticky header
           // plus the profile banner + tab bar above.
+          // scroll-mt-[60px] keeps the sticky persona header from
+          // covering the top of the panel when scrollIntoView fires on
+          // tab-switch.
           style={{ height: 'calc(100dvh - 340px)', minHeight: '360px' }}
         >
           {/* DM conversation — Twitter-style bubbles. User messages
