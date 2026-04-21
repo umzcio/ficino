@@ -39,7 +39,18 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
   const [corpusPosts, setCorpusPosts] = useState<UserPost[]>([])
   const [corpusPostsLoaded, setCorpusPostsLoaded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  // Ref on the scroll CONTAINER itself. Previously we had a sentinel
+  // <div> at the bottom and called `scrollIntoView` on it — that scrolls
+  // the nearest scrollable ancestor, which on this page ends up being
+  // the document/main, so a long persona reply yanked the whole page
+  // to its end instead of just scrolling within the message list. Now
+  // we set `scrollTop = scrollHeight` on this container directly so the
+  // viewport stays put and only the messages pane moves.
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const scrollMessagesToBottom = () => {
+    const el = messagesContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }
 
   useEffect(() => {
     getPersonaStats(personaKey).then(setStats).catch(() => {})
@@ -77,7 +88,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       getPersonaDm(personaKey).then((data) => {
         setDmMessages(data.messages)
         setDmLoaded(true)
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+        setTimeout(scrollMessagesToBottom, 100)
       }).catch(() => setDmLoaded(true))
       setTimeout(() => inputRef.current?.focus(), 200)
     }
@@ -90,7 +101,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
       const data = await sendPersonaDm(personaKey, dmInput.trim())
       setDmMessages(data.messages)
       setDmInput('')
-      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+      setTimeout(scrollMessagesToBottom, 100)
     } catch {
       // ignore
     } finally {
@@ -327,10 +338,19 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
           aria-labelledby="persona-tab-dm"
           tabIndex={0}
           className="flex flex-col"
-          style={{ minHeight: 'calc(100vh - 350px)' }}
+          // Constrain to a real height so the inner messages container
+          // can actually scroll internally instead of pushing the whole
+          // page down on new messages. 100dvh accounts for mobile
+          // browser chrome; the subtractions cover the sticky header
+          // plus the profile banner + tab bar above.
+          style={{ height: 'calc(100dvh - 340px)', minHeight: '360px' }}
         >
-          {/* DM conversation */}
-          <div className="flex-1 overflow-y-auto">
+          {/* DM conversation — Twitter-style bubbles. User messages
+              right-aligned on a gold pill; persona messages left-aligned
+              on a color-tinted pill. No per-message avatars or name
+              labels — the persona is identified by the header at the
+              top of this profile, matching iMessage / Twitter DM feel. */}
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
             {!dmLoaded ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 size={24} className="animate-spin" style={{ color: p.color }} />
@@ -352,40 +372,55 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
                 </p>
               </div>
             ) : (
-              <div className="py-3">
+              <div className="py-3 px-3 flex flex-col gap-1">
                 {dmMessages.map((msg, i) => {
                   const isUser = msg.role === 'user'
+                  // "Tail" corner — the one corner on the bubble that
+                  // stays sharper, giving the iMessage/Twitter DM feel.
+                  // User tail = bottom-right; persona tail = bottom-left.
+                  const bubbleClass = isUser
+                    ? 'self-end bg-gold text-bg rounded-2xl rounded-br-md'
+                    : 'self-start text-text rounded-2xl rounded-bl-md'
+                  const bubbleStyle: React.CSSProperties = isUser
+                    ? {}
+                    : {
+                        backgroundColor: `color-mix(in srgb, ${p.color} 18%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${p.color} 28%, transparent)`,
+                      }
                   return (
-                    <div key={i} className="flex gap-3 px-4 py-2.5">
-                      {isUser ? (
-                        <div className="w-8 h-8 rounded-full bg-gold/15 flex items-center justify-center text-[11px] font-bold text-gold shrink-0">
-                          You
-                        </div>
-                      ) : p.avatar_url ? (
-                        <img src={p.avatar_url} alt={p.name} className="w-8 h-8 rounded-full shrink-0 object-cover" style={{ border: `1.5px solid ${p.color}50` }} />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-[11px] font-bold" style={{ backgroundColor: p.color + '22', border: `1.5px solid ${p.color}50`, color: p.color }}>
-                          {p.initials}
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[13px] font-bold text-text">
-                          {isUser ? 'You' : p.name}
-                        </span>
-                        <p className="text-[14px] text-text leading-relaxed mt-0.5 whitespace-pre-wrap">
-                          <InlineMd text={msg.content} />
-                        </p>
-                      </div>
+                    <div
+                      key={i}
+                      className={`${bubbleClass} max-w-[78%] px-4 py-2 text-[14px] leading-relaxed whitespace-pre-wrap break-words`}
+                      style={bubbleStyle}
+                    >
+                      <InlineMd text={msg.content} />
                     </div>
                   )
                 })}
-                <div ref={messagesEndRef} />
+                {dmLoading && (
+                  // Typing indicator: a left-aligned persona bubble with
+                  // three pulsing dots while the LLM is responding. Makes
+                  // the wait feel like a real DM rather than dead air.
+                  <div
+                    className="self-start text-text rounded-2xl rounded-bl-md px-4 py-2.5 flex items-center gap-1"
+                    style={{
+                      backgroundColor: `color-mix(in srgb, ${p.color} 18%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${p.color} 28%, transparent)`,
+                    }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* DM input */}
-          <div className="sticky bottom-0 border-t border-border bg-bg px-4 py-3">
+          {/* DM input pinned inside the flex container (not sticky to
+              viewport) — shrink-0 keeps it at its natural height while
+              flex-1 on the messages pane soaks up the rest. */}
+          <div className="shrink-0 border-t border-border bg-bg px-4 py-3">
             <div className="flex items-center gap-2">
               <input
                 ref={inputRef}
@@ -401,6 +436,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
               <button
                 onClick={handleSendDm}
                 disabled={!dmInput.trim() || dmLoading}
+                aria-label="Send message"
                 className="w-10 h-10 rounded-full flex items-center justify-center border-none cursor-pointer disabled:opacity-30 transition-colors"
                 style={{ backgroundColor: p.color, color: 'var(--color-bg)' }}
               >
