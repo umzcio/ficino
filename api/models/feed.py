@@ -66,3 +66,8 @@ class Feed(BaseModel):
     post_count: int | None = None
     audio_status: str | None = None
     audio_generated_at: datetime | None = None
+    podcast_status: str | None = None
+    podcast_generated_at: datetime | None = None
+    # podcast_segments: [{index, speaker, text, voice_id, audio_key, audio_url, audio_error?}]
+    # audio_url is hydrated at GET time (signed URL), not persisted.
+    podcast_segments: list[dict[str, object]] | None = None

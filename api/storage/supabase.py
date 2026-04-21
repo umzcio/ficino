@@ -53,6 +53,10 @@ class SupabaseStorage(StorageBackend):
     def _audio_key(user_id: str, feed_id: str, post_index: int) -> str:
         return f"{user_id}/feeds/{feed_id}/audio/post_{post_index}.mp3"
 
+    @staticmethod
+    def _podcast_segment_key(user_id: str, feed_id: str, segment_index: int) -> str:
+        return f"{user_id}/feeds/{feed_id}/podcast/seg_{segment_index}.mp3"
+
     # -- PDFs --
 
     def save_pdf(self, user_id: str, paper_id: str, content: bytes) -> str:
@@ -163,6 +167,31 @@ class SupabaseStorage(StorageBackend):
         self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
     ) -> str:
         key = self._audio_key(user_id, feed_id, post_index)
+        resp = self._client.storage.from_(self._bucket).create_signed_url(
+            path=key, expires_in=ttl,
+        )
+        return resp.get("signedURL") or resp.get("signedUrl") or ""
+
+    # -- Podcast --
+
+    def save_podcast_segment(
+        self, user_id: str, feed_id: str, segment_index: int, content: bytes
+    ) -> str:
+        key = self._podcast_segment_key(user_id, feed_id, segment_index)
+        self._client.storage.from_(self._bucket).upload(
+            path=key,
+            file=content,
+            file_options={
+                "content-type": "audio/mpeg",
+                "upsert": "true",
+            },
+        )
+        return key
+
+    def podcast_segment_url(
+        self, user_id: str, feed_id: str, segment_index: int, ttl: int = 86400
+    ) -> str:
+        key = self._podcast_segment_key(user_id, feed_id, segment_index)
         resp = self._client.storage.from_(self._bucket).create_signed_url(
             path=key, expires_in=ttl,
         )

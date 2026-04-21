@@ -138,6 +138,35 @@ def _hydrate_audio_urls(
             post["audio_url"] = None
 
 
+def _hydrate_podcast_urls(
+    segments: list[dict[str, object]], user_id: str, feed_id: str
+) -> None:
+    """Sibling of _hydrate_audio_urls for podcast_segments JSONB.
+
+    Each segment has an audio_key; we mint a 24h signed URL per key and
+    stash it as audio_url. Index is taken from the segment's own `index`
+    field so the caller can tolerate gaps (a failed segment still sits in
+    the list with audio_error set).
+    """
+    from storage import storage as storage_backend
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        key = seg.get("audio_key")
+        if not key:
+            continue
+        try:
+            idx = int(seg.get("index", -1))
+        except (TypeError, ValueError):
+            continue
+        if idx < 0:
+            continue
+        try:
+            seg["audio_url"] = storage_backend.podcast_segment_url(user_id, feed_id, idx)
+        except Exception:  # noqa: BLE001
+            seg["audio_url"] = None
+
+
 @router.get("/{feed_id}", response_model=Feed)
 async def get_feed(
     feed_id: str,
@@ -148,7 +177,8 @@ async def get_feed(
     row = await db.fetchrow(
         """SELECT id, user_id, corpus_id, tag_filter, posts,
                   generated_at, generation_duration_ms, paper_count, post_count,
-                  audio_status, audio_generated_at
+                  audio_status, audio_generated_at,
+                  podcast_status, podcast_generated_at, podcast_segments
            FROM feeds WHERE id = $1 AND user_id = $2""",
         feed_id, user.id,
     )
@@ -163,6 +193,14 @@ async def get_feed(
     if row["audio_status"] == "ready":
         _hydrate_audio_urls(posts_data, user.id, feed_id)
 
+    podcast_segments = row["podcast_segments"]
+    if isinstance(podcast_segments, str):
+        podcast_segments = json.loads(podcast_segments)
+    if not isinstance(podcast_segments, list):
+        podcast_segments = None
+    if podcast_segments and row["podcast_status"] == "ready":
+        _hydrate_podcast_urls(podcast_segments, user.id, feed_id)
+
     return Feed(
         id=row["id"],
         user_id=row["user_id"],
@@ -175,6 +213,9 @@ async def get_feed(
         post_count=row["post_count"],
         audio_status=row["audio_status"],
         audio_generated_at=row["audio_generated_at"],
+        podcast_status=row["podcast_status"],
+        podcast_generated_at=row["podcast_generated_at"],
+        podcast_segments=podcast_segments,
     )
 
 
@@ -216,6 +257,42 @@ async def request_feed_audio(
         queue="persona",
     )
     logger.info("feed_audio_dispatched", feed_id=feed_id, task_id=task.id)
+    return {"status": "generating", "task_id": task.id}
+
+
+@router.post("/{feed_id}/podcast", status_code=202)
+async def request_feed_podcast(
+    feed_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Dispatch a Celery task to generate a two-host NotebookLM-style
+    podcast for this feed. Same idempotency + 501 semantics as
+    `request_feed_audio`: returns the current status if already
+    generating/ready, 501 when ElevenLabs isn't configured.
+    """
+    if not settings.elevenlabs_api_key:
+        raise HTTPException(status_code=501, detail="Audio TTS not configured")
+
+    row = await db.fetchrow(
+        "SELECT podcast_status FROM feeds WHERE id = $1 AND user_id = $2",
+        feed_id, user.id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
+    current = row["podcast_status"]
+    if current in ("generating", "ready"):
+        return {"status": current}
+
+    celery_app = _get_celery()
+    task = celery_app.send_task(
+        "tasks.audio_tasks.generate_podcast_for_feed",
+        args=[feed_id],
+        queue="persona",
+    )
+    logger.info("feed_podcast_dispatched", feed_id=feed_id, task_id=task.id)
     return {"status": "generating", "task_id": task.id}
 
 

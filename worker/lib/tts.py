@@ -43,6 +43,10 @@ VOICE_MAP: Final[dict[str, str]] = {
     "archivist":     "pFZP5JQG7iQjIQuC4Bku",  # Lily — British warm female, measured
     # The Amplifier: Black man, glasses, beard, on fire, charismatic → intense male
     "amplifier":     "MjDkeH2x9hCiWKXZtUPc",  # Marcos — warm, direct, professional
+    # Podcast hosts (NotebookLM-style two-host episodes). Not personas —
+    # just narrator voices that paraphrase personas + chunks in dialogue.
+    "host_a":        "5Q0t7uMcjvnagumLfvZi",  # Paul — warm newscaster male
+    "host_b":        "21m00Tcm4TlvDq8ikWAM",  # Rachel — neutral female (== _DEFAULT_VOICE)
 }
 
 _DEFAULT_VOICE: Final[str] = "21m00Tcm4TlvDq8ikWAM"  # Rachel

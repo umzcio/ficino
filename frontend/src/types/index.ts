@@ -79,6 +79,16 @@ export interface ActivityItem {
   timestamp: string
 }
 
+export interface PodcastSegment {
+  index: number
+  speaker: 'host_a' | 'host_b'
+  text: string
+  voice_id?: string
+  audio_key?: string | null
+  audio_url?: string | null  // hydrated server-side when podcast_status='ready'
+  audio_error?: string | null
+}
+
 export interface Feed {
   id: string
   posts: FeedPost[]
@@ -87,6 +97,9 @@ export interface Feed {
   post_count: number | null
   audio_status?: 'generating' | 'ready' | 'failed' | null
   audio_generated_at?: string | null
+  podcast_status?: 'generating' | 'ready' | 'failed' | null
+  podcast_generated_at?: string | null
+  podcast_segments?: PodcastSegment[] | null
 }
 
 // DM / Messages types

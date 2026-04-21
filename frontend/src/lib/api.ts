@@ -123,6 +123,12 @@ export async function requestFeedAudio(feedId: string): Promise<{ status: string
   return request(`/feed/${feedId}/audio`, { method: 'POST' })
 }
 
+// Trigger two-host podcast generation for a feed. Same 501 semantics as
+// requestFeedAudio — the Listen view's Podcast tab hides itself when no key.
+export async function requestFeedPodcast(feedId: string): Promise<{ status: string; task_id?: string }> {
+  return request(`/feed/${feedId}/podcast`, { method: 'POST' })
+}
+
 export async function listFeeds(workspaceId?: string): Promise<Feed[]> {
   const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
   return request<Feed[]>(`/feed${query}`)
