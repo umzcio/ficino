@@ -41,10 +41,17 @@ export function FigureLightbox({ src, alt, onClose }: { src: string; alt: string
         >
           <X size={20} className="text-text" />
         </button>
+        {/* w-[95vw] h-[90vh] gives the <img> box a real size that
+            `object-contain` can scale INTO (not just down from). Without
+            explicit dimensions the image renders at its intrinsic size
+            — a ~500-px-wide cropped figure stayed tiny in the middle of
+            the lightbox instead of filling the viewport. Aspect ratio
+            stays correct via object-contain; whichever dimension is
+            limiting pins first. */}
         <img
           src={src}
           alt={alt}
-          className="max-w-full max-h-[90vh] object-contain rounded-lg pointer-events-auto"
+          className="w-[95vw] h-[90vh] object-contain rounded-lg pointer-events-auto"
         />
       </div>
     </>
