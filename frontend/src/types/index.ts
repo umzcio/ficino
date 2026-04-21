@@ -79,14 +79,14 @@ export interface ActivityItem {
   timestamp: string
 }
 
+// Transcript metadata for a single turn in a podcast episode. The audio
+// itself is ONE continuous mp3 on the Feed (podcast_audio_url) — these
+// fields drive the scrolling transcript, not per-turn playback.
 export interface PodcastSegment {
   index: number
   speaker: 'host_a' | 'host_b'
   text: string
   voice_id?: string
-  audio_key?: string | null
-  audio_url?: string | null  // hydrated server-side when podcast_status='ready'
-  audio_error?: string | null
 }
 
 export interface Feed {
@@ -100,6 +100,7 @@ export interface Feed {
   podcast_status?: 'generating' | 'ready' | 'failed' | null
   podcast_generated_at?: string | null
   podcast_segments?: PodcastSegment[] | null
+  podcast_audio_url?: string | null
 }
 
 // DM / Messages types

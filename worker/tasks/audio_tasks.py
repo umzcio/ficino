@@ -36,7 +36,13 @@ from lib.db import execute, fetchrow
 from lib.persona import get_personas
 from lib.podcast import build_podcast_script
 from lib.storage import storage
-from lib.tts import TTSUnavailable, synthesize, voice_id_for
+from lib.tts import (
+    DialogueTooLong,
+    TTSUnavailable,
+    synthesize,
+    synthesize_dialogue,
+    voice_id_for,
+)
 from lib import tts as tts_module
 
 logger = structlog.get_logger(__name__)
@@ -324,10 +330,15 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
 def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
     """Build a NotebookLM-style two-host podcast episode for a feed.
 
-    Same claim-then-render-then-update pattern as `generate_audio_for_feed`,
-    but the script is a two-host dialogue (produced by `lib.podcast`) and
-    segments live in the dedicated `podcast_segments` JSONB column.
-    Each segment is an mp3 at `{user_id}/feeds/{feed_id}/podcast/seg_{i}.mp3`.
+    Renders via Eleven v3's Text-to-Dialogue endpoint in a single call,
+    producing ONE continuous mp3 with natural cross-speaker prosody,
+    interruptions, and audio-tag delivery cues. This is the key
+    difference from the per-post feed audio path — that one is meant to
+    play as discrete posts; the podcast is meant to sound like a
+    conversation.
+
+    Segment metadata (speaker, text) is still persisted so the frontend
+    can render a scrolling transcript alongside playback.
     """
     log = logger.bind(feed_id=feed_id, task_id=self.request.id)
     log.info("feed_podcast_start")
@@ -353,22 +364,6 @@ def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
     if not isinstance(posts, list):
         posts = []
 
-    def _record_segment_error(idx: int, stage: str, detail: str) -> None:
-        """Write an audio_error onto a single podcast_segments[i] JSONB entry."""
-        try:
-            execute(
-                """UPDATE feeds
-                   SET podcast_segments = jsonb_set(
-                     podcast_segments, $2::text[], $3::jsonb, true
-                   )
-                   WHERE id = $1""",
-                feed_id,
-                [str(idx), "audio_error"],
-                json.dumps(f"{stage}: {detail[:300]}"),
-            )
-        except Exception:  # noqa: BLE001
-            pass
-
     try:
         script = build_podcast_script(
             feed_id=feed_id,
@@ -377,92 +372,61 @@ def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
             user_id=user_id,
         )
 
-        # Persist the script shell first — populate text/voice_id/index on
-        # every segment so even if synthesis dies partway, the API
-        # response hydrates what it can. audio_key gets added per-segment
-        # as TTS completes.
-        initial_segments: list[dict[str, object]] = []
-        for idx, seg in enumerate(script):
-            initial_segments.append({
+        # Persist transcript metadata first so the UI can show the
+        # script even if dialogue synthesis fails downstream.
+        segments_meta: list[dict[str, object]] = [
+            {
                 "index": idx,
                 "speaker": seg["speaker"],
                 "text": seg["text"],
                 "voice_id": voice_id_for(seg["speaker"]),
-            })
+            }
+            for idx, seg in enumerate(script)
+        ]
         execute(
             "UPDATE feeds SET podcast_segments = $2::jsonb WHERE id = $1",
             feed_id,
-            json.dumps(initial_segments),
+            json.dumps(segments_meta),
         )
 
-        rendered = 0
-        skipped = 0
-        for idx, seg in enumerate(script):
-            speaker = seg["speaker"]
-            text = seg["text"]
-            voice_id = voice_id_for(speaker)
-            log.info(
-                "podcast_segment_start",
-                segment_index=idx,
-                speaker=speaker,
-                voice_id=voice_id,
-                chars=len(text),
-            )
+        # Build the v3 inputs payload — one object per turn.
+        inputs = [
+            {"text": seg["text"], "voice_id": voice_id_for(seg["speaker"])}
+            for seg in script
+        ]
+        total_chars = sum(len(t["text"]) for t in inputs)
+        log.info(
+            "podcast_dialogue_start",
+            segments=len(script),
+            total_chars=total_chars,
+        )
 
-            mp3 = _synthesize_with_fallback(
-                text,
-                voice_id,
-                log,
-                on_error=lambda stage, detail, i=idx: _record_segment_error(i, stage, detail),
-                context={"segment_index": idx, "speaker": speaker},
-            )
-
-            if mp3 is None:
-                skipped += 1
-                continue
-
+        try:
+            mp3 = synthesize_dialogue(inputs)
+        except DialogueTooLong as exc:
+            # Shouldn't happen — the producer already trims to 1700 chars.
+            # If it does, surface cleanly instead of a raw 400.
+            log.error("podcast_dialogue_too_long", error=str(exc))
+            raise
+        except TTSUnavailable:
+            raise
+        except httpx.HTTPStatusError as exc:
+            body_preview = ""
             try:
-                key = storage.save_podcast_segment(user_id, feed_id, idx, mp3)
-            except NotImplementedError:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                log.warn(
-                    "podcast_segment_upload_failed",
-                    segment_index=idx,
-                    error_type=type(exc).__name__,
-                    error=str(exc)[:200],
-                )
-                _record_segment_error(
-                    idx,
-                    f"upload_{type(exc).__name__}",
-                    str(exc),
-                )
-                skipped += 1
-                continue
-
-            execute(
-                """UPDATE feeds
-                   SET podcast_segments = jsonb_set(
-                     podcast_segments, $2::text[], $3::jsonb, true
-                   )
-                   WHERE id = $1""",
-                feed_id,
-                [str(idx), "audio_key"],
-                json.dumps(key),
-            )
-            # Clear any prior audio_error breadcrumb on this segment.
-            try:
-                execute(
-                    """UPDATE feeds
-                       SET podcast_segments = podcast_segments #- $2::text[]
-                       WHERE id = $1""",
-                    feed_id,
-                    [str(idx), "audio_error"],
-                )
+                body_preview = exc.response.text[:400]
             except Exception:  # noqa: BLE001
                 pass
-            log.info("podcast_segment_rendered", segment_index=idx, speaker=speaker)
-            rendered += 1
+            log.error(
+                "podcast_dialogue_http_error",
+                status_code=exc.response.status_code,
+                body=body_preview,
+            )
+            # Common failure: account doesn't have v3 access. Surface as
+            # 'failed' so the frontend error panel lights up cleanly.
+            raise
+
+        key = storage.save_podcast_episode(user_id, feed_id, mp3)
+        log.info("podcast_episode_uploaded", bytes=len(mp3), key=key)
 
         execute(
             """UPDATE feeds
@@ -473,15 +437,14 @@ def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
         log.info(
             "feed_podcast_complete",
             segments=len(script),
-            rendered=rendered,
-            skipped=skipped,
+            total_chars=total_chars,
+            bytes=len(mp3),
             duration_ms=int((time.time() - start) * 1000),
         )
         return {
             "status": "complete",
             "segments": len(script),
-            "rendered": rendered,
-            "skipped": skipped,
+            "bytes": len(mp3),
         }
 
     except Exception as exc:

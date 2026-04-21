@@ -138,33 +138,19 @@ def _hydrate_audio_urls(
             post["audio_url"] = None
 
 
-def _hydrate_podcast_urls(
-    segments: list[dict[str, object]], user_id: str, feed_id: str
-) -> None:
-    """Sibling of _hydrate_audio_urls for podcast_segments JSONB.
+def _hydrate_podcast_episode_url(user_id: str, feed_id: str) -> str | None:
+    """Sign the episode mp3 for the browser. Returns None on storage error.
 
-    Each segment has an audio_key; we mint a 24h signed URL per key and
-    stash it as audio_url. Index is taken from the segment's own `index`
-    field so the caller can tolerate gaps (a failed segment still sits in
-    the list with audio_error set).
+    The podcast is ONE continuous file produced via v3 Dialogue Mode, so
+    we sign a single URL instead of the per-segment approach feed audio
+    uses. Stored at the deterministic `{user}/feeds/{feed}/podcast/episode.mp3`
+    key — no JSONB lookup needed.
     """
     from storage import storage as storage_backend
-    for seg in segments:
-        if not isinstance(seg, dict):
-            continue
-        key = seg.get("audio_key")
-        if not key:
-            continue
-        try:
-            idx = int(seg.get("index", -1))
-        except (TypeError, ValueError):
-            continue
-        if idx < 0:
-            continue
-        try:
-            seg["audio_url"] = storage_backend.podcast_segment_url(user_id, feed_id, idx)
-        except Exception:  # noqa: BLE001
-            seg["audio_url"] = None
+    try:
+        return storage_backend.podcast_episode_url(user_id, feed_id)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 @router.get("/{feed_id}", response_model=Feed)
@@ -198,8 +184,10 @@ async def get_feed(
         podcast_segments = json.loads(podcast_segments)
     if not isinstance(podcast_segments, list):
         podcast_segments = None
-    if podcast_segments and row["podcast_status"] == "ready":
-        _hydrate_podcast_urls(podcast_segments, user.id, feed_id)
+
+    podcast_audio_url: str | None = None
+    if row["podcast_status"] == "ready":
+        podcast_audio_url = _hydrate_podcast_episode_url(user.id, feed_id)
 
     return Feed(
         id=row["id"],
@@ -216,6 +204,7 @@ async def get_feed(
         podcast_status=row["podcast_status"],
         podcast_generated_at=row["podcast_generated_at"],
         podcast_segments=podcast_segments,
+        podcast_audio_url=podcast_audio_url,
     )
 
 

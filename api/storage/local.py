@@ -135,6 +135,20 @@ class LocalStorage(StorageBackend):
             "Feed podcast requires STORAGE_PROVIDER=supabase"
         )
 
+    def save_podcast_episode(
+        self, user_id: str, feed_id: str, content: bytes
+    ) -> str:
+        raise NotImplementedError(
+            "Feed podcast requires STORAGE_PROVIDER=supabase"
+        )
+
+    def podcast_episode_url(
+        self, user_id: str, feed_id: str, ttl: int = 86400
+    ) -> str:
+        raise NotImplementedError(
+            "Feed podcast requires STORAGE_PROVIDER=supabase"
+        )
+
     # -- URLs --
 
     def figure_image_url(

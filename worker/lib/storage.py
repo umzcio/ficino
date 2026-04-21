@@ -87,6 +87,16 @@ class StorageBackend(ABC):
         self, user_id: str, feed_id: str, segment_index: int, ttl: int = 86400
     ) -> str: ...
 
+    @abstractmethod
+    def save_podcast_episode(
+        self, user_id: str, feed_id: str, content: bytes
+    ) -> str: ...
+
+    @abstractmethod
+    def podcast_episode_url(
+        self, user_id: str, feed_id: str, ttl: int = 86400
+    ) -> str: ...
+
 
 class _LocalStorage(StorageBackend):
     def __init__(self) -> None:
@@ -192,6 +202,20 @@ class _LocalStorage(StorageBackend):
             "Feed podcast requires STORAGE_PROVIDER=supabase"
         )
 
+    def save_podcast_episode(
+        self, user_id: str, feed_id: str, content: bytes
+    ) -> str:
+        raise NotImplementedError(
+            "Feed podcast requires STORAGE_PROVIDER=supabase"
+        )
+
+    def podcast_episode_url(
+        self, user_id: str, feed_id: str, ttl: int = 86400
+    ) -> str:
+        raise NotImplementedError(
+            "Feed podcast requires STORAGE_PROVIDER=supabase"
+        )
+
 
 class _SupabaseStorage(StorageBackend):
     def __init__(self) -> None:
@@ -224,6 +248,10 @@ class _SupabaseStorage(StorageBackend):
     @staticmethod
     def _podcast_segment_key(user_id: str, feed_id: str, segment_index: int) -> str:
         return f"{user_id}/feeds/{feed_id}/podcast/seg_{segment_index}.mp3"
+
+    @staticmethod
+    def _podcast_episode_key(user_id: str, feed_id: str) -> str:
+        return f"{user_id}/feeds/{feed_id}/podcast/episode.mp3"
 
     def save_pdf(self, user_id: str, paper_id: str, content: bytes) -> str:
         key = self._pdf_key(user_id, paper_id)
@@ -341,6 +369,26 @@ class _SupabaseStorage(StorageBackend):
         self, user_id: str, feed_id: str, segment_index: int, ttl: int = 86400
     ) -> str:
         key = self._podcast_segment_key(user_id, feed_id, segment_index)
+        resp = self._client.storage.from_(self._bucket).create_signed_url(
+            path=key, expires_in=ttl,
+        )
+        return resp.get("signedURL") or resp.get("signedUrl") or ""
+
+    def save_podcast_episode(
+        self, user_id: str, feed_id: str, content: bytes
+    ) -> str:
+        key = self._podcast_episode_key(user_id, feed_id)
+        self._client.storage.from_(self._bucket).upload(
+            path=key,
+            file=content,
+            file_options={"content-type": "audio/mpeg", "upsert": "true"},
+        )
+        return key
+
+    def podcast_episode_url(
+        self, user_id: str, feed_id: str, ttl: int = 86400
+    ) -> str:
+        key = self._podcast_episode_key(user_id, feed_id)
         resp = self._client.storage.from_(self._bucket).create_signed_url(
             path=key, expires_in=ttl,
         )

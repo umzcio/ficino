@@ -113,3 +113,17 @@ class StorageBackend(ABC):
     ) -> str:
         """Return a signed URL for one podcast segment mp3. Default TTL
         matches audio_url (24h)."""
+
+    @abstractmethod
+    def save_podcast_episode(
+        self, user_id: str, feed_id: str, content: bytes
+    ) -> str:
+        """Persist the full podcast episode mp3 — one continuous file
+        produced by Eleven v3 Dialogue Mode. Returns a backend reference
+        that `podcast_episode_url` can turn back into a signed URL."""
+
+    @abstractmethod
+    def podcast_episode_url(
+        self, user_id: str, feed_id: str, ttl: int = 86400
+    ) -> str:
+        """Signed URL for the single-file podcast episode mp3."""

@@ -20,6 +20,15 @@ import httpx
 
 
 _ELEVENLABS_API = "https://api.elevenlabs.io/v1/text-to-speech"
+_ELEVENLABS_DIALOGUE_API = "https://api.elevenlabs.io/v1/text-to-dialogue"
+
+# Dialogue mode (multi-speaker) is v3-only. v3 renders the whole inputs
+# array as one continuous audio stream with cross-turn prosody,
+# interruptions, and non-speech events from audio tags like [laughs].
+# Per-request text limit is 2000 chars total — the producer must respect
+# that before handing the payload over.
+_DIALOGUE_MODEL_ID: Final[str] = "eleven_v3"
+_DIALOGUE_CHAR_LIMIT: Final[int] = 2000
 
 
 # persona_key → ElevenLabs voice_id. Voices chosen to MATCH each
@@ -45,8 +54,8 @@ VOICE_MAP: Final[dict[str, str]] = {
     "amplifier":     "MjDkeH2x9hCiWKXZtUPc",  # Marcos — warm, direct, professional
     # Podcast hosts (NotebookLM-style two-host episodes). Not personas —
     # just narrator voices that paraphrase personas + chunks in dialogue.
-    "host_a":        "5Q0t7uMcjvnagumLfvZi",  # Paul — warm newscaster male
-    "host_b":        "21m00Tcm4TlvDq8ikWAM",  # Rachel — neutral female (== _DEFAULT_VOICE)
+    "host_a":        "q0IMILNRPxOgtBTS4taI",  # Drew
+    "host_b":        "rPMkKgdwgIwqv4fXgR6N",  # Tyler
 }
 
 _DEFAULT_VOICE: Final[str] = "21m00Tcm4TlvDq8ikWAM"  # Rachel
@@ -91,5 +100,57 @@ def synthesize(text: str, voice_id: str, *, timeout: float = 30.0) -> bytes:
     }
     with httpx.Client(timeout=timeout) as client:
         resp = client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        return resp.content
+
+
+class DialogueTooLong(ValueError):
+    """Raised when the combined turn text exceeds the v3 dialogue char limit."""
+
+
+def synthesize_dialogue(
+    inputs: list[dict[str, str]],
+    *,
+    model_id: str | None = None,
+    stability: float = 0.5,
+    timeout: float = 180.0,
+) -> bytes:
+    """Render an array of speaker turns as ONE continuous mp3 via Eleven v3.
+
+    `inputs` is `[{"text": "...", "voice_id": "..."}, ...]`. Turns are
+    concatenated with natural pacing, interruptions, and cross-speaker
+    prosody by the model — unlike per-turn synthesize() calls which would
+    produce N separate clips with hard cuts. This is the difference
+    between NotebookLM-grade output and a stitched voicemail.
+
+    Raises DialogueTooLong if total text exceeds the v3 per-request cap,
+    TTSUnavailable when the API key is missing, and httpx.HTTPStatusError
+    on a non-2xx response. The 404 signal for "this key doesn't have v3
+    access" comes through as HTTPStatusError — callers handle it as a
+    configuration error, not a retry-worthy failure.
+    """
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise TTSUnavailable("ELEVENLABS_API_KEY is not set")
+
+    total_chars = sum(len(turn.get("text") or "") for turn in inputs)
+    if total_chars > _DIALOGUE_CHAR_LIMIT:
+        raise DialogueTooLong(
+            f"dialogue exceeds {_DIALOGUE_CHAR_LIMIT}-char cap: {total_chars}"
+        )
+
+    model = model_id or os.getenv("ELEVENLABS_DIALOGUE_MODEL_ID", _DIALOGUE_MODEL_ID)
+    headers = {
+        "xi-api-key": api_key,
+        "accept": "audio/mpeg",
+        "content-type": "application/json",
+    }
+    payload: dict[str, object] = {
+        "inputs": inputs,
+        "model_id": model,
+        "settings": {"stability": stability},
+    }
+    with httpx.Client(timeout=timeout) as client:
+        resp = client.post(_ELEVENLABS_DIALOGUE_API, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.content

@@ -19,15 +19,6 @@ type Status =
 
 type Mode = 'feed' | 'podcast'
 
-// Unified track shape used by the shared <audio> element. Both feed posts
-// (persona voices) and podcast segments (two hosts) render through the
-// same play/pause/skip machinery — only the source of tracks and the
-// rendered list item differ per mode.
-interface Track {
-  audio_url?: string | null
-  deleted?: boolean
-}
-
 interface Props {
   feedId: string | null
   posts: FeedPost[]
@@ -45,21 +36,19 @@ function hostLabel(speaker: 'host_a' | 'host_b'): string {
 }
 
 function hostColor(speaker: 'host_a' | 'host_b'): string {
-  // Two distinct colors so the track list scans quickly. Gold for A
-  // (matches the primary accent), a cooler teal-ish for B.
   return speaker === 'host_a' ? '#d4a84b' : '#6fa8c7'
 }
 
 /**
- * Dedicated "Listen" page. Takes the current feed and drives
- * ElevenLabs-generated audio playback in one of two modes:
- *   - Feed mode: one track per post, persona-voiced. The original flow.
- *   - Podcast mode: NotebookLM-style two-host dialogue grounded in the
- *     same papers. New; on-demand like feed audio.
+ * Dedicated "Listen" page. Two modes on one shared <audio> element:
  *
- * Owns exactly one HTMLAudioElement and swaps its src between tracks.
- * Mobile browsers penalize short-lived <audio> instantiations with
- * autoplay-policy resets; one persistent element avoids that trap.
+ *   Feed mode: per-post persona-voiced clips. The original flow — track
+ *   list with click-to-jump, skip/prev buttons, per-post hydration.
+ *
+ *   Podcast mode: ONE continuous mp3 rendered via ElevenLabs v3 Dialogue
+ *   Mode with two hosts in natural conversation. No per-turn seeking —
+ *   v3 gives us cross-speaker prosody and interruptions for free, and
+ *   the unified audio file is the feature. Transcript is display-only.
  */
 export function ListenView({ feedId, posts }: Props) {
   const personas = usePersonas()
@@ -67,29 +56,18 @@ export function ListenView({ feedId, posts }: Props) {
   const [status, setStatus] = useState<Status>(posts.length === 0 ? 'empty' : 'idle')
   const [currentIndex, setCurrentIndex] = useState<number>(-1)
   const [progress, setProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 })
-  // serverPosts holds the feed after its audio_url fields have been
-  // hydrated server-side. We prefer it over the prop because the
-  // parent useFeed hook doesn't refetch on audio status changes.
   const [serverPosts, setServerPosts] = useState<FeedPost[] | null>(null)
   const [podcastSegments, setPodcastSegments] = useState<PodcastSegment[] | null>(null)
   const [podcastStatus, setPodcastStatus] = useState<'generating' | 'ready' | 'failed' | null>(null)
+  const [podcastAudioUrl, setPodcastAudioUrl] = useState<string | null>(null)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
 
   const activePosts = serverPosts ?? posts
-
-  // Which track array is active depends on the mode. Podcast segments
-  // filter deleted=false (no soft-delete in podcast today) and use audio_url
-  // the same way.
-  const tracks: Track[] = useMemo(() => {
-    if (mode === 'podcast') return (podcastSegments ?? []) as Track[]
-    return activePosts as Track[]
-  }, [mode, podcastSegments, activePosts])
-
-  const tracksRef = useRef<Track[]>(tracks)
-  useEffect(() => { tracksRef.current = tracks }, [tracks])
+  const activePostsRef = useRef<FeedPost[]>(activePosts)
+  useEffect(() => { activePostsRef.current = activePosts }, [activePosts])
 
   const stopPlayback = useCallback(() => {
     if (audioRef.current) {
@@ -111,9 +89,9 @@ export function ListenView({ feedId, posts }: Props) {
     }
   }, [])
 
-  // Refetch feed on mount / feed change so we know whether a podcast is
-  // already ready. Without this, the Podcast tab would always kick off a
-  // fresh generation even when the user has a cached episode.
+  // Refetch feed on mount / feed change to learn whether a podcast is
+  // already generated. Without this, the Podcast tab would always kick
+  // off a fresh generation even when a cached episode exists.
   useEffect(() => {
     if (!feedId) return
     let cancelled = false
@@ -122,17 +100,13 @@ export function ListenView({ feedId, posts }: Props) {
       setServerPosts((feed.posts as FeedPost[]) || null)
       setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
       setPodcastStatus(feed.podcast_status ?? null)
-      // If podcast is ready, flip the tab so the user lands on it.
+      setPodcastAudioUrl(feed.podcast_audio_url ?? null)
       if (feed.podcast_status === 'ready') setMode('podcast')
-    }).catch(() => {
-      // Non-fatal — the user can still trigger podcast generation manually.
-    })
+    }).catch(() => { /* non-fatal */ })
     return () => { cancelled = true }
   }, [feedId])
 
-  // Reset playback state when feed, mode, or post-length changes. Each
-  // mode has its own track list, so stale currentIndex pointers are
-  // never what we want.
+  // Reset playback when feed, mode, or post-length changes.
   useEffect(() => {
     setStatus(posts.length === 0 ? 'empty' : 'idle')
     setCurrentIndex(-1)
@@ -142,19 +116,19 @@ export function ListenView({ feedId, posts }: Props) {
 
   const playableIndices = useMemo(
     () =>
-      tracks
-        .map((t, i) => ({ t, i }))
-        .filter(({ t }) => !t.deleted && t.audio_url)
+      activePosts
+        .map((p, i) => ({ p, i }))
+        .filter(({ p }) => !p.deleted && p.audio_url)
         .map(({ i }) => i),
-    [tracks],
+    [activePosts],
   )
 
   const playAtIndex = useCallback((i: number) => {
     const audio = audioRef.current
     if (!audio) return
-    const track = tracksRef.current[i]
-    if (!track || !track.audio_url) return
-    audio.src = track.audio_url
+    const post = activePostsRef.current[i]
+    if (!post || !post.audio_url) return
+    audio.src = post.audio_url
     audio.play()
       .then(() => {
         if (!mountedRef.current) return
@@ -166,7 +140,27 @@ export function ListenView({ feedId, posts }: Props) {
       })
   }, [])
 
+  const playPodcast = useCallback((url: string) => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.src = url
+    audio.play()
+      .then(() => {
+        if (!mountedRef.current) return
+        setStatus('playing')
+      })
+      .catch(() => {
+        if (mountedRef.current) setStatus('paused')
+      })
+  }, [])
+
   const advance = useCallback(() => {
+    if (mode === 'podcast') {
+      // One continuous file — "advance" means the episode ended.
+      setStatus('ready')
+      setProgress({ current: 0, duration: 0 })
+      return
+    }
     const next = playableIndices.find((i) => i > currentIndex)
     if (next !== undefined) {
       playAtIndex(next)
@@ -175,12 +169,13 @@ export function ListenView({ feedId, posts }: Props) {
       setCurrentIndex(-1)
       setProgress({ current: 0, duration: 0 })
     }
-  }, [playableIndices, currentIndex, playAtIndex])
+  }, [mode, playableIndices, currentIndex, playAtIndex])
 
   const goPrev = useCallback(() => {
+    if (mode === 'podcast') return
     const prior = [...playableIndices].reverse().find((i) => i < currentIndex)
     if (prior !== undefined) playAtIndex(prior)
-  }, [playableIndices, currentIndex, playAtIndex])
+  }, [mode, playableIndices, currentIndex, playAtIndex])
 
   const pollUntilFeedAudioReady = useCallback(async () => {
     if (!feedId || !mountedRef.current) return
@@ -191,6 +186,7 @@ export function ListenView({ feedId, posts }: Props) {
       setServerPosts(fresh)
       setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
       setPodcastStatus(feed.podcast_status ?? null)
+      setPodcastAudioUrl(feed.podcast_audio_url ?? null)
 
       if (feed.audio_status === 'ready') {
         setStatus('ready')
@@ -225,26 +221,13 @@ export function ListenView({ feedId, posts }: Props) {
     try {
       const feed = await getFeed(feedId)
       if (!mountedRef.current) return
-      const segments = (feed.podcast_segments as PodcastSegment[]) ?? null
-      setPodcastSegments(segments)
+      setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
       setPodcastStatus(feed.podcast_status ?? null)
+      setPodcastAudioUrl(feed.podcast_audio_url ?? null)
 
-      if (feed.podcast_status === 'ready') {
+      if (feed.podcast_status === 'ready' && feed.podcast_audio_url) {
         setStatus('ready')
-        const firstPlayable = (segments ?? []).findIndex((s) => s.audio_url)
-        if (firstPlayable >= 0 && segments) {
-          const audio = audioRef.current
-          if (audio) {
-            audio.src = segments[firstPlayable].audio_url!
-            audio.play()
-              .then(() => {
-                if (!mountedRef.current) return
-                setCurrentIndex(firstPlayable)
-                setStatus('playing')
-              })
-              .catch(() => { if (mountedRef.current) setStatus('paused') })
-          }
-        }
+        playPodcast(feed.podcast_audio_url)
         return
       }
       if (feed.podcast_status === 'failed') {
@@ -255,22 +238,34 @@ export function ListenView({ feedId, posts }: Props) {
     } catch {
       pollTimeoutRef.current = setTimeout(pollUntilPodcastReady, 4000)
     }
-  }, [feedId])
+  }, [feedId, playPodcast])
 
   const handlePlayClick = useCallback(async () => {
     if (!feedId) return
-    // Resume path — audio already loaded for the current mode.
     if (status === 'ready' || status === 'paused') {
-      if (currentIndex < 0) {
-        const first = playableIndices[0]
-        if (first !== undefined) playAtIndex(first)
+      // Resume path — audio already loaded for the current mode.
+      if (mode === 'podcast') {
+        if (!audioRef.current?.src && podcastAudioUrl) {
+          playPodcast(podcastAudioUrl)
+        } else {
+          audioRef.current?.play().then(() => {
+            if (mountedRef.current) setStatus('playing')
+          })
+        }
       } else {
-        audioRef.current?.play().then(() => {
-          if (mountedRef.current) setStatus('playing')
-        })
+        if (currentIndex < 0) {
+          const first = playableIndices[0]
+          if (first !== undefined) playAtIndex(first)
+        } else {
+          audioRef.current?.play().then(() => {
+            if (mountedRef.current) setStatus('playing')
+          })
+        }
       }
       return
     }
+
+    // Fresh-generation path.
     setStatus('requesting')
     try {
       if (mode === 'podcast') {
@@ -302,7 +297,7 @@ export function ListenView({ feedId, posts }: Props) {
         setStatus('failed')
       }
     }
-  }, [feedId, status, mode, currentIndex, playableIndices, playAtIndex, pollUntilFeedAudioReady, pollUntilPodcastReady])
+  }, [feedId, status, mode, currentIndex, playableIndices, playAtIndex, playPodcast, podcastAudioUrl, pollUntilFeedAudioReady, pollUntilPodcastReady])
 
   const handlePauseClick = useCallback(() => {
     audioRef.current?.pause()
@@ -310,19 +305,18 @@ export function ListenView({ feedId, posts }: Props) {
   }, [])
 
   const handleTrackClick = useCallback((i: number) => {
-    if (!tracks[i]?.audio_url) return
+    if (!activePosts[i]?.audio_url) return
     playAtIndex(i)
-  }, [tracks, playAtIndex])
+  }, [activePosts, playAtIndex])
 
   const isBusy = status === 'requesting' || status === 'generating'
   const isActive = status === 'playing' || status === 'paused'
-  const hasPlayableAudio = playableIndices.length > 0
+  const hasPlayableAudio = mode === 'podcast' ? !!podcastAudioUrl : playableIndices.length > 0
   const uniquePersonas = useMemo(
     () => Array.from(new Set(activePosts.map((p) => p.persona).filter(Boolean))),
     [activePosts],
   )
 
-  // --- Empty states ---
   if (status === 'unavailable') {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
@@ -367,13 +361,11 @@ export function ListenView({ feedId, posts }: Props) {
         }}
       />
 
-      {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <Headphones size={20} className="text-gold" />
         <h1 className="text-[22px] font-semibold text-text">Listen</h1>
       </div>
 
-      {/* Mode pill bar — segmented control between Feed and Podcast */}
       <div className="inline-flex rounded-full bg-bg-hover border border-border p-1 mb-5 text-sm">
         <button
           onClick={() => setMode('feed')}
@@ -397,7 +389,6 @@ export function ListenView({ feedId, posts }: Props) {
         </button>
       </div>
 
-      {/* Hero card */}
       <div className="rounded-2xl border border-border bg-bg-hover p-5 mb-6">
         {mode === 'feed' ? (
           <div className="flex items-start gap-4">
@@ -465,38 +456,33 @@ export function ListenView({ feedId, posts }: Props) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[13px] uppercase tracking-wider text-text-muted font-semibold">
-                Podcast — two hosts
+                Podcast — two hosts, one take
               </div>
               <div className="text-lg text-text font-semibold mt-0.5">
-                {podcastSegmentCount > 0
-                  ? `${podcastSegmentCount} segments`
+                {podcastStatus === 'ready'
+                  ? `${podcastSegmentCount}-turn episode`
                   : 'Not generated yet'}
               </div>
-              {isActive && currentIndex >= 0 && podcastSegments && (
-                <div className="mt-2 text-xs text-text-muted flex items-center gap-1.5">
-                  <Volume2 size={12} className="text-gold" />
-                  Now playing segment {currentIndex + 1} of {podcastSegmentCount}
-                </div>
-              )}
-              {!isActive && !isBusy && podcastSegmentCount === 0 && (
+              {!isActive && !isBusy && podcastStatus !== 'ready' && (
                 <div className="mt-2 text-xs text-text-muted">
-                  Press play to generate a two-host episode grounded in your papers.
+                  Press play for a NotebookLM-style dialogue grounded in your papers.
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Main play button + progress */}
         <div className="mt-5 flex items-center gap-4">
-          <button
-            onClick={goPrev}
-            disabled={!isActive || !playableIndices.some((i) => i < currentIndex)}
-            aria-label="Previous"
-            className="p-2 rounded-full text-text-mid hover:text-text hover:bg-border/50 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
-          >
-            <SkipBack size={22} />
-          </button>
+          {mode === 'feed' && (
+            <button
+              onClick={goPrev}
+              disabled={!isActive || !playableIndices.some((i) => i < currentIndex)}
+              aria-label="Previous"
+              className="p-2 rounded-full text-text-mid hover:text-text hover:bg-border/50 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+            >
+              <SkipBack size={22} />
+            </button>
+          )}
 
           {isBusy ? (
             <button
@@ -524,14 +510,16 @@ export function ListenView({ feedId, posts }: Props) {
             </button>
           )}
 
-          <button
-            onClick={advance}
-            disabled={!isActive || !playableIndices.some((i) => i > currentIndex)}
-            aria-label="Next"
-            className="p-2 rounded-full text-text-mid hover:text-text hover:bg-border/50 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
-          >
-            <SkipForward size={22} />
-          </button>
+          {mode === 'feed' && (
+            <button
+              onClick={advance}
+              disabled={!isActive || !playableIndices.some((i) => i > currentIndex)}
+              aria-label="Next"
+              className="p-2 rounded-full text-text-mid hover:text-text hover:bg-border/50 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+            >
+              <SkipForward size={22} />
+            </button>
+          )}
 
           <div className="flex-1 flex items-center gap-2 text-xs text-text-muted font-mono tabular-nums min-w-0">
             <span className="shrink-0">{formatTime(progress.current)}</span>
@@ -549,7 +537,6 @@ export function ListenView({ feedId, posts }: Props) {
           </div>
         </div>
 
-        {/* Status line */}
         {status === 'requesting' && (
           <div className="mt-3 text-xs text-text-muted" role="status" aria-live="polite">
             Requesting audio…
@@ -558,7 +545,7 @@ export function ListenView({ feedId, posts }: Props) {
         {status === 'generating' && (
           <div className="mt-3 text-xs text-text-muted" role="status" aria-live="polite">
             {mode === 'podcast'
-              ? 'Producing a two-host episode — grounding in your papers, then synthesizing voices. ~1–2 minutes.'
+              ? 'Producing the episode — retrieving chunks, scripting dialogue, rendering with v3. ~1 minute.'
               : 'Generating audio with ElevenLabs — this takes ~30 seconds for a full feed.'}
           </div>
         )}
@@ -581,7 +568,6 @@ export function ListenView({ feedId, posts }: Props) {
         )}
       </div>
 
-      {/* Track list */}
       {mode === 'feed' ? (
         <ol className="list-none p-0 m-0 space-y-1">
           {activePosts.map((post, idx) => {
@@ -648,68 +634,55 @@ export function ListenView({ feedId, posts }: Props) {
           })}
         </ol>
       ) : (
-        <ol className="list-none p-0 m-0 space-y-1">
-          {(podcastSegments ?? []).map((seg, idx) => {
-            const isCurrent = idx === currentIndex
-            const hasAudio = Boolean(seg.audio_url)
-            const isPlaying = isCurrent && status === 'playing'
-            const color = hostColor(seg.speaker)
-            return (
-              <li key={idx}>
-                <button
-                  onClick={() => handleTrackClick(idx)}
-                  disabled={!hasAudio}
-                  className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                    isCurrent ? 'bg-gold/10' : hasAudio ? 'hover:bg-bg-hover' : ''
-                  } ${!hasAudio ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
-                >
-                  <div className="w-6 flex-shrink-0 flex items-center justify-center text-xs text-text-muted font-mono tabular-nums pt-0.5">
-                    {isPlaying ? (
-                      <Volume2 size={14} className="text-gold" />
-                    ) : (
-                      <span>{idx + 1}</span>
-                    )}
-                  </div>
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                    style={{
-                      backgroundColor: color + '28',
-                      border: `1.5px solid ${color}50`,
-                      color,
-                    }}
-                  >
-                    {seg.speaker === 'host_a' ? 'A' : 'B'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className={`text-sm font-semibold truncate ${isCurrent ? 'text-gold' : 'text-text'}`}
-                    >
-                      {hostLabel(seg.speaker)}
-                    </div>
-                    <div className="text-xs text-text-muted line-clamp-2">
-                      {seg.text}
-                    </div>
-                  </div>
-                  {!hasAudio && seg.audio_error && (
-                    <div
-                      className="text-[10px] text-text-subtle uppercase tracking-wider shrink-0"
-                      title={seg.audio_error}
-                    >
-                      Skipped
-                    </div>
-                  )}
-                </button>
-              </li>
+        // Podcast mode: scrolling transcript. The actual audio is one
+        // continuous mp3 — transcript lines are display-only; no
+        // per-turn seeking (v3 doesn't return alignments).
+        <div>
+          {podcastSegmentCount > 0 ? (
+            <div className="px-1">
+              <div className="text-[11px] uppercase tracking-wider text-text-muted font-semibold mb-3">
+                Transcript
+              </div>
+              <ol className="list-none p-0 m-0 space-y-3">
+                {(podcastSegments ?? []).map((seg) => {
+                  const color = hostColor(seg.speaker)
+                  return (
+                    <li key={seg.index} className="flex items-start gap-3">
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 mt-0.5"
+                        style={{
+                          backgroundColor: color + '28',
+                          border: `1.5px solid ${color}50`,
+                          color,
+                        }}
+                      >
+                        {seg.speaker === 'host_a' ? 'A' : 'B'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="text-[11px] font-semibold tracking-wide"
+                          style={{ color }}
+                        >
+                          {hostLabel(seg.speaker)}
+                        </div>
+                        <div className="text-sm text-text leading-relaxed">
+                          {seg.text}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ol>
+            </div>
+          ) : (
+            !isBusy && (
+              <div className="text-center text-sm text-text-muted py-8">
+                No episode yet. Press play above to generate one.
+              </div>
             )
-          })}
-          {podcastSegmentCount === 0 && !isBusy && (
-            <li className="text-center text-sm text-text-muted py-8">
-              No episode yet. Press play above to generate one.
-            </li>
           )}
-        </ol>
+        </div>
       )}
-
     </div>
   )
 }
