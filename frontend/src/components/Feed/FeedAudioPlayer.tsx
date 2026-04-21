@@ -275,7 +275,7 @@ export function FeedAudioPlayer({ feedId, posts, onCurrentPostChange }: Props) {
           <>
             <button
               onClick={goPrev}
-              disabled={currentIndex <= playableIndices[0]}
+              disabled={!playableIndices.some((i) => i < currentIndex)}
               className="text-text-mid hover:text-text disabled:opacity-30 p-1"
               aria-label="Previous post"
             >
@@ -300,7 +300,8 @@ export function FeedAudioPlayer({ feedId, posts, onCurrentPostChange }: Props) {
             )}
             <button
               onClick={advance}
-              className="text-text-mid hover:text-text p-1"
+              disabled={!playableIndices.some((i) => i > currentIndex)}
+              className="text-text-mid hover:text-text disabled:opacity-30 p-1"
               aria-label="Next post"
             >
               <SkipForward size={18} />

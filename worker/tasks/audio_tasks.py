@@ -30,6 +30,7 @@ from lib.db import execute, fetchrow
 from lib.persona import get_personas
 from lib.storage import storage
 from lib.tts import TTSUnavailable, synthesize, voice_id_for
+from lib import tts as tts_module
 
 logger = structlog.get_logger(__name__)
 
@@ -63,7 +64,9 @@ def _post_to_speech_text(post: dict, display_name: str) -> str | None:
                 pieces.append(sub.strip())
 
     body = "\n\n".join(pieces)
-    prefix = f"{display_name}. " if display_name else ""
+    # "Stats Nerd says: ..." gives a clear speaker cue. The colon pause
+    # is more explicit than a period; helps listeners track handoffs.
+    prefix = f"{display_name} says: " if display_name else ""
     joined = f"{prefix}{body}"
     if len(joined) > _MAX_TTS_CHARS:
         joined = joined[:_MAX_TTS_CHARS].rsplit(" ", 1)[0] + "…"
@@ -122,6 +125,7 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                 chars=len(text),
             )
 
+            mp3: bytes | None = None
             try:
                 mp3 = synthesize(text, voice_id)
             except TTSUnavailable:
@@ -129,13 +133,50 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                 # continuing the loop since every call would fail.
                 raise
             except httpx.HTTPStatusError as exc:
-                # Per-post failure shouldn't kill the whole feed — log,
-                # skip, let other posts render.
+                # The voice may be locked, deprecated, or require a
+                # higher plan on this user's ElevenLabs account. Fall
+                # back to the default voice so the post still plays —
+                # better to hear Rachel read every post than silence.
+                body_preview = ""
+                try:
+                    body_preview = exc.response.text[:200]
+                except Exception:  # noqa: BLE001
+                    pass
                 log.warn(
-                    "post_synthesis_failed",
+                    "post_synthesis_voice_failed",
                     post_index=idx,
+                    persona=persona_key,
+                    voice_id=voice_id,
                     status_code=exc.response.status_code,
+                    body=body_preview,
                 )
+                if voice_id != tts_module._DEFAULT_VOICE:
+                    try:
+                        mp3 = synthesize(text, tts_module._DEFAULT_VOICE)
+                        log.info(
+                            "post_synthesis_fallback_ok",
+                            post_index=idx,
+                            voice_id=tts_module._DEFAULT_VOICE,
+                        )
+                    except Exception as fb_exc:  # noqa: BLE001
+                        log.warn(
+                            "post_synthesis_fallback_failed",
+                            post_index=idx,
+                            error=str(fb_exc)[:200],
+                        )
+                        mp3 = None
+            except Exception as exc:  # noqa: BLE001 — network/timeouts too
+                log.warn(
+                    "post_synthesis_error",
+                    post_index=idx,
+                    persona=persona_key,
+                    voice_id=voice_id,
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:200],
+                )
+                mp3 = None
+
+            if mp3 is None:
                 skipped += 1
                 continue
 
@@ -143,6 +184,15 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
                 key = storage.save_audio(user_id, feed_id, idx, mp3)
             except NotImplementedError:
                 raise
+            except Exception as exc:  # noqa: BLE001
+                log.warn(
+                    "post_audio_upload_failed",
+                    post_index=idx,
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:200],
+                )
+                skipped += 1
+                continue
 
             # Patch the post: add audio_key. jsonb_set with
             # create_if_missing=true inserts the field in place without
