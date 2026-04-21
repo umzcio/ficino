@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     supabase_storage_bucket: str = "papers"
 
+    # ElevenLabs TTS (feed audio playback). Empty key disables the feature —
+    # the play button stays hidden in the frontend (feature-detected via the
+    # /feed/{id}/audio endpoint returning 501).
+    elevenlabs_api_key: str = ""
+    elevenlabs_model_id: str = "eleven_turbo_v2_5"  # fast + cheap; good enough for post-length snippets
+
     # SaaS / hosted-deployment lock. When true:
     #   - the Settings → AI UI hides LLM provider + API-key controls
     #   - the settings-update endpoint silently drops any attempt to set

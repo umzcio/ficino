@@ -117,6 +117,12 @@ export async function getFeed(feedId: string): Promise<Feed> {
   return request<Feed>(`/feed/${feedId}`)
 }
 
+// Trigger TTS audio generation for a feed. Backend returns 501 when
+// ELEVENLABS_API_KEY is unset — callers catch that to hide the play UI.
+export async function requestFeedAudio(feedId: string): Promise<{ status: string; task_id?: string }> {
+  return request(`/feed/${feedId}/audio`, { method: 'POST' })
+}
+
 export async function listFeeds(workspaceId?: string): Promise<Feed[]> {
   const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
   return request<Feed[]>(`/feed${query}`)

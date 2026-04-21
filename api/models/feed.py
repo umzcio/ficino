@@ -64,3 +64,5 @@ class Feed(BaseModel):
     generation_duration_ms: int | None = None
     paper_count: int | None = None
     post_count: int | None = None
+    audio_status: str | None = None
+    audio_generated_at: datetime | None = None

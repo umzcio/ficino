@@ -118,6 +118,26 @@ async def get_feed_status(
         return {"status": result.state.lower(), "task_id": task_id}
 
 
+def _hydrate_audio_urls(
+    posts: list[dict[str, object]], user_id: str, feed_id: str
+) -> None:
+    """Turn each post's stored audio_key into a fresh 24h signed URL.
+
+    Mutates posts in place. Skips quietly on any error (storage down,
+    key missing, etc.) — a dead play button is less bad than a 500 on
+    the feed GET that breaks the whole page.
+    """
+    from storage import storage as storage_backend
+    for idx, post in enumerate(posts):
+        key = post.get("audio_key") if isinstance(post, dict) else None
+        if not key:
+            continue
+        try:
+            post["audio_url"] = storage_backend.audio_url(user_id, feed_id, idx)
+        except Exception:  # noqa: BLE001
+            post["audio_url"] = None
+
+
 @router.get("/{feed_id}", response_model=Feed)
 async def get_feed(
     feed_id: str,
@@ -127,7 +147,8 @@ async def get_feed(
     """Get a specific feed by ID."""
     row = await db.fetchrow(
         """SELECT id, user_id, corpus_id, tag_filter, posts,
-                  generated_at, generation_duration_ms, paper_count, post_count
+                  generated_at, generation_duration_ms, paper_count, post_count,
+                  audio_status, audio_generated_at
            FROM feeds WHERE id = $1 AND user_id = $2""",
         feed_id, user.id,
     )
@@ -139,6 +160,9 @@ async def get_feed(
     if isinstance(posts_data, str):
         posts_data = json.loads(posts_data)
 
+    if row["audio_status"] == "ready":
+        _hydrate_audio_urls(posts_data, user.id, feed_id)
+
     return Feed(
         id=row["id"],
         user_id=row["user_id"],
@@ -149,7 +173,50 @@ async def get_feed(
         generation_duration_ms=row["generation_duration_ms"],
         paper_count=row["paper_count"],
         post_count=row["post_count"],
+        audio_status=row["audio_status"],
+        audio_generated_at=row["audio_generated_at"],
     )
+
+
+@router.post("/{feed_id}/audio", status_code=202)
+async def request_feed_audio(
+    feed_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Dispatch a Celery task to generate ElevenLabs audio for every
+    post in the feed. Idempotent: returns the current status if audio is
+    already generating or ready.
+
+    Returns 501 when ELEVENLABS_API_KEY is unset — self-hosters without
+    a key shouldn't see the play button at all (the frontend uses this
+    status code to hide the UI).
+    """
+    if not settings.elevenlabs_api_key:
+        raise HTTPException(status_code=501, detail="Audio TTS not configured")
+
+    row = await db.fetchrow(
+        "SELECT audio_status FROM feeds WHERE id = $1 AND user_id = $2",
+        feed_id, user.id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
+    current = row["audio_status"]
+    if current in ("generating", "ready"):
+        # Idempotent: the player will poll /feed/{id} and pick up the
+        # existing status/URLs without us spinning up a duplicate task.
+        return {"status": current}
+
+    celery_app = _get_celery()
+    task = celery_app.send_task(
+        "tasks.audio_tasks.generate_audio_for_feed",
+        args=[feed_id],
+        queue="persona",
+    )
+    logger.info("feed_audio_dispatched", feed_id=feed_id, task_id=task.id)
+    return {"status": "generating", "task_id": task.id}
 
 
 @router.delete("/{feed_id}/posts/{post_index}", status_code=204)

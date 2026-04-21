@@ -67,6 +67,16 @@ class StorageBackend(ABC):
         ttl: int = 600,
     ) -> str: ...
 
+    @abstractmethod
+    def save_audio(
+        self, user_id: str, feed_id: str, post_index: int, content: bytes
+    ) -> str: ...
+
+    @abstractmethod
+    def audio_url(
+        self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
+    ) -> str: ...
+
 
 class _LocalStorage(StorageBackend):
     def __init__(self) -> None:
@@ -144,6 +154,20 @@ class _LocalStorage(StorageBackend):
             f"?token={sign_resource(figure_id, ttl)}"
         )
 
+    def save_audio(
+        self, user_id: str, feed_id: str, post_index: int, content: bytes
+    ) -> str:
+        raise NotImplementedError(
+            "Feed audio requires STORAGE_PROVIDER=supabase"
+        )
+
+    def audio_url(
+        self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
+    ) -> str:
+        raise NotImplementedError(
+            "Feed audio requires STORAGE_PROVIDER=supabase"
+        )
+
 
 class _SupabaseStorage(StorageBackend):
     def __init__(self) -> None:
@@ -168,6 +192,10 @@ class _SupabaseStorage(StorageBackend):
         if not safe or safe.startswith(".") or safe != filename:
             raise ValueError(f"invalid figure filename: {filename!r}")
         return f"{user_id}/{paper_id}/figures/{safe}"
+
+    @staticmethod
+    def _audio_key(user_id: str, feed_id: str, post_index: int) -> str:
+        return f"{user_id}/feeds/{feed_id}/audio/post_{post_index}.mp3"
 
     def save_pdf(self, user_id: str, paper_id: str, content: bytes) -> str:
         key = self._pdf_key(user_id, paper_id)
@@ -247,6 +275,26 @@ class _SupabaseStorage(StorageBackend):
     ) -> str:
         resp = self._client.storage.from_(self._bucket).create_signed_url(
             path=image_path, expires_in=ttl,
+        )
+        return resp.get("signedURL") or resp.get("signedUrl") or ""
+
+    def save_audio(
+        self, user_id: str, feed_id: str, post_index: int, content: bytes
+    ) -> str:
+        key = self._audio_key(user_id, feed_id, post_index)
+        self._client.storage.from_(self._bucket).upload(
+            path=key,
+            file=content,
+            file_options={"content-type": "audio/mpeg", "upsert": "true"},
+        )
+        return key
+
+    def audio_url(
+        self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
+    ) -> str:
+        key = self._audio_key(user_id, feed_id, post_index)
+        resp = self._client.storage.from_(self._bucket).create_signed_url(
+            path=key, expires_in=ttl,
         )
         return resp.get("signedURL") or resp.get("signedUrl") or ""
 

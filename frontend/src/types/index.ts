@@ -59,6 +59,7 @@ export interface FeedPost {
   // backward compatibility with posts generated before chunk-id persistence.
   sources?: { chunk_id?: string; paper_id?: string; paper_title: string; section: string; content: string; score: number }[]
   deleted?: boolean  // soft-deleted posts are filtered from display
+  audio_url?: string | null  // signed URL, hydrated server-side when audio_status='ready'
 }
 
 // Workspaces
@@ -84,6 +85,8 @@ export interface Feed {
   generated_at: string | null
   paper_count: number | null
   post_count: number | null
+  audio_status?: 'generating' | 'ready' | 'failed' | null
+  audio_generated_at?: string | null
 }
 
 // DM / Messages types

@@ -99,6 +99,26 @@ class LocalStorage(StorageBackend):
             except OSError:
                 pass
 
+    # -- Feed audio --
+
+    def save_audio(
+        self, user_id: str, feed_id: str, post_index: int, content: bytes
+    ) -> str:
+        # Local audio support is out of scope for MVP — ElevenLabs
+        # requires a network key anyway, so the feature is effectively
+        # cloud-only. Self-hosters who want audio should switch to the
+        # Supabase storage backend.
+        raise NotImplementedError(
+            "Feed audio requires STORAGE_PROVIDER=supabase"
+        )
+
+    def audio_url(
+        self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
+    ) -> str:
+        raise NotImplementedError(
+            "Feed audio requires STORAGE_PROVIDER=supabase"
+        )
+
     # -- URLs --
 
     def figure_image_url(

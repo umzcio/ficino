@@ -80,3 +80,20 @@ class StorageBackend(ABC):
         Local returns a relative `/figures/...?token=...` URL served by our
         API; cloud backends return a provider-issued signed URL.
         """
+
+    # -- Feed audio (TTS) --
+
+    @abstractmethod
+    def save_audio(
+        self, user_id: str, feed_id: str, post_index: int, content: bytes
+    ) -> str:
+        """Persist an mp3 rendered from a feed post. Returns a backend
+        reference suitable for storing in posts[*].audio_key."""
+
+    @abstractmethod
+    def audio_url(
+        self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
+    ) -> str:
+        """Return a URL the browser can fetch directly. Default TTL is
+        24h — feeds are playable for a day after generation; re-trigger
+        TTS to refresh."""

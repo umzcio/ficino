@@ -42,9 +42,10 @@ app.conf.update(
         "tasks.preference_tasks.*": {"queue": "persona"},
         "tasks.archivist_tasks.*": {"queue": "persona"},
         "tasks.reading_list_tasks.*": {"queue": "persona"},
+        "tasks.audio_tasks.*": {"queue": "persona"},
     },
 )
 
 app.conf.update(
-    include=["tasks.ingestion_tasks", "tasks.persona_tasks", "tasks.summary_tasks", "tasks.alert_tasks", "tasks.preference_tasks", "tasks.archivist_tasks", "tasks.reading_list_tasks"],
+    include=["tasks.ingestion_tasks", "tasks.persona_tasks", "tasks.summary_tasks", "tasks.alert_tasks", "tasks.preference_tasks", "tasks.archivist_tasks", "tasks.reading_list_tasks", "tasks.audio_tasks"],
 )

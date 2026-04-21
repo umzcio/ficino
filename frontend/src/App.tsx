@@ -12,6 +12,7 @@ import { PaperUpload } from './components/Upload/PaperUpload'
 import { CorpusPanel } from './components/Sidebar/CorpusPanel'
 import { PersonaPanel } from './components/Sidebar/PersonaPanel'
 import { FeedContent } from './components/Feed/Feed'
+import { FeedAudioPlayer } from './components/Feed/FeedAudioPlayer'
 import { SwipeableTabs } from './components/_shared/SwipeableTabs'
 import { PullToRefresh } from './components/_shared/PullToRefresh'
 import { FeedHistory } from './components/Feed/FeedHistory'
@@ -659,6 +660,7 @@ function AppContent() {
             />
             <OfflineBanner />
             <MobileInstallBanner />
+            <FeedAudioPlayer feedId={feed.feedId} posts={feed.posts} />
             <FeedTabs active={activeTab} onSelect={setActiveTab} />
             <FeedHistory currentFeedId={feed.feedId} onLoadFeed={feed.loadFeed} workspaceId={ws.activeId} />
             <ComposeBox
