@@ -22,19 +22,27 @@ import httpx
 _ELEVENLABS_API = "https://api.elevenlabs.io/v1/text-to-speech"
 
 
-# persona_key → ElevenLabs voice_id. Chosen for MAXIMAL timbre contrast:
-# mixed accents (British / American / Australian / Southern US), mixed
-# gender, mixed age. Subtle timbre differences get flattened on the
-# turbo model, so we pick voices that differ on features the model
-# preserves well (accent, F0, speaking rate).
+# persona_key → ElevenLabs voice_id. Voices chosen to MATCH each
+# persona's visual avatar — gender first, then tone and age. Getting
+# gender wrong breaks immersion harder than any other mismatch
+# (listeners double-take when the Black man on fire sounds like a
+# Southern woman). When possible we keep accents/ages varied so the
+# seven speakers still sound clearly distinct on the turbo model.
 VOICE_MAP: Final[dict[str, str]] = {
-    "skeptic":       "onwK4e9ZLuTAKqWW03F9",  # Daniel — British news anchor, incisive
-    "methodologist": "pqHfZKP75CvOlQylNhV4",  # Bill — older American, warm narrator
+    # Methods Skeptic: young woman in lab coat with magnifying glass → sharp female
+    "skeptic":       "AZnzlk1XvdvUeBnXmlld",  # Domi — strong young female, confident
+    # Stats Nerd: young woman with curly hair, excited about data → bright female
+    "methodologist": "jsCqWAovK2LkecY7zXl4",  # Freya — young American female, bright
+    # Practitioner Pat: white guy, glasses, hoodie, coffee → warm mature male
     "practitioner":  "nPczCjzI2devNBz1zQrb",  # Brian — deep mature American male
-    "hype":          "jsCqWAovK2LkecY7zXl4",  # Freya — young American female, bright
+    # AI Breakthroughs: stylized Greek philosopher bust → British narrator
+    "hype":          "JBFqnCBsd6RMkjVDRZzb",  # George — British warm narration (philosopher energy)
+    # PhD Candidate: tired bearded guy, hoodie, laptop → young earnest male
     "gradstudent":   "TxGEqnHWrfWFTfGW9XjX",  # Josh — young American male, earnest
-    "archivist":     "XB0fDUnXU5powFXDhCwa",  # Charlotte — British female, raspy
-    "amplifier":     "oWAxZDx7w5VEj9dCyTzz",  # Grace — Southern American female, energetic
+    # The Archivist: Greek goddess in laurel crown and white robes → ethereal British female
+    "archivist":     "pFZP5JQG7iQjIQuC4Bku",  # Lily — British warm female, measured
+    # The Amplifier: Black man, glasses, beard, on fire, charismatic → intense male
+    "amplifier":     "N2lVS1w4EtoT3dr4eOWO",  # Callum — hoarse intense male, fire energy
 }
 
 _DEFAULT_VOICE: Final[str] = "21m00Tcm4TlvDq8ikWAM"  # Rachel
