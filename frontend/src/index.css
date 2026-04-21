@@ -132,3 +132,30 @@ button:focus-visible {
 [data-theme="light"] .app-logo {
   filter: invert(1);
 }
+
+/*
+ * iOS auto-zoom guard.
+ *
+ * Mobile Safari zooms the viewport in whenever a focused <input>,
+ * <textarea>, or <select> has a font-size below 16px — and never
+ * zooms back out. The DM input, compose box, search bar, and login
+ * form all use 13-15px text, so tapping any of them scaled up the
+ * whole screen and left the user pinching to recover.
+ *
+ * Fix: force form controls to 16px font on small viewports. Visual
+ * weight at 16px on a phone is nearly identical to 14-15px on
+ * desktop (higher DPR compensates), so no redesign needed. We DO
+ * NOT reach for `maximum-scale=1` in the viewport meta — that
+ * would block users from pinch-zooming the page, which is a
+ * legitimate accessibility gesture.
+ *
+ * Applied at <=768px so desktop inputs keep whatever explicit sizes
+ * their Tailwind classes set.
+ */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
