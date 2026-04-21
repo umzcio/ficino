@@ -34,7 +34,7 @@ VOICE_MAP: Final[dict[str, str]] = {
     # Stats Nerd: young woman with curly hair, excited about data → bright female
     "methodologist": "1Hdh5sdoicm1xyz0gQhD",  # Liz — social media / ad female voice
     # Practitioner Pat: white guy, glasses, hoodie, coffee → warm mature male
-    "practitioner":  "nPczCjzI2devNBz1zQrb",  # Brian — deep mature American male
+    "practitioner":  "3nDq4c7a9Pk3q5rxbMJH",  # Matthew — friendly, warm, resonant
     # AI Breakthroughs: stylized Greek philosopher bust → British narrator
     "hype":          "JBFqnCBsd6RMkjVDRZzb",  # George — British warm narration (philosopher energy)
     # PhD Candidate: tired bearded guy, hoodie, laptop → young earnest male
@@ -42,7 +42,7 @@ VOICE_MAP: Final[dict[str, str]] = {
     # The Archivist: Greek goddess in laurel crown and white robes → ethereal British female
     "archivist":     "pFZP5JQG7iQjIQuC4Bku",  # Lily — British warm female, measured
     # The Amplifier: Black man, glasses, beard, on fire, charismatic → intense male
-    "amplifier":     "3nDq4c7a9Pk3q5rxbMJH",  # Matthew — friendly, warm, resonant
+    "amplifier":     "MjDkeH2x9hCiWKXZtUPc",  # Marcos — warm, direct, professional
 }
 
 _DEFAULT_VOICE: Final[str] = "21m00Tcm4TlvDq8ikWAM"  # Rachel
