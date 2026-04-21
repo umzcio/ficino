@@ -548,14 +548,23 @@ def generate_feed(
 
             # Pick figure BEFORE prompt if this is a figure post. The
             # figure MUST be of a type this persona is allowed to post
-            # about — this is the fix for the bug where Methods Skeptic
+            # about — earlier fix for the bug where Methods Skeptic
             # earnestly critiqued a UI doc icon and Stats Nerd tried to
-            # do statistics on a photograph. Personas whose
-            # `allowed_figure_types` is empty/null will never enter this
-            # branch with a figure selected; the post-generation code
-            # below already continues past posts that can't be built.
+            # do statistics on a photograph. Separately, a figure-slot
+            # with no figures at all on the paper used to fall through
+            # to an empty-figure prompt and make the persona write a
+            # meta-post about there being no figures ("no figures in
+            # these chunks, asking you to take a lot on faith…"). Drop
+            # the slot in both cases — better no post than a forced-fit
+            # figure post or a meta-post about missing figures.
             selected_figure = None
-            if post_type == "figure" and available_figures:
+            if post_type == "figure":
+                if not available_figures:
+                    log.info(
+                        "figure_post_skipped_no_figures_in_paper",
+                        persona=persona_key,
+                    )
+                    continue
                 allowed_types = set(
                     (persona_lib.get_personas().get(persona_key, {}) or {})
                     .get("allowed_figure_types") or ()
@@ -564,12 +573,7 @@ def generate_feed(
                     f for f in available_figures
                     if f["figure_type"] and f["figure_type"] in allowed_types
                 ]
-                if eligible:
-                    selected_figure = random.choice(eligible)
-                else:
-                    # Persona is in a "figure" slot but no figure on this
-                    # paper matches its allowed types. Skip the slot —
-                    # better no post than a forced-fit figure post.
+                if not eligible:
                     log.info(
                         "figure_post_skipped_no_eligible_figure",
                         persona=persona_key,
@@ -579,6 +583,7 @@ def generate_feed(
                         }),
                     )
                     continue
+                selected_figure = random.choice(eligible)
 
             # Build the prompt
             # For quotes/replies, include both existing feed posts and newly generated ones.

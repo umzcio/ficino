@@ -239,6 +239,52 @@ def _format_contradictions(contradictions: list[dict[str, object]]) -> str:
     return "\n".join(parts)
 
 
+def _fetch_chunks_by_ids(chunk_ids: list[str]) -> list[dict[str, object]]:
+    """Load chunks by UUID for cross-persona thread grounding.
+
+    When a persona is replying to / quoting another persona inside a
+    feed, it should see the chunks the original persona was grounded
+    on — otherwise Stats Nerd can post "Table 2: mean 4.24 vs 3.11"
+    grounded in the table chunk, and Methods Skeptic replies three
+    seconds later saying "can't verify those values from my chunks"
+    because MS's own retrieval missed the table chunk. Thread reads
+    incoherent even though Stats Nerd was correct.
+
+    Returns chunk dicts in the same shape retrieve_chunks produces so
+    they can be dropped into the `chunks` list fed to the prompt.
+    """
+    if not chunk_ids:
+        return []
+    rows = fetch(
+        """SELECT c.id, c.paper_id, c.section, c.content, c.chunk_type,
+                  c.chunk_index, c.token_count,
+                  p.title AS paper_title, p.authors AS paper_authors,
+                  p.year AS paper_year, p.filename AS paper_filename
+           FROM chunks c
+           JOIN papers p ON c.paper_id = p.id
+           WHERE c.id = ANY($1::uuid[])""",
+        chunk_ids,
+    )
+    return [
+        {
+            "id": str(r["id"]),
+            "paper_id": str(r["paper_id"]),
+            "section": r["section"],
+            "content": r["content"],
+            "chunk_type": r["chunk_type"],
+            "chunk_index": r["chunk_index"],
+            "token_count": r["token_count"],
+            "paper_title": r["paper_title"],
+            "paper_authors": r["paper_authors"] or [],
+            "paper_year": r["paper_year"],
+            "paper_filename": r["paper_filename"],
+            "score": 0.0,  # anchor chunks aren't scored — they're pinned
+            "match_type": "anchor",
+        }
+        for r in rows
+    ]
+
+
 def build_post_prompt(
     persona_key: str,
     post_type: str,
@@ -250,8 +296,37 @@ def build_post_prompt(
     """Build the user prompt for generating a single post.
 
     Includes retrieved chunks, contradiction context, and (for quotes/replies)
-    the post being responded to.
+    the post being responded to. For quote/reply post types, the parent
+    post is picked here (used by the branches below) and its
+    `sources[*].chunk_id` are fetched and merged into `chunks` so the
+    responder is grounded on what the parent was grounded on — prevents
+    the "can't verify that from my chunks" in-thread replies that make
+    the discourse look incoherent when the parent was correctly grounded.
     """
+    selected_parent: dict[str, object] | None = None
+
+    # For quote/reply post types, pick the parent up front and pull its
+    # anchor chunks into the responder's context. We pick once and reuse
+    # below — the branches used to call random.choice themselves, which
+    # made it impossible to attribute the response to a specific parent.
+    if post_type in ("quote", "reply") and existing_posts:
+        selected_parent = random.choice(existing_posts)
+        parent_sources = selected_parent.get("sources") or []
+        if isinstance(parent_sources, list):
+            parent_chunk_ids = [
+                s.get("chunk_id") for s in parent_sources
+                if isinstance(s, dict) and s.get("chunk_id")
+            ]
+            if parent_chunk_ids:
+                anchor_chunks = _fetch_chunks_by_ids(parent_chunk_ids)
+                # Merge, deduping by id — responder's own retrieval wins
+                # over the anchor on tie so responder-score is preserved.
+                seen_ids = {str(c.get("id")) for c in chunks if c.get("id")}
+                for ac in anchor_chunks:
+                    if str(ac.get("id")) not in seen_ids:
+                        chunks = list(chunks) + [ac]
+                        seen_ids.add(str(ac.get("id")))
+
     context = _format_chunks_for_prompt(chunks)
     contradiction_context = _format_contradictions(contradictions or [])
 
@@ -299,11 +374,13 @@ JSON format:
 IMPORTANT: "thread_posts" must be an array of {thread_count} strings. Each string is one post in the thread. Do NOT number them (no "1/" prefixes) — the UI handles numbering."""
 
     elif post_type == "quote":
-        # Pick a post to quote
-        if existing_posts:
+        # Pick a post to quote. selected_parent was picked up-top so the
+        # anchor-chunk merge above could pull the parent's sources into
+        # our context before we format it.
+        if selected_parent is not None:
             from lib.sanitize import fence_untrusted
 
-            quoted = random.choice(existing_posts)
+            quoted = selected_parent
             quoted_persona = str(quoted.get('persona', 'unknown'))
             quoted_content = str(quoted.get('content', ''))
             quoted_handle = PERSONAS.get(quoted_persona, {}).get('handle', '@unknown')
@@ -345,10 +422,10 @@ JSON format:
 }"""
 
     elif post_type == "reply":
-        if existing_posts:
+        if selected_parent is not None:
             from lib.sanitize import fence_untrusted
 
-            replied_to = random.choice(existing_posts)
+            replied_to = selected_parent
             replied_content = str(replied_to.get('content', ''))
             reply_handle = PERSONAS.get(str(replied_to.get("persona", "")), {}).get("handle", "@unknown")
             fenced_reply = fence_untrusted(replied_content[:500])
@@ -432,14 +509,17 @@ JSON format:
   "paper_ref": {safe_fig_paper}
 }}"""
         else:
-            base += """Reference a specific figure or table from the retrieved content.
-
-JSON format:
-{
-  "post_type": "figure",
-  "content": "Your analysis of the figure (2-3 sentences)",
-  "paper_ref": "Author et al. YEAR"
-}"""
+            # Reaching this branch means a caller asked for a figure-type
+            # post without providing a figure. Previously we emitted a
+            # "reference a figure from the retrieved content" prompt, which
+            # let the LLM either invent a figure or write a meta-post about
+            # there being no figures. The caller is now expected to drop
+            # the slot entirely; raise so upstream regressions fail loud
+            # instead of sneaking into the feed.
+            raise ValueError(
+                "build_post_prompt called with post_type='figure' but figure=None; "
+                "callers must drop the slot when no eligible figure exists."
+            )
 
     return base
 
