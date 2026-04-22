@@ -155,6 +155,17 @@ Everything below is live in production.
 | **Progressive chapters** | Each paper is a chapter. Generate chapters sequentially — Chapter 1 sees only Paper 1, Chapter 2 sees Papers 1-2. Personas in later chapters reference earlier papers, building cumulative discourse |
 | **Unlock progression** | Completing a chapter unlocks the next. Locked chapters shown but grayed out. Read completed chapters anytime |
 
+### Listen Mode (Audio)
+| Feature | Description |
+|---------|-------------|
+| **Feed audio** | On-demand ElevenLabs TTS renders each non-deleted post as its own mp3 using the persona's dedicated voice (turbo v2.5 model). Claim-then-render Celery task keyed on `feeds.audio_status` so two click-happy users can't trigger duplicate spend. Per-post `audio_key` persisted into `posts[*]` JSONB; signed URLs hydrated at GET time with a 24h TTL |
+| **Podcast mode** | NotebookLM-style two-host dialogue episode grounded in the same retrieved chunks the feed uses. Producer pulls ~30 chunks via the existing hybrid pipeline across every `posts[*].sources[*].paper_id`, scripts 8–12 turns of natural dialogue (short reactions, variable lengths, audio tags like `[laughs]` / `[sighs]`), then renders the whole thing as ONE continuous mp3 via ElevenLabs `/v1/text-to-dialogue` (Eleven v3 Dialogue Mode). Cross-speaker prosody and interruptions come from the model — no stitched clips |
+| **Persona voices** | Seven preset ElevenLabs first-gen voices mapped 1:1 to personas by gender, tone, and age (Paul=warm mature male for Practitioner, George=British narrator for AI Breakthroughs, etc.). Two additional host voices (Drew + Tyler) reserved for podcast mode. Voice map is code-level, not user-editable — a persona's voice is part of its identity |
+| **Fallback script** | If the LLM call or JSON parse fails, the producer emits a deterministic host_a/host_b script derived from feed stats + the first chunk per paper. User always gets a playable episode rather than a dead play button |
+| **Scrolling transcript** | Podcast mode renders every turn as a two-color transcript (Host A gold, Host B teal) alongside the single continuous audio element. No per-turn seeking — v3 doesn't return alignments; the unified audio file is the feature |
+| **Lazy + idempotent** | Audio synthesis is gated behind the user pressing Play. `audio_status` / `podcast_status` columns track `generating | ready | failed`; hitting Play again on a ready feed returns the cached episode. Generation failures flip to `failed` and surface a Try-again button |
+| **Env-only configuration** | Requires `ELEVENLABS_API_KEY`. `ELEVENLABS_MODEL_ID` drives per-post TTS (default `eleven_turbo_v2_5`); `ELEVENLABS_DIALOGUE_MODEL_ID` drives podcast mode (default `eleven_v3`). Endpoints return 501 when the key is unset so the frontend hides the UI cleanly |
+
 ### Authentication
 | Feature | Description |
 |---------|-------------|

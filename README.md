@@ -124,6 +124,13 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Progressive chapters**: each paper is a chapter. Generate chapters sequentially — later chapters reference earlier papers, building cumulative discourse
 - **Interactive reordering**: AI proposes, you adjust. Drag to customize the sequence
 
+### Listen Mode (Audio)
+- **Feed audio**: one-click ElevenLabs TTS renders every post as its own mp3, each persona voiced in a distinct preset that matches their character (Methods Skeptic sounds different from The Amplifier). Track-list UI with skip/prev, click any post to jump
+- **Podcast mode**: NotebookLM-style two-host dialogue generated in a single ElevenLabs v3 Dialogue Mode call — one continuous audio file with natural pacing, short reactions, and cross-speaker prosody. Grounded in the same retrieved chunks the feed was built on; hosts paraphrase and name-check the personas without using their voices
+- **Scrolling transcript**: podcast mode renders every turn as a two-color transcript (Host A gold, Host B teal) so you can read along
+- **Lazy & idempotent**: audio costs ElevenLabs characters, so nothing synthesizes until you press play. Re-clicks return the cached episode instead of re-spending credits
+- **Requires `ELEVENLABS_API_KEY`** (feed audio works on any tier; podcast mode needs v3 access)
+
 ### Configuration
 - **LLM provider switching**: toggle between Ollama (local, free) and Claude/OpenAI APIs
 - **Model selection**: pick from installed Ollama models via dropdown
@@ -168,6 +175,7 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 | **Embeddings** | voyage-3 (SaaS default), text-embedding-3-small (OpenAI), or bge-m3 (1024d, Ollama) |
 | **PDF Processing** | PyMuPDF + Vision fallback (Claude Sonnet or local multimodal model) |
 | **Object Storage** | Local disk (self-host) or Supabase Storage with RLS (SaaS) |
+| **Audio (optional)** | ElevenLabs — turbo v2.5 for per-post feed TTS, v3 Dialogue Mode for NotebookLM-style podcast episodes |
 | **Bot Protection** | Cloudflare Turnstile (SaaS) — site key baked into frontend, secret on Supabase |
 | **Deployment** | Docker Compose (self-host) or Railway + Supabase + Cloudflare (SaaS at ficino.app) |
 
