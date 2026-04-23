@@ -510,6 +510,14 @@ export async function deleteUserPost(postId: string): Promise<void> {
   return request(`/user-posts/${postId}`, { method: 'DELETE' })
 }
 
+export async function replyToUserPost(postId: string, content: string): Promise<{ id: string; task_id: string; status: string }> {
+  return request(`/user-posts/${postId}/replies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+}
+
 // Search
 export interface SearchResults {
   query: string

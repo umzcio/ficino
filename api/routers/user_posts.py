@@ -30,6 +30,10 @@ class UserPostCreate(BaseModel):
     corpus_id: str | None = None
 
 
+class UserPostFollowUp(BaseModel):
+    content: str = Field(max_length=4000)
+
+
 @router.get("")
 async def list_user_posts(
     workspace_id: str | None = None,
@@ -144,6 +148,57 @@ async def create_user_post(
     )
 
     logger.info("user_post_created", post_id=post_id, task_id=task.id)
+    return {"id": post_id, "task_id": task.id, "status": "pending"}
+
+
+@router.post("/{post_id}/replies", status_code=202)
+async def reply_to_user_post(
+    post_id: str,
+    body: UserPostFollowUp,
+    user: AuthUser = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db),
+    _rl: None = Depends(RateLimit("user_post", settings.rate_limit_user_posts_per_day)),
+) -> dict[str, str]:
+    """Append a follow-up turn to an existing user post and dispatch The
+    Archivist to respond. Threads build up in the `replies` JSONB column
+    as alternating user / archivist turns, so the existing list_user_posts
+    payload reflects the whole conversation without schema changes.
+    """
+    # Ownership + state check: only the post owner can append, and we only
+    # accept follow-ups once the prior Archivist response has landed — an
+    # orphan user turn ahead of the initial archivist reply would make the
+    # thread rendering nonsensical.
+    row = await db.fetchrow(
+        "SELECT status, corpus_id FROM user_posts WHERE id = $1 AND user_id = $2",
+        post_id, user.id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if row["status"] != "complete":
+        raise HTTPException(status_code=409, detail="Previous reply not ready yet")
+
+    # Atomically append the new user turn and flip status to pending so
+    # the client's existing poll loop picks up the new Archivist reply.
+    user_turn_json = json.dumps([{"role": "user", "content": body.content}])
+    await db.execute(
+        """UPDATE user_posts
+           SET replies = replies || $1::jsonb, status = 'pending'
+           WHERE id = $2""",
+        user_turn_json, post_id,
+    )
+
+    celery_app = _get_celery()
+    task = celery_app.send_task(
+        "tasks.archivist_tasks.respond_to_user_post_followup",
+        args=[post_id],
+        queue="persona",
+    )
+    await db.execute(
+        "UPDATE user_posts SET task_id = $1 WHERE id = $2",
+        task.id, post_id,
+    )
+
+    logger.info("user_post_followup", post_id=post_id, task_id=task.id)
     return {"id": post_id, "task_id": task.id, "status": "pending"}
 
 

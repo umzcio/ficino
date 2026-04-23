@@ -281,3 +281,152 @@ def _store_reply(user_post_id: str, reply: dict, sources: list[dict]) -> None:
         "UPDATE user_posts SET replies = $1, sources = $2, status = 'complete' WHERE id = $3",
         replies_json, sources_json, user_post_id,
     )
+
+
+def _append_reply(user_post_id: str, reply: dict) -> None:
+    """Append a follow-up reply to the existing replies array and mark the
+    post complete. Used by the follow-up path — unlike _store_reply we
+    don't touch sources, since the initial grounding citations remain
+    attached to the first turn.
+    """
+    reply_json = json.dumps([reply])
+    execute(
+        """UPDATE user_posts
+           SET replies = replies || $1::jsonb, status = 'complete'
+           WHERE id = $2""",
+        reply_json, user_post_id,
+    )
+
+
+@app.task(name="tasks.archivist_tasks.respond_to_user_post_followup", bind=True, max_retries=2)
+def respond_to_user_post_followup(self: Task, user_post_id: str) -> dict:
+    """Generate The Archivist's response to a follow-up turn on an
+    existing user post.
+
+    By the time this task fires, the `replies` JSONB array already ends
+    with a {role:"user", content:…} turn appended by the API endpoint.
+    We retrieve fresh chunks using that latest turn as the query (follow-
+    ups often pivot topics, so reusing the initial grounding would miss
+    the mark), carry the prior conversation into the prompt as a
+    transcript, then append the Archivist's reply.
+    """
+    log = logger.bind(user_post_id=user_post_id)
+    log.info("archivist_followup_start")
+    start = time.time()
+
+    try:
+        row = fetchrow(
+            "SELECT content, replies, corpus_id, user_id FROM user_posts WHERE id = $1",
+            user_post_id,
+        )
+        if not row:
+            raise ValueError(f"User post {user_post_id} not found")
+
+        original_question = row["content"]
+        replies = row["replies"]
+        if isinstance(replies, str):
+            replies = json.loads(replies)
+        post_user_id = str(row["user_id"])
+        post_corpus_id = str(row["corpus_id"]) if row["corpus_id"] else None
+
+        if not replies or replies[-1].get("role") != "user":
+            raise ValueError("No pending user turn in replies")
+        last_user_msg = replies[-1]["content"]
+
+        user_settings = apply_provider_settings(post_user_id)
+        temperature = user_settings.get("persona_temperature", 0.7)
+
+        if post_corpus_id:
+            paper_rows = fetchrow(
+                """SELECT array_agg(id::text) AS ids FROM papers
+                   WHERE corpus_id = $1 AND user_id = $2 AND status = 'complete'""",
+                post_corpus_id, post_user_id,
+            )
+        else:
+            paper_rows = fetchrow(
+                """SELECT array_agg(id::text) AS ids FROM papers
+                   WHERE user_id = $1 AND status = 'complete'""",
+                post_user_id,
+            )
+        paper_ids = paper_rows["ids"] if paper_rows and paper_rows["ids"] else []
+
+        if not paper_ids:
+            _append_reply(user_post_id, {
+                "role": "archivist",
+                "persona": "archivist",
+                "content": "Your corpus is empty — I don't have any papers to search.",
+            })
+            return {"status": "complete", "user_post_id": user_post_id}
+
+        chunks = retrieval.retrieve_chunks(
+            query=last_user_msg,
+            paper_ids=paper_ids,
+            top_k=15,
+        )
+        log.info("archivist_followup_chunks_retrieved", chunks=len(chunks))
+
+        from lib.sanitize import fence_untrusted
+        chunks_text = "\n\n".join(
+            f"[{c.get('paper_title', 'Unknown')} — {c.get('section', 'unknown')}]\n"
+            f"{fence_untrusted(str(c['content']))}"
+            for c in chunks
+        ) if chunks else "No relevant passages found in the corpus."
+
+        system = _get_archivist_system_prompt().format(chunks=chunks_text)
+
+        # Flatten the conversation into a transcript. We don't have a
+        # multi-turn API in claude_client yet, so we pass the prior turns
+        # as a transcript inside the user_prompt and mark the latest turn
+        # as the one to respond to. This keeps citations and topic-shift
+        # awareness intact without expanding claude_client's surface.
+        transcript_lines = [f"USER: {original_question}"]
+        # Prior turns excluding the trailing user turn we're about to answer.
+        for r in replies[:-1]:
+            role = "USER" if r.get("role") == "user" else "ARCHIVIST"
+            transcript_lines.append(f"{role}: {r.get('content', '')}")
+        transcript_lines.append(f"USER: {last_user_msg}")
+        transcript = "\n\n".join(transcript_lines)
+
+        user_prompt = (
+            "This is an ongoing conversation with the user about their corpus. "
+            "The full thread so far:\n\n"
+            f"{transcript}\n\n"
+            "Respond to the most recent USER message, continuing the conversation naturally. "
+            "Draw on the fresh corpus passages provided in the system prompt."
+        )
+
+        response = claude_client.generate_text_sync(
+            system_prompt=system,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=1024,
+        )
+
+        known = _known_citations(chunks)
+        response, hallucinated = _validate_citations(response, known)
+        if hallucinated:
+            log.warn(
+                "archivist_followup_hallucinated_citation",
+                count=len(hallucinated),
+                citations=hallucinated[:10],
+            )
+
+        _append_reply(user_post_id, {
+            "role": "archivist",
+            "persona": "archivist",
+            "content": response,
+        })
+
+        duration_ms = int((time.time() - start) * 1000)
+        log.info("archivist_followup_complete", duration_ms=duration_ms)
+        return {"status": "complete", "user_post_id": user_post_id, "duration_ms": duration_ms}
+
+    except Exception as exc:
+        log.error("archivist_followup_failed", error=str(exc))
+        execute(
+            "UPDATE user_posts SET status = 'error' WHERE id = $1",
+            user_post_id,
+        )
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc)
+        raise
