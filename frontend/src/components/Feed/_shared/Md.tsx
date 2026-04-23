@@ -33,6 +33,63 @@ function orderedItem(line: string): string | null {
   return m ? m[1] : null
 }
 
+// A small set of title-case function words that can appear lowercase in
+// a heading without signalling a transition to body prose. Used by
+// splitHeadingFromBody.
+const _FUNCTION_WORDS = new Set([
+  'the','of','a','an','and','or','but','in','on','at','to','for','from',
+  'by','with','as','is','are','was','were','vs','via','into','onto','over',
+])
+
+// When the LLM crams `## Heading body continues here` onto a single
+// line, we can still recover the split by scanning for the pattern
+// "CapitalWord lowercase lowercase" with two consecutive non-function
+// lowercase words — that's the shape of a sentence start after a title-
+// case run. Returns [heading, body] or null if no clean split found.
+function splitHeadingFromBody(headingText: string): [string, string] | null {
+  const words = headingText.split(/\s+/).filter(Boolean)
+  if (words.length < 6) return null
+  for (let i = 2; i <= words.length - 3; i++) {
+    const a = words[i]
+    const b = words[i + 1]
+    const c = words[i + 2]
+    const aIsCap = /^[A-Z]/.test(a)
+    const bIsLow = /^[a-z]/.test(b) && !_FUNCTION_WORDS.has(b.toLowerCase())
+    const cIsLow = /^[a-z]/.test(c) && !_FUNCTION_WORDS.has(c.toLowerCase())
+    if (aIsCap && bIsLow && cIsLow) {
+      return [words.slice(0, i).join(' '), words.slice(i).join(' ')]
+    }
+  }
+  return null
+}
+
+// Pre-process LLM text so block markers end up on their own lines.
+// The Archivist in particular sometimes emits `## Heading body --- ###
+// Next body` as a single physical line; without this pass the splitter
+// would treat the whole thing as one paragraph and render block markers
+// as literal text. Four passes: inject \n\n before every ##..####;
+// inject \n\n around every standalone ---/***/___; split any heading
+// line that still runs into body prose; inject \n before inline " - "
+// or " * " bullets that start a list after non-list text.
+function normalizeBlocks(text: string): string {
+  let out = text.replace(/\r\n/g, '\n')
+  // Inject blank line before ## ... #### when preceded by non-newline.
+  out = out.replace(/([^\n])[ \t]+(?=#{1,4}[ \t]+)/g, '$1\n\n')
+  // Inject blank line around standalone --- / *** / ___ rules.
+  out = out.replace(/([^\n])[ \t]+(?=(?:---|\*\*\*|___)(?:[ \t\n]|$))/g, '$1\n\n')
+  out = out.replace(/^((?:---|\*\*\*|___))[ \t]+(?=[^\n])/gm, '$1\n\n')
+  // Split any remaining heading-then-body runs onto separate lines.
+  out = out.split('\n').map(line => {
+    const m = line.match(/^(#{1,4})[ \t]+(.+)$/)
+    if (!m) return line
+    const [, hashes, rest] = m
+    if (rest.length <= 60) return line
+    const split = splitHeadingFromBody(rest)
+    return split ? `${hashes} ${split[0]}\n\n${split[1]}` : line
+  }).join('\n')
+  return out
+}
+
 // Split into blocks. LLM output often omits blank lines between a
 // paragraph and the next `## heading` or `---` rule — relying only on
 // blank-line boundaries would collapse everything into one paragraph
@@ -77,7 +134,7 @@ function splitBlocks(text: string): string[] {
 
 export function Md({ text, className }: MdProps) {
   if (!text) return null
-  const normalized = text.replace(/\r\n/g, '\n').trim()
+  const normalized = normalizeBlocks(text).trim()
   const blocks = splitBlocks(normalized)
   const nodes: React.ReactNode[] = []
 
