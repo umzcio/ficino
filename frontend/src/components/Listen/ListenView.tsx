@@ -69,6 +69,13 @@ export function ListenView({ feedId, posts }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  // Tracks the URL we actually loaded into the audio element, independent
+  // of what audioRef.current.src reports. Reading .src back after setting
+  // it to '' returns the document URL (spec: IDL attribute resolves
+  // against the base URL), so we can't rely on `!audio.src` to mean
+  // "cleared" — the podcast resume path used to check that and take the
+  // wrong branch, refusing to load the podcast URL.
+  const loadedSrcRef = useRef<string | null>(null)
   // Tracks which poller (if any) currently owns pollTimeoutRef. Each poll
   // captures this at entry and checks again before rescheduling; an
   // in-flight poll whose mode was switched out from under it bails
@@ -119,8 +126,12 @@ export function ListenView({ feedId, posts }: Props) {
   const stopPlayback = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause()
-      audioRef.current.src = ''
+      // removeAttribute + load is the only reliable way to drop the
+      // current source; assigning audio.src = '' is a no-op on read.
+      audioRef.current.removeAttribute('src')
+      audioRef.current.load()
     }
+    loadedSrcRef.current = null
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
     pollTimeoutRef.current = null
     activePollerRef.current = null
@@ -201,6 +212,7 @@ export function ListenView({ feedId, posts }: Props) {
     const post = activePostsRef.current[i]
     if (!post || !post.audio_url) return
     audio.src = post.audio_url
+    loadedSrcRef.current = post.audio_url
     audio.play()
       .then(() => {
         if (!mountedRef.current) return
@@ -216,6 +228,7 @@ export function ListenView({ feedId, posts }: Props) {
     const audio = audioRef.current
     if (!audio) return
     audio.src = url
+    loadedSrcRef.current = url
     audio.play()
       .then(() => {
         if (!mountedRef.current) return
@@ -330,23 +343,32 @@ export function ListenView({ feedId, posts }: Props) {
   const handlePlayClick = useCallback(async () => {
     if (!feedId) return
     if (status === 'ready' || status === 'paused') {
-      // Resume path — audio already loaded for the current mode.
+      // Resume path. Use loadedSrcRef (what we actually loaded) rather
+      // than audio.src (which resolves to the document URL even after
+      // being assigned ''), so the "do we need to load a source?"
+      // check can't lie.
       if (mode === 'podcast') {
-        if (!audioRef.current?.src && podcastAudioUrl) {
-          playPodcast(podcastAudioUrl)
-        } else {
+        if (!podcastAudioUrl) return
+        if (loadedSrcRef.current === podcastAudioUrl) {
           audioRef.current?.play().then(() => {
             if (mountedRef.current) setStatus('playing')
           })
+        } else {
+          playPodcast(podcastAudioUrl)
         }
       } else {
         if (currentIndex < 0) {
           const first = playableIndices[0]
           if (first !== undefined) playAtIndex(first)
         } else {
-          audioRef.current?.play().then(() => {
-            if (mountedRef.current) setStatus('playing')
-          })
+          const expected = activePosts[currentIndex]?.audio_url
+          if (expected && loadedSrcRef.current === expected) {
+            audioRef.current?.play().then(() => {
+              if (mountedRef.current) setStatus('playing')
+            })
+          } else {
+            playAtIndex(currentIndex)
+          }
         }
       }
       return
