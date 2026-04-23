@@ -68,6 +68,15 @@ export function ListenView({ feedId, posts }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  // Tracks which poller (if any) currently owns pollTimeoutRef. Each poll
+  // captures this at entry and checks again before rescheduling; an
+  // in-flight poll whose mode was switched out from under it bails
+  // instead of stomping the new poller's scheduled timer. Without this,
+  // mode-change + stopPlayback only clears the pending timer — if the
+  // previous poll already fired and is awaiting getFeed, it will happily
+  // reschedule itself on top of the new mode's timer when it resumes,
+  // which is exactly the "second mode spins forever" bug.
+  const activePollerRef = useRef<'feed' | 'podcast' | null>(null)
 
   const activePosts = serverPosts ?? posts
   const activePostsRef = useRef<FeedPost[]>(activePosts)
@@ -79,6 +88,8 @@ export function ListenView({ feedId, posts }: Props) {
       audioRef.current.src = ''
     }
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
+    pollTimeoutRef.current = null
+    activePollerRef.current = null
   }, [])
 
   useEffect(() => {
@@ -183,9 +194,14 @@ export function ListenView({ feedId, posts }: Props) {
 
   const pollUntilFeedAudioReady = useCallback(async () => {
     if (!feedId || !mountedRef.current) return
+    // Bail if the mode was switched out from under us while a prior
+    // iteration was awaiting getFeed. Without this, the stale poll would
+    // stomp the new mode's state + poll timer.
+    if (activePollerRef.current !== 'feed') return
     try {
       const feed = await getFeed(feedId)
       if (!mountedRef.current) return
+      if (activePollerRef.current !== 'feed') return
       const fresh = (feed.posts as FeedPost[]) || []
       setServerPosts(fresh)
       setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
@@ -208,23 +224,29 @@ export function ListenView({ feedId, posts }: Props) {
               .catch(() => { if (mountedRef.current) setStatus('paused') })
           }
         }
+        activePollerRef.current = null
         return
       }
       if (feed.audio_status === 'failed') {
         setStatus('failed')
+        activePollerRef.current = null
         return
       }
+      if (activePollerRef.current !== 'feed') return
       pollTimeoutRef.current = setTimeout(pollUntilFeedAudioReady, 2500)
     } catch {
+      if (activePollerRef.current !== 'feed') return
       pollTimeoutRef.current = setTimeout(pollUntilFeedAudioReady, 4000)
     }
   }, [feedId])
 
   const pollUntilPodcastReady = useCallback(async () => {
     if (!feedId || !mountedRef.current) return
+    if (activePollerRef.current !== 'podcast') return
     try {
       const feed = await getFeed(feedId)
       if (!mountedRef.current) return
+      if (activePollerRef.current !== 'podcast') return
       setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
       setPodcastStatus(feed.podcast_status ?? null)
       setPodcastAudioUrl(feed.podcast_audio_url ?? null)
@@ -232,14 +254,18 @@ export function ListenView({ feedId, posts }: Props) {
       if (feed.podcast_status === 'ready' && feed.podcast_audio_url) {
         setStatus('ready')
         playPodcast(feed.podcast_audio_url)
+        activePollerRef.current = null
         return
       }
       if (feed.podcast_status === 'failed') {
         setStatus('failed')
+        activePollerRef.current = null
         return
       }
+      if (activePollerRef.current !== 'podcast') return
       pollTimeoutRef.current = setTimeout(pollUntilPodcastReady, 2500)
     } catch {
+      if (activePollerRef.current !== 'podcast') return
       pollTimeoutRef.current = setTimeout(pollUntilPodcastReady, 4000)
     }
   }, [feedId, playPodcast])
@@ -269,12 +295,17 @@ export function ListenView({ feedId, posts }: Props) {
       return
     }
 
-    // Fresh-generation path.
+    // Fresh-generation path. Claim the flow BEFORE scheduling so any
+    // previously-running poller's next iteration sees a mismatched
+    // activePollerRef and bails instead of rescheduling on top of us.
+    stopPlayback()
+    activePollerRef.current = mode
     setStatus('requesting')
     try {
       if (mode === 'podcast') {
         const resp = await requestFeedPodcast(feedId)
         if (!mountedRef.current) return
+        if (activePollerRef.current !== 'podcast') return
         if (resp.status === 'ready') {
           setStatus('generating')
           pollUntilPodcastReady()
@@ -285,6 +316,7 @@ export function ListenView({ feedId, posts }: Props) {
       } else {
         const resp = await requestFeedAudio(feedId)
         if (!mountedRef.current) return
+        if (activePollerRef.current !== 'feed') return
         if (resp.status === 'ready') {
           setStatus('generating')
           pollUntilFeedAudioReady()
@@ -301,7 +333,7 @@ export function ListenView({ feedId, posts }: Props) {
         setStatus('failed')
       }
     }
-  }, [feedId, status, mode, currentIndex, playableIndices, playAtIndex, playPodcast, podcastAudioUrl, pollUntilFeedAudioReady, pollUntilPodcastReady])
+  }, [feedId, status, mode, currentIndex, playableIndices, playAtIndex, playPodcast, podcastAudioUrl, pollUntilFeedAudioReady, pollUntilPodcastReady, stopPlayback])
 
   const handlePauseClick = useCallback(() => {
     audioRef.current?.pause()
