@@ -33,12 +33,52 @@ function orderedItem(line: string): string | null {
   return m ? m[1] : null
 }
 
+// Split into blocks. LLM output often omits blank lines between a
+// paragraph and the next `## heading` or `---` rule — relying only on
+// blank-line boundaries would collapse everything into one paragraph
+// block and leave block markers as literal text. Instead, recognize
+// hard boundaries (blank line, heading, hr, list/non-list transition)
+// inline.
+function splitBlocks(text: string): string[] {
+  const lines = text.split('\n')
+  const blocks: string[] = []
+  let current: string[] = []
+  const flush = () => {
+    if (current.length > 0) {
+      blocks.push(current.join('\n'))
+      current = []
+    }
+  }
+  const isBlank = (l: string) => l.trim() === ''
+  const isHeading = (l: string) => /^#{1,4}\s+/.test(l)
+  const isHrLine = (l: string) => isHr(l.trim())
+  const isListLine = (l: string) => bulletItem(l) !== null || orderedItem(l) !== null
+
+  for (const line of lines) {
+    if (isBlank(line)) { flush(); continue }
+    // Headings and hrs are always standalone blocks.
+    if (isHeading(line) || isHrLine(line)) {
+      flush()
+      blocks.push(line.trim())
+      continue
+    }
+    // Transitioning in or out of a list also starts a new block so
+    // list items don't get glued to surrounding prose.
+    if (current.length > 0) {
+      const prevIsList = current.every(isListLine)
+      const thisIsList = isListLine(line)
+      if (prevIsList !== thisIsList) flush()
+    }
+    current.push(line)
+  }
+  flush()
+  return blocks.filter(b => b.trim().length > 0)
+}
+
 export function Md({ text, className }: MdProps) {
   if (!text) return null
   const normalized = text.replace(/\r\n/g, '\n').trim()
-  // Blank lines separate blocks. Blocks that are only whitespace after
-  // the split are dropped so trailing \n doesn't emit an empty <p>.
-  const blocks = normalized.split(/\n{2,}/).filter(b => b.trim().length > 0)
+  const blocks = splitBlocks(normalized)
   const nodes: React.ReactNode[] = []
 
   blocks.forEach((block, bi) => {
