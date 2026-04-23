@@ -102,6 +102,8 @@ _ARCHIVIST_CONTEXT_SUFFIX = """
 
 FORMATTING: Use real line breaks. Every markdown heading (## ### ####) must sit on its own line with a blank line above and below it. Every horizontal rule (---) must sit on its own line with a blank line above and below. Every list item must be on its own line. Never concatenate a heading and body text onto one line.
 
+HEADINGS: Use plain descriptive phrases as headings (e.g., `## The Bunker as Entry Point`, not `## Taylor (2021): The Bunker` or `## Taylor — The Bunker`). Do not prefix headings with author names, years, citations, colons, or em-dashes. Cite papers in the body text instead.
+
 CORPUS CONTEXT:
 {chunks}"""
 
