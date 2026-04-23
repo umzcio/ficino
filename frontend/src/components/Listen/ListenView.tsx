@@ -226,7 +226,11 @@ export function ListenView({ feedId, posts }: Props) {
 
   const playPodcast = useCallback((url: string) => {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio) {
+      console.warn('[listen] playPodcast: no audio element')
+      setStatus('failed')
+      return
+    }
     audio.src = url
     loadedSrcRef.current = url
     audio.play()
@@ -234,8 +238,13 @@ export function ListenView({ feedId, posts }: Props) {
         if (!mountedRef.current) return
         setStatus('playing')
       })
-      .catch(() => {
-        if (mountedRef.current) setStatus('paused')
+      .catch((err) => {
+        if (!mountedRef.current) return
+        // Surface failures — the prior "silently flip to paused" hid
+        // real problems (bad URL, CORS, unplayable format) behind a
+        // button that just looked untouched.
+        console.warn('[listen] podcast play() rejected', err)
+        setStatus('failed')
       })
   }, [])
 
@@ -341,69 +350,83 @@ export function ListenView({ feedId, posts }: Props) {
   }, [feedId, playPodcast])
 
   const handlePlayClick = useCallback(async () => {
-    if (!feedId) return
-    if (status === 'ready' || status === 'paused') {
-      // Resume path. Use loadedSrcRef (what we actually loaded) rather
-      // than audio.src (which resolves to the document URL even after
-      // being assigned ''), so the "do we need to load a source?"
-      // check can't lie.
-      if (mode === 'podcast') {
-        if (!podcastAudioUrl) return
+    if (!feedId) {
+      console.warn('[listen] handlePlayClick: no feedId')
+      return
+    }
+    console.info('[listen] play click', { mode, status, podcastAudioUrl: !!podcastAudioUrl, playableCount: playableIndices.length })
+
+    // Dispatch on data, not status. Status can lag a mode switch (the
+    // reset effect runs post-render; clicking immediately after a tab
+    // change would see stale status otherwise). If we have audio for
+    // the current mode, play it. If not, kick off generation.
+    if (mode === 'podcast') {
+      if (podcastAudioUrl) {
         if (loadedSrcRef.current === podcastAudioUrl) {
-          audioRef.current?.play().then(() => {
-            if (mountedRef.current) setStatus('playing')
-          })
+          const audio = audioRef.current
+          if (!audio) {
+            playPodcast(podcastAudioUrl)
+            return
+          }
+          audio.play()
+            .then(() => { if (mountedRef.current) setStatus('playing') })
+            .catch((err) => {
+              console.warn('[listen] podcast resume play() rejected', err)
+              playPodcast(podcastAudioUrl)
+            })
         } else {
           playPodcast(podcastAudioUrl)
         }
-      } else {
-        if (currentIndex < 0) {
-          const first = playableIndices[0]
-          if (first !== undefined) playAtIndex(first)
+        return
+      }
+      // Nothing generated yet — dispatch podcast task.
+      stopPlayback()
+      activePollerRef.current = 'podcast'
+      setStatus('requesting')
+      try {
+        const resp = await requestFeedPodcast(feedId)
+        if (!mountedRef.current || activePollerRef.current !== 'podcast') return
+        setStatus('generating')
+        if (resp.status === 'ready') pollUntilPodcastReady()
+        else pollTimeoutRef.current = setTimeout(pollUntilPodcastReady, 1500)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn('[listen] requestFeedPodcast failed', msg)
+        if (msg.includes('501') || msg.toLowerCase().includes('not configured')) {
+          setStatus('unavailable')
         } else {
-          const expected = activePosts[currentIndex]?.audio_url
-          if (expected && loadedSrcRef.current === expected) {
-            audioRef.current?.play().then(() => {
-              if (mountedRef.current) setStatus('playing')
-            })
-          } else {
-            playAtIndex(currentIndex)
-          }
+          setStatus('failed')
         }
       }
       return
     }
 
-    // Fresh-generation path. Claim the flow BEFORE scheduling so any
-    // previously-running poller's next iteration sees a mismatched
-    // activePollerRef and bails instead of rescheduling on top of us.
+    // Feed mode.
+    if (playableIndices.length > 0) {
+      const target = currentIndex >= 0 ? currentIndex : playableIndices[0]
+      const expected = activePosts[target]?.audio_url
+      if (expected && loadedSrcRef.current === expected) {
+        audioRef.current?.play()
+          .then(() => { if (mountedRef.current) setStatus('playing') })
+          .catch((err) => {
+            console.warn('[listen] feed resume play() rejected', err)
+            playAtIndex(target)
+          })
+      } else {
+        playAtIndex(target)
+      }
+      return
+    }
+    // Nothing generated yet — dispatch feed audio task.
     stopPlayback()
-    activePollerRef.current = mode
+    activePollerRef.current = 'feed'
     setStatus('requesting')
     try {
-      if (mode === 'podcast') {
-        const resp = await requestFeedPodcast(feedId)
-        if (!mountedRef.current) return
-        if (activePollerRef.current !== 'podcast') return
-        if (resp.status === 'ready') {
-          setStatus('generating')
-          pollUntilPodcastReady()
-        } else {
-          setStatus('generating')
-          pollTimeoutRef.current = setTimeout(pollUntilPodcastReady, 1500)
-        }
-      } else {
-        const resp = await requestFeedAudio(feedId)
-        if (!mountedRef.current) return
-        if (activePollerRef.current !== 'feed') return
-        if (resp.status === 'ready') {
-          setStatus('generating')
-          pollUntilFeedAudioReady()
-        } else {
-          setStatus('generating')
-          pollTimeoutRef.current = setTimeout(pollUntilFeedAudioReady, 1500)
-        }
-      }
+      const resp = await requestFeedAudio(feedId)
+      if (!mountedRef.current || activePollerRef.current !== 'feed') return
+      setStatus('generating')
+      if (resp.status === 'ready') pollUntilFeedAudioReady()
+      else pollTimeoutRef.current = setTimeout(pollUntilFeedAudioReady, 1500)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('501') || msg.toLowerCase().includes('not configured')) {
@@ -412,7 +435,7 @@ export function ListenView({ feedId, posts }: Props) {
         setStatus('failed')
       }
     }
-  }, [feedId, status, mode, currentIndex, playableIndices, playAtIndex, playPodcast, podcastAudioUrl, pollUntilFeedAudioReady, pollUntilPodcastReady, stopPlayback])
+  }, [feedId, status, mode, currentIndex, playableIndices, playAtIndex, playPodcast, podcastAudioUrl, pollUntilFeedAudioReady, pollUntilPodcastReady, stopPlayback, activePosts])
 
   const handlePauseClick = useCallback(() => {
     audioRef.current?.pause()
@@ -849,9 +872,15 @@ export function ListenView({ feedId, posts }: Props) {
         {status === 'failed' && (
           <div className="mt-3 flex items-center gap-2 text-sm text-persona-skeptic" role="alert">
             <AlertCircle size={16} />
-            {mode === 'podcast' ? 'Podcast generation failed.' : 'Audio generation failed.'}
+            {mode === 'podcast' ? 'Podcast playback or generation failed.' : 'Audio playback or generation failed.'}
             <button
-              onClick={() => setStatus('idle')}
+              onClick={() => {
+                // Clear any loaded src so the retry doesn't try to
+                // reuse a stale/expired URL, then reset to idle and
+                // let the next Play click re-run dispatch.
+                stopPlayback()
+                setStatus('idle')
+              }}
               className="underline hover:no-underline ml-1"
             >
               Try again
