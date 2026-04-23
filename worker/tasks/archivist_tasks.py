@@ -94,8 +94,13 @@ Rules:
 
 
 # Suffix appended to whichever system prompt (DB or fallback) we end up using.
-# The "{chunks}" placeholder is filled at request time from retrieved chunks.
+# Two parts: a formatting rule that forces real line breaks around markdown
+# block markers (without this, the model jams headings and body onto one
+# physical line and the frontend renders literal `##` / `---`), and the
+# chunks context. The "{chunks}" placeholder is filled at request time.
 _ARCHIVIST_CONTEXT_SUFFIX = """
+
+FORMATTING: Use real line breaks. Every markdown heading (## ### ####) must sit on its own line with a blank line above and below it. Every horizontal rule (---) must sit on its own line with a blank line above and below. Every list item must be on its own line. Never concatenate a heading and body text onto one line.
 
 CORPUS CONTEXT:
 {chunks}"""
