@@ -8,14 +8,12 @@ import type { FeedPost } from '../../types'
 import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, deletePost, updateSettings, deleteReplyMessage, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { InlineMd } from './_shared/InlineMd'
+import { Md } from './_shared/Md'
 import { FigureLightbox } from './_shared/FigureLightbox'
 import { Avatar } from './_shared/Avatar'
 import { formatNum } from './_shared/formatNum'
 import { haptic } from '../../hooks/useHaptic'
 import { SwipeToAct } from '../_shared/SwipeToAct'
-
-// Re-export for existing consumers that imported InlineMd from PostCard.
-export { InlineMd } from './_shared/InlineMd'
 
 function ActionBtn({
   icon: Icon, count, color, active, onClick, label,
@@ -557,9 +555,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                 <span className="text-[11px] font-bold text-gold">1</span>
                 <div className="w-px flex-1 bg-gold/20 mt-1" />
               </div>
-              <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words flex-1">
-                <InlineMd text={post.thread_posts![0]} />
-              </p>
+              <Md text={post.thread_posts![0]} className="text-[15px] text-text leading-relaxed break-words flex-1" />
             </div>
 
             {/* Expand/collapse */}
@@ -580,9 +576,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                         <div className="w-px flex-1 bg-gold/20 mt-1" />
                       )}
                     </div>
-                    <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words flex-1">
-                      <InlineMd text={text} />
-                    </p>
+                    <Md text={text} className="text-[15px] text-text leading-relaxed break-words flex-1" />
                   </div>
                 ))}
                 <button
@@ -595,9 +589,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
             )}
           </div>
         ) : (
-          <p className="my-1 mb-2.5 text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words">
-            <InlineMd text={post.content} />
-          </p>
+          <Md text={post.content} className="my-1 mb-2.5 text-[15px] text-text leading-relaxed break-words" />
         )}
 
         {/* Figure block. A real <button> (type="button" so it doesn't
@@ -1002,9 +994,7 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
                             <>Replying to <span className="text-gold">{isUser ? p.handle : 'you'}</span></>
                           )}
                         </div>
-                        <p className="text-[14px] text-text leading-relaxed whitespace-pre-wrap">
-                          <InlineMd text={msg.content} />
-                        </p>
+                        <Md text={msg.content} className="text-[14px] text-text leading-relaxed" />
                         {/* Reply message actions — mirrors post action bar */}
                         <div className="flex -ml-2 mt-1">
                           <ActionBtn icon={MessageCircle} color="var(--color-persona-practitioner)" onClick={() => inputRef.current?.focus()} label="Reply" />

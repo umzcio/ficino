@@ -3,7 +3,7 @@ import { Loader2, FileText, Trash2 } from 'lucide-react'
 import type { UserPost } from '../../lib/api'
 import { getUserPostStatus, deleteUserPost } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
-import { InlineMd } from './_shared/InlineMd'
+import { Md } from './_shared/Md'
 
 interface UserPostCardProps {
   post: UserPost
@@ -70,9 +70,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
               <Trash2 size={14} />
             </button>
           </div>
-          <p className="my-1 text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words">
-            <InlineMd text={post.content} />
-          </p>
+          <Md text={post.content} className="my-1 text-[15px] text-text leading-relaxed break-words" />
         </div>
       </article>
 
@@ -158,9 +156,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
             <div className="text-[13px] text-text-muted mb-1">
               Replying to <span className="text-gold">{userHandle}</span>
             </div>
-            <p className="my-1 text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words">
-              <InlineMd text={reply.content} />
-            </p>
+            <Md text={reply.content} className="my-1 text-[15px] text-text leading-relaxed break-words" />
 
             {/* Sources */}
             {post.sources && post.sources.length > 0 && (

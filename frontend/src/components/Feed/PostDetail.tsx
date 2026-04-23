@@ -2,7 +2,8 @@ import { ArrowLeft } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { usePersonas, type PersonaMap } from '../../hooks/usePersonas'
 import { useLikes } from '../../hooks/useLikes'
-import { PostCard, InlineMd } from './PostCard'
+import { PostCard } from './PostCard'
+import { Md } from './_shared/Md'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface PostDetailProps {
@@ -97,9 +98,7 @@ function ParentPostCard({ post, personas, onClick }: { post: FeedPost; personas:
           <span className="text-sm text-text-muted">{p.handle}</span>
           <span className="text-sm text-text-muted">· {post.time}</span>
         </div>
-        <p className="text-[15px] text-text leading-relaxed whitespace-pre-wrap break-words">
-          <InlineMd text={post.content} />
-        </p>
+        <Md text={post.content} className="text-[15px] text-text leading-relaxed break-words" />
       </div>
     </div>
   )

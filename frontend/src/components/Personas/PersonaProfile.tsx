@@ -3,7 +3,8 @@ import { ArrowLeft, Loader2, Send, MessagesSquare, Trash2 } from 'lucide-react'
 import { usePersonas } from '../../hooks/usePersonas'
 import { getPersonaStats, getPersonaDm, sendPersonaDm, deletePersonaDmMessage, clearPersonaDm, getPersonaReplies, listUserPosts, type ReplyMessage, type PersonaReplyItem, type UserPost } from '../../lib/api'
 import type { FeedPost } from '../../types'
-import { PostCard, InlineMd } from '../Feed/PostCard'
+import { PostCard } from '../Feed/PostCard'
+import { Md } from '../Feed/_shared/Md'
 import { UserPostCard } from '../Feed/UserPostCard'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
@@ -483,10 +484,10 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
                         </button>
                       )}
                       <div
-                        className={`${bubbleClass} max-w-[78%] px-4 py-2 text-[14px] leading-relaxed whitespace-pre-wrap break-words`}
+                        className={`${bubbleClass} max-w-[78%] px-4 py-2 text-[14px] leading-relaxed break-words`}
                         style={bubbleStyle}
                       >
-                        <InlineMd text={msg.content} />
+                        <Md text={msg.content} />
                       </div>
                       {!isUser && (
                         <button
