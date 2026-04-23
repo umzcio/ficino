@@ -19,6 +19,14 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
   const [status, setStatus] = useState(post.status)
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // Optimistic-deletion flag. We flip this the instant the user confirms
+  // so the card vanishes without waiting for the server roundtrip —
+  // otherwise a slow DELETE feels like a stuck button and invites
+  // repeat clicks. On a real failure (500/network) we unflip and the
+  // card reappears; a 404 is treated as success because the user's
+  // intent is achieved either way (the row is gone).
+  const [locallyDeleted, setLocallyDeleted] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Poll for completion if pending
   useEffect(() => {
@@ -38,6 +46,33 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
   const reply = post.replies?.[0]
   const timeAgo = formatTimeAgo(post.created_at)
 
+  const handleDelete = async () => {
+    if (deleting) return
+    if (!confirmingDelete) {
+      setConfirmingDelete(true)
+      setTimeout(() => setConfirmingDelete(false), 3000)
+      return
+    }
+    setDeleting(true)
+    setLocallyDeleted(true)
+    try {
+      await deleteUserPost(post.id)
+    } catch (err) {
+      // 404 means the row is already gone server-side — treat as success.
+      // Anything else is a real failure; unhide the card so the user can
+      // retry and isn't left wondering why it came back.
+      const msg = err instanceof Error ? err.message : ''
+      if (!msg.includes('404')) {
+        setLocallyDeleted(false)
+        setDeleting(false)
+        return
+      }
+    }
+    onDeleted?.()
+  }
+
+  if (locallyDeleted) return null
+
   return (
     <div className="border-b border-border">
       {/* User's post */}
@@ -52,20 +87,13 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
             <span className="text-sm text-text-muted">·</span>
             <span className="text-sm text-text-muted">{timeAgo}</span>
             <button
-              className={`ml-auto bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full transition-colors ${
+              disabled={deleting}
+              className={`ml-auto bg-transparent border-none cursor-pointer p-1 hover:bg-bg-hover rounded-full transition-colors disabled:opacity-40 disabled:cursor-default ${
                 confirmingDelete ? 'text-persona-skeptic' : 'text-text-muted hover:text-persona-skeptic'
               }`}
               aria-label={confirmingDelete ? 'Click again to confirm delete' : 'Delete post'}
               title={confirmingDelete ? 'Click again to confirm' : 'Delete post'}
-              onClick={async () => {
-                if (!confirmingDelete) {
-                  setConfirmingDelete(true)
-                  setTimeout(() => setConfirmingDelete(false), 3000)
-                  return
-                }
-                await deleteUserPost(post.id)
-                onDeleted?.()
-              }}
+              onClick={handleDelete}
             >
               <Trash2 size={14} />
             </button>

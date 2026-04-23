@@ -296,6 +296,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
                   post={post}
                   userDisplayName="You"
                   userHandle="@you"
+                  onDeleted={() => setCorpusPosts(ps => ps.filter(p => p.id !== post.id))}
                 />
               ))
             )
