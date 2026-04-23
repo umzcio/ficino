@@ -39,6 +39,10 @@ function hostColor(speaker: 'host_a' | 'host_b'): string {
   return speaker === 'host_a' ? '#d4a84b' : '#6fa8c7'
 }
 
+function hostAvatar(speaker: 'host_a' | 'host_b'): string {
+  return speaker === 'host_a' ? '/personas/host1.png' : '/personas/host2.png'
+}
+
 /**
  * Dedicated "Listen" page. Two modes on one shared <audio> element:
  *
@@ -441,18 +445,18 @@ export function ListenView({ feedId, posts }: Props) {
         ) : (
           <div className="flex items-start gap-4">
             <div className="flex -space-x-3 shrink-0">
-              <div
-                className="w-12 h-12 rounded-full border-2 border-bg-hover flex items-center justify-center text-sm font-bold"
-                style={{ backgroundColor: hostColor('host_a') + '30', color: hostColor('host_a'), zIndex: 10 }}
-              >
-                A
-              </div>
-              <div
-                className="w-12 h-12 rounded-full border-2 border-bg-hover flex items-center justify-center text-sm font-bold"
-                style={{ backgroundColor: hostColor('host_b') + '30', color: hostColor('host_b'), zIndex: 9 }}
-              >
-                B
-              </div>
+              <img
+                src={hostAvatar('host_a')}
+                alt={hostLabel('host_a')}
+                className="w-12 h-12 rounded-full border-2 border-bg-hover object-cover"
+                style={{ zIndex: 10 }}
+              />
+              <img
+                src={hostAvatar('host_b')}
+                alt={hostLabel('host_b')}
+                className="w-12 h-12 rounded-full border-2 border-bg-hover object-cover"
+                style={{ zIndex: 9 }}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[13px] uppercase tracking-wider text-text-muted font-semibold">
@@ -648,16 +652,12 @@ export function ListenView({ feedId, posts }: Props) {
                   const color = hostColor(seg.speaker)
                   return (
                     <li key={seg.index} className="flex items-start gap-3">
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 mt-0.5"
-                        style={{
-                          backgroundColor: color + '28',
-                          border: `1.5px solid ${color}50`,
-                          color,
-                        }}
-                      >
-                        {seg.speaker === 'host_a' ? 'A' : 'B'}
-                      </div>
+                      <img
+                        src={hostAvatar(seg.speaker)}
+                        alt={hostLabel(seg.speaker)}
+                        className="w-8 h-8 rounded-full shrink-0 mt-0.5 object-cover"
+                        style={{ border: `1.5px solid ${color}50` }}
+                      />
                       <div className="flex-1 min-w-0">
                         <div
                           className="text-[11px] font-semibold tracking-wide"
