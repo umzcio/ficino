@@ -155,13 +155,28 @@ export function ListenView({ feedId, posts }: Props) {
     return () => { cancelled = true }
   }, [feedId])
 
-  // Reset playback when feed, mode, or post-length changes.
+  // Reset playback when feed, mode, or post-length changes. Status
+  // starts as 'ready' (not 'idle') if audio for the current mode is
+  // already generated server-side — this skips the misleading
+  // "Requesting…" flash on the first click, since a replay of stored
+  // audio isn't a fresh generation. The backend is idempotent either
+  // way (request_feed_audio / request_feed_podcast return the existing
+  // status without dispatching when already ready), but routing through
+  // the resume path in handlePlayClick also avoids a pointless network
+  // roundtrip before playback starts.
   useEffect(() => {
-    setStatus(posts.length === 0 ? 'empty' : 'idle')
+    if (posts.length === 0) {
+      setStatus('empty')
+    } else if (mode === 'podcast') {
+      setStatus(podcastAudioUrl ? 'ready' : 'idle')
+    } else {
+      const hasFeedAudio = (serverPosts ?? posts).some(p => !p.deleted && p.audio_url)
+      setStatus(hasFeedAudio ? 'ready' : 'idle')
+    }
     setCurrentIndex(-1)
     setProgress({ current: 0, duration: 0 })
     stopPlayback()
-  }, [feedId, posts.length, mode, stopPlayback])
+  }, [feedId, posts, posts.length, mode, podcastAudioUrl, serverPosts, stopPlayback])
 
   const playableIndices = useMemo(
     () =>
