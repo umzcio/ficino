@@ -155,28 +155,36 @@ export function ListenView({ feedId, posts }: Props) {
     return () => { cancelled = true }
   }, [feedId])
 
-  // Reset playback when feed, mode, or post-length changes. Status
-  // starts as 'ready' (not 'idle') if audio for the current mode is
-  // already generated server-side — this skips the misleading
-  // "Requesting…" flash on the first click, since a replay of stored
-  // audio isn't a fresh generation. The backend is idempotent either
-  // way (request_feed_audio / request_feed_podcast return the existing
-  // status without dispatching when already ready), but routing through
-  // the resume path in handlePlayClick also avoids a pointless network
-  // roundtrip before playback starts.
+  // Hard reset when the user actually switches modes or feeds. Runs
+  // only on those discrete user actions — NOT on incremental server
+  // data updates. A prior iteration folded podcastAudioUrl/serverPosts
+  // into the deps so the status could be promoted to 'ready' after the
+  // mount fetch arrived, but that made the effect fire on every poll
+  // iteration (serverPosts is updated every 2.5s during generation),
+  // which called stopPlayback() and killed the in-flight poller mid-
+  // flight. Keep the reset surgical; a second effect below promotes
+  // idle → ready without resetting playback state.
   useEffect(() => {
-    if (posts.length === 0) {
-      setStatus('empty')
-    } else if (mode === 'podcast') {
-      setStatus(podcastAudioUrl ? 'ready' : 'idle')
-    } else {
-      const hasFeedAudio = (serverPosts ?? posts).some(p => !p.deleted && p.audio_url)
-      setStatus(hasFeedAudio ? 'ready' : 'idle')
-    }
+    setStatus(posts.length === 0 ? 'empty' : 'idle')
     setCurrentIndex(-1)
     setProgress({ current: 0, duration: 0 })
     stopPlayback()
-  }, [feedId, posts, posts.length, mode, podcastAudioUrl, serverPosts, stopPlayback])
+  }, [feedId, posts.length, mode, stopPlayback])
+
+  // Once we learn that server-side audio for the current mode already
+  // exists, skip straight to 'ready' so clicking Play jumps into the
+  // resume path instead of flashing "Requesting…". Guarded by status
+  // === 'idle' so it can't interfere with an active generation or
+  // playback cycle.
+  useEffect(() => {
+    if (status !== 'idle') return
+    if (mode === 'podcast' && podcastAudioUrl) {
+      setStatus('ready')
+    } else if (mode === 'feed') {
+      const hasFeedAudio = (serverPosts ?? posts).some(p => !p.deleted && p.audio_url)
+      if (hasFeedAudio) setStatus('ready')
+    }
+  }, [status, mode, podcastAudioUrl, serverPosts, posts])
 
   const playableIndices = useMemo(
     () =>
