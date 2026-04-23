@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Send, Loader2, ArrowRight } from 'lucide-react'
 import { createUserPost } from '../../lib/api'
 import { useKeyboardAwareInput } from '../../hooks/useKeyboardAwareInput'
@@ -23,6 +23,18 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
   // Scrolls the textarea into view when the iOS/Android keyboard opens,
   // so the input isn't hidden behind it.
   const inputRef = useKeyboardAwareInput<HTMLTextAreaElement>()
+
+  // Auto-grow the textarea so longer questions are fully visible instead
+  // of scrolling inside a 120px window. Reset to 'auto' first so that
+  // scrollHeight measures the content height rather than the prior
+  // locked-in height; then size to exactly fit. CSS max-height caps this
+  // to roughly half the viewport and flips on overflow scroll past that.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [content, inputRef])
 
   const handleSubmit = async () => {
     const text = content.trim()
@@ -78,7 +90,7 @@ export function ComposeBox({ workspaceId, onPostCreated, userDisplayName = 'You'
             }}
             placeholder="Ask your corpus anything..."
             aria-label="Compose new post"
-            className="w-full bg-transparent border-none outline-none resize-none text-[15px] text-text placeholder:text-text-muted leading-relaxed min-h-[44px] max-h-[120px]"
+            className="w-full bg-transparent border-none outline-none resize-none overflow-y-auto text-[15px] text-text placeholder:text-text-muted leading-relaxed min-h-[44px] max-h-[50vh]"
             rows={1}
             disabled={loading}
           />
