@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Play, Pause, SkipForward, SkipBack, Loader2, Headphones, AlertCircle, Volume2, Mic,
+  Play, Pause, SkipForward, SkipBack, Loader2, Headphones, AlertCircle,
+  Volume2, VolumeX, Volume1, Volume, Mic, RotateCcw, RotateCw,
 } from 'lucide-react'
 import type { FeedPost, PodcastSegment } from '../../types'
 import { getFeed, requestFeedAudio, requestFeedPodcast } from '../../lib/api'
@@ -81,6 +82,39 @@ export function ListenView({ feedId, posts }: Props) {
   const activePosts = serverPosts ?? posts
   const activePostsRef = useRef<FeedPost[]>(activePosts)
   useEffect(() => { activePostsRef.current = activePosts }, [activePosts])
+
+  // Playback preferences — persisted per-browser so they stick across
+  // sessions. Volume/mute/rate live on the <audio> element, which
+  // preserves them across src changes, so we only need to (a) write them
+  // once per change, (b) re-hydrate on mount from localStorage.
+  const [volume, setVolume] = useState<number>(() => {
+    if (typeof window === 'undefined') return 1
+    const saved = window.localStorage.getItem('ficino:listen:volume')
+    const v = saved === null ? 1 : parseFloat(saved)
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1
+  })
+  const [muted, setMuted] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('ficino:listen:muted') === 'true'
+  })
+  const [playbackRate, setPlaybackRate] = useState<number>(() => {
+    if (typeof window === 'undefined') return 1
+    const saved = window.localStorage.getItem('ficino:listen:rate')
+    const r = saved === null ? 1 : parseFloat(saved)
+    return Number.isFinite(r) && r > 0 ? r : 1
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem('ficino:listen:volume', String(volume)) } catch { /* ignore quota */ }
+    if (audioRef.current) audioRef.current.volume = volume
+  }, [volume])
+  useEffect(() => {
+    try { window.localStorage.setItem('ficino:listen:muted', String(muted)) } catch { /* ignore */ }
+    if (audioRef.current) audioRef.current.muted = muted
+  }, [muted])
+  useEffect(() => {
+    try { window.localStorage.setItem('ficino:listen:rate', String(playbackRate)) } catch { /* ignore */ }
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate
+  }, [playbackRate])
 
   const stopPlayback = useCallback(() => {
     if (audioRef.current) {
@@ -345,6 +379,79 @@ export function ListenView({ feedId, posts }: Props) {
     playAtIndex(i)
   }, [activePosts, playAtIndex])
 
+  // Skip / seek / speed helpers. All operate on the live audioRef so
+  // they work equally in feed and podcast mode.
+  const skipBy = useCallback((deltaSec: number) => {
+    const audio = audioRef.current
+    if (!audio) return
+    const dur = audio.duration
+    const target = audio.currentTime + deltaSec
+    audio.currentTime = Math.max(0, Number.isFinite(dur) ? Math.min(dur, target) : target)
+  }, [])
+
+  const seekTo = useCallback((t: number) => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.currentTime = Math.max(0, t)
+    // Optimistic progress update so the slider thumb doesn't snap back
+    // to the old position while waiting for the next timeupdate event.
+    setProgress(p => ({ ...p, current: t }))
+  }, [])
+
+  const cyclePlaybackRate = useCallback(() => {
+    const rates = [1, 1.25, 1.5, 2]
+    setPlaybackRate(r => {
+      const idx = rates.indexOf(r)
+      return rates[(idx + 1) % rates.length]
+    })
+  }, [])
+
+  const toggleMute = useCallback(() => setMuted(m => !m), [])
+
+  // Keyboard shortcuts while the Listen view is mounted. Space toggles
+  // play/pause, ←/→ skip 15s, ↑/↓ nudge volume ±5%, M toggles mute.
+  // Ignored while focus is in an input, textarea, or contenteditable
+  // element so a stray space in the compose box never hijacks playback.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target) {
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      switch (e.key) {
+        case ' ':
+        case 'Spacebar':
+          e.preventDefault()
+          if (status === 'playing') handlePauseClick()
+          else if (status === 'ready' || status === 'paused' || status === 'idle') handlePlayClick()
+          break
+        case 'ArrowLeft':
+          if (status === 'playing' || status === 'paused') { e.preventDefault(); skipBy(-15) }
+          break
+        case 'ArrowRight':
+          if (status === 'playing' || status === 'paused') { e.preventDefault(); skipBy(15) }
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          setVolume(v => Math.min(1, +(v + 0.05).toFixed(2)))
+          if (muted) setMuted(false)
+          break
+        case 'ArrowDown':
+          e.preventDefault()
+          setVolume(v => Math.max(0, +(v - 0.05).toFixed(2)))
+          break
+        case 'm':
+        case 'M':
+          toggleMute()
+          break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [status, muted, handlePlayClick, handlePauseClick, skipBy, toggleMute])
+
   const isBusy = status === 'requesting' || status === 'generating'
   const isActive = status === 'playing' || status === 'paused'
   const hasPlayableAudio = mode === 'podcast' ? !!podcastAudioUrl : playableIndices.length > 0
@@ -394,6 +501,14 @@ export function ListenView({ feedId, posts }: Props) {
         onLoadedMetadata={(e) => {
           const el = e.currentTarget
           setProgress({ current: 0, duration: el.duration || 0 })
+          // Re-apply preferences on every new source. volume / muted /
+          // playbackRate do persist on an HTMLMediaElement across src
+          // changes per spec, but browsers differ on how aggressively
+          // they snap back to defaults (Safari has historically reset
+          // playbackRate on src change), so we mirror state explicitly.
+          el.volume = volume
+          el.muted = muted
+          el.playbackRate = playbackRate
         }}
       />
 
@@ -520,6 +635,22 @@ export function ListenView({ feedId, posts }: Props) {
             </button>
           )}
 
+          {/* Skip back 15s — podcast mode only. In feed mode the
+              flanking buttons already hop between posts, which is the
+              more useful affordance there. */}
+          {mode === 'podcast' && (
+            <button
+              onClick={() => skipBy(-15)}
+              disabled={!isActive}
+              aria-label="Skip back 15 seconds"
+              title="Skip back 15s (←)"
+              className="relative p-2 rounded-full text-text-mid hover:text-text hover:bg-border/50 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+            >
+              <RotateCcw size={22} />
+              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none mt-0.5">15</span>
+            </button>
+          )}
+
           {isBusy ? (
             <button
               disabled
@@ -546,6 +677,19 @@ export function ListenView({ feedId, posts }: Props) {
             </button>
           )}
 
+          {mode === 'podcast' && (
+            <button
+              onClick={() => skipBy(15)}
+              disabled={!isActive}
+              aria-label="Skip forward 15 seconds"
+              title="Skip forward 15s (→)"
+              className="relative p-2 rounded-full text-text-mid hover:text-text hover:bg-border/50 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+            >
+              <RotateCw size={22} />
+              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none mt-0.5">15</span>
+            </button>
+          )}
+
           {mode === 'feed' && (
             <button
               onClick={advance}
@@ -559,19 +703,86 @@ export function ListenView({ feedId, posts }: Props) {
 
           <div className="flex-1 flex items-center gap-2 text-xs text-text-muted font-mono tabular-nums min-w-0">
             <span className="shrink-0">{formatTime(progress.current)}</span>
-            <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
-              <div
-                className="h-full bg-gold transition-[width] duration-150"
-                style={{
-                  width: progress.duration
-                    ? `${Math.min(100, (progress.current / progress.duration) * 100)}%`
-                    : '0%',
-                }}
-              />
-            </div>
+            {/* Seekable progress. The gradient on the track shows
+                progress so even browsers without ::-moz-range-progress
+                support render a filled bar; the thumb is a small gold
+                circle. Disabled while duration is unknown (pre-load). */}
+            <input
+              type="range"
+              min={0}
+              max={progress.duration || 1}
+              step={0.1}
+              value={Math.min(progress.current, progress.duration || 0)}
+              onChange={(e) => seekTo(parseFloat(e.target.value))}
+              disabled={!progress.duration || !isActive}
+              aria-label="Seek"
+              className="flex-1 h-1 appearance-none rounded-full cursor-pointer disabled:cursor-default disabled:opacity-50
+                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gold [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer
+                [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-gold [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer"
+              style={{
+                background: progress.duration
+                  ? `linear-gradient(to right, var(--color-gold) 0%, var(--color-gold) ${Math.min(100, (progress.current / progress.duration) * 100)}%, var(--color-border) ${Math.min(100, (progress.current / progress.duration) * 100)}%, var(--color-border) 100%)`
+                  : 'var(--color-border)',
+              }}
+            />
             <span className="shrink-0">{formatTime(progress.duration)}</span>
           </div>
         </div>
+
+        {/* Secondary controls — volume + speed. Compact row; doesn't
+            appear until the user has actually started playing, so the
+            idle layout stays clean. */}
+        {(isActive || status === 'ready') && (
+          <div className="mt-3 flex items-center gap-4 text-xs text-text-muted">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={toggleMute}
+                aria-label={muted ? 'Unmute' : 'Mute'}
+                title={muted ? 'Unmute (M)' : 'Mute (M)'}
+                className="p-1 rounded-full hover:text-text hover:bg-border/50 bg-transparent border-none cursor-pointer transition-colors"
+              >
+                {muted || volume === 0 ? (
+                  <VolumeX size={16} />
+                ) : volume < 0.33 ? (
+                  <Volume size={16} />
+                ) : volume < 0.67 ? (
+                  <Volume1 size={16} />
+                ) : (
+                  <Volume2 size={16} />
+                )}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={muted ? 0 : volume}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value)
+                  setVolume(v)
+                  if (v > 0 && muted) setMuted(false)
+                }}
+                aria-label="Volume"
+                className="w-24 h-1 appearance-none rounded-full cursor-pointer
+                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-mid [&::-webkit-slider-thumb]:cursor-pointer
+                  [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-2.5 [&::-moz-range-thumb]:h-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text-mid [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, var(--color-text-mid) 0%, var(--color-text-mid) ${(muted ? 0 : volume) * 100}%, var(--color-border) ${(muted ? 0 : volume) * 100}%, var(--color-border) 100%)`,
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={cyclePlaybackRate}
+              aria-label={`Playback speed ${playbackRate}x`}
+              title="Cycle playback speed"
+              className="ml-auto font-bold text-text-mid hover:text-text bg-bg border border-border rounded-md px-2 py-0.5 cursor-pointer tabular-nums min-w-[42px]"
+            >
+              {playbackRate}x
+            </button>
+          </div>
+        )}
 
         {status === 'requesting' && (
           <div className="mt-3 text-xs text-text-muted" role="status" aria-live="polite">
