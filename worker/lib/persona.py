@@ -159,7 +159,7 @@ def assign_post_category(persona_key: str, post_type: str) -> str:
 
 
 def _build_short_cite(chunk: dict[str, object]) -> str:
-    """Build a short citation like 'Smith 2025' from chunk metadata."""
+    """Build a short citation like 'Smith 2024' from chunk metadata."""
     authors = chunk.get("paper_authors", [])
     year = chunk.get("paper_year")
     if authors and str(authors[0]).lower() not in ("unknown", "unknown authors", ""):

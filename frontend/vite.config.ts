@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // Base path differs by deploy target:
-//   self-host (default) — /ficino/, served behind the the-host nginx proxy
+//   self-host (default) — /ficino/, served behind a reverse proxy
 //   SaaS (Railway)      — /, served at the root of ficino.app
 // Set VITE_BASE_PATH at build time to flip it.
 const BASE = process.env.VITE_BASE_PATH || '/ficino/'

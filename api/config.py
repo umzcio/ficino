@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     max_upload_size_mb: int = 50
     generation_limit_per_day: int = 20
-    cors_origins: str = "https://ficino.app,https://ficino.ai,https://ficino.local"
+    cors_origins: str = "https://ficino.app,https://ficino.ai"
 
     # Cookie Domain attribute. Set to a parent like ".ficino.app" on hosted
     # deploys where the frontend (ficino.app) and api (api.ficino.app) are

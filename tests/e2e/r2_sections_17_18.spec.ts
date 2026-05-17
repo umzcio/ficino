@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 const SCREENSHOT_DIR = '/projects/ficino/tests/screenshots';
-const BASE = 'https://ficino.local/ficino';
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino';
 
 // Helper: navigate and wait for React to render
 async function gotoAndWait(page: import('@playwright/test').Page) {

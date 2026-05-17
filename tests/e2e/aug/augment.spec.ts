@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
 
-const BASE = 'https://ficino.local/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
 const SHOTS = '/projects/ficino/tests/screenshots'
 
 function shot(name: string) {

@@ -9,7 +9,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   use: {
-    baseURL: 'https://ficino.local/ficino',
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000/ficino',
     ignoreHTTPSErrors: true,
     // 'on' captures a screenshot after every test (pass or fail). That's
     // expensive on disk and fragile for the Generate flow which holds an

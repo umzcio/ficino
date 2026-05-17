@@ -75,3 +75,8 @@ skills-lock.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Local-only deployment notes
+docs/TEST_PLAN.md
+docs/bugs001.md
+docs/bugs002.md

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 
 const SCREENSHOT_DIR = '/projects/ficino/tests/screenshots'
-const APP_URL = 'https://ficino.local/ficino'
+const APP_URL = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
 
 /**
  * Helper: navigate to the Ficino app and wait for the shell to render.

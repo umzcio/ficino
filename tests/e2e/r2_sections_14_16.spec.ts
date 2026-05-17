@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 
 const SCREENSHOTS = '/projects/ficino/tests/screenshots'
-const BASE = 'https://ficino.local/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
 
 async function navTo(page: Page, label: string) {
   await page.locator(`nav[aria-label="Main navigation"] button[aria-label="${label}"]`).click()

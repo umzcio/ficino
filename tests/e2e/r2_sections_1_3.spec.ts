@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 import { join } from 'path'
 
-const BASE = 'https://ficino.local/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
 const SCREENSHOTS = join(__dirname, '..', 'screenshots')
 
 function ssPath(name: string) {

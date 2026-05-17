@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 const SCREENSHOTS = '/projects/ficino/tests/screenshots'
-const BASE = 'https://ficino.local/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
 
 /**
  * Helper: navigate to the feed and wait for posts (or detect empty state).
