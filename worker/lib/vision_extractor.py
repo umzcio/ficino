@@ -67,7 +67,10 @@ async def _extract_page_claude(page_image: bytes, page_num: int) -> str:
     """
     import anthropic
     cfg = _get_config()
-    client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"])
+    # max_retries=0: the outer 3-attempt loop below owns retries. The SDK
+    # default (2 internal retries) would stack to up to 9 requests per page
+    # with compounding delays — mirrors api/services/llm.py's H30 pin.
+    client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"], max_retries=0)
     image_b64 = base64.b64encode(page_image).decode("utf-8")
 
     last_exc: Exception | None = None

@@ -127,6 +127,43 @@ def test_claude_page_extract_retries_transient_failures(monkeypatch):
     assert len(calls) == 3
 
 
+def test_claude_vision_client_pins_sdk_retries_off(monkeypatch):
+    """R10 WORK-9 follow-up: the anthropic SDK defaults to 2 internal
+    retries; stacked under the outer 3-attempt loop that's up to 9 requests
+    per page with compounding delays — undercutting WORK-9's own cost
+    rationale. The vision client must be constructed with max_retries=0
+    (same pin as api/services/llm.py, wave-1 H30)."""
+    import anthropic
+
+    from lib import vision_extractor as vx
+
+    ctor_kwargs: list[dict] = []
+
+    class _FakeContentBlock:
+        text = "page text"
+
+    class _FakeResponse:
+        content = [_FakeContentBlock()]
+
+    class _FakeMessages:
+        async def create(self, *a, **k):
+            return _FakeResponse()
+
+    class _RecordingAsyncAnthropic:
+        def __init__(self, *a, **k):
+            ctor_kwargs.append(k)
+            self.messages = _FakeMessages()
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _RecordingAsyncAnthropic)
+
+    asyncio.run(vx._extract_page_claude(b"fake-png-bytes", 1))
+    assert len(ctor_kwargs) == 1
+    assert ctor_kwargs[0].get("max_retries") == 0, (
+        "vision client must pin max_retries=0 — the outer retry loop owns "
+        "retries; SDK-internal retries would stack (R10 WORK-9 follow-up)"
+    )
+
+
 def test_fallback_excludes_reply_only_personas(monkeypatch):
     """R10 WORK-17: plan_feed_posts's empty-enabled-set fallback bypassed the
     feed_eligible filter that every caller applies, so a user who opts out of
