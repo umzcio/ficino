@@ -103,6 +103,25 @@ jobs:
 
   worker-tests:
     runs-on: ubuntu-latest
+    # R10 wave-3 gate fix: test_media_claim_reclaim.py (R10 WORK-5) hits a
+    # real DB via lib/db.py, which falls back to postgres:5432 — a hostname
+    # that only resolves inside the docker-compose network, not on a bare
+    # runner. Mirror api-tests' postgres service + localhost DATABASE_URL
+    # + schema load so worker-tests can actually reach a DB.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16   # matches docker-compose.yml
+        env:
+          POSTGRES_USER: ficino
+          POSTGRES_PASSWORD: ficino
+          POSTGRES_DB: ficino
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ficino"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ficino:ficino@localhost:5432/ficino
+      ENVIRONMENT: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -110,6 +129,37 @@ jobs:
           python-version: "3.11"
       - run: pip install -r worker/requirements-dev.txt
       - run: pip install ./shared
+      - name: Load schema
+        # Same rationale as api-tests' "Load schema" step: init.sql alone
+        # is missing feeds.audio_claimed_at (add_feed_media_claimed_at.sql),
+        # which test_media_claim_reclaim.py exercises directly.
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
+          for f in \
+            infra/postgres/add_alerts_dedupe.sql \
+            infra/postgres/add_amplifier_persona.sql \
+            infra/postgres/add_audit_log.sql \
+            infra/postgres/add_chunks_contextual_prefix.sql \
+            infra/postgres/add_chunks_unique_paper_chunk_idx.sql \
+            infra/postgres/add_feed_audio_status.sql \
+            infra/postgres/add_feed_media_claimed_at.sql \
+            infra/postgres/add_feed_podcast.sql \
+            infra/postgres/add_feed_posts_table.sql \
+            infra/postgres/add_feed_posts_search_partial.sql \
+            infra/postgres/add_figures_unique_paper_figure_idx.sql \
+            infra/postgres/add_fk_indexes.sql \
+            infra/postgres/add_hnsw_index.sql \
+            infra/postgres/add_papers_feeds_indexes.sql \
+            infra/postgres/add_persona_dms_table.sql \
+            infra/postgres/add_personas_feed_eligible.sql \
+            infra/postgres/add_persona_temperature.sql \
+            infra/postgres/add_post_replies_unique.sql \
+            infra/postgres/add_typed_figures.sql \
+            infra/postgres/add_user_id_to_chunks_feed_posts.sql \
+            infra/postgres/update_amplifier_prompt.sql \
+          ; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
       - run: cd worker && pytest tests/ -q
 
   shared-tests:
