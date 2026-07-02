@@ -1,5 +1,6 @@
 """Feed generation and retrieval endpoints."""
 
+import asyncio
 import json
 
 import asyncpg
@@ -113,7 +114,7 @@ async def get_feed_status(
         return {"status": result.state.lower(), "task_id": task_id}
 
 
-def _hydrate_audio_urls(
+async def _hydrate_audio_urls(
     posts: list[dict[str, object]], user_id: str, feed_id: str
 ) -> None:
     """Turn each post's stored audio_key into a fresh 24h signed URL.
@@ -121,31 +122,58 @@ def _hydrate_audio_urls(
     Mutates posts in place. Skips quietly on any error (storage down,
     key missing, etc.) — a dead play button is less bad than a 500 on
     the feed GET that breaks the whole page.
+
+    All signed-URL calls for this response are batched into ONE
+    `asyncio.to_thread` hop (a sync closure that loops and returns the
+    collected URLs) rather than one hop per post — each call is a
+    blocking HTTP round-trip against the storage backend, and doing N of
+    those directly on the event loop would stall every other in-flight
+    request for the sum of their latencies (R10 API-3).
     """
     from storage import storage as storage_backend
-    for idx, post in enumerate(posts):
-        key = post.get("audio_key") if isinstance(post, dict) else None
-        if not key:
-            continue
-        try:
-            post["audio_url"] = storage_backend.audio_url(user_id, feed_id, idx)
-        except Exception:  # noqa: BLE001
-            post["audio_url"] = None
+
+    indices = [
+        idx for idx, post in enumerate(posts)
+        if isinstance(post, dict) and post.get("audio_key")
+    ]
+    if not indices:
+        return
+
+    def _fetch_all() -> dict[int, str | None]:
+        urls: dict[int, str | None] = {}
+        for idx in indices:
+            try:
+                urls[idx] = storage_backend.audio_url(user_id, feed_id, idx)
+            except Exception:  # noqa: BLE001
+                urls[idx] = None
+        return urls
+
+    urls = await asyncio.to_thread(_fetch_all)
+    for idx, url in urls.items():
+        posts[idx]["audio_url"] = url
 
 
-def _hydrate_podcast_episode_url(user_id: str, feed_id: str) -> str | None:
+async def _hydrate_podcast_episode_url(user_id: str, feed_id: str) -> str | None:
     """Sign the episode mp3 for the browser. Returns None on storage error.
 
     The podcast is ONE continuous file produced via v3 Dialogue Mode, so
     we sign a single URL instead of the per-segment approach feed audio
     uses. Stored at the deterministic `{user}/feeds/{feed}/podcast/episode.mp3`
     key — no JSONB lookup needed.
+
+    Wrapped in `asyncio.to_thread` for the same reason as
+    `_hydrate_audio_urls`: the storage backend's signed-URL call is a
+    blocking HTTP round-trip (R10 API-3).
     """
     from storage import storage as storage_backend
-    try:
-        return storage_backend.podcast_episode_url(user_id, feed_id)
-    except Exception:  # noqa: BLE001
-        return None
+
+    def _fetch() -> str | None:
+        try:
+            return storage_backend.podcast_episode_url(user_id, feed_id)
+        except Exception:  # noqa: BLE001
+            return None
+
+    return await asyncio.to_thread(_fetch)
 
 
 @router.get("/{feed_id}", response_model=Feed)
@@ -172,7 +200,7 @@ async def get_feed(
         posts_data = json.loads(posts_data)
 
     if row["audio_status"] == "ready":
-        _hydrate_audio_urls(posts_data, user.id, feed_id)
+        await _hydrate_audio_urls(posts_data, user.id, feed_id)
 
     podcast_segments = row["podcast_segments"]
     if isinstance(podcast_segments, str):
@@ -182,7 +210,7 @@ async def get_feed(
 
     podcast_audio_url: str | None = None
     if row["podcast_status"] == "ready":
-        podcast_audio_url = _hydrate_podcast_episode_url(user.id, feed_id)
+        podcast_audio_url = await _hydrate_podcast_episode_url(user.id, feed_id)
 
     return Feed(
         id=row["id"],

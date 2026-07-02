@@ -323,19 +323,30 @@ async def list_figures(
     # - Local backend returns /figures/{paper_id}/{figure_id}?token=...,
     #   served by our API, which re-verifies ownership on every fetch.
     # - Supabase backend returns a direct signed-storage URL the browser
-    #   can hit without a round-trip through us.
+    #   can hit without a round-trip through us (a blocking HTTP call under
+    #   the hood). Batch all rows into ONE asyncio.to_thread hop rather
+    #   than one hop per figure, so an N-figure paper doesn't stall the
+    #   event loop for N sequential storage round-trips (R10 API-3).
+    def _sign_all() -> list[str]:
+        return [
+            storage.figure_image_url(
+                user.id, paper_id, str(row["id"]),
+                str(row["image_path"] or ""),
+            )
+            for row in rows
+        ]
+
+    image_urls = await asyncio.to_thread(_sign_all)
+
     return [
         {
             "id": str(row["id"]),
             "page_number": row["page_number"],
-            "image_url": storage.figure_image_url(
-                user.id, paper_id, str(row["id"]),
-                str(row["image_path"] or ""),
-            ),
+            "image_url": image_urls[i],
             "extraction_type": row["extraction_type"],
             "description": row["description"],
             "claim_summary": row["claim_summary"],
             "figure_index": row["figure_index"],
         }
-        for row in rows
+        for i, row in enumerate(rows)
     ]
