@@ -87,3 +87,29 @@ async def test_create_like_still_returns_created_and_already_liked(
     assert r2.status_code in (200, 201)
     assert r2.json()["status"] == "already_liked"
     assert r2.json()["id"] == first_id
+
+
+# --- API-13: get_workspace_activity mixed-type sort key -----------------
+
+def test_activity_sort_key_handles_none_timestamp():
+    """The extracted sort key must not raise TypeError when a timestamp is
+    None, and must sort None entries as oldest (not crash on datetime-vs-str
+    comparison, which the old `a["timestamp"] or ""` fallback caused)."""
+    from datetime import datetime, timezone
+
+    from routers.workspaces import _activity_sort_key
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    earlier = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    activities = [
+        {"type": "paper_upload", "timestamp": now},
+        {"type": "feed_generation", "timestamp": None},
+        {"type": "paper_upload", "timestamp": earlier},
+    ]
+
+    # Must not raise.
+    activities.sort(key=_activity_sort_key, reverse=True)
+
+    assert activities[0]["timestamp"] == now
+    assert activities[1]["timestamp"] == earlier
+    assert activities[2]["timestamp"] is None

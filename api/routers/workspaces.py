@@ -1,5 +1,7 @@
 """Workspace (corpora) management endpoints."""
 
+from datetime import datetime, timezone
+
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,6 +13,21 @@ from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+def _activity_sort_key(activity: dict[str, object]) -> datetime:
+    """Sort key for get_workspace_activity (R10 API-13).
+
+    Timestamps come from asyncpg as `datetime` objects; `papers.uploaded_at`
+    and `feeds.generated_at` are both nullable columns. The previous
+    `a["timestamp"] or ""` fallback substituted a str for a NULL timestamp,
+    which raises `TypeError: '<' not supported between instances of
+    'datetime.datetime' and 'str'` the moment any row's timestamp is NULL —
+    the None-guard was the very thing that crashed the endpoint. Falling
+    back to `datetime.min` (tz-aware, to match the tz-aware asyncpg values)
+    keeps every key comparable and sorts NULL timestamps as oldest.
+    """
+    return activity["timestamp"] or datetime.min.replace(tzinfo=timezone.utc)
 
 
 async def get_or_create_default_workspace(
@@ -218,5 +235,5 @@ async def get_workspace_activity(
         })
 
     # Sort by timestamp descending
-    activities.sort(key=lambda a: a["timestamp"] or "", reverse=True)
+    activities.sort(key=_activity_sort_key, reverse=True)
     return activities[:20]
