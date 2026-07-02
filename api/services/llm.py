@@ -12,6 +12,7 @@ import structlog
 
 from config import settings as env_settings
 from constants import STUB_USER_ID
+from ficino_shared.settings_schema import DEFAULTS as _SCHEMA_DEFAULTS
 
 logger = structlog.get_logger(__name__)
 
@@ -19,11 +20,11 @@ logger = structlog.get_logger(__name__)
 async def get_llm_config(db: asyncpg.Connection, user_id: str = "") -> dict[str, str]:
     """Load LLM config merged from env defaults + user DB settings."""
     config = {
-        "llm_provider": env_settings.llm_provider,
-        "ollama_base_url": env_settings.ollama_base_url,
-        "ollama_llm_model": env_settings.ollama_llm_model,
-        "anthropic_api_key": env_settings.anthropic_api_key,
-        "claude_model": env_settings.claude_model,
+        "llm_provider": str(_SCHEMA_DEFAULTS["llm_provider"]),
+        "ollama_base_url": env_settings.ollama_base_url,  # env-only: SSRF guard
+        "ollama_llm_model": str(_SCHEMA_DEFAULTS["ollama_llm_model"]),
+        "anthropic_api_key": str(_SCHEMA_DEFAULTS["anthropic_api_key"]),
+        "claude_model": str(_SCHEMA_DEFAULTS["claude_model"]),
     }
 
     # `ollama_base_url` is deliberately NOT user-overridable: a user-controlled

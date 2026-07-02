@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 
 import asyncpg
 import httpx
@@ -14,77 +13,18 @@ from config import settings as app_settings
 from auth import AuthUser, get_current_user
 from db.connection import get_db
 from storage import storage
+from ficino_shared.settings_schema import (
+    DEFAULTS,
+    NUMERIC_BOUNDS as _NUMERIC_BOUNDS,
+    PROVIDER_OVERRIDE_KEYS,
+    SECRET_KEYS,
+    is_public_deployment,
+    merge_settings,
+    reassert_public_deployment,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
-
-# Default settings object — all possible settings with defaults.
-#
-# Provider keys are ENV-DERIVED and mirror worker/lib/settings.py DEFAULTS
-# exactly (same env var, same fallback) so the API and the worker agree on
-# a fresh user's effective provider (R10 DUP-1). When updating one file,
-# update the other — wave 2 of the R10 remediation replaces both with a
-# shared package. UI-only keys at the bottom exist only here.
-DEFAULTS = {
-    # LLM / embedding / vision providers
-    "llm_provider": os.getenv("LLM_PROVIDER", "ollama"),
-    "embed_provider": os.getenv("EMBED_PROVIDER", "ollama"),
-    "vision_provider": os.getenv("VISION_PROVIDER", "ollama"),
-    "claude_model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
-    "ollama_llm_model": os.getenv("OLLAMA_LLM_MODEL", "qwen3.5:latest"),
-    "ollama_embed_model": os.getenv("OLLAMA_EMBED_MODEL", "bge-m3:latest"),
-    "ollama_vision_model": os.getenv("OLLAMA_VISION_MODEL", "gemma4:latest"),
-    "voyage_embed_model": os.getenv("VOYAGE_EMBED_MODEL", "voyage-4-large"),
-    "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
-    "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
-    "voyage_api_key": os.getenv("VOYAGE_API_KEY", ""),
-    "cohere_api_key": os.getenv("COHERE_API_KEY", ""),
-    # Cross-encoder rerank of retrieval candidates. "none" = off.
-    "rerank_provider": os.getenv("RERANK_PROVIDER", "none"),
-    "rerank_local_model": os.getenv("RERANK_LOCAL_MODEL", "BAAI/bge-reranker-v2-m3"),
-    "rerank_voyage_model": os.getenv("RERANK_VOYAGE_MODEL", "rerank-2-lite"),
-    "rerank_cohere_model": os.getenv("RERANK_COHERE_MODEL", "rerank-v3.5"),
-    # Per-chunk contextual prefix generation at ingest time. "none" = off.
-    "context_provider": os.getenv("CONTEXT_PROVIDER", "none"),
-    "context_anthropic_model": os.getenv("CONTEXT_ANTHROPIC_MODEL", "claude-haiku-4-5"),
-    "context_ollama_model": os.getenv("CONTEXT_OLLAMA_MODEL", "qwen3.5:latest"),
-
-    # Personas
-    "personas_enabled": {
-        "skeptic": True,
-        "hype": True,
-        "practitioner": True,
-        "methodologist": True,
-        "gradstudent": True,
-    },
-    "persona_temperature": 0.8,
-
-    # Feed
-    "posts_per_generation": 12,
-    "post_type_weights": {
-        "post": 0.35,
-        "thread": 0.10,
-        "quote": 0.20,
-        "reply": 0.25,
-        "figure": 0.10,
-    },
-    "auto_generate_on_upload": False,
-
-    # Paper Processing
-    "extraction_mode": "auto",  # auto, pymupdf, vision
-    "chunk_max_tokens": 800,
-
-    # User profile
-    "user_display_name": "You",
-    "user_handle": "@you",
-    "user_avatar_url": "",
-
-    # UI-only (api-only; the worker does not read these)
-    "show_extraction_badge": True,
-    "theme": "dark",
-    "font_size": "normal",  # small, normal, large
-    "post_spacing": "comfortable",  # compact, comfortable
-}
 
 
 class SettingsUpdate(BaseModel):
@@ -96,50 +36,6 @@ class SettingsUpdate(BaseModel):
 # where `ollama_base_url` (and similar URL-shaped keys) in the settings
 # blob could redirect every downstream LLM call to an attacker-chosen host.
 ALLOWED_SETTINGS_KEYS = frozenset(DEFAULTS.keys())
-
-# Numeric bounds for keys that feed into cost-sensitive paths. Without these
-# a client could PUT `posts_per_generation: 10000` or `chunk_max_tokens: 1_000_000`
-# and fan out enormous LLM spend on a single dispatch. Keys not listed here
-# are still bounded by their default type (e.g. strings pass through the
-# ALLOWED set) — this dict only applies to numeric knobs that drive loops
-# or token budgets.
-_NUMERIC_BOUNDS: dict[str, tuple[type, float, float]] = {
-    "posts_per_generation": (int, 1, 50),
-    "persona_temperature": (float, 0.0, 1.5),
-    "chunk_max_tokens": (int, 100, 4000),
-}
-
-# Keys whose values are secrets. GET /settings returns them as a boolean-ish
-# "set" / "" string so an XSS or browser-extension snoop can't exfiltrate
-# the actual key from a response body.
-SECRET_KEYS = frozenset({"anthropic_api_key", "openai_api_key", "voyage_api_key", "cohere_api_key"})
-
-# Keys that override the admin-configured LLM / embedding / vision stack.
-# Under PUBLIC_DEPLOYMENT=true these are rejected on write so hosted users
-# can't point the app at their own keys or swap models — the operator's
-# env config is the only source of truth. On self-host (default) these
-# remain user-configurable.
-PROVIDER_OVERRIDE_KEYS = frozenset({
-    "llm_provider",
-    "embed_provider",
-    "vision_provider",
-    "ollama_llm_model",
-    "ollama_embed_model",
-    "ollama_vision_model",
-    "claude_model",
-    "anthropic_api_key",
-    "openai_api_key",
-    "voyage_api_key",
-    "cohere_api_key",
-    "voyage_embed_model",
-    "rerank_provider",
-    "rerank_local_model",
-    "rerank_voyage_model",
-    "rerank_cohere_model",
-    "context_provider",
-    "context_anthropic_model",
-    "context_ollama_model",
-})
 
 
 def _redact_secrets(d: dict[str, object]) -> dict[str, object]:
@@ -164,13 +60,12 @@ async def get_settings(
         if isinstance(user_settings, str):
             user_settings = json.loads(user_settings)
 
-    # Merge: defaults ← user overrides
-    merged = {**DEFAULTS}
-    for key, value in user_settings.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = {**merged[key], **value}
-        else:
-            merged[key] = value
+    # Merge: defaults ← user overrides, then (under PUBLIC_DEPLOYMENT) reassert
+    # the operator's env config so a stale self-host row can't mask the
+    # provider the worker will actually use (R10 DUP-1 last gap).
+    merged = merge_settings(user_settings)
+    if is_public_deployment():
+        merged = reassert_public_deployment(merged)
 
     return _redact_secrets(merged)
 
@@ -263,13 +158,13 @@ async def update_settings(
 
     logger.info("settings_updated", keys=list(filtered.keys()))
 
-    # Return merged with defaults (secrets redacted — match GET shape).
-    merged = {**DEFAULTS}
-    for key, value in existing.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = {**merged[key], **value}
-        else:
-            merged[key] = value
+    # Return merged with defaults (secrets redacted — match GET shape). This
+    # reassert is presentation only, mirroring GET: `existing` was already
+    # persisted above (line ~150) with the raw `filtered` user keys, so
+    # reasserting here does not touch what's stored in the DB.
+    merged = merge_settings(existing)
+    if is_public_deployment():
+        merged = reassert_public_deployment(merged)
     return _redact_secrets(merged)
 
 
