@@ -21,9 +21,15 @@ router = APIRouter(prefix="/personas", tags=["personas"])
 
 @router.get("")
 async def list_personas(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """Return all active personas with metadata."""
+    """Return all active personas with metadata.
+
+    Auth-gated (R10 API-6/BP-13): previously the only unauthenticated
+    endpoint in this router with no comment explaining why — closed as
+    a trap-for-the-next-reader rather than a deliberate public surface.
+    """
     rows = await db.fetch(
         """SELECT key, handle, name, initials, color, avatar_url, bio
            FROM personas WHERE is_active = true ORDER BY sort_order"""

@@ -173,3 +173,33 @@ async def client_as_user_b(seeded_users):
             yield client
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def _raise_unauthenticated():
+    from fastapi import HTTPException
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+@pytest_asyncio.fixture
+async def client_unauthenticated():
+    """Async client that simulates a caller with no session/token.
+
+    The test suite runs with AUTH_PROVIDER=none (see module-level env
+    defaults above), whose `get_user_none` stub authenticates every
+    request unconditionally — there's no way to produce a real 401 from
+    that provider by omitting credentials. We override the
+    `get_current_user` dependency with a stand-in that raises 401, the
+    same outcome `get_user_basic`/`get_user_supabase` produce when no
+    cookie/token is present. This exercises "does this route require the
+    dependency at all" (R10 API-6/BP-13), not the provider's own
+    credential-parsing logic (covered separately).
+    """
+    app.dependency_overrides[get_current_user] = _raise_unauthenticated
+    try:
+        async with _CsrfAutoClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            client.cookies.set("ficino_csrf", _CSRF_TEST_TOKEN)
+            yield client
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

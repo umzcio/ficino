@@ -169,8 +169,15 @@ async def update_settings(
 
 
 @router.get("/ollama-models")
-async def list_ollama_models() -> dict[str, list[dict[str, str]]]:
-    """List available Ollama models grouped by type."""
+async def list_ollama_models(
+    user: AuthUser = Depends(get_current_user),
+) -> dict[str, list[dict[str, str]]]:
+    """List available Ollama models grouped by type.
+
+    Auth-gated (R10 API-6/BP-13): was previously reachable by anyone,
+    letting an unauthenticated caller trigger a 10s outbound HTTP call to
+    the operator's Ollama instance and read back the installed model list.
+    """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{app_settings.ollama_base_url}/api/tags")
