@@ -25,13 +25,21 @@ def _format_apa(title: str, authors: list[str], year: int | None, doi: str | Non
         a2_str = f"{a2[-1]}, {'. '.join(p[0] for p in a2[:-1])}." if len(a2) > 1 else authors[1]
         author_str = f"{a1_str}, & {a2_str}"
     else:
+        # R10 API-11: build `formatted` from ALL authors, not just the
+        # first 19 — the previous `authors[:19]` slice meant `formatted[-1]`
+        # was always the 19th author, never the paper's true last author.
+        # That silently dropped author #20 in the exactly-20 case (APA 7
+        # requires listing all 20) and cited the wrong "last author" (#19
+        # instead of the true final one) in the 21+ case.
         formatted = []
-        for a in authors[:19]:
+        for a in authors:
             parts = a.split()
             formatted.append(f"{parts[-1]}, {'. '.join(p[0] for p in parts[:-1])}." if len(parts) > 1 else a)
         if len(authors) > 20:
+            # APA 7: first 19, ellipsis, then the true final author.
             author_str = ", ".join(formatted[:19]) + ", ... " + formatted[-1]
         else:
+            # <=20 authors: list everyone, joining the last with '&'.
             author_str = ", ".join(formatted[:-1]) + ", & " + formatted[-1]
 
     year_str = f"({year})" if year else "(n.d.)"

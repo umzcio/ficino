@@ -8,12 +8,12 @@ Provider is selected via EMBED_PROVIDER setting:
 
 import asyncio
 import os
-import threading
 
 import httpx
 import structlog
 
-from lib.settings import get_active
+from lib.event_loop import LoopRunner
+from lib.settings import get_active, ollama_base_url
 
 logger = structlog.get_logger(__name__)
 
@@ -23,7 +23,7 @@ def _get_embed_config() -> dict[str, str]:
     return {
         "provider": get_active("embed_provider", "EMBED_PROVIDER", "ollama"),
         # ollama_base_url is env-only (SSRF defense).
-        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_base_url": ollama_base_url(),
         "ollama_model": get_active("ollama_embed_model", "OLLAMA_EMBED_MODEL", "bge-m3:latest"),
         "openai_api_key": get_active("openai_api_key", "OPENAI_API_KEY", ""),
         "openai_model": get_active("openai_embed_model", "OPENAI_EMBED_MODEL", "text-embedding-3-small"),
@@ -235,11 +235,10 @@ async def embed_single(text: str, *, input_type: str = "document") -> list[float
     return results[0]
 
 
-# Shared persistent event loop for the embedder's sync wrappers — `asyncio.run()`
-# creates a fresh loop on every call, which (a) tears down httpx's internal
-# connection pool each time and (b) stacks ominously with Celery's own
-# loop-lifecycle management. One long-lived loop + a thread lock matches the
-# pattern already used in lib/db.py.
+# Shared background event loop for the embedder's sync wrappers (R10 DUP-5:
+# LoopRunner) — `asyncio.run()` creates a fresh loop on every call, which
+# (a) tears down httpx's internal connection pool each time and (b) stacks
+# ominously with Celery's own loop-lifecycle management.
 #
 # Round-4: loop runs on a dedicated daemon thread via run_forever, so
 # multiple Celery worker threads that hit embed_single_sync concurrently
@@ -247,32 +246,12 @@ async def embed_single(text: str, *, input_type: str = "document") -> list[float
 # and Voyage batching already provide the concurrency — the previous lock
 # squashed it.
 
-_embed_loop: asyncio.AbstractEventLoop | None = None
-_embed_loop_lock = threading.Lock()
-
-
-def _ensure_embed_loop() -> asyncio.AbstractEventLoop:
-    global _embed_loop
-    if _embed_loop is not None and not _embed_loop.is_closed():
-        return _embed_loop
-    with _embed_loop_lock:
-        if _embed_loop is None or _embed_loop.is_closed():
-            loop = asyncio.new_event_loop()
-
-            def _runner() -> None:
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            t = threading.Thread(target=_runner, name="embed-loop", daemon=True)
-            t.start()
-            _embed_loop = loop
-        return _embed_loop
+_runner = LoopRunner("embed-loop")
 
 
 def _run_on_embed_loop(coro):
-    """Execute an async coroutine on the embedder's persistent loop."""
-    loop = _ensure_embed_loop()
-    return asyncio.run_coroutine_threadsafe(coro, loop).result()
+    """Execute an async coroutine on the embedder's shared background loop."""
+    return _runner.run(coro)
 
 
 def embed_texts_sync(texts: list[str], *, input_type: str = "document") -> list[list[float]]:

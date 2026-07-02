@@ -7,13 +7,13 @@ Provider is selected via VISION_PROVIDER setting (ollama or api).
 import asyncio
 import base64
 import os
-import threading as _threading
 
 import httpx
 import structlog
 
+from lib.event_loop import LoopRunner
 from lib.pdf_extractor import rasterize_pages, get_page_count
-from lib.settings import get_active
+from lib.settings import get_active, ollama_base_url
 from ficino_shared.settings_schema import default_for
 
 logger = structlog.get_logger(__name__)
@@ -38,7 +38,7 @@ def _get_config() -> dict[str, str]:
             get_active("llm_provider", "LLM_PROVIDER", "ollama"),
         ),
         # ollama_base_url is env-only (SSRF defense).
-        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_base_url": ollama_base_url(),
         "ollama_vision_model": get_active("ollama_vision_model", "OLLAMA_VISION_MODEL", default_for("ollama_vision_model")),
         "anthropic_api_key": get_active("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
         "claude_model": get_active("claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6"),
@@ -56,61 +56,116 @@ def is_available() -> bool:
 
 
 async def _extract_page_claude(page_image: bytes, page_num: int) -> str:
-    """Extract text from a page image using Claude Vision."""
+    """Extract text from a page image using Claude Vision.
+
+    Retries connection errors, rate limits, and 5xx responses 3x with
+    exponential backoff (2s / 6s / 18s) — same shape as `_generate_ollama`
+    in claude_client.py. Vision extraction is the priciest worker code
+    path; without retry, a single transient blip on page N of an N-page
+    paper aborts the whole extraction, and the Celery retry then re-runs
+    (and re-bills) every prior page (R10 WORK-9).
+    """
     import anthropic
     cfg = _get_config()
-    client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"])
+    # max_retries=0: the outer 3-attempt loop below owns retries. The SDK
+    # default (2 internal retries) would stack to up to 9 requests per page
+    # with compounding delays — mirrors api/services/llm.py's H30 pin.
+    client = anthropic.AsyncAnthropic(api_key=cfg["anthropic_api_key"], max_retries=0)
     image_b64 = base64.b64encode(page_image).decode("utf-8")
 
-    # 2048 output tokens is more than enough for a full page of extracted
-    # markdown; the prior 4096 doubled cost exposure without payoff. Combined
-    # with MAX_VISION_PAGES in extract_with_vision, this bounds the worst-
-    # case paid-API spend a crafted PDF can force through the shared key.
-    response = await client.messages.create(
-        model=cfg["claude_model"],
-        max_tokens=2048,
-        system=VISION_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}},
-                {"type": "text", "text": f"Extract all text from page {page_num} as structured markdown."},
-            ],
-        }],
-    )
-    return response.content[0].text
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            # 2048 output tokens is more than enough for a full page of
+            # extracted markdown; the prior 4096 doubled cost exposure
+            # without payoff. Combined with MAX_VISION_PAGES in
+            # extract_with_vision, this bounds the worst-case paid-API
+            # spend a crafted PDF can force through the shared key.
+            response = await client.messages.create(
+                model=cfg["claude_model"],
+                max_tokens=2048,
+                system=VISION_SYSTEM_PROMPT,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}},
+                        {"type": "text", "text": f"Extract all text from page {page_num} as structured markdown."},
+                    ],
+                }],
+            )
+            return response.content[0].text
+        except (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError) as e:
+            last_exc = e
+            if attempt == 2:
+                break
+            wait = 2 * (3 ** attempt)  # 2s, 6s, (18s if a 4th attempt existed)
+            logger.warn(
+                "claude_vision_transient_error_retrying",
+                page=page_num, attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
+            )
+            await asyncio.sleep(wait)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def _extract_page_ollama(page_image: bytes, page_num: int) -> str:
-    """Extract text from a page image using Ollama vision model."""
+    """Extract text from a page image using Ollama vision model.
+
+    Retries connection errors and 5xx responses 3x with exponential
+    backoff (2s / 6s / 18s) — same shape as `_generate_ollama` in
+    claude_client.py. Without retry, a single transient blip on page N of
+    an N-page paper aborts the whole extraction (R10 WORK-9).
+    """
     cfg = _get_config()
     image_b64 = base64.b64encode(page_image).decode("utf-8")
+    payload = {
+        "model": cfg["ollama_vision_model"],
+        "messages": [
+            {"role": "system", "content": VISION_SYSTEM_PROMPT},
+            {"role": "user", "content": f"Extract all text from page {page_num} as structured markdown.",
+             "images": [image_b64]},
+        ],
+        "stream": False,
+    }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(
-            f"{cfg['ollama_base_url']}/api/chat",
-            json={
-                "model": cfg["ollama_vision_model"],
-                "messages": [
-                    {"role": "system", "content": VISION_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Extract all text from page {page_num} as structured markdown.",
-                     "images": [image_b64]},
-                ],
-                "stream": False,
-            },
-        )
-        resp.raise_for_status()
-        content = resp.json()["message"]["content"]
-        # A 200 with empty content means the model is misconfigured (wrong
-        # name, OOM, unreachable upstream). Raising here lets the outer
-        # `extract_with_vision` abort and mark the paper 'error' with a
-        # reason, instead of silently producing a 0-chunk paper.
-        if not content or not content.strip():
-            raise RuntimeError(
-                f"ollama vision model {cfg['ollama_vision_model']!r} returned "
-                f"empty content for page {page_num}"
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                resp = await client.post(
+                    f"{cfg['ollama_base_url']}/api/chat", json=payload,
+                )
+                if 500 <= resp.status_code < 600:
+                    raise httpx.HTTPStatusError(
+                        f"ollama 5xx: {resp.status_code}",
+                        request=resp.request, response=resp,
+                    )
+                resp.raise_for_status()
+                content = resp.json()["message"]["content"]
+                # A 200 with empty content means the model is misconfigured
+                # (wrong name, OOM, unreachable upstream). Raising here lets
+                # the outer `extract_with_vision` abort and mark the paper
+                # 'error' with a reason, instead of silently producing a
+                # 0-chunk paper. Not retried — it's a config problem, not a
+                # transient one.
+                if not content or not content.strip():
+                    raise RuntimeError(
+                        f"ollama vision model {cfg['ollama_vision_model']!r} returned "
+                        f"empty content for page {page_num}"
+                    )
+                return content
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as e:
+            last_exc = e
+            if attempt == 2:
+                break
+            wait = 2 * (3 ** attempt)  # 2s, 6s, (18s if a 4th attempt existed)
+            logger.warn(
+                "ollama_vision_transient_error_retrying",
+                page=page_num, attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
             )
-        return content
+            await asyncio.sleep(wait)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def extract_page(page_image: bytes, page_num: int) -> str:
@@ -164,36 +219,17 @@ async def extract_with_vision(file_path: str) -> str:
     return full_markdown
 
 
-# Persistent event loop to avoid the asyncio.run() + httpx-GC race —
-# same pattern as the other worker/lib sync wrappers. BUG-LIVE-06.
+# Shared background event loop to avoid the asyncio.run() + httpx-GC race —
+# same pattern as the other worker/lib sync wrappers (R10 DUP-5:
+# LoopRunner). BUG-LIVE-06.
 # Round-4: loop runs on a dedicated daemon thread; concurrent callers
 # submit via run_coroutine_threadsafe instead of queuing on a lock.
 
-_vision_loop: asyncio.AbstractEventLoop | None = None
-_vision_loop_lock = _threading.Lock()
-
-
-def _ensure_vision_loop() -> asyncio.AbstractEventLoop:
-    global _vision_loop
-    if _vision_loop is not None and not _vision_loop.is_closed():
-        return _vision_loop
-    with _vision_loop_lock:
-        if _vision_loop is None or _vision_loop.is_closed():
-            loop = asyncio.new_event_loop()
-
-            def _runner() -> None:
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            t = _threading.Thread(target=_runner, name="vision-loop", daemon=True)
-            t.start()
-            _vision_loop = loop
-        return _vision_loop
+_runner = LoopRunner("vision-loop")
 
 
 def _run_on_vision_loop(coro):
-    loop = _ensure_vision_loop()
-    return asyncio.run_coroutine_threadsafe(coro, loop).result()
+    return _runner.run(coro)
 
 
 def extract_with_vision_sync(file_path: str) -> str:

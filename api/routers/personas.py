@@ -1,18 +1,19 @@
 """Persona endpoints — metadata, stats, and direct messages."""
 
-import asyncio
 import json
 
 import asyncpg
-import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
+from config import settings
+from constants import MAX_ACTIVITY_FEED
 from db.connection import get_db
-from services.llm import generate_response
+from models.requests import PersonaDmRequest
+from services.llm import generate_response, llm_error_to_http
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/personas", tags=["personas"])
@@ -20,9 +21,15 @@ router = APIRouter(prefix="/personas", tags=["personas"])
 
 @router.get("")
 async def list_personas(
+    user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """Return all active personas with metadata."""
+    """Return all active personas with metadata.
+
+    Auth-gated (R10 API-6/BP-13): previously the only unauthenticated
+    endpoint in this router with no comment explaining why — closed as
+    a trap-for-the-next-reader rather than a deliberate public surface.
+    """
     rows = await db.fetch(
         """SELECT key, handle, name, initials, color, avatar_url, bio
            FROM personas WHERE is_active = true ORDER BY sort_order"""
@@ -80,7 +87,7 @@ async def get_persona_replies(
     can't see another user's reply activity by guessing a persona key.
     """
     rows = await db.fetch(
-        """
+        f"""
         SELECT
           f.id                            AS feed_id,
           pr.post_index                   AS post_index,
@@ -96,7 +103,7 @@ async def get_persona_replies(
           AND msg.value ->> 'persona' = $2
           AND msg.value ->> 'role'    = 'interjection'
         ORDER BY f.generated_at DESC, pr.post_index, msg.idx
-        LIMIT 100
+        LIMIT {MAX_ACTIVITY_FEED}
         """,
         user.id, persona_key,
     )
@@ -121,12 +128,6 @@ async def get_persona_replies(
             "parent_post": parent or {},
         })
     return results
-
-
-class PersonaDmRequest(BaseModel):
-    # Bound LLM input so a misbehaving client can't pump unbounded text into
-    # the persona prompt. Matches ReplyRequest.user_message.
-    message: str = Field(max_length=2000)
 
 
 @router.get("/{persona_key}/dm")
@@ -154,7 +155,7 @@ async def send_persona_dm(
     body: PersonaDmRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-    _rl: None = Depends(RateLimit("persona_dm", 60)),
+    _rl: None = Depends(RateLimit("persona_dm", settings.rate_limit_persona_dm_per_day)),
 ) -> dict[str, object]:
     """Send a DM to a persona. Persona responds grounded in the user's corpus."""
     # Get existing conversation. `existing` is used only to build the LLM
@@ -236,30 +237,16 @@ Do NOT use JSON formatting. Respond naturally.
         for m in existing
     ]
 
-    # Call LLM
+    # Call LLM. Exception -> status-code grading lives in
+    # services.llm.llm_error_to_http (R10 BP-1) — shared with
+    # replies.zap_response and replies.create_reply's main-persona result.
     try:
         persona_response = await generate_response(
             db, system=system, messages=llm_messages, max_tokens=512, temperature=0.7,
             user_id=user.id,
         )
-    except asyncio.TimeoutError as e:
-        logger.warn("persona_dm_failed", error=str(e), reason="timeout")
-        raise HTTPException(status_code=504, detail="LLM request timed out. Try again.")
-    except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-        logger.warn("persona_dm_failed", error=str(e), reason="llm_unreachable")
-        raise HTTPException(status_code=503, detail="LLM provider unreachable. Try again in a moment.")
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        logger.warn("persona_dm_failed", error=str(e), reason="llm_http_error", upstream_status=status)
-        if 400 <= status < 500:
-            raise HTTPException(status_code=502, detail="LLM provider rejected our request.")
-        raise HTTPException(status_code=503, detail="LLM provider error. Try again in a moment.")
-    except (ValueError, KeyError, TypeError) as e:
-        logger.warn("persona_dm_failed", error=str(e), reason="bad_input")
-        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)[:200]}")
     except Exception as e:
-        logger.error("persona_dm_failed", error=str(e), error_type=type(e).__name__)
-        raise HTTPException(status_code=500, detail="Internal error. See server logs.")
+        raise llm_error_to_http(e, event="persona_dm_failed")
 
     persona_turn = {"role": "persona", "content": persona_response}
     existing.append(persona_turn)
@@ -289,6 +276,7 @@ Do NOT use JSON formatting. Respond naturally.
 async def delete_persona_dm_message(
     persona_key: str,
     message_index: int,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -298,33 +286,47 @@ async def delete_persona_dm_message(
     The LLM context on the next send_persona_dm rebuilds from whatever
     messages remain, so deleting a user turn (or a persona reply) just
     quietly shortens the conversation from the model's perspective.
+
+    Concurrency: uses `messages - $1::int` (atomic JSONB array element
+    remove), same as replies.py's delete_reply_message (R10 API-16). The
+    previous SELECT-then-pop-then-overwrite-the-whole-column pattern
+    could clobber an in-flight send_persona_dm's `|| EXCLUDED.messages`
+    append (an LLM call can take 5-60s) — the delete's stale snapshot
+    would silently erase turns the send appended in that window. A single
+    atomic UPDATE removes exactly one element without ever reading the
+    array into Python.
     """
     row = await db.fetchrow(
-        "SELECT messages FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
+        "SELECT jsonb_array_length(messages) AS n FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
         user.id, persona_key,
     )
     if not row:
         raise HTTPException(status_code=404, detail="No DM thread with this persona")
-
-    messages = row["messages"]
-    if isinstance(messages, str):
-        messages = json.loads(messages)
-    if not isinstance(messages, list) or message_index < 0 or message_index >= len(messages):
+    if message_index < 0 or message_index >= row["n"]:
         raise HTTPException(status_code=404, detail="Message index out of range")
 
-    messages.pop(message_index)
-    await db.execute(
-        "UPDATE persona_dms SET messages = $1::jsonb, updated_at = NOW() "
-        "WHERE user_id = $2 AND persona_key = $3",
-        json.dumps(messages), user.id, persona_key,
+    updated = await db.fetchrow(
+        "UPDATE persona_dms SET messages = messages - $3::int, updated_at = NOW() "
+        "WHERE user_id = $1 AND persona_key = $2 RETURNING messages",
+        user.id, persona_key, message_index,
     )
+    messages = updated["messages"]
+    if isinstance(messages, str):
+        messages = json.loads(messages)
     logger.info("persona_dm_message_deleted", persona=persona_key, index=message_index)
+
+    await record_audit(
+        db, request, user,
+        action="persona_dm.delete_message", resource_type="persona_dm",
+        metadata={"persona_key": persona_key, "message_index": message_index},
+    )
     return {"messages": messages}
 
 
 @router.delete("/{persona_key}/dm")
 async def clear_persona_dm(
     persona_key: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -332,10 +334,28 @@ async def clear_persona_dm(
 
     Deletes the `persona_dms` row outright so the next `get_persona_dm`
     returns an empty thread and the LLM's context starts fresh.
+
+    R10 BP-3: kept 200 + `{"messages": [...]}` (not 204) — unlike
+    delete_persona_dm_message's per-message delete, PersonaProfile.tsx's
+    `handleDeleteMessage` reads `data.messages` from this endpoint's sibling
+    to resync optimistic state; `handleClearDm` (this endpoint's only
+    caller) doesn't read the body, but keeping the same response shape
+    across both DM-delete endpoints avoids a footgun for the next caller.
+    This endpoint was previously the one DELETE in the router with no
+    existence check at all (unlike delete_persona_dm_message just above,
+    which already 404s on a missing thread) — added the same guard.
     """
-    await db.execute(
+    result = await db.execute(
         "DELETE FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
         user.id, persona_key,
     )
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="No DM thread with this persona")
     logger.info("persona_dm_cleared", persona=persona_key)
+
+    await record_audit(
+        db, request, user,
+        action="persona_dm.clear", resource_type="persona_dm",
+        metadata={"persona_key": persona_key},
+    )
     return {"messages": []}

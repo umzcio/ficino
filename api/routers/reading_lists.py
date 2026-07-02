@@ -4,33 +4,46 @@ import json
 
 import asyncpg
 import structlog
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 
 from audit import record_audit
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from db.connection import get_db
 from ficino_shared.constants import CHAPTER_INSERT_SQL
+from models.requests import (
+    ApplyOrderingRequest,
+    ReadingListCreate,
+    ReadingListReorder,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/reading-lists", tags=["reading-lists"])
 
 
-def _get_celery() -> Celery:
-    return Celery(broker=settings.redis_url, backend=settings.redis_url)
-
-
-class ReadingListCreate(BaseModel):
-    name: str
-    corpus_id: str | None = None
-    paper_ids: list[str] | None = None  # if None, use all papers in corpus
-
-
-class ReadingListReorder(BaseModel):
-    paper_sequence: list[str]
+# R10 BP-17: reorder's batched chapter INSERT can't reuse CHAPTER_INSERT_SQL
+# as-is. That constant encodes *initial-create* semantics: chapter_index
+# always starts at 0, and the first row is always unlocked. Reorder instead
+# preserves already-completed chapters (the caller only deletes
+# feed_id-IS-NULL rows first) and must resume unlocking from wherever the
+# reader left off, so both the starting chapter_index and the unlock
+# boundary are offset by `max_complete` (the highest completed
+# chapter_index) rather than fixed at 0/1. That's a genuine divergence in
+# what the statement computes, not just a different call site, so it gets
+# its own statement instead of forcing a variable offset into the shared
+# create-path constant. apply_ai_ordering, by contrast, wipes ALL chapters
+# unconditionally and always unlocks only the first (see apply_ai_ordering
+# below) -- that path DOES match CHAPTER_INSERT_SQL's semantics exactly and
+# reuses it directly.
+REORDER_CHAPTER_INSERT_SQL = """INSERT INTO reading_list_chapters
+            (reading_list_id, chapter_index, paper_ids, status)
+          SELECT $1::uuid,
+                 $3::int + row_num,
+                 ARRAY[pid]::uuid[],
+                 CASE WHEN row_num = 1 THEN 'unlocked' ELSE 'locked' END
+          FROM unnest($2::uuid[]) WITH ORDINALITY AS t(pid, row_num)"""
 
 
 @router.get("")
@@ -221,7 +234,7 @@ async def create_reading_list(
     # reading_lists.{rationale, paper_sequence} so the frontend's polling
     # loop (watching for `rationale` to appear) exits. Without list_id the
     # ordering would just sit in Celery's result backend unused.
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.reading_list_tasks.propose_ordering",
         args=[paper_ids, body.corpus_id, list_id],
@@ -253,6 +266,17 @@ async def reorder_reading_list(
     # reading list (which downstream chapter generation will happily
     # dereference).
     if body.paper_sequence:
+        # R10 API-12: the set-based ownership check below (`owned_count ==
+        # len(set(...))`) admits a sequence like [A, A, B] where A, B are
+        # both owned — COUNT of distinct owned rows is 2, which equals
+        # len(set([A, A, B])) == 2, so the duplicate silently passes and
+        # gets materialized as duplicate chapters. Reject duplicates
+        # up front, independent of ownership.
+        if len(body.paper_sequence) != len(set(body.paper_sequence)):
+            raise HTTPException(
+                status_code=422,
+                detail="Duplicate paper IDs in sequence",
+            )
         owned_count = await db.fetchval(
             "SELECT COUNT(*) FROM papers WHERE id = ANY($1::uuid[]) AND user_id = $2",
             body.paper_sequence, user.id,
@@ -281,20 +305,16 @@ async def reorder_reading_list(
         list_id,
     )
 
-    # Recreate chapters for remaining papers
-    for i, pid in enumerate(body.paper_sequence):
-        if i <= max_complete:
-            continue  # Skip already-completed chapters
-        exists = await db.fetchrow(
-            "SELECT id FROM reading_list_chapters WHERE reading_list_id = $1 AND chapter_index = $2",
-            list_id, i,
-        )
-        if not exists:
-            await db.execute(
-                """INSERT INTO reading_list_chapters (reading_list_id, chapter_index, paper_ids, status)
-                   VALUES ($1, $2, $3, $4)""",
-                list_id, i, [pid], "unlocked" if i == max_complete + 1 else "locked",
-            )
+    # Recreate chapters for the remaining (not-yet-completed) papers in one
+    # batched INSERT instead of up to 2N per-paper round trips (R10 BP-17,
+    # same pattern as create_reading_list's CHAPTER_INSERT_SQL). The DELETE
+    # above already cleared every feed_id-IS-NULL chapter, so every index
+    # in `remaining` is guaranteed absent here -- the old per-row "exists"
+    # SELECT-then-INSERT guard never actually fired in practice and isn't
+    # reproduced.
+    remaining = body.paper_sequence[max_complete + 1:]
+    if remaining:
+        await db.execute(REORDER_CHAPTER_INSERT_SQL, list_id, remaining, max_complete)
 
     logger.info("reading_list_reordered", list_id=list_id)
     return {"status": "reordered"}
@@ -303,11 +323,17 @@ async def reorder_reading_list(
 @router.put("/{list_id}/apply-ordering")
 async def apply_ai_ordering(
     list_id: str,
-    body: dict,
+    body: ApplyOrderingRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
-    """Apply AI-proposed ordering to a reading list. Called after ordering task completes."""
+    """Apply AI-proposed ordering to a reading list. Called after ordering task completes.
+
+    R10 API-12/BP-5: `body` was a raw `dict` — the only endpoint in this
+    file bypassing pydantic validation. A malformed item (e.g. a bare
+    string instead of {"paper_id": ...}) raised a raw KeyError/TypeError
+    -> 500 instead of a 422. Now validated as `ApplyOrderingRequest`.
+    """
     row = await db.fetchrow(
         "SELECT id, paper_sequence FROM reading_lists WHERE id = $1 AND user_id = $2",
         list_id, user.id,
@@ -315,11 +341,20 @@ async def apply_ai_ordering(
     if not row:
         raise HTTPException(status_code=404, detail="Reading list not found")
 
-    ordered_papers = body.get("ordered_papers", [])
+    ordered_papers = body.ordered_papers
     if not ordered_papers:
         raise HTTPException(status_code=400, detail="No ordering data")
 
-    new_sequence = [p["paper_id"] for p in ordered_papers]
+    new_sequence = [p.paper_id for p in ordered_papers]
+
+    # R10 API-12: the old set-based permutation check (`set(new_sequence)
+    # != existing_set`) admits a sequence like [A, A, B, C] where
+    # {A,B,C} == existing_set — the duplicate silently passes and gets
+    # materialized as duplicate chapters (double LLM spend per duplicate
+    # in the sequential chapter-generation flow). Reject duplicates before
+    # the permutation check.
+    if len(new_sequence) != len(set(new_sequence)):
+        raise HTTPException(status_code=422, detail="Duplicate paper IDs in ordering")
 
     # The ordering must be a permutation of the list's existing papers —
     # a bad client (or a malicious one) shouldn't be able to inject foreign
@@ -331,24 +366,23 @@ async def apply_ai_ordering(
             detail="Ordering must be a permutation of the existing paper list",
         )
 
-    rationale_json = json.dumps(ordered_papers)
+    rationale_json = json.dumps([p.model_dump() for p in ordered_papers])
 
     await db.execute(
         "UPDATE reading_lists SET paper_sequence = $1, rationale = $2 WHERE id = $3",
         new_sequence, rationale_json, list_id,
     )
 
-    # Rebuild chapters
+    # Rebuild chapters. Full wipe + "unlock only the first" is exactly
+    # CHAPTER_INSERT_SQL's initial-create semantics (unlike reorder, which
+    # must preserve already-completed chapters -- see
+    # REORDER_CHAPTER_INSERT_SQL above), so this reuses the shared
+    # create-path statement directly (R10 BP-17).
     await db.execute(
         "DELETE FROM reading_list_chapters WHERE reading_list_id = $1",
         list_id,
     )
-    for i, pid in enumerate(new_sequence):
-        await db.execute(
-            """INSERT INTO reading_list_chapters (reading_list_id, chapter_index, paper_ids, status)
-               VALUES ($1, $2, $3, $4)""",
-            list_id, i, [pid], "unlocked" if i == 0 else "locked",
-        )
+    await db.execute(CHAPTER_INSERT_SQL, list_id, new_sequence)
 
     logger.info("ai_ordering_applied", list_id=list_id)
     return {"status": "applied"}
@@ -384,7 +418,7 @@ async def generate_chapter(
     if chapter["status"] == "locked":
         raise HTTPException(status_code=400, detail="Chapter is locked. Complete prior chapters first.")
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.reading_list_tasks.generate_chapter",
         args=[list_id, chapter_index],

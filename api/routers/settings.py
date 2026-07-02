@@ -6,12 +6,13 @@ import json
 import asyncpg
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from config import settings as app_settings
 from auth import AuthUser, get_current_user
 from db.connection import get_db
+from models.requests import SettingsUpdate
 from storage import storage
 from ficino_shared.settings_schema import (
     DEFAULTS,
@@ -27,8 +28,27 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
-class SettingsUpdate(BaseModel):
-    settings: dict
+def _cleanup_artifacts(user_id: str, paper_ids: list[str], log_event: str) -> int:
+    """Delete on-disk/cloud artifacts (PDFs + figure crops) for a batch of
+    papers. Runs in a worker thread via asyncio.to_thread — synchronous
+    storage-adapter calls would otherwise block the event loop.
+
+    Shared by clear_everything and clear_all_papers (R10 API-14): both
+    previously defined byte-identical inner closures differing only in the
+    log event name, which this hoists to a parameter. Failures are logged
+    and skipped rather than raised — the DB row is the source of truth for
+    what the user "has", and orphaned artifacts get reaped by routine
+    maintenance.
+    """
+    freed = 0
+    for pid in paper_ids:
+        try:
+            storage.delete_paper_artifacts(user_id, pid)
+            freed += 1
+        except Exception as e:
+            logger.warn(log_event, paper_id=pid, error=str(e)[:120])
+    return freed
+
 
 
 # Allow-list of settings keys accepted from user input. Anything not here
@@ -169,8 +189,15 @@ async def update_settings(
 
 
 @router.get("/ollama-models")
-async def list_ollama_models() -> dict[str, list[dict[str, str]]]:
-    """List available Ollama models grouped by type."""
+async def list_ollama_models(
+    user: AuthUser = Depends(get_current_user),
+) -> dict[str, list[dict[str, str]]]:
+    """List available Ollama models grouped by type.
+
+    Auth-gated (R10 API-6/BP-13): was previously reachable by anyone,
+    letting an unauthenticated caller trigger a 10s outbound HTTP call to
+    the operator's Ollama instance and read back the installed model list.
+    """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{app_settings.ollama_base_url}/api/tags")
@@ -205,16 +232,22 @@ async def list_ollama_models() -> dict[str, list[dict[str, str]]]:
 
 @router.post("/clear-feeds", status_code=200)
 async def clear_all_feeds(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Clear all generated feeds."""
     await db.execute("DELETE FROM feeds WHERE user_id = $1", user.id)
+    await record_audit(
+        db, request, user,
+        action="feed.clear_all", resource_type="feed",
+    )
     return {"status": "cleared"}
 
 
 @router.post("/clear-summaries", status_code=200)
 async def clear_all_summaries(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
@@ -223,21 +256,31 @@ async def clear_all_summaries(
         "DELETE FROM paper_summaries WHERE paper_id IN (SELECT id FROM papers WHERE user_id = $1)",
         user.id,
     )
+    await record_audit(
+        db, request, user,
+        action="summary.clear_all", resource_type="paper_summary",
+    )
     return {"status": "cleared"}
 
 
 @router.post("/clear-user-posts", status_code=200)
 async def clear_all_user_posts(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Clear all user posts and the Archivist replies attached to them."""
     await db.execute("DELETE FROM user_posts WHERE user_id = $1", user.id)
+    await record_audit(
+        db, request, user,
+        action="user_post.clear_all", resource_type="user_post",
+    )
     return {"status": "cleared"}
 
 
 @router.post("/clear-everything", status_code=200)
 async def clear_everything(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -281,29 +324,24 @@ async def clear_everything(
     # Storage cleanup goes through the adapter so the same code works for
     # filesystem + cloud backends. delete_paper_artifacts is idempotent; we
     # log and keep going on failures.
-    def _cleanup_artifacts(user_id: str, ids: list[str]) -> int:
-        freed = 0
-        for pid in ids:
-            try:
-                storage.delete_paper_artifacts(user_id, pid)
-                freed += 1
-            except Exception as e:
-                logger.warn(
-                    "clear_everything_artifact_unlink_failed",
-                    paper_id=pid, error=str(e)[:120],
-                )
-        return freed
-
-    freed = await asyncio.to_thread(_cleanup_artifacts, user.id, paper_ids)
+    freed = await asyncio.to_thread(
+        _cleanup_artifacts, user.id, paper_ids, "clear_everything_artifact_unlink_failed",
+    )
     logger.info("clear_everything_complete",
                 user_id=str(user.id),
                 paper_count=len(paper_ids),
                 artifacts_removed=freed)
+    await record_audit(
+        db, request, user,
+        action="account.clear_all", resource_type="account",
+        metadata={"paper_count": len(paper_ids)},
+    )
     return {"status": "cleared", "paper_count": len(paper_ids)}
 
 
 @router.post("/clear-papers", status_code=200)
 async def clear_all_papers(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -330,6 +368,13 @@ async def clear_all_papers(
 
     Storage cleanup (PDF uploads + figure crops) is offloaded to a thread
     so a slow disk or cloud call doesn't block the event loop.
+
+    The two DB deletes run inside one transaction (R10 API-14): this
+    endpoint's own docstring above explains why feeds must go with papers
+    — a feed that survives a bulk paper delete would render broken
+    references — so a failure between the two DELETEs must not leave that
+    exact half-deleted state on disk. clear_everything (below) already
+    used this pattern; this endpoint was the one sibling that didn't.
     """
     # 1. Enumerate paper IDs so we can clean up artifacts after the DB rows
     #    are gone. Fetching before the delete is safe under transaction
@@ -339,31 +384,27 @@ async def clear_all_papers(
     )
     paper_ids = [str(r["id"]) for r in paper_rows]
 
-    # 2. DB cascade. Papers first (cascades chunks/figures/summaries/tags),
-    #    then feeds (orphaned JSONB references).
-    await db.execute("DELETE FROM papers WHERE user_id = $1", user.id)
-    await db.execute("DELETE FROM feeds WHERE user_id = $1", user.id)
+    # 2. DB cascade, transactional. Papers first (cascades
+    #    chunks/figures/summaries/tags), then feeds (orphaned JSONB
+    #    references) — either both deletes land or neither does.
+    async with db.transaction():
+        await db.execute("DELETE FROM papers WHERE user_id = $1", user.id)
+        await db.execute("DELETE FROM feeds WHERE user_id = $1", user.id)
 
     # 3. Storage cleanup via the adapter — same code path for local disk
     #    and cloud buckets. Failures are logged but don't fail the API
     #    call; the DB row is the source of truth for what the user "has",
     #    and orphaned artifacts get reaped by routine maintenance.
-    def _cleanup_artifacts(user_id: str, ids: list[str]) -> int:
-        freed = 0
-        for pid in ids:
-            try:
-                storage.delete_paper_artifacts(user_id, pid)
-                freed += 1
-            except Exception as e:
-                logger.warn(
-                    "clear_papers_artifact_unlink_failed",
-                    paper_id=pid, error=str(e)[:120],
-                )
-        return freed
-
-    freed = await asyncio.to_thread(_cleanup_artifacts, user.id, paper_ids)
+    freed = await asyncio.to_thread(
+        _cleanup_artifacts, user.id, paper_ids, "clear_papers_artifact_unlink_failed",
+    )
     logger.info("clear_papers_complete",
                 user_id=str(user.id),
                 paper_count=len(paper_ids),
                 files_removed=freed)
+    await record_audit(
+        db, request, user,
+        action="paper.clear_all", resource_type="paper",
+        metadata={"paper_count": len(paper_ids)},
+    )
     return {"status": "cleared", "paper_count": len(paper_ids)}

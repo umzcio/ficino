@@ -304,22 +304,10 @@ def generate_feed(
         # "Get their take" requests which pass an explicit small num_posts
         if not persona_key:
             num_posts = user_settings.get("posts_per_generation", num_posts)
-        # Opt-out enabled-personas logic. Start from every feed-eligible
-        # persona in the DB (is_active=true, feed_eligible=true), then
-        # remove any the user has explicitly turned off in their settings.
-        # Prior behavior was opt-in — it derived the enabled set from the
-        # user's personas_enabled dict only, so personas added via migration
-        # after the dict's defaults were seeded (e.g. Amplifier) never made
-        # the set and silently produced zero posts.
-        all_feed_personas = {
-            k for k, meta in persona_lib.get_personas().items()
-            if meta.get("feed_eligible")
-        }
-        user_enabled = user_settings.get("personas_enabled", {})
-        enabled_personas = {
-            k for k in all_feed_personas
-            if user_enabled.get(k, True) is not False
-        }
+        # Opt-out enabled-personas logic — see persona_lib.resolve_enabled_personas
+        # docstring for the opt-in bug (silently zero posts for migrated
+        # personas) this replaced (R10 DUP-12).
+        enabled_personas = persona_lib.resolve_enabled_personas(user_settings)
         temperature = user_settings.get("persona_temperature", 0.8)
         post_weights = user_settings.get("post_type_weights", persona_lib.POST_TYPE_WEIGHTS)
 
@@ -780,17 +768,7 @@ def generate_feed(
                 # re-guessing from paper_ref / ILIKE / first-N-chunks.
                 # The truncated `content` preview remains for sidebar
                 # display; the UUIDs are what the reply path loads from.
-                post_data["sources"] = [
-                    {
-                        "chunk_id": c.get("id"),
-                        "paper_id": c.get("paper_id"),
-                        "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
-                        "section": c.get("section", "unknown"),
-                        "content": str(c.get("content", ""))[:300],
-                        "score": round(float(c.get("score", 0)), 3),
-                    }
-                    for c in chunks[:5]  # Top 5 source chunks
-                ]
+                post_data["sources"] = persona_lib.build_post_sources(chunks)
 
                 # Assign category for tab filtering. Every post appears in at
                 # least one tab beyond "For You". Shared helper so the three
@@ -1023,17 +1001,7 @@ def regenerate_post(
 
     # chunk_id + paper_id enable reply-time re-fetch of the exact chunks
     # the regenerated post was grounded on (see replies.py reply retrieval).
-    post_data["sources"] = [
-        {
-            "chunk_id": c.get("id"),
-            "paper_id": c.get("paper_id"),
-            "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
-            "section": c.get("section", "unknown"),
-            "content": str(c.get("content", ""))[:300],
-            "score": round(float(c.get("score", 0)), 3),
-        }
-        for c in chunks[:5]
-    ]
+    post_data["sources"] = persona_lib.build_post_sources(chunks)
 
     # Assign category via the shared helper (MED-24).
     pt = post_data.get("post_type", post_type)

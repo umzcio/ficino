@@ -1,19 +1,20 @@
 """Paper upload, list, and management endpoints."""
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timezone
 
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
-from redis import Redis
 
 from audit import record_audit
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
-from constants import DEFAULT_WORKSPACE_ID
+from constants import DEFAULT_WORKSPACE_ID, MAX_LIBRARY_LIST
 from db.connection import get_db
 from models.paper import Paper
 from storage import storage
@@ -22,12 +23,40 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/papers", tags=["papers"])
 
 
-def _get_redis() -> Redis:
-    return Redis.from_url(settings.redis_url)
+# R10 DUP-16: single row-hydration helper for all 3 sites that build a
+# Paper (upload's synthetic just-inserted row, list_papers, get_paper).
+# Accepts anything dict-like (asyncpg.Record has a dict-compatible `.get`)
+# so upload_paper can pass a plain dict for the row it never re-fetches.
+# get_paper's query doesn't select `tags` (no join) — `.get("tags")`
+# returns None there and this falls back to the model's empty-list
+# default, same as before this helper existed.
+def _paper_from_row(row) -> Paper:
+    tags_data = row.get("tags")
+    if isinstance(tags_data, str):
+        tags_data = json.loads(tags_data)
+    return Paper(
+        id=row["id"],
+        user_id=row.get("user_id"),
+        corpus_id=row.get("corpus_id"),
+        title=row.get("title"),
+        authors=row.get("authors") or [],
+        year=row.get("year"),
+        doi=row.get("doi"),
+        filename=row["filename"],
+        status=row.get("status") or "pending",
+        extraction_path=row.get("extraction_path"),
+        error_message=row.get("error_message"),
+        chunk_count=row.get("chunk_count") or 0,
+        figure_count=row.get("figure_count") or 0,
+        tags=tags_data or [],
+        uploaded_at=row.get("uploaded_at"),
+        processed_at=row.get("processed_at"),
+    )
 
 
 @router.post("", response_model=Paper, status_code=201)
 async def upload_paper(
+    request: Request,
     file: UploadFile,
     workspace_id: str | None = None,
     user: AuthUser = Depends(get_current_user),
@@ -38,9 +67,30 @@ async def upload_paper(
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
+    # Content-Length pre-check (R10 API-19): reject an oversized upload
+    # BEFORE buffering the body into memory. A client can lie about
+    # Content-Length, so this is an early-exit optimization, not the sole
+    # guard — the post-read len(contents) check below still runs as the
+    # authoritative defense-in-depth check.
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            declared_size = None
+        # +16384 allowance for multipart boilerplate (headers, boundaries)
+        # surrounding the actual file bytes, so a file that's exactly at
+        # the cap doesn't get falsely rejected by the wrapper overhead.
+        if declared_size is not None and declared_size > max_bytes + 16384:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds {settings.max_upload_size_mb}MB limit",
+            )
+
     # Check file size
     contents = await file.read()
-    if len(contents) > settings.max_upload_size_mb * 1024 * 1024:
+    if len(contents) > max_bytes:
         raise HTTPException(status_code=400, detail=f"File exceeds {settings.max_upload_size_mb}MB limit")
 
     # Verify PDF magic bytes — an .pdf extension alone is trivially spoofable.
@@ -111,8 +161,7 @@ async def upload_paper(
     # Dispatch Celery ingestion task. Only paper_id is passed — the worker
     # resolves the storage reference via the shared storage adapter so the
     # API never has to care what the backend layout looks like.
-    from celery import Celery
-    celery_app = Celery(broker=settings.redis_url)
+    celery_app = get_celery()
     celery_app.send_task(
         "tasks.ingestion_tasks.process_paper",
         args=[paper_id],
@@ -120,13 +169,13 @@ async def upload_paper(
     )
     logger.info("ingestion_task_dispatched", paper_id=paper_id)
 
-    return Paper(
-        id=uuid.UUID(paper_id),
-        user_id=uuid.UUID(user.id),
-        filename=file.filename,
-        status="pending",
-        uploaded_at=now,
-    )
+    return _paper_from_row({
+        "id": paper_id,
+        "user_id": user.id,
+        "filename": file.filename,
+        "status": "pending",
+        "uploaded_at": now,
+    })
 
 
 @router.get("", response_model=list[Paper])
@@ -136,67 +185,29 @@ async def list_papers(
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[Paper]:
     """List papers, optionally filtered by workspace."""
-    if workspace_id:
-        rows = await db.fetch(
-            """SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
-                      p.status, p.extraction_path, p.error_message, p.chunk_count, p.figure_count,
-                      p.uploaded_at, p.processed_at,
-                      COALESCE(
-                        json_agg(json_build_object('id', t.id::text, 'name', t.name))
-                        FILTER (WHERE t.id IS NOT NULL), '[]'
-                      ) AS tags
-               FROM papers p
-               LEFT JOIN paper_tags pt ON p.id = pt.paper_id
-               LEFT JOIN tags t ON pt.tag_id = t.id
-               WHERE p.user_id = $1 AND p.corpus_id = $2
-               GROUP BY p.id
-               ORDER BY p.uploaded_at DESC
-               LIMIT 500""",
-            user.id, workspace_id,
-        )
-    else:
-        rows = await db.fetch(
-            """SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
-                      p.status, p.extraction_path, p.error_message, p.chunk_count, p.figure_count,
-                      p.uploaded_at, p.processed_at,
-                      COALESCE(
-                        json_agg(json_build_object('id', t.id::text, 'name', t.name))
-                        FILTER (WHERE t.id IS NOT NULL), '[]'
-                      ) AS tags
-               FROM papers p
-               LEFT JOIN paper_tags pt ON p.id = pt.paper_id
-               LEFT JOIN tags t ON pt.tag_id = t.id
-               WHERE p.user_id = $1
-               GROUP BY p.id
-               ORDER BY p.uploaded_at DESC
-               LIMIT 500""",
-            user.id,
-        )
-    papers = []
-    for row in rows:
-        import json as _json
-        tags_data = row["tags"]
-        if isinstance(tags_data, str):
-            tags_data = _json.loads(tags_data)
-        papers.append(Paper(
-            id=row["id"],
-            user_id=row["user_id"],
-            corpus_id=row["corpus_id"],
-            title=row["title"],
-            authors=row["authors"] or [],
-            year=row["year"],
-            doi=row["doi"],
-            filename=row["filename"],
-            status=row["status"],
-            extraction_path=row["extraction_path"],
-            error_message=row["error_message"],
-            chunk_count=row["chunk_count"] or 0,
-            figure_count=row["figure_count"] or 0,
-            tags=tags_data,
-            uploaded_at=row["uploaded_at"],
-            processed_at=row["processed_at"],
-        ))
-    return papers
+    # R10 DUP-16: single SQL for both cases via a NULL-safe predicate — the
+    # two variants were IDENTICAL modulo the corpus_id filter. workspace_id
+    # is None when unset, so "$2::uuid IS NULL" makes the predicate a no-op
+    # (matches the old unfiltered branch, which never touched corpus_id at
+    # all, including rows where it's NULL).
+    rows = await db.fetch(
+        f"""SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
+                  p.status, p.extraction_path, p.error_message, p.chunk_count, p.figure_count,
+                  p.uploaded_at, p.processed_at,
+                  COALESCE(
+                    json_agg(json_build_object('id', t.id::text, 'name', t.name))
+                    FILTER (WHERE t.id IS NOT NULL), '[]'
+                  ) AS tags
+           FROM papers p
+           LEFT JOIN paper_tags pt ON p.id = pt.paper_id
+           LEFT JOIN tags t ON pt.tag_id = t.id
+           WHERE p.user_id = $1 AND ($2::uuid IS NULL OR p.corpus_id = $2)
+           GROUP BY p.id
+           ORDER BY p.uploaded_at DESC
+           LIMIT {MAX_LIBRARY_LIST}""",
+        user.id, workspace_id,
+    )
+    return [_paper_from_row(row) for row in rows]
 
 
 @router.get("/{paper_id}", response_model=Paper)
@@ -216,23 +227,7 @@ async def get_paper(
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    return Paper(
-        id=row["id"],
-        user_id=row["user_id"],
-        corpus_id=row["corpus_id"],
-        title=row["title"],
-        authors=row["authors"] or [],
-        year=row["year"],
-        doi=row["doi"],
-        filename=row["filename"],
-        status=row["status"],
-        extraction_path=row["extraction_path"],
-        error_message=row["error_message"],
-        chunk_count=row["chunk_count"] or 0,
-        figure_count=row["figure_count"] or 0,
-        uploaded_at=row["uploaded_at"],
-        processed_at=row["processed_at"],
-    )
+    return _paper_from_row(row)
 
 
 @router.delete("/{paper_id}", status_code=204)
@@ -306,19 +301,30 @@ async def list_figures(
     # - Local backend returns /figures/{paper_id}/{figure_id}?token=...,
     #   served by our API, which re-verifies ownership on every fetch.
     # - Supabase backend returns a direct signed-storage URL the browser
-    #   can hit without a round-trip through us.
+    #   can hit without a round-trip through us (a blocking HTTP call under
+    #   the hood). Batch all rows into ONE asyncio.to_thread hop rather
+    #   than one hop per figure, so an N-figure paper doesn't stall the
+    #   event loop for N sequential storage round-trips (R10 API-3).
+    def _sign_all() -> list[str]:
+        return [
+            storage.figure_image_url(
+                user.id, paper_id, str(row["id"]),
+                str(row["image_path"] or ""),
+            )
+            for row in rows
+        ]
+
+    image_urls = await asyncio.to_thread(_sign_all)
+
     return [
         {
             "id": str(row["id"]),
             "page_number": row["page_number"],
-            "image_url": storage.figure_image_url(
-                user.id, paper_id, str(row["id"]),
-                str(row["image_path"] or ""),
-            ),
+            "image_url": image_urls[i],
             "extraction_type": row["extraction_type"],
             "description": row["description"],
             "claim_summary": row["claim_summary"],
             "figure_index": row["figure_index"],
         }
-        for row in rows
+        for i, row in enumerate(rows)
     ]

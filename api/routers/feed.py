@@ -1,16 +1,18 @@
 """Feed generation and retrieval endpoints."""
 
+import asyncio
 import json
 
 import asyncpg
 import structlog
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from audit import record_audit
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
+from constants import MAX_FEEDS_LIST
 from db.connection import get_db
 from models.feed import Feed, FeedGenerateRequest
 
@@ -18,8 +20,46 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/feed", tags=["feed"])
 
 
-def _get_celery() -> Celery:
-    return Celery(broker=settings.redis_url, backend=settings.redis_url)
+# R10 DUP-16: single row-hydration helper for the 2 sites that build a Feed
+# (get_feed detail, list_feeds). `posts` and `podcast_audio_url` are passed
+# in already-hydrated (JSON-decoded / signed-URL-resolved) since that
+# hydration is async I/O that doesn't belong inside a row mapper.
+# include_media=False is list_feeds's shape — its SQL never selects the
+# audio/podcast columns at all, so this skips reading them entirely rather
+# than defaulting on missing keys, preserving the existing narrower shape.
+def _feed_from_row(
+    row: asyncpg.Record,
+    posts: list[dict[str, object]],
+    *,
+    include_media: bool = True,
+    podcast_audio_url: str | None = None,
+) -> Feed:
+    kwargs: dict[str, object] = dict(
+        id=row["id"],
+        user_id=row["user_id"],
+        corpus_id=row["corpus_id"],
+        tag_filter=row["tag_filter"],
+        posts=posts,
+        generated_at=row["generated_at"],
+        generation_duration_ms=row["generation_duration_ms"],
+        paper_count=row["paper_count"],
+        post_count=row["post_count"],
+    )
+    if include_media:
+        podcast_segments = row["podcast_segments"]
+        if isinstance(podcast_segments, str):
+            podcast_segments = json.loads(podcast_segments)
+        if not isinstance(podcast_segments, list):
+            podcast_segments = None
+        kwargs.update(
+            audio_status=row["audio_status"],
+            audio_generated_at=row["audio_generated_at"],
+            podcast_status=row["podcast_status"],
+            podcast_generated_at=row["podcast_generated_at"],
+            podcast_segments=podcast_segments,
+            podcast_audio_url=podcast_audio_url,
+        )
+    return Feed(**kwargs)
 
 
 @router.post("/generate", status_code=202)
@@ -51,7 +91,7 @@ async def generate_feed(
     if count == 0:
         raise HTTPException(status_code=400, detail="No processed papers available. Upload and wait for processing to complete.")
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     kwargs: dict[str, object] = {
         "corpus_id": str(body.corpus_id) if body.corpus_id else None,
         "tag_filter": body.tag_filter,
@@ -95,7 +135,7 @@ async def get_feed_status(
     effectively unguessable, but leaving this unauthenticated would let any
     passerby poll by scraping task IDs out of logs or the network tab.
     """
-    celery_app = _get_celery()
+    celery_app = get_celery()
     result = celery_app.AsyncResult(task_id)
 
     if result.state == "PENDING":
@@ -117,7 +157,7 @@ async def get_feed_status(
         return {"status": result.state.lower(), "task_id": task_id}
 
 
-def _hydrate_audio_urls(
+async def _hydrate_audio_urls(
     posts: list[dict[str, object]], user_id: str, feed_id: str
 ) -> None:
     """Turn each post's stored audio_key into a fresh 24h signed URL.
@@ -125,31 +165,58 @@ def _hydrate_audio_urls(
     Mutates posts in place. Skips quietly on any error (storage down,
     key missing, etc.) — a dead play button is less bad than a 500 on
     the feed GET that breaks the whole page.
+
+    All signed-URL calls for this response are batched into ONE
+    `asyncio.to_thread` hop (a sync closure that loops and returns the
+    collected URLs) rather than one hop per post — each call is a
+    blocking HTTP round-trip against the storage backend, and doing N of
+    those directly on the event loop would stall every other in-flight
+    request for the sum of their latencies (R10 API-3).
     """
     from storage import storage as storage_backend
-    for idx, post in enumerate(posts):
-        key = post.get("audio_key") if isinstance(post, dict) else None
-        if not key:
-            continue
-        try:
-            post["audio_url"] = storage_backend.audio_url(user_id, feed_id, idx)
-        except Exception:  # noqa: BLE001
-            post["audio_url"] = None
+
+    indices = [
+        idx for idx, post in enumerate(posts)
+        if isinstance(post, dict) and post.get("audio_key")
+    ]
+    if not indices:
+        return
+
+    def _fetch_all() -> dict[int, str | None]:
+        urls: dict[int, str | None] = {}
+        for idx in indices:
+            try:
+                urls[idx] = storage_backend.audio_url(user_id, feed_id, idx)
+            except Exception:  # noqa: BLE001
+                urls[idx] = None
+        return urls
+
+    urls = await asyncio.to_thread(_fetch_all)
+    for idx, url in urls.items():
+        posts[idx]["audio_url"] = url
 
 
-def _hydrate_podcast_episode_url(user_id: str, feed_id: str) -> str | None:
+async def _hydrate_podcast_episode_url(user_id: str, feed_id: str) -> str | None:
     """Sign the episode mp3 for the browser. Returns None on storage error.
 
     The podcast is ONE continuous file produced via v3 Dialogue Mode, so
     we sign a single URL instead of the per-segment approach feed audio
     uses. Stored at the deterministic `{user}/feeds/{feed}/podcast/episode.mp3`
     key — no JSONB lookup needed.
+
+    Wrapped in `asyncio.to_thread` for the same reason as
+    `_hydrate_audio_urls`: the storage backend's signed-URL call is a
+    blocking HTTP round-trip (R10 API-3).
     """
     from storage import storage as storage_backend
-    try:
-        return storage_backend.podcast_episode_url(user_id, feed_id)
-    except Exception:  # noqa: BLE001
-        return None
+
+    def _fetch() -> str | None:
+        try:
+            return storage_backend.podcast_episode_url(user_id, feed_id)
+        except Exception:  # noqa: BLE001
+            return None
+
+    return await asyncio.to_thread(_fetch)
 
 
 @router.get("/{feed_id}", response_model=Feed)
@@ -176,35 +243,13 @@ async def get_feed(
         posts_data = json.loads(posts_data)
 
     if row["audio_status"] == "ready":
-        _hydrate_audio_urls(posts_data, user.id, feed_id)
-
-    podcast_segments = row["podcast_segments"]
-    if isinstance(podcast_segments, str):
-        podcast_segments = json.loads(podcast_segments)
-    if not isinstance(podcast_segments, list):
-        podcast_segments = None
+        await _hydrate_audio_urls(posts_data, user.id, feed_id)
 
     podcast_audio_url: str | None = None
     if row["podcast_status"] == "ready":
-        podcast_audio_url = _hydrate_podcast_episode_url(user.id, feed_id)
+        podcast_audio_url = await _hydrate_podcast_episode_url(user.id, feed_id)
 
-    return Feed(
-        id=row["id"],
-        user_id=row["user_id"],
-        corpus_id=row["corpus_id"],
-        tag_filter=row["tag_filter"],
-        posts=posts_data,
-        generated_at=row["generated_at"],
-        generation_duration_ms=row["generation_duration_ms"],
-        paper_count=row["paper_count"],
-        post_count=row["post_count"],
-        audio_status=row["audio_status"],
-        audio_generated_at=row["audio_generated_at"],
-        podcast_status=row["podcast_status"],
-        podcast_generated_at=row["podcast_generated_at"],
-        podcast_segments=podcast_segments,
-        podcast_audio_url=podcast_audio_url,
-    )
+    return _feed_from_row(row, posts_data, podcast_audio_url=podcast_audio_url)
 
 
 @router.post("/{feed_id}/audio", status_code=202)
@@ -238,7 +283,7 @@ async def request_feed_audio(
         # existing status/URLs without us spinning up a duplicate task.
         return {"status": current}
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.audio_tasks.generate_audio_for_feed",
         args=[feed_id],
@@ -274,7 +319,7 @@ async def request_feed_podcast(
     if current in ("generating", "ready"):
         return {"status": current}
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.audio_tasks.generate_podcast_for_feed",
         args=[feed_id],
@@ -326,7 +371,14 @@ async def delete_post(
         )
         if length is None:
             raise HTTPException(status_code=404, detail="Feed not found")
-        raise HTTPException(status_code=400, detail="Post index out of range")
+        # R10 BP-2: was 400 "Post index out of range" — an out-of-range
+        # index into a JSONB array is a missing sub-resource, same as
+        # personas.delete_persona_dm_message (404 "Message index out of
+        # range") and replies.delete_reply_message (404 "Message not
+        # found"). Aligned to 404 so clients don't special-case this one
+        # sibling. Phrasing matches user_posts.py's "Post not found" 404s
+        # (the closest peer working on posts, not messages).
+        raise HTTPException(status_code=404, detail="Post not found")
     logger.info("post_soft_deleted", feed_id=feed_id, post_index=post_index)
 
     # Sync the feed_posts search index (2.19). Best-effort — the JSONB
@@ -371,9 +423,11 @@ async def regenerate_post(
     if not row:
         raise HTTPException(status_code=404, detail="Feed not found")
     if post_index < 0 or post_index >= row["post_count"]:
-        raise HTTPException(status_code=400, detail="Post index out of range")
+        # R10 BP-2: aligned to 404 "Post not found", same rationale as
+        # delete_post above.
+        raise HTTPException(status_code=404, detail="Post not found")
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.persona_tasks.regenerate_post",
         args=[feed_id, post_index],
@@ -419,13 +473,13 @@ async def list_feeds(
     if workspace_id:
         rows = await db.fetch(
             f"""SELECT {select_cols}
-               FROM feeds WHERE user_id = $1 AND corpus_id = $2 ORDER BY generated_at DESC LIMIT 20""",
+               FROM feeds WHERE user_id = $1 AND corpus_id = $2 ORDER BY generated_at DESC LIMIT {MAX_FEEDS_LIST}""",
             user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
             f"""SELECT {select_cols}
-               FROM feeds WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 20""",
+               FROM feeds WHERE user_id = $1 ORDER BY generated_at DESC LIMIT {MAX_FEEDS_LIST}""",
             user.id,
         )
     feeds = []
@@ -436,15 +490,5 @@ async def list_feeds(
             posts_data = row["posts"]
             if isinstance(posts_data, str):
                 posts_data = json.loads(posts_data)
-        feeds.append(Feed(
-            id=row["id"],
-            user_id=row["user_id"],
-            corpus_id=row["corpus_id"],
-            tag_filter=row["tag_filter"],
-            posts=posts_data,
-            generated_at=row["generated_at"],
-            generation_duration_ms=row["generation_duration_ms"],
-            paper_count=row["paper_count"],
-            post_count=row["post_count"],
-        ))
+        feeds.append(_feed_from_row(row, posts_data, include_media=False))
     return feeds

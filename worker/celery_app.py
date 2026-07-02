@@ -3,6 +3,7 @@
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 
 app = Celery(
     "ficino",
@@ -44,6 +45,22 @@ app.conf.update(
         "tasks.reading_list_tasks.*": {"queue": "persona"},
         "tasks.audio_tasks.*": {"queue": "persona"},
     },
+    # Periodic tasks. Beat runs EMBEDDED in the worker process (-B in the
+    # Dockerfile CMD) — correct only while the worker runs a single replica
+    # (Railway numReplicas=1, compose single container). If the worker ever
+    # scales out, beat must move to its own process or schedules double-fire.
+    beat_schedule={
+        "check-stale-papers-daily": {
+            "task": "tasks.alert_tasks.check_stale_papers",
+            # Wall-clock schedule (not an interval): crontab due-ness survives
+            # restarts/deploys — an 86400s interval resets its countdown on
+            # every fresh beat state file (ephemeral /tmp), so under frequent
+            # deploys it would never fire (R10 wave-3 final-review fix).
+            "schedule": crontab(hour=3, minute=0),
+            "options": {"queue": "persona"},
+        },
+    },
+    beat_schedule_filename="/tmp/celerybeat-schedule",
 )
 
 app.conf.update(

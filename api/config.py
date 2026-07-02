@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # synthesis creations, and any other one-shot LLM dispatch that isn't
     # a full feed generation.
     rate_limit_summary_per_day: int = 30
+    # R10 BP-6: replies.py and personas.py hardcoded `RateLimit(..., 60)`
+    # inline with no env override — every other dispatch site's limit
+    # flows through this Settings class. Same default (60), now tunable.
+    rate_limit_replies_per_day: int = 60
+    rate_limit_persona_dm_per_day: int = 60
 
     # App
     environment: str = "development"
@@ -70,6 +75,15 @@ class Settings(BaseSettings):
     # /feed/{id}/audio endpoint returning 501).
     elevenlabs_api_key: str = ""
     elevenlabs_model_id: str = "eleven_turbo_v2_5"  # fast + cheap; good enough for post-length snippets
+
+    # Feature flag (2.20). When true, post search hits the normalized
+    # feed_posts table via tsvector — O(log n) indexed search. When false,
+    # falls back to the legacy in-memory JSONB scan. Default true after
+    # backfill verified parity; flip back to false if the new path
+    # misbehaves. R10 BP-14: previously read via bare `os.getenv` in
+    # search.py instead of flowing through this Settings class like every
+    # other API config knob.
+    search_use_normalized_posts: bool = True
 
     # SaaS / hosted-deployment lock. When true:
     #   - the Settings → AI UI hides LLM provider + API-key controls

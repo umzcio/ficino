@@ -5,14 +5,13 @@ and asks the LLM to pull structured metadata. Falls back gracefully if
 extraction fails.
 """
 
-import asyncio
 import json
 import re
-import threading as _threading
 
 import structlog
 
 from lib import claude_client
+from lib.event_loop import LoopRunner
 from lib.sanitize import fence_untrusted
 
 logger = structlog.get_logger(__name__)
@@ -115,19 +114,21 @@ async def extract_metadata(text: str) -> dict[str, object]:
     return {"title": None, "authors": [], "year": None, "doi": None, "tags": []}
 
 
-# Persistent event loop to avoid the repeated-asyncio.run() + httpx-GC race
-# that surfaces as `RuntimeError('Event loop is closed')` in worker logs.
+# Shared background event loop (R10 DUP-5: LoopRunner) — this module
+# previously ran `with _lock: loop.run_until_complete(coro)` on the
+# *caller's* thread, which never spun up a background thread at all and
+# serialized every metadata extraction across all concurrent Celery
+# threads in the process (the round-4 bug the other worker/lib modules
+# already fixed; this was the one copy that regressed / never got it).
+# Adopting LoopRunner gives this module the same dedicated daemon-thread
+# loop + run_coroutine_threadsafe submission as db.py, claude_client.py,
+# embedder.py, contextualizer.py, figure_detector.py, and vision_extractor.py.
 
-_meta_loop: asyncio.AbstractEventLoop | None = None
-_meta_loop_lock = _threading.Lock()
+_runner = LoopRunner("meta-loop")
 
 
 def _run_on_meta_loop(coro):
-    global _meta_loop
-    with _meta_loop_lock:
-        if _meta_loop is None or _meta_loop.is_closed():
-            _meta_loop = asyncio.new_event_loop()
-        return _meta_loop.run_until_complete(coro)
+    return _runner.run(coro)
 
 
 def extract_metadata_sync(text: str) -> dict[str, object]:

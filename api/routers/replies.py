@@ -4,31 +4,22 @@ import asyncio
 import json
 
 import asyncpg
-import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
+from config import settings
+from constants import MAX_ACTIVITY_FEED
 from db import connection as db_connection
 from db.connection import get_db
-from services.llm import generate_response
+from models.requests import ReplyRequest, ZapRequest
+from services.llm import generate_response, llm_error_to_http
+from textutil import escape_like
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/replies", tags=["replies"])
-
-
-def _escape_like(s: str) -> str:
-    """Escape LIKE/ILIKE metacharacters so user input is matched literally.
-
-    Without this, a `paper_ref` containing `%` or `_` would wildcard-match
-    across the caller's paper library — e.g. `paper_ref = "%"` would grab
-    chunks from whatever paper the DB happened to return first. Backslashes
-    must be escaped first (otherwise we double-escape the escape char).
-    Postgres honors `\\` as the default LIKE escape char.
-    """
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 async def _load_reply_context_chunks(
@@ -107,7 +98,7 @@ async def _load_reply_context_chunks(
     # paper_ref so legacy posts still have a retrieval scope.
     if not source_paper_ids and paper_ref:
         raw_ref = paper_ref.split(' et al')[0] if ' et al' in paper_ref else paper_ref[:30]
-        safe_ref = _escape_like(raw_ref)
+        safe_ref = escape_like(raw_ref)
         paper_row = await db.fetchval(
             """SELECT id FROM papers
                WHERE user_id = $2 AND (title ILIKE $1 OR filename ILIKE $1)
@@ -183,6 +174,54 @@ async def _load_reply_context_chunks(
     return list(chunks.values())
 
 
+async def _load_conversation_and_sources(
+    db: asyncpg.Connection,
+    user_id: str,
+    feed_id: str,
+    post_index: int,
+) -> tuple[str | None, list[dict[str, str]], list[dict]]:
+    """Load a reply thread's existing messages + its post's stored sources.
+
+    Shared by create_reply and zap_response (R10 DUP-17) — both need the
+    same two reads before building the LLM prompt: the post_replies
+    conversation (if a thread already exists) and
+    feeds.posts[post_index].sources, which feeds `_load_reply_context_chunks`
+    for chunk-id anchor grounding. Posts generated before chunk-id
+    persistence have sources without chunk_ids; that helper falls back to
+    tsquery drift search on paper_ref in that case.
+
+    Returns (reply_id, existing_messages, post_sources); reply_id is None
+    when no thread exists yet for this post.
+    """
+    row = await db.fetchrow(
+        "SELECT id, messages FROM post_replies WHERE feed_id = $1 AND post_index = $2",
+        feed_id, post_index,
+    )
+    existing_messages: list[dict[str, str]] = []
+    reply_id: str | None = None
+    if row:
+        reply_id = str(row["id"])
+        existing_messages = row["messages"]
+        if isinstance(existing_messages, str):
+            existing_messages = json.loads(existing_messages)
+
+    post_row = await db.fetchrow(
+        "SELECT posts FROM feeds WHERE id = $1 AND user_id = $2",
+        feed_id, user_id,
+    )
+    post_sources: list[dict] = []
+    if post_row:
+        posts_json = post_row["posts"]
+        if isinstance(posts_json, str):
+            posts_json = json.loads(posts_json)
+        if isinstance(posts_json, list) and 0 <= post_index < len(posts_json):
+            raw_sources = posts_json[post_index].get("sources") or []
+            if isinstance(raw_sources, list):
+                post_sources = [s for s in raw_sources if isinstance(s, dict)]
+
+    return reply_id, existing_messages, post_sources
+
+
 async def _llm_call_with_fresh_conn(
     system: str,
     messages: list[dict[str, str]],
@@ -211,29 +250,6 @@ async def _llm_call_with_fresh_conn(
         )
 
 
-class ReplyRequest(BaseModel):
-    feed_id: str
-    post_index: int
-    persona_key: str
-    # Bound body length so a misbehaving/malicious client can't pump
-    # unbounded text through the LLM path. Matches ZapRequest constraints.
-    user_message: str = Field(max_length=2000)
-    post_content: str = Field(max_length=4000)
-    paper_ref: str | None = Field(default=None, max_length=500)
-
-
-class ZapRequest(BaseModel):
-    feed_id: str
-    post_index: int
-    target_persona_key: str  # persona to generate response
-    source_persona_key: str  # persona who wrote the message being zapped
-    # Bound source_message + post_content length so a misbehaving client
-    # (or a malicious one) can't jam a 100MB payload through the LLM path.
-    source_message: str = Field(max_length=2000)
-    post_content: str = Field(max_length=4000)
-    paper_ref: str | None = Field(default=None, max_length=500)
-
-
 @router.get("/conversations")
 async def list_conversations(
     user: AuthUser = Depends(get_current_user),
@@ -248,7 +264,7 @@ async def list_conversations(
     # `WITH ORDINALITY` preserves the array position so `ORDER BY ord DESC`
     # actually finds the LATEST user/persona turn, not an arbitrary one.
     rows = await db.fetch(
-        """SELECT pr.id, pr.feed_id, pr.post_index, pr.persona_key,
+        f"""SELECT pr.id, pr.feed_id, pr.post_index, pr.persona_key,
                   pr.updated_at,
                   f.generated_at AS feed_generated_at,
                   COALESCE(jsonb_array_length(pr.messages), 0) AS message_count,
@@ -269,7 +285,7 @@ async def list_conversations(
            FROM post_replies pr
            JOIN feeds f ON pr.feed_id::uuid = f.id AND f.user_id = $1
            ORDER BY pr.updated_at DESC
-           LIMIT 100""",
+           LIMIT {MAX_ACTIVITY_FEED}""",
         user.id,
     )
     return [
@@ -331,7 +347,7 @@ async def create_reply(
     body: ReplyRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-    _rl: None = Depends(RateLimit("reply", 60)),
+    _rl: None = Depends(RateLimit("reply", settings.rate_limit_replies_per_day)),
 ) -> dict[str, object]:
     """Send a reply to a persona and get their response.
 
@@ -346,19 +362,10 @@ async def create_reply(
     if not feed_owner:
         raise HTTPException(status_code=404, detail="Feed not found")
 
-    # Get existing conversation or start new
-    row = await db.fetchrow(
-        "SELECT id, messages FROM post_replies WHERE feed_id = $1 AND post_index = $2",
-        body.feed_id, body.post_index,
+    # Get existing conversation + this post's stored sources (R10 DUP-17).
+    reply_id, existing_messages, post_sources = await _load_conversation_and_sources(
+        db, user.id, body.feed_id, body.post_index,
     )
-
-    existing_messages: list[dict[str, str]] = []
-    reply_id = None
-    if row:
-        reply_id = str(row["id"])
-        existing_messages = row["messages"]
-        if isinstance(existing_messages, str):
-            existing_messages = json.loads(existing_messages)
 
     # Mark the boundary so the final DB write can append ONLY the new items
     # via `messages || $1::jsonb`. This avoids the classic SELECT→mutate→
@@ -376,25 +383,7 @@ async def create_reply(
     if not persona_prompt:
         persona_prompt = f"You are {body.persona_key}"
 
-    # Load the post's stored sources (for chunk-id anchor grounding) from
-    # feeds.posts[post_index].sources. Posts generated before chunk-id
-    # persistence have sources without chunk_ids; the helper falls back
-    # to tsquery drift search on paper_ref in that case.
     from sanitize import fence_untrusted
-
-    post_row = await db.fetchrow(
-        "SELECT posts FROM feeds WHERE id = $1 AND user_id = $2",
-        body.feed_id, user.id,
-    )
-    post_sources: list[dict] = []
-    if post_row:
-        posts_json = post_row["posts"]
-        if isinstance(posts_json, str):
-            posts_json = json.loads(posts_json)
-        if isinstance(posts_json, list) and 0 <= body.post_index < len(posts_json):
-            raw_sources = posts_json[body.post_index].get("sources") or []
-            if isinstance(raw_sources, list):
-                post_sources = [s for s in raw_sources if isinstance(s, dict)]
 
     grounded_chunks = await _load_reply_context_chunks(
         db,
@@ -569,12 +558,16 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
     # --- Walk results in deterministic order: main, mentions..., organic ---
     idx = 0
 
-    # 1. Main persona — a failure still 500s, same as before.
+    # 1. Main persona — a failure now gets the same graded status code as
+    # zap_response/send_persona_dm instead of a blanket 500 (R10 BP-1).
+    # asyncio.gather(..., return_exceptions=True) hands back the exception
+    # instance itself (not a raised one) for any failed task, in the same
+    # position as its coroutine in `tasks` — so `main_result` here is
+    # already the caught exception for the main-persona call specifically.
     main_result = results[idx]
     idx += 1
     if isinstance(main_result, BaseException):
-        logger.error("reply_generation_failed", error=str(main_result))
-        raise HTTPException(status_code=500, detail="Failed to generate persona response")
+        raise llm_error_to_http(main_result, event="reply_generation_failed")
     persona_response: str = main_result
     existing_messages.append({"role": "persona", "content": persona_response})
 
@@ -656,6 +649,7 @@ async def delete_reply_message(
     feed_id: str,
     post_index: int,
     message_index: int,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -697,13 +691,24 @@ async def delete_reply_message(
         feed_id, post_index, message_index,
     )
 
+    await record_audit(
+        db, request, user,
+        action="reply.delete_message", resource_type="reply",
+        metadata={
+            "feed_id": feed_id,
+            "post_index": post_index,
+            "message_index": message_index,
+        },
+        status_code=204,
+    )
+
 
 @router.post("/zap")
 async def zap_response(
     body: ZapRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-    _rl: None = Depends(RateLimit("reply", 60)),
+    _rl: None = Depends(RateLimit("reply", settings.rate_limit_replies_per_day)),
 ) -> dict[str, object]:
     """Trigger a specific persona to respond to a specific message (conductor mode)."""
     # Verify the feed belongs to the user
@@ -729,39 +734,14 @@ async def zap_response(
     )
     source_name = source["name"] if source else body.source_persona_key
 
-    # Get existing conversation or start new
-    row = await db.fetchrow(
-        "SELECT id, messages FROM post_replies WHERE feed_id = $1 AND post_index = $2",
-        body.feed_id, body.post_index,
+    # Get existing conversation + this post's stored sources (R10 DUP-17).
+    # Drift search below uses the source persona's message as the query
+    # since this is the zap target responding to that turn.
+    reply_id, existing_messages, post_sources = await _load_conversation_and_sources(
+        db, user.id, body.feed_id, body.post_index,
     )
 
-    existing_messages: list[dict[str, str]] = []
-    reply_id = None
-    if row:
-        reply_id = str(row["id"])
-        existing_messages = row["messages"]
-        if isinstance(existing_messages, str):
-            import json as _json
-            existing_messages = _json.loads(existing_messages)
-
-    # Load post.sources for chunk-id anchor grounding, same pattern as
-    # create_reply above. Drift search uses the source persona's message
-    # as the query since this is the zap target responding to that turn.
     from sanitize import fence_untrusted
-
-    post_row = await db.fetchrow(
-        "SELECT posts FROM feeds WHERE id = $1 AND user_id = $2",
-        body.feed_id, user.id,
-    )
-    post_sources: list[dict] = []
-    if post_row:
-        posts_json = post_row["posts"]
-        if isinstance(posts_json, str):
-            posts_json = json.loads(posts_json)
-        if isinstance(posts_json, list) and 0 <= body.post_index < len(posts_json):
-            raw_sources = posts_json[body.post_index].get("sources") or []
-            if isinstance(raw_sources, list):
-                post_sources = [s for s in raw_sources if isinstance(s, dict)]
 
     grounded_chunks = await _load_reply_context_chunks(
         db,
@@ -821,6 +801,9 @@ Rules:
 
 Respond as {target['name']} ({target['handle']})."""
 
+    # Exception -> status-code grading lives in services.llm.llm_error_to_http
+    # (R10 BP-1) — shared with personas.send_persona_dm and this file's own
+    # create_reply main-persona result.
     try:
         content = await generate_response(
             db, system=zap_system,
@@ -828,24 +811,8 @@ Respond as {target['name']} ({target['handle']})."""
             max_tokens=256, temperature=0.8,
             user_id=user.id,
         )
-    except asyncio.TimeoutError as e:
-        logger.warn("zap_failed", error=str(e), reason="timeout")
-        raise HTTPException(status_code=504, detail="LLM request timed out. Try again.")
-    except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-        logger.warn("zap_failed", error=str(e), reason="llm_unreachable")
-        raise HTTPException(status_code=503, detail="LLM provider unreachable. Try again in a moment.")
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        logger.warn("zap_failed", error=str(e), reason="llm_http_error", upstream_status=status)
-        if 400 <= status < 500:
-            raise HTTPException(status_code=502, detail="LLM provider rejected our request.")
-        raise HTTPException(status_code=503, detail="LLM provider error. Try again in a moment.")
-    except (ValueError, KeyError, TypeError) as e:
-        logger.warn("zap_failed", error=str(e), reason="bad_input")
-        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)[:200]}")
     except Exception as e:
-        logger.error("zap_failed", error=str(e), error_type=type(e).__name__)
-        raise HTTPException(status_code=500, detail="Internal error. See server logs.")
+        raise llm_error_to_http(e, event="zap_failed")
 
     # Append atomically via `messages || $1::jsonb` so a concurrent
     # create_reply turn (which uses the same pattern) can't be clobbered.

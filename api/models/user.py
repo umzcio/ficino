@@ -1,29 +1,15 @@
-"""User and Corpus data models."""
+"""User data models."""
 
-from datetime import datetime
-from uuid import UUID
-
-from pydantic import BaseModel, Field
-
-
-class Corpus(BaseModel):
-    id: UUID
-    user_id: UUID
-    name: str = "Default"
-    created_at: datetime | None = None
-
-
-class User(BaseModel):
-    id: UUID
-    clerk_id: str | None = None
-    email: str
-    display_name: str | None = None
-    default_corpus_id: UUID | None = None
-    corpora: list[Corpus] = Field(default_factory=list)
-    generation_count_today: int = 0
-    created_at: datetime | None = None
+from pydantic import BaseModel
 
 
 class UserUpdate(BaseModel):
+    # R10 API-4: `default_corpus_id` was accepted here but silently ignored
+    # by update_user_profile (no `users` column, no read path) — dropped
+    # rather than implemented. The frontend already persists the active
+    # workspace client-side (useWorkspaces.ts's `ACTIVE_WORKSPACE_KEY` in
+    # localStorage); a server-persisted default would be a second, easily
+    # divergent source of truth for a preference nothing currently reads.
+    # If a real cross-device "default workspace" need shows up later, add
+    # the column + migration then, backed by an actual consumer.
     display_name: str | None = None
-    default_corpus_id: UUID | None = None

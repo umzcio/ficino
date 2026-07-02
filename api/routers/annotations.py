@@ -3,18 +3,15 @@
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 
 from audit import record_audit
 from auth import AuthUser, get_current_user
+from constants import MAX_ANNOTATIONS_LIST
 from db.connection import get_db
+from models.requests import AnnotationUpsert
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/annotations", tags=["annotations"])
-
-
-class AnnotationUpsert(BaseModel):
-    body: str
 
 
 @router.get("")
@@ -28,10 +25,10 @@ async def list_annotations(
     # is well above any practical annotation count per user and keeps
     # the hot path bounded.
     rows = await db.fetch(
-        """SELECT id, feed_id, post_index, body, created_at, updated_at
+        f"""SELECT id, feed_id, post_index, body, created_at, updated_at
            FROM annotations WHERE user_id = $1
            ORDER BY updated_at DESC
-           LIMIT 1000""",
+           LIMIT {MAX_ANNOTATIONS_LIST}""",
         user.id,
     )
     return [

@@ -1,48 +1,16 @@
 """Feed and Post data models."""
 
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 
-# Matches the TypeScript union in frontend/src/types/index.ts:40 —
-# keep these lists in sync so the API contract is uniformly typed.
-PostType = Literal["post", "thread", "quote", "reply", "figure"]
-
-
-class PostBase(BaseModel):
-    persona: str
-    post_type: PostType
-    content: str
-    paper_ref: str | None = None
-    likes: int = 0
-    retweets: int = 0
-    replies: int = 0
-    bookmarks: int = 0
-
-
-class ThreadPost(PostBase):
-    post_type: Literal["thread"] = "thread"
-    thread_count: int = 1
-
-
-class QuotePost(PostBase):
-    post_type: Literal["quote"] = "quote"
-    quoting_handle: str | None = None
-    quoting_content: str | None = None
-
-
-class ReplyPost(PostBase):
-    post_type: Literal["reply"] = "reply"
-    replying_to: str | None = None
-
-
-class FigurePost(PostBase):
-    post_type: Literal["figure"] = "figure"
-    figure_id: UUID | None = None
-    figure_caption: str | None = None
+# NOTE: posts are NOT validated against a typed post-shape model — `Feed.posts`
+# below is `list[dict[str, object]]`. The worker builds posts as plain dicts
+# and nothing in this file enforces per-post-type fields (see R10 API-7/BP-4:
+# the previous typed post hierarchy here was dead code, imported only by its
+# own test file, and has been removed).
 
 
 class FeedGenerateRequest(BaseModel):

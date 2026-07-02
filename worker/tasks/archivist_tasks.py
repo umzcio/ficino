@@ -28,6 +28,30 @@ _CITATION_PATTERN = re.compile(
 )
 
 
+def _get_paper_ids(post_user_id: str, corpus_id: str | None) -> list[str]:
+    """Resolve the paper IDs the Archivist may retrieve from for a post.
+
+    Always scoped to the post owner. If a corpus_id is present, narrows
+    further to that workspace. Without the user_id filter, the no-corpus
+    fallthrough used to leak other users' papers into the Archivist reply.
+    Collapsed from two byte-identical copies in respond_to_user_post and
+    respond_to_user_post_followup (R10 DUP-12).
+    """
+    if corpus_id:
+        paper_rows = fetchrow(
+            """SELECT array_agg(id::text) AS ids FROM papers
+               WHERE corpus_id = $1 AND user_id = $2 AND status = 'complete'""",
+            corpus_id, post_user_id,
+        )
+    else:
+        paper_rows = fetchrow(
+            """SELECT array_agg(id::text) AS ids FROM papers
+               WHERE user_id = $1 AND status = 'complete'""",
+            post_user_id,
+        )
+    return paper_rows["ids"] if paper_rows and paper_rows["ids"] else []
+
+
 def _known_citations(chunks: list[dict]) -> set[tuple[str, str]]:
     """Extract (last_name_lower, year_str) tuples from retrieved chunks.
 
@@ -160,26 +184,13 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
         post_corpus_id = str(row["corpus_id"]) if row["corpus_id"] else corpus_id
 
         user_settings = apply_provider_settings(post_user_id)
-        temperature = user_settings.get("persona_temperature", 0.7)
+        # R10 DUP-12: aligned to 0.8 (persona_tasks / reading_list_tasks'
+        # fallback) — dead in practice since DEFAULTS always supplies
+        # persona_temperature, but the literals should agree.
+        temperature = user_settings.get("persona_temperature", 0.8)
 
-        # Get paper IDs — always scoped to the post owner. If a corpus_id is
-        # present, narrow further to that workspace. Without the user_id
-        # filter, the no-corpus fallthrough used to leak other users' papers
-        # into the Archivist reply.
-        if post_corpus_id:
-            paper_rows = fetchrow(
-                """SELECT array_agg(id::text) AS ids FROM papers
-                   WHERE corpus_id = $1 AND user_id = $2 AND status = 'complete'""",
-                post_corpus_id, post_user_id,
-            )
-        else:
-            paper_rows = fetchrow(
-                """SELECT array_agg(id::text) AS ids FROM papers
-                   WHERE user_id = $1 AND status = 'complete'""",
-                post_user_id,
-            )
-
-        paper_ids = paper_rows["ids"] if paper_rows and paper_rows["ids"] else []
+        # Get paper IDs — see _get_paper_ids docstring.
+        paper_ids = _get_paper_ids(post_user_id, post_corpus_id)
 
         if not paper_ids:
             # No papers — respond with a helpful message
@@ -237,17 +248,7 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
         # chunk_id + paper_id are the anchors the Archivist's follow-up
         # reply path uses to re-fetch these exact chunks — the user can ask
         # a follow-up question against the same grounded context.
-        sources = [
-            {
-                "chunk_id": c.get("id"),
-                "paper_id": c.get("paper_id"),
-                "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
-                "section": c.get("section", "unknown"),
-                "content": str(c.get("content", ""))[:300],
-                "score": round(float(c.get("score", 0)), 3),
-            }
-            for c in chunks[:5]
-        ]
+        sources = persona_lib.build_post_sources(chunks)
 
         reply = {
             "role": "archivist",
@@ -334,21 +335,10 @@ def respond_to_user_post_followup(self: Task, user_post_id: str) -> dict:
         last_user_msg = replies[-1]["content"]
 
         user_settings = apply_provider_settings(post_user_id)
-        temperature = user_settings.get("persona_temperature", 0.7)
+        # R10 DUP-12: aligned to 0.8 — see respond_to_user_post's comment.
+        temperature = user_settings.get("persona_temperature", 0.8)
 
-        if post_corpus_id:
-            paper_rows = fetchrow(
-                """SELECT array_agg(id::text) AS ids FROM papers
-                   WHERE corpus_id = $1 AND user_id = $2 AND status = 'complete'""",
-                post_corpus_id, post_user_id,
-            )
-        else:
-            paper_rows = fetchrow(
-                """SELECT array_agg(id::text) AS ids FROM papers
-                   WHERE user_id = $1 AND status = 'complete'""",
-                post_user_id,
-            )
-        paper_ids = paper_rows["ids"] if paper_rows and paper_rows["ids"] else []
+        paper_ids = _get_paper_ids(post_user_id, post_corpus_id)
 
         if not paper_ids:
             _append_reply(user_post_id, {

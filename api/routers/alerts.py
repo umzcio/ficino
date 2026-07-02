@@ -4,9 +4,10 @@ import json
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from auth import AuthUser, get_current_user
+from constants import MAX_ALERTS_LIST
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -20,11 +21,11 @@ async def list_alerts(
 ) -> list[dict[str, object]]:
     """List all non-dismissed alerts, newest first."""
     rows = await db.fetch(
-        """SELECT id, alert_type, title, body, metadata, read, created_at
+        f"""SELECT id, alert_type, title, body, metadata, read, created_at
            FROM alerts
            WHERE user_id = $1 AND dismissed = false
            ORDER BY created_at DESC
-           LIMIT 50""",
+           LIMIT {MAX_ALERTS_LIST}""",
         user.id,
     )
     results = []
@@ -84,15 +85,27 @@ async def mark_all_read(
     return {"status": "ok"}
 
 
-@router.delete("/{alert_id}")
+@router.delete("/{alert_id}", status_code=204)
 async def dismiss_alert(
     alert_id: str,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-) -> dict[str, str]:
-    """Dismiss an alert (hide it permanently)."""
-    await db.execute(
-        "UPDATE alerts SET dismissed = true WHERE id = $1 AND user_id = $2",
+) -> None:
+    """Dismiss an alert (hide it permanently).
+
+    R10 BP-3: was `200 {"status": "ok"}` with no existence check (one of
+    three coexisting DELETE contracts in the codebase) — standardized to
+    204 + 404-on-missing, matching the pattern-A peers (likes.delete_like,
+    bookmarks.delete_bookmark, tags.delete_tag, etc.). Frontend gate:
+    `dismissAlert` in lib/api.ts declares `Promise<void>` and its only
+    caller (`useAlerts.ts`'s `dismiss`) does `await dismissAlert(id)` and
+    discards the result — `request()` already special-cases 204 as
+    `undefined`, so this is a non-breaking body change on the wire.
+    """
+    result = await db.execute(
+        "UPDATE alerts SET dismissed = true WHERE id = $1 AND user_id = $2 AND dismissed = false",
         alert_id, user.id,
     )
-    return {"status": "ok"}
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Alert not found")
+    logger.info("alert_dismissed", alert_id=alert_id)

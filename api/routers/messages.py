@@ -5,21 +5,18 @@ import uuid
 
 import asyncpg
 import structlog
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
-from auth.rate_limit import RateLimit
+from auth.rate_limit import RateLimit, check_rate_limit
+from constants import MAX_CONTENT_LIST, MAX_PAPER_SUMMARIES_LIST
 from db.connection import get_db
+from models.requests import SynthesisCreateRequest
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/messages", tags=["messages"])
-
-
-def _get_celery() -> Celery:
-    return Celery(broker=settings.redis_url, backend=settings.redis_url)
 
 
 # --- Paper Summaries (Individual DMs) ---
@@ -51,7 +48,7 @@ async def list_paper_conversations(
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
                WHERE p.status = 'complete' AND p.user_id = $1 AND p.corpus_id = $2
                ORDER BY p.uploaded_at DESC
-               LIMIT 200""",
+               LIMIT {MAX_PAPER_SUMMARIES_LIST}""",
             user.id, workspace_id,
         )
     else:
@@ -61,7 +58,7 @@ async def list_paper_conversations(
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
                WHERE p.status = 'complete' AND p.user_id = $1
                ORDER BY p.uploaded_at DESC
-               LIMIT 200""",
+               LIMIT {MAX_PAPER_SUMMARIES_LIST}""",
             user.id,
         )
     result = []
@@ -108,13 +105,18 @@ async def get_paper_summary(
     paper_id: str,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-    # Polling happens on the separate /status/{task_id} endpoint; this
-    # route only dispatches a Celery summary task when no summary exists
-    # (or a stuck one needs re-dispatch). Rate-limiting it caps the
-    # per-paper fan-out without affecting the fast cached-read path.
-    _rl: None = Depends(RateLimit("summary", settings.rate_limit_summary_per_day)),
 ) -> dict[str, object]:
-    """Get or trigger generation of a paper summary."""
+    """Get or trigger generation of a paper summary.
+
+    Rate-limited (R10 API-2), but imperatively: the limit is charged only
+    right before the dispatch block below, not as a Depends() that fires
+    for every call including the fast cached-read branch (`if summary:
+    ... return result`, above the dispatch block). A FastAPI dependency
+    can't distinguish those branches — it runs before the handler body —
+    so it previously charged pure browsing of already-generated summaries
+    against the same budget as actual LLM dispatches, letting a user who
+    opens >~30 already-complete summaries in a day get 429'd on reads.
+    """
     # Check paper exists and belongs to user
     paper = await db.fetchrow(
         "SELECT id, title, filename, authors FROM papers WHERE id = $1 AND user_id = $2 AND status = 'complete'",
@@ -142,7 +144,7 @@ async def get_paper_summary(
     # writing back a terminal status. If the row says 'generating' but the
     # task is actually FAILURE/REVOKED/unknown, re-dispatch rather than
     # stranding the user on a forever-spinner.
-    celery_app = _get_celery()
+    celery_app = get_celery()
     if summary and (summary["status"] or "complete") == "generating" and summary["task_id"]:
         try:
             task_state = celery_app.AsyncResult(summary["task_id"]).state
@@ -174,7 +176,12 @@ async def get_paper_summary(
             result["task_id"] = summary["task_id"]
         return result
 
-    # No (usable) summary yet — trigger generation and create placeholder row
+    # No (usable) summary yet — trigger generation and create placeholder row.
+    # Charge the rate limit here, right before the dispatch, so it covers
+    # every path that reaches this point (fresh dispatch, the error
+    # redispatch above, and the stuck-generating redispatch above) while
+    # never touching the cached-read return above.
+    await check_rate_limit(user, "summary", settings.rate_limit_summary_per_day)
     task = celery_app.send_task(
         "tasks.summary_tasks.generate_paper_summary",
         args=[paper_id],
@@ -210,7 +217,7 @@ async def get_paper_summary_status(
     Auth-gated (no task-id ownership check): task IDs are opaque but leaving
     this open lets anyone with network visibility poll for completion.
     """
-    celery_app = _get_celery()
+    celery_app = get_celery()
     result = celery_app.AsyncResult(task_id)
 
     if result.state == "SUCCESS":
@@ -222,11 +229,6 @@ async def get_paper_summary_status(
 
 
 # --- Corpus Syntheses (Group Chats) ---
-
-class SynthesisCreateRequest(BaseModel):
-    name: str
-    paper_ids: list[str]
-
 
 @router.get("/groups")
 async def list_group_chats(
@@ -240,7 +242,7 @@ async def list_group_chats(
     caps payload for users with lots of group chats.
     """
     rows = await db.fetch(
-        """SELECT id, name,
+        f"""SELECT id, name,
                   COALESCE(array_length(paper_ids, 1), 0) AS paper_count,
                   COALESCE(jsonb_array_length(messages), 0) AS message_count,
                   LEFT(COALESCE(messages->-1->>'content', ''), 80) AS last_msg,
@@ -248,7 +250,7 @@ async def list_group_chats(
            FROM corpus_syntheses
            WHERE user_id = $1
            ORDER BY generated_at DESC
-           LIMIT 50""",
+           LIMIT {MAX_CONTENT_LIST}""",
         user.id,
     )
     return [
@@ -288,7 +290,7 @@ async def create_group_chat(
     synthesis_id = str(uuid.uuid4())
     user_id = user.id
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.summary_tasks.generate_corpus_synthesis",
         args=[synthesis_id, body.paper_ids, body.name, user_id],

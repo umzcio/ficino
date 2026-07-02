@@ -5,21 +5,15 @@ import json
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 
 from audit import record_audit
 from auth import AuthUser, get_current_user
+from constants import MAX_LIBRARY_LIST
 from db.connection import get_db
+from models.requests import BookmarkCreate
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
-
-
-class BookmarkCreate(BaseModel):
-    feed_id: str
-    post_index: int
-    message_index: int = -1  # -1 = post-level, 0+ = reply message index
-    post_snapshot: dict
 
 
 @router.get("")
@@ -33,11 +27,11 @@ async def list_bookmarks(
     # ~10 MB per app mount. Enough headroom for a power user to scroll,
     # and a dedicated paginated view can come later if needed.
     rows = await db.fetch(
-        """SELECT id, feed_id, post_index, message_index, post_snapshot, bookmarked_at
+        f"""SELECT id, feed_id, post_index, message_index, post_snapshot, bookmarked_at
            FROM bookmarks
            WHERE user_id = $1
            ORDER BY bookmarked_at DESC
-           LIMIT 500""",
+           LIMIT {MAX_LIBRARY_LIST}""",
         user.id,
     )
     results = []
@@ -75,22 +69,29 @@ async def create_bookmark(
     if not feed_owner:
         raise HTTPException(status_code=404, detail="Feed not found")
 
-    # Check if already bookmarked
+    # Single-statement upsert (R10 API-10): the previous SELECT-then-INSERT
+    # had a check-then-insert race — two concurrent identical POSTs both
+    # pass the SELECT and the loser raises an unhandled UniqueViolation
+    # 500. ON CONFLICT DO NOTHING is safe here because message_index is
+    # NOT NULL DEFAULT -1 on bookmarks (infra/postgres/init.sql:150) — it
+    # never carries a NULL that would silently evade the UNIQUE constraint.
+    snapshot_json = json.dumps(body.post_snapshot, default=str)
+    row = await db.fetchrow(
+        """INSERT INTO bookmarks (user_id, feed_id, post_index, message_index, post_snapshot)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id, feed_id, post_index, message_index) DO NOTHING
+           RETURNING id""",
+        user.id, body.feed_id, body.post_index, body.message_index, snapshot_json,
+    )
+    if row:
+        logger.info("bookmark_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
+        return {"id": str(row["id"]), "status": "created"}
+
     existing = await db.fetchrow(
         "SELECT id FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
         user.id, body.feed_id, body.post_index, body.message_index,
     )
-    if existing:
-        return {"id": str(existing["id"]), "status": "already_bookmarked"}
-
-    snapshot_json = json.dumps(body.post_snapshot, default=str)
-    row = await db.fetchrow(
-        """INSERT INTO bookmarks (user_id, feed_id, post_index, message_index, post_snapshot)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id""",
-        user.id, body.feed_id, body.post_index, body.message_index, snapshot_json,
-    )
-    logger.info("bookmark_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
-    return {"id": str(row["id"]), "status": "created"}
+    return {"id": str(existing["id"]), "status": "already_bookmarked"}
 
 
 @router.delete("/{bookmark_id}", status_code=204)
@@ -120,12 +121,34 @@ async def delete_bookmark(
 async def delete_bookmark_by_post(
     feed_id: str,
     post_index: int,
+    request: Request,
     message_index: int = -1,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Remove a bookmark by feed_id + post_index + message_index."""
+    # Intentionally idempotent: unlike delete_bookmark (by id) above, this
+    # removes by composite key from a client that only knows "is this post
+    # bookmarked", not the bookmark's id — a toggle-off on an already-absent
+    # bookmark is a no-op success, not a 404 (R10 BP-3; see review/round10/
+    # best-practices.md BP-3 for the coexisting-DELETE-contracts survey).
     await db.execute(
         "DELETE FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
         user.id, feed_id, post_index, message_index,
+    )
+
+    # Same logical action as delete_bookmark (by id) above — record it
+    # under the same "bookmark.delete" action so R10 BP-10's "which route
+    # you deleted through determines whether it's logged" gap is closed
+    # for both paths (R10 BP-10). No resource_id since this route has no
+    # bookmark id to hand — the composite key lives in metadata instead.
+    await record_audit(
+        db, request, user,
+        action="bookmark.delete", resource_type="bookmark",
+        metadata={
+            "feed_id": feed_id,
+            "post_index": post_index,
+            "message_index": message_index,
+        },
+        status_code=204,
     )

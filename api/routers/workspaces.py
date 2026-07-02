@@ -1,16 +1,34 @@
 """Workspace (corpora) management endpoints."""
 
+from datetime import datetime, timezone
+
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
+from models.requests import WorkspaceCreate, WorkspaceUpdate
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+def _activity_sort_key(activity: dict[str, object]) -> datetime:
+    """Sort key for get_workspace_activity (R10 API-13).
+
+    Timestamps come from asyncpg as `datetime` objects; `papers.uploaded_at`
+    and `feeds.generated_at` are both nullable columns. The previous
+    `a["timestamp"] or ""` fallback substituted a str for a NULL timestamp,
+    which raises `TypeError: '<' not supported between instances of
+    'datetime.datetime' and 'str'` the moment any row's timestamp is NULL —
+    the None-guard was the very thing that crashed the endpoint. Falling
+    back to `datetime.min` (tz-aware, to match the tz-aware asyncpg values)
+    keeps every key comparable and sorts NULL timestamps as oldest.
+    """
+    return activity["timestamp"] or datetime.min.replace(tzinfo=timezone.utc)
 
 
 async def get_or_create_default_workspace(
@@ -33,14 +51,6 @@ async def get_or_create_default_workspace(
         user_id,
     )
     return str(row["id"])
-
-
-class WorkspaceCreate(BaseModel):
-    name: str
-
-
-class WorkspaceUpdate(BaseModel):
-    name: str
 
 
 @router.get("")
@@ -123,6 +133,7 @@ async def update_workspace(
 @router.delete("/{workspace_id}", status_code=204)
 async def delete_workspace(
     workspace_id: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -159,11 +170,24 @@ async def delete_workspace(
         "UPDATE papers SET corpus_id = $1 WHERE corpus_id = $2 AND user_id = $3",
         target, workspace_id, user.id,
     )
+    # Intentionally idempotent on a missing/already-deleted workspace_id: the
+    # guards above (default-workspace check, "only workspace" count check,
+    # and the paper-move) already ran against the caller's *other* owned
+    # workspaces, so a final DELETE that matches 0 rows here just means the
+    # target was already gone — same "toggle off" shape as bookmarks/tags'
+    # composite-key deletes, not a resource lookup that should 404 (R10 BP-3).
     await db.execute(
         "DELETE FROM corpora WHERE id = $1 AND user_id = $2",
         workspace_id, user.id,
     )
     logger.info("workspace_deleted", workspace_id=workspace_id, moved_papers_to=target)
+
+    await record_audit(
+        db, request, user,
+        action="workspace.delete", resource_type="workspace", resource_id=workspace_id,
+        metadata={"moved_papers_to": target},
+        status_code=204,
+    )
 
 
 @router.get("/{workspace_id}/activity")
@@ -218,5 +242,5 @@ async def get_workspace_activity(
         })
 
     # Sort by timestamp descending
-    activities.sort(key=lambda a: a["timestamp"] or "", reverse=True)
+    activities.sort(key=_activity_sort_key, reverse=True)
     return activities[:20]

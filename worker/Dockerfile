@@ -17,4 +17,4 @@ RUN pip install --no-cache-dir ./shared
 
 COPY worker/ .
 
-CMD ["sh", "-c", "celery -A celery_app worker --loglevel=info --queues=ingestion,persona --concurrency=${CELERY_WORKER_CONCURRENCY:-2}"]
+CMD ["sh", "-c", "celery -A celery_app worker -B --loglevel=info --queues=ingestion,persona --concurrency=${CELERY_WORKER_CONCURRENCY:-2}"]

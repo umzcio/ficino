@@ -16,8 +16,10 @@ MEDIA_URL_TTL = 86400
 
 # Chapter-row creation for reading lists. The state machine's initial
 # condition ("first chapter unlocked, rest locked") is encoded once here
-# and executed by both the api create/reorder endpoints and the worker's
-# propose-ordering apply path (R10 DUP-18).
+# and executed by both the api create/apply-ordering endpoints and the
+# worker's propose-ordering apply path (R10 DUP-18). Reorder now uses its
+# own REORDER_CHAPTER_INSERT_SQL (R10 T11) — it doesn't reset progress
+# back to "first chapter unlocked", so it can't reuse this one.
 CHAPTER_INSERT_SQL = """INSERT INTO reading_list_chapters
              (reading_list_id, chapter_index, paper_ids, status)
            SELECT $1::uuid,
