@@ -7,6 +7,7 @@ import type { FeedPost, PodcastSegment } from '../../types'
 import { getFeed, requestFeedAudio, requestFeedPodcast } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { Slider } from '../_shared/primitives'
+import { safeLocal } from '../../lib/safeLocal'
 
 type Status =
   | 'idle'
@@ -101,30 +102,30 @@ export function ListenView({ feedId, posts }: Props) {
   // once per change, (b) re-hydrate on mount from localStorage.
   const [volume, setVolume] = useState<number>(() => {
     if (typeof window === 'undefined') return 1
-    const saved = window.localStorage.getItem('ficino:listen:volume')
+    const saved = safeLocal.get('ficino:listen:volume')
     const v = saved === null ? 1 : parseFloat(saved)
     return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1
   })
   const [muted, setMuted] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
-    return window.localStorage.getItem('ficino:listen:muted') === 'true'
+    return safeLocal.get('ficino:listen:muted') === 'true'
   })
   const [playbackRate, setPlaybackRate] = useState<number>(() => {
     if (typeof window === 'undefined') return 1
-    const saved = window.localStorage.getItem('ficino:listen:rate')
+    const saved = safeLocal.get('ficino:listen:rate')
     const r = saved === null ? 1 : parseFloat(saved)
     return Number.isFinite(r) && r > 0 ? r : 1
   })
   useEffect(() => {
-    try { window.localStorage.setItem('ficino:listen:volume', String(volume)) } catch { /* ignore quota */ }
+    safeLocal.set('ficino:listen:volume', String(volume))
     if (audioRef.current) audioRef.current.volume = volume
   }, [volume])
   useEffect(() => {
-    try { window.localStorage.setItem('ficino:listen:muted', String(muted)) } catch { /* ignore */ }
+    safeLocal.set('ficino:listen:muted', String(muted))
     if (audioRef.current) audioRef.current.muted = muted
   }, [muted])
   useEffect(() => {
-    try { window.localStorage.setItem('ficino:listen:rate', String(playbackRate)) } catch { /* ignore */ }
+    safeLocal.set('ficino:listen:rate', String(playbackRate))
     if (audioRef.current) audioRef.current.playbackRate = playbackRate
   }, [playbackRate])
 

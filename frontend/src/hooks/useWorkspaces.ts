@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { Workspace } from '../types'
 import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace } from '../lib/api'
 import { cacheWorkspaces, getCachedWorkspaces } from '../lib/offline-cache'
+import { safeLocal } from '../lib/safeLocal'
 
 const ACTIVE_WORKSPACE_KEY = 'ficino_active_workspace'
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001'
@@ -9,7 +10,7 @@ const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001'
 export function useWorkspaces() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [activeId, setActiveId] = useState<string>(() => {
-    return localStorage.getItem(ACTIVE_WORKSPACE_KEY) || DEFAULT_WORKSPACE_ID
+    return safeLocal.get(ACTIVE_WORKSPACE_KEY) || DEFAULT_WORKSPACE_ID
   })
   const [loading, setLoading] = useState(true)
 
@@ -39,13 +40,13 @@ export function useWorkspaces() {
     if (workspaces.length > 0 && !workspaces.find((w) => w.id === activeId)) {
       const fallback = workspaces[0].id
       setActiveId(fallback)
-      localStorage.setItem(ACTIVE_WORKSPACE_KEY, fallback)
+      safeLocal.set(ACTIVE_WORKSPACE_KEY, fallback)
     }
   }, [workspaces, activeId])
 
   const switchTo = useCallback((id: string) => {
     setActiveId(id)
-    localStorage.setItem(ACTIVE_WORKSPACE_KEY, id)
+    safeLocal.set(ACTIVE_WORKSPACE_KEY, id)
     // Trigger a refetch so workspace-scoped consumers (papers, feeds,
     // settings) see fresh data. refresh's stable identity prevents a loop.
     refresh()

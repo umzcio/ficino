@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { safeLocal } from '../lib/safeLocal'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
@@ -11,7 +12,7 @@ export function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isInstalled, setIsInstalled] = useState(false)
   const [isDismissed, setIsDismissed] = useState(() =>
-    localStorage.getItem(DISMISSED_KEY) === 'true'
+    safeLocal.get(DISMISSED_KEY) === 'true'
   )
 
   // Detect if already installed as PWA
@@ -52,7 +53,7 @@ export function useInstallPrompt() {
 
   const dismiss = useCallback(() => {
     setIsDismissed(true)
-    localStorage.setItem(DISMISSED_KEY, 'true')
+    safeLocal.set(DISMISSED_KEY, 'true')
   }, [])
 
   const isIOS = /iPhone|iPad/.test(navigator.userAgent) && !isStandalone
