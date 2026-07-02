@@ -291,17 +291,12 @@ export function ListenView({ feedId, posts }: Props) {
         setStatus('ready')
         const firstPlayable = fresh.findIndex((p) => !p.deleted && p.audio_url)
         if (firstPlayable >= 0) {
-          const audio = audioRef.current
-          if (audio) {
-            audio.src = fresh[firstPlayable].audio_url!
-            audio.play()
-              .then(() => {
-                if (!mountedRef.current) return
-                setCurrentIndex(firstPlayable)
-                setStatus('playing')
-              })
-              .catch(() => { if (mountedRef.current) setStatus('paused') })
-          }
+          // Route through playAtIndex rather than duplicating the
+          // src-assignment + play() here — the inline duplication is
+          // what let this path drift out of sync with loadedSrcRef in
+          // the first place (FE-2), causing pause->resume to restart
+          // the clip from 0:00 instead of resuming.
+          playAtIndex(firstPlayable)
         }
         activePollerRef.current = null
         return
@@ -317,7 +312,7 @@ export function ListenView({ feedId, posts }: Props) {
       if (activePollerRef.current !== 'feed') return
       pollTimeoutRef.current = setTimeout(pollUntilFeedAudioReady, 4000)
     }
-  }, [feedId])
+  }, [feedId, playAtIndex])
 
   const pollUntilPodcastReady = useCallback(async () => {
     if (!feedId || !mountedRef.current) return
