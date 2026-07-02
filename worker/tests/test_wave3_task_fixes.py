@@ -125,3 +125,25 @@ def test_claude_page_extract_retries_transient_failures(monkeypatch):
     out = asyncio.run(vx._extract_page_claude(b"fake-png-bytes", 1))
     assert out == "page text"
     assert len(calls) == 3
+
+
+def test_fallback_excludes_reply_only_personas(monkeypatch):
+    """R10 WORK-17: plan_feed_posts's empty-enabled-set fallback bypassed the
+    feed_eligible filter that every caller applies, so a user who opts out of
+    every persona got a plan drawn from ALL active personas — including
+    reply-only ones like the Archivist (feed_eligible=false), which must
+    never author feed posts."""
+    from lib import persona as persona_lib
+
+    monkeypatch.setattr(persona_lib, "get_personas", lambda: {
+        "skeptic": {"feed_eligible": True},
+        "practitioner": {"feed_eligible": True},
+        "archivist": {"feed_eligible": False},
+    })
+
+    keys = persona_lib.eligible_persona_keys(set())
+    assert keys, "empty enabled set must still fall back to a non-empty plan"
+    assert "archivist" not in keys, (
+        "the Archivist is reply-only (feed_eligible=false) — the fallback "
+        "must not let it author feed posts (R10 WORK-17)"
+    )

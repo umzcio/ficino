@@ -593,6 +593,25 @@ JSON format:
     return base
 
 
+def eligible_persona_keys(enabled_personas: set[str] | None) -> list[str]:
+    """Resolve which persona keys a feed plan may draw from.
+
+    Non-empty `enabled_personas` -> just the keys within it (callers already
+    filter this set to feed-eligible personas before calling in, e.g.
+    persona_tasks.py ~L314-322; this stays a pure intersection).
+
+    Empty/None `enabled_personas` -> ONLY feed-eligible personas
+    (`feed_eligible=True`). The prior inline fallback
+    (`persona_keys = list(PERSONAS.keys())`) fell back to every active
+    persona regardless of eligibility, which let reply-only personas like
+    the Archivist (`feed_eligible=False`) author feed posts whenever a user
+    opted out of every persona (R10 WORK-17).
+    """
+    if enabled_personas:
+        return [k for k in PERSONAS if k in enabled_personas]
+    return [k for k, meta in PERSONAS.items() if meta.get("feed_eligible")]
+
+
 def plan_feed_posts(
     num_posts: int = 12,
     enabled_personas: set[str] | None = None,
@@ -608,8 +627,10 @@ def plan_feed_posts(
     they are blended with the manual weights. The blend ratio is
     controlled by PREFERENCE_BLEND in preference_tasks.
     """
-    persona_keys = [k for k in PERSONAS if not enabled_personas or k in enabled_personas]
+    persona_keys = eligible_persona_keys(enabled_personas)
     if not persona_keys:
+        # Only reachable if there are literally zero feed-eligible personas
+        # in the DB — an operator misconfiguration, not a normal opt-out.
         persona_keys = list(PERSONAS.keys())
 
     weights_map = custom_weights or POST_TYPE_WEIGHTS
