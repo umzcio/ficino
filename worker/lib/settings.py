@@ -20,6 +20,19 @@ logger = structlog.get_logger(__name__)
 _env_lock = threading.Lock()
 _active_settings: dict[str, object] = {}
 
+# Operator-baseline env snapshot, captured once at first apply.
+# apply_provider_settings mutates os.environ per-user; without restoring
+# between users, user A's key leaks into user B's task via get_active's
+# env fallback (R10 WORK-3). None = the operator never set that var.
+_baseline_env: dict[str, str | None] = {}
+
+
+def _snapshot_baseline_env() -> None:
+    if _baseline_env:
+        return
+    for env_var in _SETTINGS_TO_ENV.values():
+        _baseline_env[env_var] = os.getenv(env_var)
+
 
 def get_active(setting_key: str, env_key: str, default: str = "") -> str:
     """Read a provider setting, preferring the per-task apply over env.
@@ -160,13 +173,39 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
     """
     settings = get_user_settings(user_id)
 
+    # Fetch raw user settings to distinguish "user didn't set" from "DEFAULTS have it"
+    uid = user_id or STUB_USER_ID
+    row = fetchrow(
+        "SELECT settings FROM user_settings WHERE user_id = $1",
+        uid,
+    )
+    user_explicit = {}
+    if row:
+        user_explicit = row["settings"]
+        if isinstance(user_explicit, str):
+            user_explicit = json.loads(user_explicit)
+
     with _env_lock:
+        _snapshot_baseline_env()
         _active_settings.clear()
         _active_settings.update(settings)
         for setting_key, env_var in _SETTINGS_TO_ENV.items():
-            value = settings.get(setting_key)
+            # Check user's explicitly-set value, not merged (which includes DEFAULTS)
+            value = user_explicit.get(setting_key)
             if value:
                 os.environ[env_var] = str(value)
                 logger.debug("setting_applied", key=setting_key, env=env_var)
+            else:
+                # Restore the operator baseline instead of leaving the
+                # previous user's value behind (R10 WORK-3). A paid
+                # provider selected with no key now fails loudly.
+                # Also remove from _active_settings if user didn't explicitly set it,
+                # so get_active falls back to env (which has been restored).
+                _active_settings.pop(setting_key, None)
+                baseline = _baseline_env.get(env_var)
+                if baseline is None:
+                    os.environ.pop(env_var, None)
+                else:
+                    os.environ[env_var] = baseline
 
     return settings
