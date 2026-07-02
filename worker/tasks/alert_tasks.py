@@ -300,7 +300,9 @@ def check_stale_papers(self: Task) -> dict[str, object]:
                WHERE p.status = 'complete'
                AND p.uploaded_at < NOW() - INTERVAL '7 days'
                AND NOT EXISTS (
-                   SELECT 1 FROM feeds f WHERE f.corpus_id = p.corpus_id
+                   SELECT 1 FROM feeds f
+                   WHERE f.user_id = p.user_id
+                     AND (f.corpus_id = p.corpus_id OR f.corpus_id IS NULL)
                )"""
         )
 

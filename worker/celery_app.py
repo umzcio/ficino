@@ -44,6 +44,18 @@ app.conf.update(
         "tasks.reading_list_tasks.*": {"queue": "persona"},
         "tasks.audio_tasks.*": {"queue": "persona"},
     },
+    # Periodic tasks. Beat runs EMBEDDED in the worker process (-B in the
+    # Dockerfile CMD) — correct only while the worker runs a single replica
+    # (Railway numReplicas=1, compose single container). If the worker ever
+    # scales out, beat must move to its own process or schedules double-fire.
+    beat_schedule={
+        "check-stale-papers-daily": {
+            "task": "tasks.alert_tasks.check_stale_papers",
+            "schedule": 86400.0,
+            "options": {"queue": "persona"},
+        },
+    },
+    beat_schedule_filename="/tmp/celerybeat-schedule",
 )
 
 app.conf.update(
