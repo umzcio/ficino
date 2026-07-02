@@ -494,6 +494,7 @@ function AppContent() {
     onCloseMobileDrawer: () => setShowMobileDrawer(false),
     onCloseWorkspaceSheet: () => setShowWorkspaceSheet(false),
     generating: feed.feedState === 'generating',
+    activeView,
   })
 
   const renderMainContent = () => {

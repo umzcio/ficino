@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'settings'
+type AppView = 'feed' | 'listen' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
 
 interface KeyboardShortcutsProps {
   onNavigate: (view: AppView) => void
@@ -8,6 +8,13 @@ interface KeyboardShortcutsProps {
   onCloseMobileDrawer: () => void
   onCloseWorkspaceSheet: () => void
   generating: boolean
+  // The view currently on screen. While it's 'listen', the Listen page
+  // owns single-letter keys itself (e.g. "m" for mute — see
+  // ListenView.tsx), so the global nav shortcuts below must stay out of
+  // the way or "m" fires both toggleMute() AND onNavigate('messages'),
+  // unmounting the page the user is trying to control (FE-3). Escape
+  // still closes overlays regardless of view.
+  activeView: AppView
 }
 
 export function useKeyboardShortcuts({
@@ -16,6 +23,7 @@ export function useKeyboardShortcuts({
   onCloseMobileDrawer,
   onCloseWorkspaceSheet,
   generating,
+  activeView,
 }: KeyboardShortcutsProps) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -30,6 +38,11 @@ export function useKeyboardShortcuts({
         onCloseWorkspaceSheet()
         return
       }
+
+      // The Listen view owns single-letter keys for its own transport
+      // controls (space/arrows/M) — see FE-3. Bail before the nav
+      // switch so those keys never double-fire a navigation here.
+      if (activeView === 'listen') return
 
       // Navigation (single key, no modifiers)
       if (e.ctrlKey || e.metaKey || e.altKey) return
@@ -71,5 +84,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onNavigate, onGenerate, onCloseMobileDrawer, onCloseWorkspaceSheet, generating])
+  }, [onNavigate, onGenerate, onCloseMobileDrawer, onCloseWorkspaceSheet, generating, activeView])
 }
