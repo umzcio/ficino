@@ -430,6 +430,22 @@ def generate_chapter(
             posts_json, len(cumulative_paper_ids), len(posts), 0,
         )
 
+        # Sync feed_posts search index (R10 WORK-7). generate_chapter always
+        # writes a fresh feed (never appends), so base_index is always 0.
+        # Same non-fatal pattern as generate_feed (persona_tasks.py ~L877):
+        # the posts JSONB is the source of truth, so a failure here must not
+        # fail chapter generation — the backfill script can re-hydrate.
+        try:
+            from tasks.persona_tasks import _write_feed_posts_index
+            _write_feed_posts_index(feed_id, posts, 0, effective_user_id)
+        except Exception as e:
+            log.warn(
+                "feed_posts_index_sync_failed",
+                feed_id=feed_id,
+                error_type=type(e).__name__,
+                error=str(e)[:200],
+            )
+
         # Update chapter with feed_id and mark as unlocked/complete
         execute(
             "UPDATE reading_list_chapters SET feed_id = $1, status = 'complete' WHERE id = $2",
