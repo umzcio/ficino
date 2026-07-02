@@ -234,3 +234,63 @@ async def test_reply_to_user_post_concurrent_double_fire_only_one_wins(
     if isinstance(replies, str):
         replies = _json.loads(replies)
     assert len(replies) == 1, "only the winning follow-up's user turn should have landed"
+
+
+# --- API-16: delete_persona_dm_message atomic delete ---------------------
+
+@pytest.mark.asyncio
+async def test_delete_persona_dm_message_atomic(
+    client_as_user_a, seeded_users, db_conn,
+):
+    """Deleting index 0 from a 1-message thread twice: the first succeeds
+    and removes the message atomically (not via a full-array overwrite);
+    the second finds nothing at that index and 404s rather than
+    corrupting the thread."""
+    import json as _json
+
+    persona_key = await db_conn.fetchval("SELECT key FROM personas LIMIT 1")
+    messages = _json.dumps([{"role": "user", "content": "hello"}])
+    await db_conn.execute(
+        """INSERT INTO persona_dms (user_id, persona_key, messages)
+           VALUES ($1, $2, $3::jsonb)
+           ON CONFLICT (user_id, persona_key) DO UPDATE SET messages = $3::jsonb""",
+        USER_A_ID, persona_key, messages,
+    )
+
+    r1 = await client_as_user_a.delete(f"/personas/{persona_key}/dm/0")
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["messages"] == []
+
+    row = await db_conn.fetchrow(
+        "SELECT messages FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
+        USER_A_ID, persona_key,
+    )
+    stored = row["messages"]
+    if isinstance(stored, str):
+        stored = _json.loads(stored)
+    assert stored == [], "the DB row must actually be empty after the atomic delete"
+
+    r2 = await client_as_user_a.delete(f"/personas/{persona_key}/dm/0")
+    assert r2.status_code == 404, r2.text
+
+
+def test_delete_persona_dm_message_uses_atomic_jsonb_operator_not_read_modify_write():
+    """Implementation-shape check (mirrors the API-14 inspect pattern):
+    the handler must use Postgres's atomic `messages - $n::int` element
+    removal — the same pattern replies.py:delete_reply_message already
+    uses (R10 API-16) — not a SELECT-then-Python-pop-then-overwrite. The
+    latter clobbers any turn appended by an in-flight LLM send
+    (send_persona_dm's `|| EXCLUDED.messages` upsert) that lands between
+    the read and the write; only a single atomic UPDATE closes that race."""
+    from routers import personas
+
+    src = inspect.getsource(personas.delete_persona_dm_message)
+    assert ".pop(" not in src, (
+        "delete_persona_dm_message must not mutate the array in Python "
+        "and overwrite the whole column — that's the non-atomic "
+        "read-modify-write this finding is about"
+    )
+    assert "messages - $" in src or "messages -" in src, (
+        "delete_persona_dm_message must use the atomic jsonb `-` "
+        "operator, same as replies.py's delete_reply_message"
+    )
