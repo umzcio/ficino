@@ -21,7 +21,12 @@ async def test_error_summary_row_is_redispatched(
 ):
     from routers import messages
 
-    monkeypatch.setattr(messages, "_get_celery", lambda: _FakeCelery())
+    # R10 API-5/DUP-13: messages.py now dispatches via the shared
+    # `celery_client.get_celery`, imported into this module's namespace as
+    # `get_celery` — patch that name (not `celery_client.get_celery`) since
+    # `messages.py` calls the bare name, which resolves against its own
+    # module globals at call time.
+    monkeypatch.setattr(messages, "get_celery", lambda: _FakeCelery())
 
     paper_id = seeded_users["paper_a"]
     await db_conn.execute(

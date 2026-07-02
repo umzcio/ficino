@@ -5,10 +5,10 @@ import uuid
 
 import asyncpg
 import structlog
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
@@ -16,10 +16,6 @@ from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/messages", tags=["messages"])
-
-
-def _get_celery() -> Celery:
-    return Celery(broker=settings.redis_url, backend=settings.redis_url)
 
 
 # --- Paper Summaries (Individual DMs) ---
@@ -142,7 +138,7 @@ async def get_paper_summary(
     # writing back a terminal status. If the row says 'generating' but the
     # task is actually FAILURE/REVOKED/unknown, re-dispatch rather than
     # stranding the user on a forever-spinner.
-    celery_app = _get_celery()
+    celery_app = get_celery()
     if summary and (summary["status"] or "complete") == "generating" and summary["task_id"]:
         try:
             task_state = celery_app.AsyncResult(summary["task_id"]).state
@@ -210,7 +206,7 @@ async def get_paper_summary_status(
     Auth-gated (no task-id ownership check): task IDs are opaque but leaving
     this open lets anyone with network visibility poll for completion.
     """
-    celery_app = _get_celery()
+    celery_app = get_celery()
     result = celery_app.AsyncResult(task_id)
 
     if result.state == "SUCCESS":
@@ -288,7 +284,7 @@ async def create_group_chat(
     synthesis_id = str(uuid.uuid4())
     user_id = user.id
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.summary_tasks.generate_corpus_synthesis",
         args=[synthesis_id, body.paper_ids, body.name, user_id],

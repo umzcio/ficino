@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
-from redis import Redis
 
 from audit import record_audit
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
@@ -20,10 +20,6 @@ from storage import storage
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/papers", tags=["papers"])
-
-
-def _get_redis() -> Redis:
-    return Redis.from_url(settings.redis_url)
 
 
 @router.post("", response_model=Paper, status_code=201)
@@ -111,8 +107,7 @@ async def upload_paper(
     # Dispatch Celery ingestion task. Only paper_id is passed — the worker
     # resolves the storage reference via the shared storage adapter so the
     # API never has to care what the backend layout looks like.
-    from celery import Celery
-    celery_app = Celery(broker=settings.redis_url)
+    celery_app = get_celery()
     celery_app.send_task(
         "tasks.ingestion_tasks.process_paper",
         args=[paper_id],

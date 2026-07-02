@@ -4,11 +4,11 @@ import json
 
 import asyncpg
 import structlog
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from audit import record_audit
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
@@ -17,10 +17,6 @@ from ficino_shared.constants import CHAPTER_INSERT_SQL
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/reading-lists", tags=["reading-lists"])
-
-
-def _get_celery() -> Celery:
-    return Celery(broker=settings.redis_url, backend=settings.redis_url)
 
 
 class ReadingListCreate(BaseModel):
@@ -221,7 +217,7 @@ async def create_reading_list(
     # reading_lists.{rationale, paper_sequence} so the frontend's polling
     # loop (watching for `rationale` to appear) exits. Without list_id the
     # ordering would just sit in Celery's result backend unused.
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.reading_list_tasks.propose_ordering",
         args=[paper_ids, body.corpus_id, list_id],
@@ -384,7 +380,7 @@ async def generate_chapter(
     if chapter["status"] == "locked":
         raise HTTPException(status_code=400, detail="Chapter is locked. Complete prior chapters first.")
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.reading_list_tasks.generate_chapter",
         args=[list_id, chapter_index],

@@ -4,10 +4,10 @@ import json
 
 import asyncpg
 import structlog
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
@@ -15,10 +15,6 @@ from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/user-posts", tags=["user-posts"])
-
-
-def _get_celery() -> Celery:
-    return Celery(broker=settings.redis_url, backend=settings.redis_url)
 
 
 class UserPostCreate(BaseModel):
@@ -135,7 +131,7 @@ async def create_user_post(
     post_id = str(row["id"])
 
     # Dispatch archivist response
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.archivist_tasks.respond_to_user_post",
         args=[post_id, body.corpus_id],
@@ -187,7 +183,7 @@ async def reply_to_user_post(
         user_turn_json, post_id,
     )
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.archivist_tasks.respond_to_user_post_followup",
         args=[post_id],

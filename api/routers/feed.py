@@ -4,10 +4,10 @@ import json
 
 import asyncpg
 import structlog
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from audit import record_audit
+from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
@@ -16,10 +16,6 @@ from models.feed import Feed, FeedGenerateRequest
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/feed", tags=["feed"])
-
-
-def _get_celery() -> Celery:
-    return Celery(broker=settings.redis_url, backend=settings.redis_url)
 
 
 @router.post("/generate", status_code=202)
@@ -51,7 +47,7 @@ async def generate_feed(
     if count == 0:
         raise HTTPException(status_code=400, detail="No processed papers available. Upload and wait for processing to complete.")
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     kwargs: dict[str, object] = {
         "corpus_id": str(body.corpus_id) if body.corpus_id else None,
         "tag_filter": body.tag_filter,
@@ -95,7 +91,7 @@ async def get_feed_status(
     effectively unguessable, but leaving this unauthenticated would let any
     passerby poll by scraping task IDs out of logs or the network tab.
     """
-    celery_app = _get_celery()
+    celery_app = get_celery()
     result = celery_app.AsyncResult(task_id)
 
     if result.state == "PENDING":
@@ -238,7 +234,7 @@ async def request_feed_audio(
         # existing status/URLs without us spinning up a duplicate task.
         return {"status": current}
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.audio_tasks.generate_audio_for_feed",
         args=[feed_id],
@@ -274,7 +270,7 @@ async def request_feed_podcast(
     if current in ("generating", "ready"):
         return {"status": current}
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.audio_tasks.generate_podcast_for_feed",
         args=[feed_id],
@@ -373,7 +369,7 @@ async def regenerate_post(
     if post_index < 0 or post_index >= row["post_count"]:
         raise HTTPException(status_code=400, detail="Post index out of range")
 
-    celery_app = _get_celery()
+    celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.persona_tasks.regenerate_post",
         args=[feed_id, post_index],
