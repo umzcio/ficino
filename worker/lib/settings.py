@@ -151,9 +151,15 @@ def get_user_settings(user_id: str | None = None) -> dict:
     # that got migrated to SaaS — reassert env over those so they can't
     # accidentally point the worker at an Ollama instance that isn't
     # reachable from the hosted runtime.
+    #
+    # Read from _baseline_env, NOT live os.getenv: apply_provider_settings
+    # writes per-user values into os.environ, so a live read would launder
+    # a previous user's key into this user's merged config as if the
+    # OPERATOR had configured it (R10 WORK-3 final-review fix).
     if os.getenv("PUBLIC_DEPLOYMENT", "").lower() in ("1", "true", "yes"):
+        _snapshot_baseline_env()
         for k, env_key in _SETTINGS_TO_ENV.items():
-            env_val = os.getenv(env_key)
+            env_val = _baseline_env.get(env_key)
             if env_val:
                 merged[k] = env_val
     return merged
@@ -199,9 +205,16 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
         _active_settings.update(settings)
         for setting_key, env_var in _SETTINGS_TO_ENV.items():
             # Check user's explicitly-set value, not merged (which includes
-            # DEFAULTS) — except under PUBLIC_DEPLOYMENT, where merged carries
-            # the env-reasserted operator values and must win in os.environ too.
-            value = settings.get(setting_key) if public_deployment else user_explicit.get(setting_key)
+            # DEFAULTS) — except under PUBLIC_DEPLOYMENT, where the operator
+            # baseline is authoritative and must win in os.environ too.
+            # Drive off _baseline_env, not merged: merged's DEFAULTS captured
+            # os.environ at import, so it can re-launder a value written by a
+            # previous apply (R10 WORK-3 final-review fix). In production
+            # baseline == the reasserted merged values, so this is equivalent.
+            if public_deployment:
+                value = _baseline_env.get(env_var) or user_explicit.get(setting_key)
+            else:
+                value = user_explicit.get(setting_key)
             if value:
                 os.environ[env_var] = str(value)
                 logger.debug("setting_applied", key=setting_key, env=env_var)
@@ -219,3 +232,11 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
                     os.environ[env_var] = baseline
 
     return settings
+
+
+# Capture the operator baseline at import time, while os.environ is still
+# pristine in each prefork child — before any apply_provider_settings call
+# has written per-user values into it. The lazy call inside
+# apply_provider_settings remains as a re-snapshot hook (tests clear
+# _baseline_env to simulate a fresh process).
+_snapshot_baseline_env()

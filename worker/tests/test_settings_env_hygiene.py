@@ -79,3 +79,22 @@ def test_public_deployment_reassert_wins_over_stale_user_value(monkeypatch):
         "not just in _active_settings"
     )
     assert ws.get_active("llm_provider", "LLM_PROVIDER", "") == "api"
+
+
+def test_public_deployment_does_not_launder_previous_users_key(monkeypatch):
+    from lib import settings as ws
+
+    monkeypatch.setenv("PUBLIC_DEPLOYMENT", "true")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # operator sets NO key
+    _reset_module_state()
+    _install_fake_rows(monkeypatch, {
+        "user-a": {"anthropic_api_key": "sk-a"},  # stale migrated row
+        "user-b": {},
+    })
+
+    ws.apply_provider_settings("user-a")
+    ws.apply_provider_settings("user-b")
+    assert ws.get_active("anthropic_api_key", "ANTHROPIC_API_KEY", "") == "", (
+        "the reassert must read the operator BASELINE, not env values a "
+        "previous apply wrote — otherwise A's key launders into B's config"
+    )
