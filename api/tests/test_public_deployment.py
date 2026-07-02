@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 
+from routers.settings import DEFAULTS
+
 
 @pytest.mark.asyncio
 async def test_auth_provider_exposes_public_deployment(client_as_user_a, monkeypatch):
@@ -57,9 +59,13 @@ async def test_public_deployment_drops_provider_overrides(
     g = await client_as_user_a.get("/settings")
     body = g.json()
     assert body["auto_generate_on_upload"] is True
-    # anthropic_api_key is redacted as 'set'/'' — it must be '' since no
-    # write landed on top of an empty user-settings row.
-    assert body["anthropic_api_key"] == ""
+    # anthropic_api_key is redacted as 'set'/'' — it must reflect the
+    # operator-configured DEFAULT (env-derived, R10 DUP-1), not the
+    # attacker-supplied "sk-evil" that PROVIDER_OVERRIDE_KEYS dropped. We
+    # compare against DEFAULTS directly rather than hardcoding "" so this
+    # test doesn't assume a particular deployment's env has no key set.
+    expected_anthropic_redacted = "set" if DEFAULTS["anthropic_api_key"] else ""
+    assert body["anthropic_api_key"] == expected_anthropic_redacted
     # llm_provider comes back as the DEFAULTS value, not the override.
     assert body["llm_provider"] in ("ollama", "api")
 

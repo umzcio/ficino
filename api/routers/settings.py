@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 
 import asyncpg
 import httpx
@@ -17,19 +18,36 @@ from storage import storage
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
 
-# Default settings object — all possible settings with defaults
+# Default settings object — all possible settings with defaults.
+#
+# Provider keys are ENV-DERIVED and mirror worker/lib/settings.py DEFAULTS
+# exactly (same env var, same fallback) so the API and the worker agree on
+# a fresh user's effective provider (R10 DUP-1). When updating one file,
+# update the other — wave 2 of the R10 remediation replaces both with a
+# shared package. UI-only keys at the bottom exist only here.
 DEFAULTS = {
-    # LLM Provider
-    "llm_provider": "ollama",
-    "embed_provider": "ollama",
-    "ollama_llm_model": "qwen3.5:latest",
-    "ollama_embed_model": "bge-m3:latest",
-    "vision_provider": "ollama",
-    "ollama_vision_model": "gemma4:latest",
-    "claude_model": "claude-sonnet-4-6",
-    "anthropic_api_key": "",
-    "openai_api_key": "",
-    "voyage_api_key": "",
+    # LLM / embedding / vision providers
+    "llm_provider": os.getenv("LLM_PROVIDER", "ollama"),
+    "embed_provider": os.getenv("EMBED_PROVIDER", "ollama"),
+    "vision_provider": os.getenv("VISION_PROVIDER", "ollama"),
+    "claude_model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
+    "ollama_llm_model": os.getenv("OLLAMA_LLM_MODEL", "qwen3.5:latest"),
+    "ollama_embed_model": os.getenv("OLLAMA_EMBED_MODEL", "bge-m3:latest"),
+    "ollama_vision_model": os.getenv("OLLAMA_VISION_MODEL", "gemma4:latest"),
+    "voyage_embed_model": os.getenv("VOYAGE_EMBED_MODEL", "voyage-4-large"),
+    "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+    "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
+    "voyage_api_key": os.getenv("VOYAGE_API_KEY", ""),
+    "cohere_api_key": os.getenv("COHERE_API_KEY", ""),
+    # Cross-encoder rerank of retrieval candidates. "none" = off.
+    "rerank_provider": os.getenv("RERANK_PROVIDER", "none"),
+    "rerank_local_model": os.getenv("RERANK_LOCAL_MODEL", "BAAI/bge-reranker-v2-m3"),
+    "rerank_voyage_model": os.getenv("RERANK_VOYAGE_MODEL", "rerank-2-lite"),
+    "rerank_cohere_model": os.getenv("RERANK_COHERE_MODEL", "rerank-v3.5"),
+    # Per-chunk contextual prefix generation at ingest time. "none" = off.
+    "context_provider": os.getenv("CONTEXT_PROVIDER", "none"),
+    "context_anthropic_model": os.getenv("CONTEXT_ANTHROPIC_MODEL", "claude-haiku-4-5"),
+    "context_ollama_model": os.getenv("CONTEXT_OLLAMA_MODEL", "qwen3.5:latest"),
 
     # Personas
     "personas_enabled": {
@@ -55,14 +73,14 @@ DEFAULTS = {
     # Paper Processing
     "extraction_mode": "auto",  # auto, pymupdf, vision
     "chunk_max_tokens": 800,
-    "show_extraction_badge": True,
 
     # User profile
     "user_display_name": "You",
     "user_handle": "@you",
     "user_avatar_url": "",
 
-    # Display
+    # UI-only (api-only; the worker does not read these)
+    "show_extraction_badge": True,
     "theme": "dark",
     "font_size": "normal",  # small, normal, large
     "post_spacing": "comfortable",  # compact, comfortable
@@ -94,7 +112,7 @@ _NUMERIC_BOUNDS: dict[str, tuple[type, float, float]] = {
 # Keys whose values are secrets. GET /settings returns them as a boolean-ish
 # "set" / "" string so an XSS or browser-extension snoop can't exfiltrate
 # the actual key from a response body.
-SECRET_KEYS = frozenset({"anthropic_api_key", "openai_api_key", "voyage_api_key"})
+SECRET_KEYS = frozenset({"anthropic_api_key", "openai_api_key", "voyage_api_key", "cohere_api_key"})
 
 # Keys that override the admin-configured LLM / embedding / vision stack.
 # Under PUBLIC_DEPLOYMENT=true these are rejected on write so hosted users
@@ -112,6 +130,15 @@ PROVIDER_OVERRIDE_KEYS = frozenset({
     "anthropic_api_key",
     "openai_api_key",
     "voyage_api_key",
+    "cohere_api_key",
+    "voyage_embed_model",
+    "rerank_provider",
+    "rerank_local_model",
+    "rerank_voyage_model",
+    "rerank_cohere_model",
+    "context_provider",
+    "context_anthropic_model",
+    "context_ollama_model",
 })
 
 
