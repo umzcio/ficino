@@ -19,6 +19,48 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/feed", tags=["feed"])
 
 
+# R10 DUP-16: single row-hydration helper for the 2 sites that build a Feed
+# (get_feed detail, list_feeds). `posts` and `podcast_audio_url` are passed
+# in already-hydrated (JSON-decoded / signed-URL-resolved) since that
+# hydration is async I/O that doesn't belong inside a row mapper.
+# include_media=False is list_feeds's shape — its SQL never selects the
+# audio/podcast columns at all, so this skips reading them entirely rather
+# than defaulting on missing keys, preserving the existing narrower shape.
+def _feed_from_row(
+    row: asyncpg.Record,
+    posts: list[dict[str, object]],
+    *,
+    include_media: bool = True,
+    podcast_audio_url: str | None = None,
+) -> Feed:
+    kwargs: dict[str, object] = dict(
+        id=row["id"],
+        user_id=row["user_id"],
+        corpus_id=row["corpus_id"],
+        tag_filter=row["tag_filter"],
+        posts=posts,
+        generated_at=row["generated_at"],
+        generation_duration_ms=row["generation_duration_ms"],
+        paper_count=row["paper_count"],
+        post_count=row["post_count"],
+    )
+    if include_media:
+        podcast_segments = row["podcast_segments"]
+        if isinstance(podcast_segments, str):
+            podcast_segments = json.loads(podcast_segments)
+        if not isinstance(podcast_segments, list):
+            podcast_segments = None
+        kwargs.update(
+            audio_status=row["audio_status"],
+            audio_generated_at=row["audio_generated_at"],
+            podcast_status=row["podcast_status"],
+            podcast_generated_at=row["podcast_generated_at"],
+            podcast_segments=podcast_segments,
+            podcast_audio_url=podcast_audio_url,
+        )
+    return Feed(**kwargs)
+
+
 @router.post("/generate", status_code=202)
 async def generate_feed(
     body: FeedGenerateRequest,
@@ -202,33 +244,11 @@ async def get_feed(
     if row["audio_status"] == "ready":
         await _hydrate_audio_urls(posts_data, user.id, feed_id)
 
-    podcast_segments = row["podcast_segments"]
-    if isinstance(podcast_segments, str):
-        podcast_segments = json.loads(podcast_segments)
-    if not isinstance(podcast_segments, list):
-        podcast_segments = None
-
     podcast_audio_url: str | None = None
     if row["podcast_status"] == "ready":
         podcast_audio_url = await _hydrate_podcast_episode_url(user.id, feed_id)
 
-    return Feed(
-        id=row["id"],
-        user_id=row["user_id"],
-        corpus_id=row["corpus_id"],
-        tag_filter=row["tag_filter"],
-        posts=posts_data,
-        generated_at=row["generated_at"],
-        generation_duration_ms=row["generation_duration_ms"],
-        paper_count=row["paper_count"],
-        post_count=row["post_count"],
-        audio_status=row["audio_status"],
-        audio_generated_at=row["audio_generated_at"],
-        podcast_status=row["podcast_status"],
-        podcast_generated_at=row["podcast_generated_at"],
-        podcast_segments=podcast_segments,
-        podcast_audio_url=podcast_audio_url,
-    )
+    return _feed_from_row(row, posts_data, podcast_audio_url=podcast_audio_url)
 
 
 @router.post("/{feed_id}/audio", status_code=202)
@@ -469,15 +489,5 @@ async def list_feeds(
             posts_data = row["posts"]
             if isinstance(posts_data, str):
                 posts_data = json.loads(posts_data)
-        feeds.append(Feed(
-            id=row["id"],
-            user_id=row["user_id"],
-            corpus_id=row["corpus_id"],
-            tag_filter=row["tag_filter"],
-            posts=posts_data,
-            generated_at=row["generated_at"],
-            generation_duration_ms=row["generation_duration_ms"],
-            paper_count=row["paper_count"],
-            post_count=row["post_count"],
-        ))
+        feeds.append(_feed_from_row(row, posts_data, include_media=False))
     return feeds

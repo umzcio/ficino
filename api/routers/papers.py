@@ -1,6 +1,7 @@
 """Paper upload, list, and management endpoints."""
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -20,6 +21,37 @@ from storage import storage
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/papers", tags=["papers"])
+
+
+# R10 DUP-16: single row-hydration helper for all 3 sites that build a
+# Paper (upload's synthetic just-inserted row, list_papers, get_paper).
+# Accepts anything dict-like (asyncpg.Record has a dict-compatible `.get`)
+# so upload_paper can pass a plain dict for the row it never re-fetches.
+# get_paper's query doesn't select `tags` (no join) — `.get("tags")`
+# returns None there and this falls back to the model's empty-list
+# default, same as before this helper existed.
+def _paper_from_row(row) -> Paper:
+    tags_data = row.get("tags")
+    if isinstance(tags_data, str):
+        tags_data = json.loads(tags_data)
+    return Paper(
+        id=row["id"],
+        user_id=row.get("user_id"),
+        corpus_id=row.get("corpus_id"),
+        title=row.get("title"),
+        authors=row.get("authors") or [],
+        year=row.get("year"),
+        doi=row.get("doi"),
+        filename=row["filename"],
+        status=row.get("status") or "pending",
+        extraction_path=row.get("extraction_path"),
+        error_message=row.get("error_message"),
+        chunk_count=row.get("chunk_count") or 0,
+        figure_count=row.get("figure_count") or 0,
+        tags=tags_data or [],
+        uploaded_at=row.get("uploaded_at"),
+        processed_at=row.get("processed_at"),
+    )
 
 
 @router.post("", response_model=Paper, status_code=201)
@@ -137,13 +169,13 @@ async def upload_paper(
     )
     logger.info("ingestion_task_dispatched", paper_id=paper_id)
 
-    return Paper(
-        id=uuid.UUID(paper_id),
-        user_id=uuid.UUID(user.id),
-        filename=file.filename,
-        status="pending",
-        uploaded_at=now,
-    )
+    return _paper_from_row({
+        "id": paper_id,
+        "user_id": user.id,
+        "filename": file.filename,
+        "status": "pending",
+        "uploaded_at": now,
+    })
 
 
 @router.get("", response_model=list[Paper])
@@ -153,67 +185,29 @@ async def list_papers(
     db: asyncpg.Connection = Depends(get_db),
 ) -> list[Paper]:
     """List papers, optionally filtered by workspace."""
-    if workspace_id:
-        rows = await db.fetch(
-            """SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
-                      p.status, p.extraction_path, p.error_message, p.chunk_count, p.figure_count,
-                      p.uploaded_at, p.processed_at,
-                      COALESCE(
-                        json_agg(json_build_object('id', t.id::text, 'name', t.name))
-                        FILTER (WHERE t.id IS NOT NULL), '[]'
-                      ) AS tags
-               FROM papers p
-               LEFT JOIN paper_tags pt ON p.id = pt.paper_id
-               LEFT JOIN tags t ON pt.tag_id = t.id
-               WHERE p.user_id = $1 AND p.corpus_id = $2
-               GROUP BY p.id
-               ORDER BY p.uploaded_at DESC
-               LIMIT 500""",
-            user.id, workspace_id,
-        )
-    else:
-        rows = await db.fetch(
-            """SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
-                      p.status, p.extraction_path, p.error_message, p.chunk_count, p.figure_count,
-                      p.uploaded_at, p.processed_at,
-                      COALESCE(
-                        json_agg(json_build_object('id', t.id::text, 'name', t.name))
-                        FILTER (WHERE t.id IS NOT NULL), '[]'
-                      ) AS tags
-               FROM papers p
-               LEFT JOIN paper_tags pt ON p.id = pt.paper_id
-               LEFT JOIN tags t ON pt.tag_id = t.id
-               WHERE p.user_id = $1
-               GROUP BY p.id
-               ORDER BY p.uploaded_at DESC
-               LIMIT 500""",
-            user.id,
-        )
-    papers = []
-    for row in rows:
-        import json as _json
-        tags_data = row["tags"]
-        if isinstance(tags_data, str):
-            tags_data = _json.loads(tags_data)
-        papers.append(Paper(
-            id=row["id"],
-            user_id=row["user_id"],
-            corpus_id=row["corpus_id"],
-            title=row["title"],
-            authors=row["authors"] or [],
-            year=row["year"],
-            doi=row["doi"],
-            filename=row["filename"],
-            status=row["status"],
-            extraction_path=row["extraction_path"],
-            error_message=row["error_message"],
-            chunk_count=row["chunk_count"] or 0,
-            figure_count=row["figure_count"] or 0,
-            tags=tags_data,
-            uploaded_at=row["uploaded_at"],
-            processed_at=row["processed_at"],
-        ))
-    return papers
+    # R10 DUP-16: single SQL for both cases via a NULL-safe predicate — the
+    # two variants were IDENTICAL modulo the corpus_id filter. workspace_id
+    # is None when unset, so "$2::uuid IS NULL" makes the predicate a no-op
+    # (matches the old unfiltered branch, which never touched corpus_id at
+    # all, including rows where it's NULL).
+    rows = await db.fetch(
+        """SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
+                  p.status, p.extraction_path, p.error_message, p.chunk_count, p.figure_count,
+                  p.uploaded_at, p.processed_at,
+                  COALESCE(
+                    json_agg(json_build_object('id', t.id::text, 'name', t.name))
+                    FILTER (WHERE t.id IS NOT NULL), '[]'
+                  ) AS tags
+           FROM papers p
+           LEFT JOIN paper_tags pt ON p.id = pt.paper_id
+           LEFT JOIN tags t ON pt.tag_id = t.id
+           WHERE p.user_id = $1 AND ($2::uuid IS NULL OR p.corpus_id = $2)
+           GROUP BY p.id
+           ORDER BY p.uploaded_at DESC
+           LIMIT 500""",
+        user.id, workspace_id,
+    )
+    return [_paper_from_row(row) for row in rows]
 
 
 @router.get("/{paper_id}", response_model=Paper)
@@ -233,23 +227,7 @@ async def get_paper(
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    return Paper(
-        id=row["id"],
-        user_id=row["user_id"],
-        corpus_id=row["corpus_id"],
-        title=row["title"],
-        authors=row["authors"] or [],
-        year=row["year"],
-        doi=row["doi"],
-        filename=row["filename"],
-        status=row["status"],
-        extraction_path=row["extraction_path"],
-        error_message=row["error_message"],
-        chunk_count=row["chunk_count"] or 0,
-        figure_count=row["figure_count"] or 0,
-        uploaded_at=row["uploaded_at"],
-        processed_at=row["processed_at"],
-    )
+    return _paper_from_row(row)
 
 
 @router.delete("/{paper_id}", status_code=204)
