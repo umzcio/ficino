@@ -7,13 +7,13 @@ Provider is selected via VISION_PROVIDER setting (ollama or api).
 import asyncio
 import base64
 import os
-import threading as _threading
 
 import httpx
 import structlog
 
+from lib.event_loop import LoopRunner
 from lib.pdf_extractor import rasterize_pages, get_page_count
-from lib.settings import get_active
+from lib.settings import get_active, ollama_base_url
 from ficino_shared.settings_schema import default_for
 
 logger = structlog.get_logger(__name__)
@@ -38,7 +38,7 @@ def _get_config() -> dict[str, str]:
             get_active("llm_provider", "LLM_PROVIDER", "ollama"),
         ),
         # ollama_base_url is env-only (SSRF defense).
-        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_base_url": ollama_base_url(),
         "ollama_vision_model": get_active("ollama_vision_model", "OLLAMA_VISION_MODEL", default_for("ollama_vision_model")),
         "anthropic_api_key": get_active("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
         "claude_model": get_active("claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6"),
@@ -219,36 +219,17 @@ async def extract_with_vision(file_path: str) -> str:
     return full_markdown
 
 
-# Persistent event loop to avoid the asyncio.run() + httpx-GC race —
-# same pattern as the other worker/lib sync wrappers. BUG-LIVE-06.
+# Shared background event loop to avoid the asyncio.run() + httpx-GC race —
+# same pattern as the other worker/lib sync wrappers (R10 DUP-5:
+# LoopRunner). BUG-LIVE-06.
 # Round-4: loop runs on a dedicated daemon thread; concurrent callers
 # submit via run_coroutine_threadsafe instead of queuing on a lock.
 
-_vision_loop: asyncio.AbstractEventLoop | None = None
-_vision_loop_lock = _threading.Lock()
-
-
-def _ensure_vision_loop() -> asyncio.AbstractEventLoop:
-    global _vision_loop
-    if _vision_loop is not None and not _vision_loop.is_closed():
-        return _vision_loop
-    with _vision_loop_lock:
-        if _vision_loop is None or _vision_loop.is_closed():
-            loop = asyncio.new_event_loop()
-
-            def _runner() -> None:
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            t = _threading.Thread(target=_runner, name="vision-loop", daemon=True)
-            t.start()
-            _vision_loop = loop
-        return _vision_loop
+_runner = LoopRunner("vision-loop")
 
 
 def _run_on_vision_loop(coro):
-    loop = _ensure_vision_loop()
-    return asyncio.run_coroutine_threadsafe(coro, loop).result()
+    return _runner.run(coro)
 
 
 def extract_with_vision_sync(file_path: str) -> str:

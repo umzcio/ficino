@@ -22,12 +22,12 @@ below you will set money on fire.
 
 import asyncio
 import os
-import threading
 
 import httpx
 import structlog
 
-from lib.settings import get_active
+from lib.event_loop import LoopRunner
+from lib.settings import get_active, ollama_base_url
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +36,7 @@ def _get_context_config() -> dict[str, str]:
     """Read contextualizer config from active provider settings / env."""
     return {
         "provider": get_active("context_provider", "CONTEXT_PROVIDER", "none"),
-        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_base_url": ollama_base_url(),
         "ollama_model": get_active("context_ollama_model", "CONTEXT_OLLAMA_MODEL", "qwen3.5:latest"),
         "anthropic_model": get_active("context_anthropic_model", "CONTEXT_ANTHROPIC_MODEL", "claude-haiku-4-5"),
         "anthropic_api_key": get_active("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
@@ -214,29 +214,10 @@ async def generate_contexts_for_paper(
     return ["" for _ in chunks]
 
 
-# Sync wrapper mirroring the same persistent-loop pattern used in
-# lib/embedder.py and lib/claude_client.py — `asyncio.run()` per call
-# tears down httpx pools and stacks poorly with Celery's loop handling.
-_ctx_loop: asyncio.AbstractEventLoop | None = None
-_ctx_loop_lock = threading.Lock()
-
-
-def _ensure_ctx_loop() -> asyncio.AbstractEventLoop:
-    global _ctx_loop
-    if _ctx_loop is not None and not _ctx_loop.is_closed():
-        return _ctx_loop
-    with _ctx_loop_lock:
-        if _ctx_loop is None or _ctx_loop.is_closed():
-            loop = asyncio.new_event_loop()
-
-            def _runner() -> None:
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            t = threading.Thread(target=_runner, name="context-loop", daemon=True)
-            t.start()
-            _ctx_loop = loop
-        return _ctx_loop
+# Sync wrapper using the shared background-loop helper (R10 DUP-5:
+# LoopRunner) — `asyncio.run()` per call tears down httpx pools and stacks
+# poorly with Celery's loop handling.
+_runner = LoopRunner("context-loop")
 
 
 def generate_contexts_for_paper_sync(
@@ -244,7 +225,4 @@ def generate_contexts_for_paper_sync(
     chunks: list[dict[str, object]],
 ) -> list[str]:
     """Synchronous wrapper for use in Celery tasks."""
-    loop = _ensure_ctx_loop()
-    return asyncio.run_coroutine_threadsafe(
-        generate_contexts_for_paper(paper_text, chunks), loop,
-    ).result()
+    return _runner.run(generate_contexts_for_paper(paper_text, chunks))

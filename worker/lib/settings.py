@@ -52,6 +52,18 @@ def get_active(setting_key: str, env_key: str, default: str = "") -> str:
     return os.getenv(env_key, default)
 
 
+def ollama_base_url() -> str:
+    """Single reader for OLLAMA_BASE_URL (R10 DUP-5, narrow consolidation).
+
+    env-only, NOT user-overridable (SSRF defense) — every provider reader
+    (claude_client, embedder, contextualizer, figure_detector,
+    vision_extractor) previously hardcoded this same os.getenv line. The
+    surrounding `_get_config` functions stay separate per module (they read
+    different key sets); only this one line is deduplicated.
+    """
+    return os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+
+
 def _fetch_user_row(user_id: str | None = None) -> dict:
     """Fetch and JSON-decode the raw settings row for a user (or {})."""
     uid = user_id or STUB_USER_ID

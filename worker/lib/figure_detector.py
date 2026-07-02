@@ -29,14 +29,13 @@ page image, so the caller doesn't need to know the render DPI.
 import asyncio
 import base64
 import json
-import os
 import re
-import threading
 
 import httpx
 import structlog
 
-from lib.settings import get_active
+from lib.event_loop import LoopRunner
+from lib.settings import get_active, ollama_base_url
 
 logger = structlog.get_logger(__name__)
 
@@ -57,7 +56,7 @@ def _get_detect_config() -> dict[str, str]:
     """Read figure-detector config from active settings / env."""
     return {
         "provider": get_active("figure_detect_provider", "FIGURE_DETECT_PROVIDER", "anthropic"),
-        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_base_url": ollama_base_url(),
         "ollama_model": get_active(
             "figure_detect_ollama_model", "FIGURE_DETECT_OLLAMA_MODEL", "qwen2.5vl:latest",
         ),
@@ -349,37 +348,16 @@ async def detect_figures_for_paper(
     return await asyncio.gather(*[one(i) for i in range(len(page_images))])
 
 
-# Sync wrapper — same persistent-loop pattern as embedder / claude_client.
-_detect_loop: asyncio.AbstractEventLoop | None = None
-_detect_loop_lock = threading.Lock()
-
-
-def _ensure_detect_loop() -> asyncio.AbstractEventLoop:
-    global _detect_loop
-    if _detect_loop is not None and not _detect_loop.is_closed():
-        return _detect_loop
-    with _detect_loop_lock:
-        if _detect_loop is None or _detect_loop.is_closed():
-            loop = asyncio.new_event_loop()
-
-            def _runner() -> None:
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            t = threading.Thread(target=_runner, name="figure-detect-loop", daemon=True)
-            t.start()
-            _detect_loop = loop
-        return _detect_loop
+# Sync wrapper — shared background-loop helper (R10 DUP-5: LoopRunner),
+# same pattern used by embedder / claude_client.
+_runner = LoopRunner("figure-detect-loop")
 
 
 def detect_figures_for_paper_sync(
     page_images: list[bytes], page_texts: list[str],
 ) -> list[list[dict]]:
     """Synchronous wrapper for use in Celery tasks."""
-    loop = _ensure_detect_loop()
-    return asyncio.run_coroutine_threadsafe(
-        detect_figures_for_paper(page_images, page_texts), loop,
-    ).result()
+    return _runner.run(detect_figures_for_paper(page_images, page_texts))
 
 
 def is_available() -> bool:

@@ -5,44 +5,23 @@ reused across all queries). Sync wrappers use a shared event loop
 to avoid the overhead of asyncio.run() creating a new loop per call.
 """
 
-import asyncio
 import os
-import threading
 
 import asyncpg
 import structlog
+
+from lib.event_loop import LoopRunner
 
 logger = structlog.get_logger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ficino:ficino@postgres:5432/ficino")
 
-# Persistent pool + event loop (thread-safe, lazy-initialized).
+# Persistent pool + shared background event loop (R10 DUP-5: LoopRunner).
 # Round-4: loop runs on a dedicated daemon thread; sync wrappers submit
 # via run_coroutine_threadsafe so multiple Celery threads don't queue up
-# behind a single run_until_complete call. The small lock only guards
-# first-time loop creation.
+# behind a single run_until_complete call.
 _pool: asyncpg.Pool | None = None
-_loop: asyncio.AbstractEventLoop | None = None
-_lock = threading.Lock()
-
-
-def _ensure_loop() -> asyncio.AbstractEventLoop:
-    """Get or create a persistent event loop running on a background thread."""
-    global _loop
-    if _loop is not None and not _loop.is_closed():
-        return _loop
-    with _lock:
-        if _loop is None or _loop.is_closed():
-            loop = asyncio.new_event_loop()
-
-            def _runner() -> None:
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            t = threading.Thread(target=_runner, name="db-loop", daemon=True)
-            t.start()
-            _loop = loop
-        return _loop
+_runner = LoopRunner("db-loop")
 
 
 async def _ensure_pool() -> asyncpg.Pool:
@@ -89,8 +68,7 @@ def _is_pool_closed_error(exc: BaseException) -> bool:
 
 def _run(coro):
     """Submit a coroutine to the persistent loop and block for the result."""
-    loop = _ensure_loop()
-    return asyncio.run_coroutine_threadsafe(coro, loop).result()
+    return _runner.run(coro)
 
 
 async def _execute(query: str, *args: object) -> str:

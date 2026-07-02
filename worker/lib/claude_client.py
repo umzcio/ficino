@@ -8,13 +8,12 @@ Provider is selected via LLM_PROVIDER env var:
 
 import asyncio
 import json
-import os
-import threading
 
 import httpx
 import structlog
 
-from lib.settings import get_active
+from lib.event_loop import LoopRunner
+from lib.settings import get_active, ollama_base_url
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +27,7 @@ def _get_config() -> dict[str, str]:
     return {
         "llm_provider": get_active("llm_provider", "LLM_PROVIDER", "ollama"),
         # ollama_base_url is NOT user-overridable (SSRF defense) — env only.
-        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
+        "ollama_base_url": ollama_base_url(),
         "ollama_llm_model": get_active("ollama_llm_model", "OLLAMA_LLM_MODEL", "qwen3.5:latest"),
         "claude_model": get_active("claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6"),
         "anthropic_api_key": get_active("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
@@ -286,46 +285,24 @@ Respond with exactly one word: supports, contradicts, or extends
     return "extends"
 
 
-# Persistent event loop for all sync wrappers in this module. Same pattern
-# as lib/db.py and lib/embedder.py — avoids `asyncio.run()` creating a
-# fresh loop per call, which left httpx connections getting GC'd on a
-# dead loop and surfacing `RuntimeError('Event loop is closed')` in the
-# worker's "Task exception was never retrieved" warnings (BUG-LIVE-06).
+# Shared background event loop for all sync wrappers in this module (R10
+# DUP-5: LoopRunner). Same pattern as lib/db.py and lib/embedder.py —
+# avoids `asyncio.run()` creating a fresh loop per call, which left httpx
+# connections getting GC'd on a dead loop and surfacing
+# `RuntimeError('Event loop is closed')` in the worker's "Task exception
+# was never retrieved" warnings (BUG-LIVE-06).
 #
-# Round-4: the loop now runs forever on a dedicated daemon thread and
+# Round-4: the loop runs forever on a dedicated daemon thread and
 # coroutines are submitted via `run_coroutine_threadsafe`. The previous
 # `with _lock: loop.run_until_complete(coro)` pattern serialized every
 # LLM call in the process (one at a time across all Celery pool workers
-# in the same process), squandering async concurrency. A tiny creation
-# lock still guards the first-time loop bring-up so two threads can't
-# race to create two loops.
+# in the same process), squandering async concurrency.
 
-_llm_loop: asyncio.AbstractEventLoop | None = None
-_llm_loop_lock = threading.Lock()
-
-
-def _ensure_llm_loop() -> asyncio.AbstractEventLoop:
-    """Start the shared event loop on a background daemon thread if needed."""
-    global _llm_loop
-    if _llm_loop is not None and not _llm_loop.is_closed():
-        return _llm_loop
-    with _llm_loop_lock:
-        if _llm_loop is None or _llm_loop.is_closed():
-            loop = asyncio.new_event_loop()
-
-            def _runner() -> None:
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            t = threading.Thread(target=_runner, name="llm-loop", daemon=True)
-            t.start()
-            _llm_loop = loop
-        return _llm_loop
+_runner = LoopRunner("llm-loop")
 
 
 def _run_on_llm_loop(coro):
-    loop = _ensure_llm_loop()
-    return asyncio.run_coroutine_threadsafe(coro, loop).result()
+    return _runner.run(coro)
 
 
 def generate_persona_post_sync(
