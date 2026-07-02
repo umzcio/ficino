@@ -113,3 +113,44 @@ def test_activity_sort_key_handles_none_timestamp():
     assert activities[0]["timestamp"] == now
     assert activities[1]["timestamp"] == earlier
     assert activities[2]["timestamp"] is None
+
+
+# --- API-14: clear_all_papers transaction + hoisted cleanup closure -----
+
+def test_cleanup_artifacts_is_a_single_module_level_function():
+    """clear_everything and clear_all_papers must share one
+    `_cleanup_artifacts` function object, not two copy-pasted closures."""
+    from routers import settings as settings_router
+
+    assert hasattr(settings_router, "_cleanup_artifacts"), (
+        "_cleanup_artifacts must be hoisted to module level"
+    )
+    assert inspect.isfunction(settings_router._cleanup_artifacts)
+    # Not a closure defined inside either handler.
+    src_clear_everything = inspect.getsource(settings_router.clear_everything)
+    src_clear_all_papers = inspect.getsource(settings_router.clear_all_papers)
+    assert "def _cleanup_artifacts" not in src_clear_everything
+    assert "def _cleanup_artifacts" not in src_clear_all_papers
+
+
+@pytest.mark.asyncio
+async def test_clear_all_papers_deletes_papers_and_feeds(
+    client_as_user_a, seeded_users, db_conn,
+):
+    """Happy path still works with the transaction wrap: papers and feeds
+    for the caller are gone, another user's data is untouched."""
+    r = await client_as_user_a.post("/settings/clear-papers")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "cleared"
+
+    remaining = await db_conn.fetchval(
+        "SELECT COUNT(*) FROM papers WHERE user_id = $1", USER_A_ID,
+    )
+    assert remaining == 0
+
+    # User B's paper survives.
+    b_remaining = await db_conn.fetchval(
+        "SELECT COUNT(*) FROM papers WHERE id = $1", seeded_users["paper_b"],
+    )
+    assert b_remaining == 1
