@@ -75,22 +75,29 @@ async def create_bookmark(
     if not feed_owner:
         raise HTTPException(status_code=404, detail="Feed not found")
 
-    # Check if already bookmarked
+    # Single-statement upsert (R10 API-10): the previous SELECT-then-INSERT
+    # had a check-then-insert race — two concurrent identical POSTs both
+    # pass the SELECT and the loser raises an unhandled UniqueViolation
+    # 500. ON CONFLICT DO NOTHING is safe here because message_index is
+    # NOT NULL DEFAULT -1 on bookmarks (infra/postgres/init.sql:150) — it
+    # never carries a NULL that would silently evade the UNIQUE constraint.
+    snapshot_json = json.dumps(body.post_snapshot, default=str)
+    row = await db.fetchrow(
+        """INSERT INTO bookmarks (user_id, feed_id, post_index, message_index, post_snapshot)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id, feed_id, post_index, message_index) DO NOTHING
+           RETURNING id""",
+        user.id, body.feed_id, body.post_index, body.message_index, snapshot_json,
+    )
+    if row:
+        logger.info("bookmark_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
+        return {"id": str(row["id"]), "status": "created"}
+
     existing = await db.fetchrow(
         "SELECT id FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
         user.id, body.feed_id, body.post_index, body.message_index,
     )
-    if existing:
-        return {"id": str(existing["id"]), "status": "already_bookmarked"}
-
-    snapshot_json = json.dumps(body.post_snapshot, default=str)
-    row = await db.fetchrow(
-        """INSERT INTO bookmarks (user_id, feed_id, post_index, message_index, post_snapshot)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id""",
-        user.id, body.feed_id, body.post_index, body.message_index, snapshot_json,
-    )
-    logger.info("bookmark_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
-    return {"id": str(row["id"]), "status": "created"}
+    return {"id": str(existing["id"]), "status": "already_bookmarked"}
 
 
 @router.delete("/{bookmark_id}", status_code=204)

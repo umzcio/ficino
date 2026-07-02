@@ -67,21 +67,31 @@ async def create_like(
     if not feed_owner:
         raise HTTPException(status_code=404, detail="Feed not found")
 
+    # Single-statement upsert (R10 API-10): the previous SELECT-then-INSERT
+    # had a check-then-insert race — two concurrent identical POSTs (a
+    # haptic double-fire, or the swipe gutter racing the heart button) both
+    # pass the SELECT and the loser raises an unhandled UniqueViolation
+    # 500, despite this handler's own docstring promising "Idempotent."
+    # ON CONFLICT DO NOTHING is safe here because message_index is
+    # NOT NULL DEFAULT -1 on user_likes (infra/postgres/init.sql:239) — it
+    # never carries a NULL that would silently evade the UNIQUE constraint.
+    row = await db.fetchrow(
+        """INSERT INTO user_likes (user_id, feed_id, post_index, message_index, persona_key, post_type, category)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (user_id, feed_id, post_index, message_index) DO NOTHING
+           RETURNING id""",
+        user.id, body.feed_id, body.post_index, body.message_index,
+        body.persona_key, body.post_type, body.category,
+    )
+    if row:
+        logger.info("like_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
+        return {"id": str(row["id"]), "status": "created"}
+
     existing = await db.fetchrow(
         "SELECT id FROM user_likes WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
         user.id, body.feed_id, body.post_index, body.message_index,
     )
-    if existing:
-        return {"id": str(existing["id"]), "status": "already_liked"}
-
-    row = await db.fetchrow(
-        """INSERT INTO user_likes (user_id, feed_id, post_index, message_index, persona_key, post_type, category)
-           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
-        user.id, body.feed_id, body.post_index, body.message_index,
-        body.persona_key, body.post_type, body.category,
-    )
-    logger.info("like_created", feed_id=body.feed_id, post_index=body.post_index, message_index=body.message_index)
-    return {"id": str(row["id"]), "status": "created"}
+    return {"id": str(existing["id"]), "status": "already_liked"}
 
 
 @router.delete("/feed/{feed_id}/{post_index}", status_code=204)
