@@ -154,3 +154,83 @@ async def test_clear_all_papers_deletes_papers_and_feeds(
         "SELECT COUNT(*) FROM papers WHERE id = $1", seeded_users["paper_b"],
     )
     assert b_remaining == 1
+
+
+# --- API-15: user_posts dispatch-failure stranding + follow-up guard ----
+
+class _RaisingCelery:
+    def send_task(self, *args, **kwargs):
+        raise ConnectionError("broker unreachable")
+
+
+class _FakeTaskB:
+    id = "fake-task-id-b"
+
+
+class _WorkingCelery:
+    def send_task(self, *args, **kwargs):
+        return _FakeTaskB()
+
+
+@pytest.mark.asyncio
+async def test_create_user_post_dispatch_failure_marks_error_not_pending(
+    client_as_user_a, seeded_users, db_conn, monkeypatch,
+):
+    """If Celery dispatch raises after the DB insert, the row must be
+    marked 'error' (not left stranded 'pending' forever) and the request
+    must return a 5xx."""
+    from routers import user_posts
+
+    monkeypatch.setattr(user_posts, "get_celery", lambda: _RaisingCelery())
+
+    r = await client_as_user_a.post("/user-posts", json={
+        "content": "will the dispatch fail gracefully?",
+        "corpus_id": seeded_users["workspace_a"],
+    })
+    assert 500 <= r.status_code < 600, r.text
+
+    row = await db_conn.fetchrow(
+        "SELECT status FROM user_posts WHERE user_id = $1 AND content = $2",
+        USER_A_ID, "will the dispatch fail gracefully?",
+    )
+    assert row is not None, "the row must still exist (INSERT happened before dispatch)"
+    assert row["status"] == "error", (
+        "a dispatch failure must flip the row to 'error', not strand it 'pending'"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reply_to_user_post_concurrent_double_fire_only_one_wins(
+    client_as_user_a, seeded_users, db_conn, monkeypatch,
+):
+    """Two truly concurrent follow-ups on the same complete post race the
+    read-check-then-write: without a guard on the UPDATE itself, both can
+    read status='complete' before either write lands, so both pass and
+    both append a user turn ahead of a single Archivist reply. Exactly one
+    must win (202); the other must 409."""
+    from routers import user_posts
+
+    monkeypatch.setattr(user_posts, "get_celery", lambda: _WorkingCelery())
+
+    post_id = str(uuid.uuid4())
+    await db_conn.execute(
+        """INSERT INTO user_posts (id, user_id, corpus_id, content, status, replies, sources)
+           VALUES ($1, $2, $3, 'seed', 'complete', '[]'::jsonb, '[]'::jsonb)""",
+        post_id, USER_A_ID, seeded_users["workspace_a"],
+    )
+
+    r1, r2 = await asyncio.gather(
+        client_as_user_a.post(f"/user-posts/{post_id}/replies", json={"content": "first"}),
+        client_as_user_a.post(f"/user-posts/{post_id}/replies", json={"content": "second"}),
+    )
+    statuses = sorted([r1.status_code, r2.status_code])
+    assert statuses == [202, 409], (r1.status_code, r2.status_code, r1.text, r2.text)
+
+    row = await db_conn.fetchrow(
+        "SELECT replies FROM user_posts WHERE id = $1", post_id,
+    )
+    replies = row["replies"]
+    import json as _json
+    if isinstance(replies, str):
+        replies = _json.loads(replies)
+    assert len(replies) == 1, "only the winning follow-up's user turn should have landed"

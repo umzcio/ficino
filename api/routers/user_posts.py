@@ -130,13 +130,27 @@ async def create_user_post(
     )
     post_id = str(row["id"])
 
-    # Dispatch archivist response
+    # Dispatch archivist response. The INSERT above persists the row before
+    # dispatch so status exists to poll — but that means a broker blip here
+    # (Redis restart, connection refused) previously left the row stranded
+    # in 'pending' forever with no task and no recovery path (R10 API-15,
+    # same failure family as API-1). Mark it 'error' and surface a 503 so
+    # the client's poll loop can stop spinning and the row is visibly dead
+    # rather than silently dead.
     celery_app = get_celery()
-    task = celery_app.send_task(
-        "tasks.archivist_tasks.respond_to_user_post",
-        args=[post_id, body.corpus_id],
-        queue="persona",
-    )
+    try:
+        task = celery_app.send_task(
+            "tasks.archivist_tasks.respond_to_user_post",
+            args=[post_id, body.corpus_id],
+            queue="persona",
+        )
+    except Exception as e:
+        logger.error("user_post_dispatch_failed", post_id=post_id, error=str(e))
+        await db.execute(
+            "UPDATE user_posts SET status = 'error' WHERE id = $1",
+            post_id,
+        )
+        raise HTTPException(status_code=503, detail="Failed to dispatch Archivist response. Try again.")
 
     await db.execute(
         "UPDATE user_posts SET task_id = $1 WHERE id = $2",
@@ -160,28 +174,33 @@ async def reply_to_user_post(
     as alternating user / archivist turns, so the existing list_user_posts
     payload reflects the whole conversation without schema changes.
     """
-    # Ownership + state check: only the post owner can append, and we only
-    # accept follow-ups once the prior Archivist response has landed — an
-    # orphan user turn ahead of the initial archivist reply would make the
-    # thread rendering nonsensical.
+    # Ownership check: only the post owner can append.
     row = await db.fetchrow(
-        "SELECT status, corpus_id FROM user_posts WHERE id = $1 AND user_id = $2",
+        "SELECT id, corpus_id FROM user_posts WHERE id = $1 AND user_id = $2",
         post_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Post not found")
-    if row["status"] != "complete":
-        raise HTTPException(status_code=409, detail="Previous reply not ready yet")
 
-    # Atomically append the new user turn and flip status to pending so
-    # the client's existing poll loop picks up the new Archivist reply.
+    # Atomically append the new user turn and flip status to pending, but
+    # only if the row is still 'complete' at write time (R10 API-15). A
+    # plain SELECT-then-UPDATE let two concurrent follow-ups both read
+    # status='complete' before either write landed, so both passed and
+    # both appended a user turn ahead of a single Archivist reply — an
+    # orphan turn that makes the thread rendering nonsensical. Folding the
+    # predicate into the UPDATE's WHERE clause makes the check-and-flip
+    # atomic: only the request that wins the row lock proceeds, and the
+    # loser sees 0 rows updated.
     user_turn_json = json.dumps([{"role": "user", "content": body.content}])
-    await db.execute(
+    updated = await db.fetchrow(
         """UPDATE user_posts
            SET replies = replies || $1::jsonb, status = 'pending'
-           WHERE id = $2""",
+           WHERE id = $2 AND status = 'complete'
+           RETURNING id""",
         user_turn_json, post_id,
     )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Previous reply not ready yet")
 
     celery_app = get_celery()
     task = celery_app.send_task(
