@@ -20,3 +20,16 @@ def test_generate_chapter_writes_feed_posts_index():
         "generate_chapter must call _write_feed_posts_index after the feeds "
         "upsert so chapter posts land in the search index (R10 WORK-7)"
     )
+
+
+def test_coerce_messages_drops_non_dict_elements():
+    """R10 WORK-8: a parsed JSON array of bare strings (or a mix of dicts and
+    junk) must not pass through to persistence untouched — frontend consumers
+    read message.role / message.content, so non-dict elements must be
+    filtered out before the caller's `if not messages:` fallback runs."""
+    from tasks.summary_tasks import _coerce_messages
+
+    assert _coerce_messages(["a", "b"]) == []
+    assert _coerce_messages([{"role": "x", "content": "hi"}, "junk", {"content": ""}]) == [
+        {"role": "x", "content": "hi"}
+    ]

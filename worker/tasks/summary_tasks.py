@@ -13,6 +13,27 @@ from lib.settings import apply_provider_settings, STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
 
+
+def _coerce_messages(parsed: object) -> list[dict]:
+    """Filter a parsed JSON value down to well-shaped message dicts.
+
+    LLM output that parses as JSON but isn't the expected list-of-message-
+    dicts shape (e.g. a bare array of strings) must not persist as-is —
+    frontend consumers read message.role / message.content, and a
+    non-dict element renders empty or crashes. Elements that aren't dicts,
+    or whose "content" isn't a non-empty string, are dropped. Callers run
+    this BEFORE their existing `if not messages:` fallback, so a fully
+    wrong-shaped array falls through to the single-bubble fallback instead
+    of persisting an empty or malformed list (R10 WORK-8).
+    """
+    if not isinstance(parsed, list):
+        return []
+    return [
+        m for m in parsed
+        if isinstance(m, dict) and isinstance(m.get("content"), str) and m.get("content")
+    ]
+
+
 PAPER_SUMMARY_SYSTEM = """You are a research paper summarizer for an academic discourse platform.
 Your job is to create a structured summary of a paper presented as a series of chat messages —
 as if the paper itself is talking to the reader, explaining what it found.
@@ -175,7 +196,7 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
             # Try to find JSON array
             match = re.search(r'\[.*\]', cleaned, re.DOTALL)
             if match:
-                messages = json.loads(match.group(0))
+                messages = _coerce_messages(json.loads(match.group(0)))
         except (json.JSONDecodeError, ValueError):
             log.warn("summary_parse_failed", preview=cleaned[:200])
             # Fallback: wrap raw text as a single message
@@ -317,7 +338,7 @@ def generate_corpus_synthesis(
         try:
             match = re.search(r'\[.*\]', cleaned, re.DOTALL)
             if match:
-                messages = json.loads(match.group(0))
+                messages = _coerce_messages(json.loads(match.group(0)))
         except (json.JSONDecodeError, ValueError):
             log.warn("synthesis_parse_failed", preview=cleaned[:200])
             messages = [{"role": "synthesis", "type": "summary", "content": cleaned}]
