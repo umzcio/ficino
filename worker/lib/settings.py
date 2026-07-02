@@ -185,13 +185,23 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
         if isinstance(user_explicit, str):
             user_explicit = json.loads(user_explicit)
 
+    # Under PUBLIC_DEPLOYMENT the operator's env is authoritative:
+    # get_user_settings already reasserted env values over stale user rows
+    # in `settings`, so the env writes must follow the MERGED values or
+    # os.environ would diverge from _active_settings (stale user value
+    # leaking to legacy env readers). Same truthiness check as
+    # get_user_settings.
+    public_deployment = os.getenv("PUBLIC_DEPLOYMENT", "").lower() in ("1", "true", "yes")
+
     with _env_lock:
         _snapshot_baseline_env()
         _active_settings.clear()
         _active_settings.update(settings)
         for setting_key, env_var in _SETTINGS_TO_ENV.items():
-            # Check user's explicitly-set value, not merged (which includes DEFAULTS)
-            value = user_explicit.get(setting_key)
+            # Check user's explicitly-set value, not merged (which includes
+            # DEFAULTS) — except under PUBLIC_DEPLOYMENT, where merged carries
+            # the env-reasserted operator values and must win in os.environ too.
+            value = settings.get(setting_key) if public_deployment else user_explicit.get(setting_key)
             if value:
                 os.environ[env_var] = str(value)
                 logger.debug("setting_applied", key=setting_key, env=env_var)

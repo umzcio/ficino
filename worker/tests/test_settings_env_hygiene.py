@@ -61,3 +61,21 @@ def test_operator_baseline_is_restored(monkeypatch):
     assert os.environ.get("ANTHROPIC_API_KEY") == "sk-operator", (
         "empty user value restores the operator baseline, not user A's key"
     )
+
+
+def test_public_deployment_reassert_wins_over_stale_user_value(monkeypatch):
+    from lib import settings as ws
+
+    monkeypatch.setenv("PUBLIC_DEPLOYMENT", "true")
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    _reset_module_state()
+    _install_fake_rows(monkeypatch, {
+        "user-a": {"llm_provider": "ollama"},  # stale self-host value
+    })
+
+    ws.apply_provider_settings("user-a")
+    assert os.environ.get("LLM_PROVIDER") == "api", (
+        "under PUBLIC_DEPLOYMENT the operator env must win in os.environ too, "
+        "not just in _active_settings"
+    )
+    assert ws.get_active("llm_provider", "LLM_PROVIDER", "") == "api"
