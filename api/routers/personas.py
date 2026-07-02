@@ -330,10 +330,22 @@ async def clear_persona_dm(
 
     Deletes the `persona_dms` row outright so the next `get_persona_dm`
     returns an empty thread and the LLM's context starts fresh.
+
+    R10 BP-3: kept 200 + `{"messages": [...]}` (not 204) — unlike
+    delete_persona_dm_message's per-message delete, PersonaProfile.tsx's
+    `handleDeleteMessage` reads `data.messages` from this endpoint's sibling
+    to resync optimistic state; `handleClearDm` (this endpoint's only
+    caller) doesn't read the body, but keeping the same response shape
+    across both DM-delete endpoints avoids a footgun for the next caller.
+    This endpoint was previously the one DELETE in the router with no
+    existence check at all (unlike delete_persona_dm_message just above,
+    which already 404s on a missing thread) — added the same guard.
     """
-    await db.execute(
+    result = await db.execute(
         "DELETE FROM persona_dms WHERE user_id = $1 AND persona_key = $2",
         user.id, persona_key,
     )
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="No DM thread with this persona")
     logger.info("persona_dm_cleared", persona=persona_key)
     return {"messages": []}

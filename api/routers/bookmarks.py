@@ -132,6 +132,11 @@ async def delete_bookmark_by_post(
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Remove a bookmark by feed_id + post_index + message_index."""
+    # Intentionally idempotent: unlike delete_bookmark (by id) above, this
+    # removes by composite key from a client that only knows "is this post
+    # bookmarked", not the bookmark's id — a toggle-off on an already-absent
+    # bookmark is a no-op success, not a 404 (R10 BP-3; see review/round10/
+    # best-practices.md BP-3 for the coexisting-DELETE-contracts survey).
     await db.execute(
         "DELETE FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
         user.id, feed_id, post_index, message_index,

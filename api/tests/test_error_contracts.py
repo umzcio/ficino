@@ -9,10 +9,15 @@
   previously 400 "Post index out of range", now 404 "Post not found" —
   matching the 404-for-missing-sub-resource contract used by
   personas.delete_persona_dm_message and replies.delete_reply_message.
+- BP-3: alerts.dismiss_alert standardized to 204 + 404-on-missing (was 200
+  `{"status": "ok"}`, no existence check); personas.clear_persona_dm keeps
+  200 + `{"messages": [...]}` but gains the 404-on-missing-thread guard it
+  was missing (delete_persona_dm_message already had one).
 """
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 import httpx
 import pytest
@@ -136,3 +141,59 @@ async def test_regenerate_post_out_of_range_is_404_not_found(client_as_user_a, s
     r = await client_as_user_a.post(f"/feed/{seeded_users['feed_a']}/regenerate/0")
     assert r.status_code == 404, r.text
     assert r.json()["detail"] == "Post not found"
+
+
+# ---------------------------------------------------------------------------
+# BP-3: alerts.dismiss_alert -> 204 + 404-on-missing.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dismiss_alert_returns_204_then_404_on_second_dismiss(client_as_user_a, seeded_users, db_conn):
+    alert_id = str(uuid.uuid4())
+    await db_conn.execute(
+        "INSERT INTO alerts (id, user_id, alert_type, title, body) VALUES ($1, $2, $3, $4, $5)",
+        alert_id, seeded_users["user_a"], "test", "Test alert", "body",
+    )
+
+    r1 = await client_as_user_a.delete(f"/alerts/{alert_id}")
+    assert r1.status_code == 204, r1.text
+    assert r1.content == b""
+
+    r2 = await client_as_user_a.delete(f"/alerts/{alert_id}")
+    assert r2.status_code == 404, r2.text
+
+
+@pytest.mark.asyncio
+async def test_dismiss_alert_missing_id_is_404(client_as_user_a, seeded_users):
+    r = await client_as_user_a.delete(f"/alerts/{uuid.uuid4()}")
+    assert r.status_code == 404, r.text
+
+
+# ---------------------------------------------------------------------------
+# BP-3: personas.clear_persona_dm gains the 404-on-missing-thread guard.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_clear_persona_dm_missing_thread_is_404(client_as_user_a, seeded_users):
+    r = await client_as_user_a.delete("/personas/skeptic/dm")
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_clear_persona_dm_existing_thread_returns_200_and_empty_messages(
+    client_as_user_a, seeded_users, db_conn
+):
+    await db_conn.execute(
+        """INSERT INTO persona_dms (user_id, persona_key, messages)
+           VALUES ($1, $2, $3::jsonb)""",
+        seeded_users["user_a"], "skeptic",
+        '[{"role": "user", "content": "hi"}]',
+    )
+
+    r = await client_as_user_a.delete("/personas/skeptic/dm")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"messages": []}
+
+    # Second clear on the now-deleted thread 404s.
+    r2 = await client_as_user_a.delete("/personas/skeptic/dm")
+    assert r2.status_code == 404, r2.text

@@ -176,6 +176,12 @@ async def delete_workspace(
         "UPDATE papers SET corpus_id = $1 WHERE corpus_id = $2 AND user_id = $3",
         target, workspace_id, user.id,
     )
+    # Intentionally idempotent on a missing/already-deleted workspace_id: the
+    # guards above (default-workspace check, "only workspace" count check,
+    # and the paper-move) already ran against the caller's *other* owned
+    # workspaces, so a final DELETE that matches 0 rows here just means the
+    # target was already gone — same "toggle off" shape as bookmarks/tags'
+    # composite-key deletes, not a resource lookup that should 404 (R10 BP-3).
     await db.execute(
         "DELETE FROM corpora WHERE id = $1 AND user_id = $2",
         workspace_id, user.id,

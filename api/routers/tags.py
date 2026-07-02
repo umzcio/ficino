@@ -139,6 +139,10 @@ async def unassign_tag(
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
     """Remove a tag from a paper."""
+    # Intentionally idempotent: same "toggle off a composite-key membership
+    # row" shape as bookmarks.delete_bookmark_by_post — the caller is
+    # un-tagging a paper it believes is tagged, so a paper/tag pair that's
+    # already untagged is a no-op success, not a 404 (R10 BP-3).
     await db.execute(
         """DELETE FROM paper_tags
            WHERE paper_id = $1 AND tag_id = $2
