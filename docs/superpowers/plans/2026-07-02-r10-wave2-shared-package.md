@@ -517,10 +517,12 @@ async def test_get_settings_reasserts_env_under_public_deployment(
     from routers import settings as settings_router
     from ficino_shared import settings_schema
 
+    # ORDER MATTERS: reset_baseline_for_tests() snapshots IMMEDIATELY
+    # (Task 4 decision) — set the operator env BEFORE resetting so the
+    # baseline captures it.
     monkeypatch.setenv("PUBLIC_DEPLOYMENT", "true")
-    settings_schema.reset_baseline_for_tests()
     monkeypatch.setenv("LLM_PROVIDER", "api")
-    settings_schema.snapshot_baseline_env()
+    settings_schema.reset_baseline_for_tests()
 
     await db_conn.execute(
         """INSERT INTO user_settings (user_id, settings) VALUES ($1, $2)

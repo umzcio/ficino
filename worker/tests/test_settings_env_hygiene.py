@@ -17,9 +17,10 @@ def _install_fake_rows(monkeypatch, rows: dict[str, dict]):
 
 
 def _reset_module_state():
+    from ficino_shared import settings_schema
     from lib import settings as ws
     ws._active_settings.clear()
-    ws._baseline_env.clear()
+    settings_schema.reset_baseline_for_tests()
 
 
 def test_no_key_leak_between_users(monkeypatch):

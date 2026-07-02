@@ -10,7 +10,9 @@ services:
       - ficino-network
 
   api:
-    build: ./api
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     container_name: ficino-api
     restart: unless-stopped
     env_file:
@@ -36,7 +38,9 @@ services:
       - ficino-network
 
   worker:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: ficino-worker
     restart: unless-stopped
     env_file:

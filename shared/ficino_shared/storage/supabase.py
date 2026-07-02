@@ -11,6 +11,11 @@ behalf of any user. Figure images are exposed to the browser via
 short-lived signed URLs issued by Supabase directly — no round-trip
 through our API, so `/figures/...` is not mounted when this backend is
 active.
+
+Config (url/key/bucket) is injected by the caller — this module never
+reads env or `config.settings` itself. Methods stay synchronous exactly
+as they were pre-refactor; wrapping in `asyncio.to_thread` (API-3) is a
+wave-3 api-side concern, not done here.
 """
 
 from __future__ import annotations
@@ -18,15 +23,13 @@ from __future__ import annotations
 import os
 import tempfile
 
-from config import settings
+from ficino_shared.constants import MEDIA_URL_TTL
 
 from .base import StorageBackend
 
 
 class SupabaseStorage(StorageBackend):
-    def __init__(self) -> None:
-        url = settings.supabase_url
-        key = settings.supabase_service_role_key
+    def __init__(self, url: str, key: str, bucket: str) -> None:
         if not url or not key:
             raise RuntimeError(
                 "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set "
@@ -34,7 +37,7 @@ class SupabaseStorage(StorageBackend):
             )
         from supabase import create_client
         self._client = create_client(url, key)
-        self._bucket = settings.supabase_storage_bucket or "papers"
+        self._bucket = bucket or "papers"
 
     # -- Key helpers --
 
@@ -52,10 +55,6 @@ class SupabaseStorage(StorageBackend):
     @staticmethod
     def _audio_key(user_id: str, feed_id: str, post_index: int) -> str:
         return f"{user_id}/feeds/{feed_id}/audio/post_{post_index}.mp3"
-
-    @staticmethod
-    def _podcast_segment_key(user_id: str, feed_id: str, segment_index: int) -> str:
-        return f"{user_id}/feeds/{feed_id}/podcast/seg_{segment_index}.mp3"
 
     @staticmethod
     def _podcast_episode_key(user_id: str, feed_id: str) -> str:
@@ -168,7 +167,7 @@ class SupabaseStorage(StorageBackend):
         return key
 
     def audio_url(
-        self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
+        self, user_id: str, feed_id: str, post_index: int, ttl: int = MEDIA_URL_TTL
     ) -> str:
         key = self._audio_key(user_id, feed_id, post_index)
         resp = self._client.storage.from_(self._bucket).create_signed_url(
@@ -177,29 +176,6 @@ class SupabaseStorage(StorageBackend):
         return resp.get("signedURL") or resp.get("signedUrl") or ""
 
     # -- Podcast --
-
-    def save_podcast_segment(
-        self, user_id: str, feed_id: str, segment_index: int, content: bytes
-    ) -> str:
-        key = self._podcast_segment_key(user_id, feed_id, segment_index)
-        self._client.storage.from_(self._bucket).upload(
-            path=key,
-            file=content,
-            file_options={
-                "content-type": "audio/mpeg",
-                "upsert": "true",
-            },
-        )
-        return key
-
-    def podcast_segment_url(
-        self, user_id: str, feed_id: str, segment_index: int, ttl: int = 86400
-    ) -> str:
-        key = self._podcast_segment_key(user_id, feed_id, segment_index)
-        resp = self._client.storage.from_(self._bucket).create_signed_url(
-            path=key, expires_in=ttl,
-        )
-        return resp.get("signedURL") or resp.get("signedUrl") or ""
 
     def save_podcast_episode(
         self, user_id: str, feed_id: str, content: bytes
@@ -216,7 +192,7 @@ class SupabaseStorage(StorageBackend):
         return key
 
     def podcast_episode_url(
-        self, user_id: str, feed_id: str, ttl: int = 86400
+        self, user_id: str, feed_id: str, ttl: int = MEDIA_URL_TTL
     ) -> str:
         key = self._podcast_episode_key(user_id, feed_id)
         resp = self._client.storage.from_(self._bucket).create_signed_url(

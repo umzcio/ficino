@@ -66,3 +66,36 @@ async def test_cohere_key_is_settable_and_redacted(client_as_user_a, seeded_user
     assert resp.json()["cohere_api_key"] == "set", (
         "cohere_api_key must be allow-listed AND in SECRET_KEYS"
     )
+
+
+@pytest.mark.asyncio
+async def test_get_settings_reasserts_env_under_public_deployment(
+    client_as_user_a, seeded_users, db_conn, monkeypatch
+):
+    """DUP-1 last gap: GET must report the provider the WORKER will use."""
+    import json as _json
+    from ficino_shared import settings_schema
+
+    # ORDER MATTERS: reset_baseline_for_tests() snapshots IMMEDIATELY
+    # (Task 4 decision) — set the operator env BEFORE resetting so the
+    # baseline captures it.
+    monkeypatch.setenv("PUBLIC_DEPLOYMENT", "true")
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    settings_schema.reset_baseline_for_tests()
+
+    await db_conn.execute(
+        """INSERT INTO user_settings (user_id, settings) VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE SET settings = $2""",
+        seeded_users["user_a"], _json.dumps({"llm_provider": "ollama"}),
+    )
+    resp = await client_as_user_a.get("/settings")
+    assert resp.json()["llm_provider"] == "api", (
+        "stale self-host row must not mask the operator's forced provider"
+    )
+
+
+@pytest.mark.asyncio
+async def test_settings_router_uses_shared_schema(client_as_user_a, seeded_users):
+    from routers import settings as settings_router
+    from ficino_shared import settings_schema
+    assert settings_router.DEFAULTS is settings_schema.DEFAULTS

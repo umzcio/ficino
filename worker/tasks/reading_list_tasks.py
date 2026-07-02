@@ -14,6 +14,7 @@ import structlog
 from celery import Task
 
 from celery_app import app
+from ficino_shared.constants import CHAPTER_INSERT_SQL
 from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow, fetch
 from lib.post_validation import validate_post_shape
@@ -207,16 +208,7 @@ def propose_ordering(
                 # Rebuild all chapters in a single INSERT ... SELECT FROM
                 # unnest(...) instead of one INSERT per paper (same pattern
                 # as the API's create endpoint).
-                execute(
-                    """INSERT INTO reading_list_chapters
-                         (reading_list_id, chapter_index, paper_ids, status)
-                       SELECT $1::uuid,
-                              (row_num - 1)::int,
-                              ARRAY[pid]::uuid[],
-                              CASE WHEN row_num = 1 THEN 'unlocked' ELSE 'locked' END
-                       FROM unnest($2::uuid[]) WITH ORDINALITY AS t(pid, row_num)""",
-                    list_id, new_sequence,
-                )
+                execute(CHAPTER_INSERT_SQL, list_id, new_sequence)
                 log.info("propose_ordering_persisted", list_id=list_id)
             except Exception as e:
                 # Persistence failure is surfaced loudly but doesn't retry

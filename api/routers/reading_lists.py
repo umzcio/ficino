@@ -13,6 +13,7 @@ from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from db.connection import get_db
+from ficino_shared.constants import CHAPTER_INSERT_SQL
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/reading-lists", tags=["reading-lists"])
@@ -214,16 +215,7 @@ async def create_reading_list(
     # Python-loop version was N serial INSERTs — a 20-paper list = 20
     # sequential RTT before the Celery dispatch. unnest WITH ORDINALITY
     # keeps the per-paper chapter_index deterministic.
-    await db.execute(
-        """INSERT INTO reading_list_chapters
-             (reading_list_id, chapter_index, paper_ids, status)
-           SELECT $1::uuid,
-                  (row_num - 1)::int,
-                  ARRAY[pid]::uuid[],
-                  CASE WHEN row_num = 1 THEN 'unlocked' ELSE 'locked' END
-           FROM unnest($2::uuid[]) WITH ORDINALITY AS t(pid, row_num)""",
-        list_id, paper_ids,
-    )
+    await db.execute(CHAPTER_INSERT_SQL, list_id, paper_ids)
 
     # Dispatch AI ordering. The worker persists the result directly into
     # reading_lists.{rationale, paper_sequence} so the frontend's polling
