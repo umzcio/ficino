@@ -81,6 +81,7 @@ jobs:
             infra/postgres/add_chunks_contextual_prefix.sql \
             infra/postgres/add_chunks_unique_paper_chunk_idx.sql \
             infra/postgres/add_feed_audio_status.sql \
+            infra/postgres/add_feed_media_claimed_at.sql \
             infra/postgres/add_feed_podcast.sql \
             infra/postgres/add_feed_posts_table.sql \
             infra/postgres/add_feed_posts_search_partial.sql \

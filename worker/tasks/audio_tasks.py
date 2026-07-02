@@ -180,14 +180,21 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
     start = time.time()
 
     # Claim the feed. Guard against re-entry: if audio_status is already
-    # 'generating', another worker is in flight — bail out. If it's
-    # 'ready', this is a retry after completion — also bail. Only 'failed'
-    # or NULL starts a fresh run.
+    # 'generating' AND the claim is recent, another worker is in flight —
+    # bail out. If it's 'ready', this is a retry after completion — also
+    # bail. 'failed' or NULL starts a fresh run. A 'generating' row whose
+    # claim is older than 15 minutes (> task_time_limit 600s + redelivery
+    # slack) is treated as abandoned (e.g. a SIGKILLed worker) and is
+    # reclaimable; a NULL audio_claimed_at (pre-migration stuck row) is
+    # treated the same way (R10 WORK-5).
     claimed = fetchrow(
         """UPDATE feeds
-           SET audio_status = 'generating'
+           SET audio_status = 'generating', audio_claimed_at = NOW()
            WHERE id = $1
-             AND (audio_status IS NULL OR audio_status = 'failed')
+             AND (audio_status IS NULL OR audio_status = 'failed'
+                  OR (audio_status = 'generating'
+                      AND (audio_claimed_at IS NULL
+                           OR audio_claimed_at < NOW() - INTERVAL '15 minutes')))
            RETURNING user_id, posts""",
         feed_id,
     )
@@ -345,11 +352,17 @@ def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
     log.info("feed_podcast_start")
     start = time.time()
 
+    # See generate_audio_for_feed's claim above — same 15-minute staleness
+    # arm (podcast_claimed_at), including the legacy NULL-claimed_at arm for
+    # rows stuck 'generating' since before this migration (R10 WORK-5).
     claimed = fetchrow(
         """UPDATE feeds
-           SET podcast_status = 'generating'
+           SET podcast_status = 'generating', podcast_claimed_at = NOW()
            WHERE id = $1
-             AND (podcast_status IS NULL OR podcast_status = 'failed')
+             AND (podcast_status IS NULL OR podcast_status = 'failed'
+                  OR (podcast_status = 'generating'
+                      AND (podcast_claimed_at IS NULL
+                           OR podcast_claimed_at < NOW() - INTERVAL '15 minutes')))
            RETURNING user_id, corpus_id, posts""",
         feed_id,
     )
