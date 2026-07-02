@@ -7,11 +7,11 @@ import asyncpg
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from config import settings as app_settings
 from auth import AuthUser, get_current_user
 from db.connection import get_db
+from models.requests import SettingsUpdate
 from storage import storage
 from ficino_shared.settings_schema import (
     DEFAULTS,
@@ -48,9 +48,6 @@ def _cleanup_artifacts(user_id: str, paper_ids: list[str], log_event: str) -> in
             logger.warn(log_event, paper_id=pid, error=str(e)[:120])
     return freed
 
-
-class SettingsUpdate(BaseModel):
-    settings: dict
 
 
 # Allow-list of settings keys accepted from user input. Anything not here

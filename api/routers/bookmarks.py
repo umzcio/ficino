@@ -5,21 +5,14 @@ import json
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 
 from audit import record_audit
 from auth import AuthUser, get_current_user
 from db.connection import get_db
+from models.requests import BookmarkCreate
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
-
-
-class BookmarkCreate(BaseModel):
-    feed_id: str
-    post_index: int
-    message_index: int = -1  # -1 = post-level, 0+ = reply message index
-    post_snapshot: dict
 
 
 @router.get("")

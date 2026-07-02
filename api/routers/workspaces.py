@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from auth import AuthUser, get_current_user
 from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
+from models.requests import WorkspaceCreate, WorkspaceUpdate
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -50,14 +50,6 @@ async def get_or_create_default_workspace(
         user_id,
     )
     return str(row["id"])
-
-
-class WorkspaceCreate(BaseModel):
-    name: str
-
-
-class WorkspaceUpdate(BaseModel):
-    name: str
 
 
 @router.get("")

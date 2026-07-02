@@ -5,12 +5,12 @@ import json
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from config import settings
 from db.connection import get_db
+from models.requests import PersonaDmRequest
 from services.llm import generate_response, llm_error_to_http
 
 logger = structlog.get_logger(__name__)
@@ -126,12 +126,6 @@ async def get_persona_replies(
             "parent_post": parent or {},
         })
     return results
-
-
-class PersonaDmRequest(BaseModel):
-    # Bound LLM input so a misbehaving client can't pump unbounded text into
-    # the persona prompt. Matches ReplyRequest.user_message.
-    message: str = Field(max_length=2000)
 
 
 @router.get("/{persona_key}/dm")

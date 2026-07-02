@@ -5,29 +5,16 @@ import json
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 
 from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from db.connection import get_db
+from models.requests import UserPostCreate, UserPostFollowUp
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/user-posts", tags=["user-posts"])
-
-
-class UserPostCreate(BaseModel):
-    # Matches the max_length used for ReplyRequest / ZapRequest in replies.py
-    # so every body string shipped to a paid LLM has a per-request size cap.
-    # Without this, 30 multi-MB posts/day (the existing rate limit) can still
-    # burn arbitrarily large input-token bills on Claude.
-    content: str = Field(max_length=4000)
-    corpus_id: str | None = None
-
-
-class UserPostFollowUp(BaseModel):
-    content: str = Field(max_length=4000)
 
 
 @router.get("")

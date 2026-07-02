@@ -5,22 +5,13 @@ import json
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from auth import AuthUser, get_current_user
 from db.connection import get_db
+from models.requests import LikeCreate
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/likes", tags=["likes"])
-
-
-class LikeCreate(BaseModel):
-    feed_id: str
-    post_index: int
-    message_index: int = -1  # -1 = post-level, 0+ = reply message index
-    persona_key: str | None = None
-    post_type: str | None = None
-    category: str | None = None
 
 
 @router.get("/feed/{feed_id}")

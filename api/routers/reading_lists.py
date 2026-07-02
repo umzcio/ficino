@@ -5,7 +5,6 @@ import json
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 
 from audit import record_audit
 from celery_client import get_celery
@@ -14,27 +13,14 @@ from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from db.connection import get_db
 from ficino_shared.constants import CHAPTER_INSERT_SQL
+from models.requests import (
+    ApplyOrderingRequest,
+    ReadingListCreate,
+    ReadingListReorder,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/reading-lists", tags=["reading-lists"])
-
-
-class ReadingListCreate(BaseModel):
-    name: str
-    corpus_id: str | None = None
-    paper_ids: list[str] | None = None  # if None, use all papers in corpus
-
-
-class ReadingListReorder(BaseModel):
-    paper_sequence: list[str]
-
-
-class OrderedPaper(BaseModel):
-    paper_id: str
-
-
-class ApplyOrderingRequest(BaseModel):
-    ordered_papers: list[OrderedPaper]
 
 
 @router.get("")

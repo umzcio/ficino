@@ -3,23 +3,14 @@
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 
 from audit import record_audit
 from auth import AuthUser, get_current_user
 from db.connection import get_db
+from models.requests import PaperTagRequest, TagCreate
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/tags", tags=["tags"])
-
-
-class TagCreate(BaseModel):
-    name: str
-
-
-class PaperTagRequest(BaseModel):
-    paper_id: str
-    tag_name: str
 
 
 @router.get("")

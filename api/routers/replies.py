@@ -6,13 +6,13 @@ import json
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from config import settings
 from db import connection as db_connection
 from db.connection import get_db
+from models.requests import ReplyRequest, ZapRequest
 from services.llm import generate_response, llm_error_to_http
 from textutil import escape_like
 
@@ -198,29 +198,6 @@ async def _llm_call_with_fresh_conn(
             max_tokens=max_tokens, temperature=temperature,
             user_id=user_id,
         )
-
-
-class ReplyRequest(BaseModel):
-    feed_id: str
-    post_index: int
-    persona_key: str
-    # Bound body length so a misbehaving/malicious client can't pump
-    # unbounded text through the LLM path. Matches ZapRequest constraints.
-    user_message: str = Field(max_length=2000)
-    post_content: str = Field(max_length=4000)
-    paper_ref: str | None = Field(default=None, max_length=500)
-
-
-class ZapRequest(BaseModel):
-    feed_id: str
-    post_index: int
-    target_persona_key: str  # persona to generate response
-    source_persona_key: str  # persona who wrote the message being zapped
-    # Bound source_message + post_content length so a misbehaving client
-    # (or a malicious one) can't jam a 100MB payload through the LLM path.
-    source_message: str = Field(max_length=2000)
-    post_content: str = Field(max_length=4000)
-    paper_ref: str | None = Field(default=None, max_length=500)
 
 
 @router.get("/conversations")
