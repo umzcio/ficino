@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Loader2, FileText, Trash2, Send } from 'lucide-react'
+import { Loader2, Trash2, Send } from 'lucide-react'
 import type { UserPost } from '../../lib/api'
 import { getUserPostStatus, deleteUserPost, replyToUserPost, getUserPost } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { useKeyboardAwareInput } from '../../hooks/useKeyboardAwareInput'
 import { usePollTask } from '../../hooks/usePollTask'
 import { Md } from '../_shared/Md'
+import { Avatar } from './_shared/Avatar'
+import { SourcesList } from './_shared/SourcesList'
 import { timeAgo as sharedTimeAgo } from '../../lib/timeAgo'
 
 interface UserPostCardProps {
@@ -192,21 +194,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
           follow-up. Archivist avatar + spinner + "searching" copy. */}
       {status === 'pending' && (
         <div role="status" aria-live="polite" aria-atomic="true" className="px-4 py-3 flex gap-3 bg-bg-hover/30 border-l-2 border-[#8b92a5]/30 ml-0">
-          {archivist?.avatar_url ? (
-            <img
-              src={archivist.avatar_url}
-              alt="The Archivist"
-              className="w-10 h-10 rounded-full shrink-0 object-cover"
-              style={{ border: '1.5px solid #8b92a550' }}
-            />
-          ) : (
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-              style={{ backgroundColor: '#8b92a520', border: '1.5px solid #8b92a550', color: '#8b92a5' }}
-            >
-              {archivist?.initials || 'TA'}
-            </div>
-          )}
+          <Avatar persona="archivist" />
           <div className="flex items-center gap-2 text-[13px] text-text-muted">
             <Loader2 size={14} className="animate-spin" />
             <span>The Archivist is searching your corpus...</span>
@@ -302,7 +290,6 @@ function ThreadTurn({
   sources?: UserPost['sources']
   onToggleSources?: () => void
 }) {
-  const ringColor = '#8b92a550'
   if (isUser) {
     return (
       <article className="px-4 py-3.5 flex gap-3">
@@ -330,16 +317,9 @@ function ThreadTurn({
           type="button"
           onClick={() => onPersonaClick?.('archivist')}
           aria-label={`Open ${archivist?.name || 'The Archivist'} profile`}
-          className="w-10 h-10 p-0 rounded-full shrink-0 cursor-pointer bg-transparent border-none overflow-hidden"
-          style={{ border: `1.5px solid ${ringColor}` }}
+          className="self-start p-0 rounded-full shrink-0 cursor-pointer bg-transparent border-none"
         >
-          {archivist?.avatar_url ? (
-            <img src={archivist.avatar_url} alt="" className="w-full h-full object-cover block" aria-hidden="true" />
-          ) : (
-            <span className="w-full h-full flex items-center justify-center text-[11px] font-bold" style={{ backgroundColor: '#8b92a520', color: '#8b92a5' }} aria-hidden="true">
-              {archivist?.initials || 'TA'}
-            </span>
-          )}
+          <Avatar persona="archivist" />
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
@@ -355,29 +335,12 @@ function ThreadTurn({
           </div>
           <Md text={content} className="my-1 text-[15px] text-text leading-relaxed break-words" />
           {sources && sources.length > 0 && onToggleSources && (
-            <div className="mt-2">
-              <button
-                onClick={onToggleSources}
-                className="text-[11px] text-text-muted hover:text-gold bg-transparent border-none cursor-pointer transition-colors flex items-center gap-1 px-0"
-              >
-                <FileText size={10} />
-                {sourcesOpen ? 'Hide sources' : `${sources.length} sources`}
-              </button>
-              {sourcesOpen && (
-                <div className="mt-2 space-y-2">
-                  {sources.map((src, i) => (
-                    <div key={i} className="border border-border rounded-lg p-2.5 bg-bg text-[12px]">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold text-text-mid truncate">{src.paper_title}</span>
-                        <span className="text-text-muted shrink-0">· {src.section}</span>
-                        <span className="text-text-subtle shrink-0 text-[10px] ml-auto">{(src.score * 100).toFixed(0)}%</span>
-                      </div>
-                      <p className="text-text-muted leading-relaxed line-clamp-3">{src.content}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <SourcesList
+              sources={sources}
+              open={sourcesOpen}
+              onToggle={onToggleSources}
+              className="mt-2"
+            />
           )}
         </div>
       </article>
