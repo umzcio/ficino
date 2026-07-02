@@ -17,7 +17,40 @@ function getCsrfToken(): string | null {
   return match ? decodeURIComponent(match[1]) : null
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+// Thrown by request() on any non-2xx response. Carries the HTTP status and
+// the parsed JSON body (when the response was valid JSON) alongside the
+// existing `message` string, so callers that need to branch on status code
+// (e.g. treating 404 as "already gone" rather than a real failure) or pull
+// a server-supplied `detail` string (FastAPI's HTTPException shape) don't
+// have to re-parse `err.message`. `message` keeps the exact
+// `API error {status}: {text}` format request() has always thrown, so any
+// existing `catch (err) { ... err.message ... }` caller is unaffected.
+export class ApiError extends Error {
+  status: number
+  body: unknown
+
+  constructor(status: number, message: string, body?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
+// Pulls a FastAPI-style { detail: string } message out of a thrown ApiError,
+// falling back to `fallback` when the error isn't an ApiError, has no JSON
+// body, or the body has no string `detail`. Pure — no I/O — so it's unit
+// tested directly (see api.test.ts) rather than only through the auth flows
+// that consume it.
+export function getApiErrorDetail(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+    const detail = (err.body as { detail?: unknown }).detail
+    if (typeof detail === 'string' && detail) return detail
+  }
+  return fallback
+}
+
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) }
 
   // Inject auth token for supabase provider
@@ -44,7 +77,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`API error ${res.status}: ${text}`)
+    let body: unknown
+    try {
+      body = text ? JSON.parse(text) : undefined
+    } catch {
+      body = undefined // not JSON — leave body unset, message still carries the raw text
+    }
+    throw new ApiError(res.status, `API error ${res.status}: ${text}`, body)
   }
   if (res.status === 204) return undefined as T
   return res.json()
