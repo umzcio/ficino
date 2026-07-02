@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileText, Users, MessageCircle, ChevronRight, Loader2 } from 'lucide-react'
+import { FileText, Users, MessageCircle, ChevronRight } from 'lucide-react'
 import type { PaperConversation, GroupChatPreview } from '../../types'
 import { listPaperConversations, listGroupChats, listReplyConversations, type ReplyConversation } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { timeAgo as sharedTimeAgo } from '../../lib/timeAgo'
+import { Spinner } from '../_shared/AsyncState'
 
 interface InboxProps {
   workspaceId?: string
@@ -76,7 +77,7 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 size={24} className="text-gold animate-spin" />
+          <Spinner size={24} />
         </div>
       ) : tab === 'papers' ? (
         <div>

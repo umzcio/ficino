@@ -4,6 +4,7 @@ import type { Workspace, ActivityItem } from '../../types'
 import { getWorkspaceActivity, searchCorpus, type SearchResults } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { timeAgo } from '../../lib/timeAgo'
+import { Spinner } from '../_shared/AsyncState'
 
 interface ExploreViewProps {
   workspaces: Workspace[]
@@ -81,7 +82,7 @@ function ActivityTimeline({ workspaceId }: { workspaceId: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader2 size={20} className="text-text-muted animate-spin" />
+        <Spinner size={20} className="text-text-muted animate-spin" />
       </div>
     )
   }

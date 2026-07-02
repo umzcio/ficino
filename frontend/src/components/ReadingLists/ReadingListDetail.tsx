@@ -10,6 +10,7 @@ import {
 import type { Feed, FeedPost } from '../../types'
 import { PostCard } from '../Feed/PostCard'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
+import { Spinner } from '../_shared/AsyncState'
 
 interface Props {
   listId: string
@@ -116,7 +117,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
   if (loading || !list) {
     return (
       <div className="flex justify-center py-12">
-        <Loader2 size={24} className="text-gold animate-spin" />
+        <Spinner size={24} />
       </div>
     )
   }

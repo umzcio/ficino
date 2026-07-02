@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Loader2 } from 'lucide-react'
 import type { Workspace } from '../../types'
+import { Spinner } from '../_shared/AsyncState'
 import { SettingsTabs, type SettingsTab } from './SettingsTabs'
 import { SettingsSearchToggle, SettingsSearchResults } from './SettingsSearch'
 import { AccountTab } from './AccountTab'
@@ -26,7 +26,7 @@ export function SettingsView({ settings, loading, onUpdate, workspaces, onDownlo
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="text-gold animate-spin" />
+        <Spinner size={24} />
       </div>
     )
   }

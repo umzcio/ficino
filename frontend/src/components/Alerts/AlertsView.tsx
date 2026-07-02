@@ -3,6 +3,7 @@ import {
 } from 'lucide-react'
 import type { AlertItem } from '../../lib/api'
 import { timeAgo } from '../../lib/timeAgo'
+import { Spinner, EmptyState } from '../_shared/AsyncState'
 
 interface AlertsViewProps {
   alerts: AlertItem[]
@@ -141,16 +142,18 @@ export function AlertsView({ alerts, loading, onMarkRead, onMarkAllRead, onDismi
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="w-6 h-6 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
+          <Spinner size={24} />
         </div>
       ) : alerts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-          <Bell size={48} strokeWidth={1} className="mb-4 text-gold/30" />
-          <p className="text-lg font-semibold text-text-mid mb-2">No alerts yet</p>
-          <p className="text-sm text-center max-w-[280px]">
-            Upload papers and generate feeds — Ficino will surface contradictions, patterns, and insights
-          </p>
-        </div>
+        <EmptyState
+          icon={Bell}
+          title="No alerts yet"
+          hint={
+            <p className="text-sm text-center max-w-[280px]">
+              Upload papers and generate feeds — Ficino will surface contradictions, patterns, and insights
+            </p>
+          }
+        />
       ) : (
         <div>
           {alerts.map((alert) => (

@@ -1,8 +1,9 @@
-import { Bookmark, Loader2 } from 'lucide-react'
+import { Bookmark } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { PostCard } from '../Feed/PostCard'
 import type { BookmarkItem } from '../../lib/api'
 import { timeAgo } from '../../lib/timeAgo'
+import { Spinner, EmptyState } from '../_shared/AsyncState'
 
 interface BookmarksViewProps {
   bookmarks: BookmarkItem[]
@@ -26,14 +27,14 @@ export function BookmarksView({ bookmarks, loading, onRemove, getAnnotation, onA
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 size={24} className="text-gold animate-spin" />
+          <Spinner size={24} />
         </div>
       ) : bookmarks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-          <Bookmark size={48} strokeWidth={1} className="mb-4 text-gold/30" />
-          <p className="text-lg font-semibold text-text-mid mb-2">No bookmarks yet</p>
-          <p className="text-sm">Tap the bookmark icon on any post to save it here</p>
-        </div>
+        <EmptyState
+          icon={Bookmark}
+          title="No bookmarks yet"
+          hint={<p className="text-sm">Tap the bookmark icon on any post to save it here</p>}
+        />
       ) : (
         <div>
           {bookmarks.map((bm) => (
