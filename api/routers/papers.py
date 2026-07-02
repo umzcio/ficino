@@ -24,6 +24,7 @@ router = APIRouter(prefix="/papers", tags=["papers"])
 
 @router.post("", response_model=Paper, status_code=201)
 async def upload_paper(
+    request: Request,
     file: UploadFile,
     workspace_id: str | None = None,
     user: AuthUser = Depends(get_current_user),
@@ -34,9 +35,30 @@ async def upload_paper(
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
+    # Content-Length pre-check (R10 API-19): reject an oversized upload
+    # BEFORE buffering the body into memory. A client can lie about
+    # Content-Length, so this is an early-exit optimization, not the sole
+    # guard — the post-read len(contents) check below still runs as the
+    # authoritative defense-in-depth check.
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            declared_size = None
+        # +16384 allowance for multipart boilerplate (headers, boundaries)
+        # surrounding the actual file bytes, so a file that's exactly at
+        # the cap doesn't get falsely rejected by the wrapper overhead.
+        if declared_size is not None and declared_size > max_bytes + 16384:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds {settings.max_upload_size_mb}MB limit",
+            )
+
     # Check file size
     contents = await file.read()
-    if len(contents) > settings.max_upload_size_mb * 1024 * 1024:
+    if len(contents) > max_bytes:
         raise HTTPException(status_code=400, detail=f"File exceeds {settings.max_upload_size_mb}MB limit")
 
     # Verify PDF magic bytes — an .pdf extension alone is trivially spoofable.
