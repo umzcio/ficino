@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from audit import record_audit
 from auth import AuthUser, get_current_user
+from constants import MAX_LIBRARY_LIST
 from db.connection import get_db
 from models.requests import BookmarkCreate
 
@@ -26,11 +27,11 @@ async def list_bookmarks(
     # ~10 MB per app mount. Enough headroom for a power user to scroll,
     # and a dedicated paginated view can come later if needed.
     rows = await db.fetch(
-        """SELECT id, feed_id, post_index, message_index, post_snapshot, bookmarked_at
+        f"""SELECT id, feed_id, post_index, message_index, post_snapshot, bookmarked_at
            FROM bookmarks
            WHERE user_id = $1
            ORDER BY bookmarked_at DESC
-           LIMIT 500""",
+           LIMIT {MAX_LIBRARY_LIST}""",
         user.id,
     )
     results = []

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 
 from auth import AuthUser, get_current_user
 from config import settings
+from constants import MAX_SEARCH_CHUNKS, MAX_SEARCH_RESULTS
 from db.connection import get_db
 from textutil import escape_like
 
@@ -39,7 +40,7 @@ async def search(
 
     # Search papers by title, filename, authors
     paper_rows = await db.fetch(
-        """SELECT id, title, filename, authors, year, status, chunk_count
+        f"""SELECT id, title, filename, authors, year, status, chunk_count
            FROM papers
            WHERE user_id = $2 AND status = 'complete' AND (
              title ILIKE $1
@@ -47,7 +48,7 @@ async def search(
              OR EXISTS (SELECT 1 FROM unnest(authors) a WHERE a ILIKE $1)
            )
            ORDER BY uploaded_at DESC
-           LIMIT 10""",
+           LIMIT {MAX_SEARCH_RESULTS}""",
         f"%{safe_query}%", user.id,
     )
     papers = [
@@ -67,7 +68,7 @@ async def search(
     # tsquery term (e.g. "neural") matched every tenant's chunks before the
     # post-JOIN ownership trim.
     chunk_rows = await db.fetch(
-        """SELECT c.id, c.paper_id, c.section, c.content, c.chunk_index,
+        f"""SELECT c.id, c.paper_id, c.section, c.content, c.chunk_index,
                   p.title AS paper_title, p.filename AS paper_filename,
                   ts_rank(c.search_vector, plainto_tsquery('english', $1)) AS rank
            FROM chunks c
@@ -75,7 +76,7 @@ async def search(
            WHERE c.user_id = $2
              AND c.search_vector @@ plainto_tsquery('english', $1)
            ORDER BY rank DESC
-           LIMIT 15""",
+           LIMIT {MAX_SEARCH_CHUNKS}""",
         query, user.id,
     )
     chunks = [
@@ -94,7 +95,7 @@ async def search(
     # when the flag is on. Fall back to the legacy JSONB scan otherwise.
     if settings.search_use_normalized_posts:
         post_rows = await db.fetch(
-            """SELECT fp.feed_id, fp.post_index, fp.persona, fp.post_type,
+            f"""SELECT fp.feed_id, fp.post_index, fp.persona, fp.post_type,
                       fp.content_text, fp.paper_ref, f.generated_at,
                       ts_rank(fp.search_vector, plainto_tsquery('english', $1)) AS rank
                FROM feed_posts fp
@@ -103,7 +104,7 @@ async def search(
                  AND NOT fp.deleted
                  AND fp.search_vector @@ plainto_tsquery('english', $1)
                ORDER BY rank DESC, f.generated_at DESC
-               LIMIT 10""",
+               LIMIT {MAX_SEARCH_RESULTS}""",
             query, user.id,
         )
         matching_posts = [

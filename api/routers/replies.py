@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from config import settings
+from constants import MAX_ACTIVITY_FEED
 from db import connection as db_connection
 from db.connection import get_db
 from models.requests import ReplyRequest, ZapRequest
@@ -262,7 +263,7 @@ async def list_conversations(
     # `WITH ORDINALITY` preserves the array position so `ORDER BY ord DESC`
     # actually finds the LATEST user/persona turn, not an arbitrary one.
     rows = await db.fetch(
-        """SELECT pr.id, pr.feed_id, pr.post_index, pr.persona_key,
+        f"""SELECT pr.id, pr.feed_id, pr.post_index, pr.persona_key,
                   pr.updated_at,
                   f.generated_at AS feed_generated_at,
                   COALESCE(jsonb_array_length(pr.messages), 0) AS message_count,
@@ -283,7 +284,7 @@ async def list_conversations(
            FROM post_replies pr
            JOIN feeds f ON pr.feed_id::uuid = f.id AND f.user_id = $1
            ORDER BY pr.updated_at DESC
-           LIMIT 100""",
+           LIMIT {MAX_ACTIVITY_FEED}""",
         user.id,
     )
     return [

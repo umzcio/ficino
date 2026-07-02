@@ -10,6 +10,7 @@ from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
+from constants import MAX_CONTENT_LIST
 from db.connection import get_db
 from models.requests import UserPostCreate, UserPostFollowUp
 
@@ -26,18 +27,18 @@ async def list_user_posts(
     """List user posts, optionally scoped to a workspace. Newest first."""
     if workspace_id:
         rows = await db.fetch(
-            """SELECT id, content, replies, sources, status, created_at
+            f"""SELECT id, content, replies, sources, status, created_at
                FROM user_posts
                WHERE user_id = $1 AND corpus_id = $2
-               ORDER BY created_at DESC LIMIT 50""",
+               ORDER BY created_at DESC LIMIT {MAX_CONTENT_LIST}""",
             user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
-            """SELECT id, content, replies, sources, status, created_at
+            f"""SELECT id, content, replies, sources, status, created_at
                FROM user_posts
                WHERE user_id = $1
-               ORDER BY created_at DESC LIMIT 50""",
+               ORDER BY created_at DESC LIMIT {MAX_CONTENT_LIST}""",
             user.id,
         )
 

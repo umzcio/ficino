@@ -7,6 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth import AuthUser, get_current_user
+from constants import MAX_ALERTS_LIST
 from db.connection import get_db
 
 logger = structlog.get_logger(__name__)
@@ -20,11 +21,11 @@ async def list_alerts(
 ) -> list[dict[str, object]]:
     """List all non-dismissed alerts, newest first."""
     rows = await db.fetch(
-        """SELECT id, alert_type, title, body, metadata, read, created_at
+        f"""SELECT id, alert_type, title, body, metadata, read, created_at
            FROM alerts
            WHERE user_id = $1 AND dismissed = false
            ORDER BY created_at DESC
-           LIMIT 50""",
+           LIMIT {MAX_ALERTS_LIST}""",
         user.id,
     )
     results = []

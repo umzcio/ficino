@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from config import settings
+from constants import MAX_ACTIVITY_FEED
 from db.connection import get_db
 from models.requests import PersonaDmRequest
 from services.llm import generate_response, llm_error_to_http
@@ -85,7 +86,7 @@ async def get_persona_replies(
     can't see another user's reply activity by guessing a persona key.
     """
     rows = await db.fetch(
-        """
+        f"""
         SELECT
           f.id                            AS feed_id,
           pr.post_index                   AS post_index,
@@ -101,7 +102,7 @@ async def get_persona_replies(
           AND msg.value ->> 'persona' = $2
           AND msg.value ->> 'role'    = 'interjection'
         ORDER BY f.generated_at DESC, pr.post_index, msg.idx
-        LIMIT 100
+        LIMIT {MAX_ACTIVITY_FEED}
         """,
         user.id, persona_key,
     )

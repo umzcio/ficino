@@ -11,6 +11,7 @@ from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit, check_rate_limit
+from constants import MAX_CONTENT_LIST, MAX_PAPER_SUMMARIES_LIST
 from db.connection import get_db
 from models.requests import SynthesisCreateRequest
 
@@ -47,7 +48,7 @@ async def list_paper_conversations(
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
                WHERE p.status = 'complete' AND p.user_id = $1 AND p.corpus_id = $2
                ORDER BY p.uploaded_at DESC
-               LIMIT 200""",
+               LIMIT {MAX_PAPER_SUMMARIES_LIST}""",
             user.id, workspace_id,
         )
     else:
@@ -57,7 +58,7 @@ async def list_paper_conversations(
                LEFT JOIN paper_summaries ps ON p.id = ps.paper_id
                WHERE p.status = 'complete' AND p.user_id = $1
                ORDER BY p.uploaded_at DESC
-               LIMIT 200""",
+               LIMIT {MAX_PAPER_SUMMARIES_LIST}""",
             user.id,
         )
     result = []
@@ -241,7 +242,7 @@ async def list_group_chats(
     caps payload for users with lots of group chats.
     """
     rows = await db.fetch(
-        """SELECT id, name,
+        f"""SELECT id, name,
                   COALESCE(array_length(paper_ids, 1), 0) AS paper_count,
                   COALESCE(jsonb_array_length(messages), 0) AS message_count,
                   LEFT(COALESCE(messages->-1->>'content', ''), 80) AS last_msg,
@@ -249,7 +250,7 @@ async def list_group_chats(
            FROM corpus_syntheses
            WHERE user_id = $1
            ORDER BY generated_at DESC
-           LIMIT 50""",
+           LIMIT {MAX_CONTENT_LIST}""",
         user.id,
     )
     return [

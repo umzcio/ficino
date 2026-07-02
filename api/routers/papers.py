@@ -14,7 +14,7 @@ from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
-from constants import DEFAULT_WORKSPACE_ID
+from constants import DEFAULT_WORKSPACE_ID, MAX_LIBRARY_LIST
 from db.connection import get_db
 from models.paper import Paper
 from storage import storage
@@ -191,7 +191,7 @@ async def list_papers(
     # (matches the old unfiltered branch, which never touched corpus_id at
     # all, including rows where it's NULL).
     rows = await db.fetch(
-        """SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
+        f"""SELECT p.id, p.user_id, p.corpus_id, p.title, p.authors, p.year, p.doi, p.filename,
                   p.status, p.extraction_path, p.error_message, p.chunk_count, p.figure_count,
                   p.uploaded_at, p.processed_at,
                   COALESCE(
@@ -204,7 +204,7 @@ async def list_papers(
            WHERE p.user_id = $1 AND ($2::uuid IS NULL OR p.corpus_id = $2)
            GROUP BY p.id
            ORDER BY p.uploaded_at DESC
-           LIMIT 500""",
+           LIMIT {MAX_LIBRARY_LIST}""",
         user.id, workspace_id,
     )
     return [_paper_from_row(row) for row in rows]

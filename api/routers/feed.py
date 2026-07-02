@@ -12,6 +12,7 @@ from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
+from constants import MAX_FEEDS_LIST
 from db.connection import get_db
 from models.feed import Feed, FeedGenerateRequest
 
@@ -472,13 +473,13 @@ async def list_feeds(
     if workspace_id:
         rows = await db.fetch(
             f"""SELECT {select_cols}
-               FROM feeds WHERE user_id = $1 AND corpus_id = $2 ORDER BY generated_at DESC LIMIT 20""",
+               FROM feeds WHERE user_id = $1 AND corpus_id = $2 ORDER BY generated_at DESC LIMIT {MAX_FEEDS_LIST}""",
             user.id, workspace_id,
         )
     else:
         rows = await db.fetch(
             f"""SELECT {select_cols}
-               FROM feeds WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 20""",
+               FROM feeds WHERE user_id = $1 ORDER BY generated_at DESC LIMIT {MAX_FEEDS_LIST}""",
             user.id,
         )
     feeds = []
