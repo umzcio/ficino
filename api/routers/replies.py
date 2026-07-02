@@ -15,21 +15,10 @@ from config import settings
 from db import connection as db_connection
 from db.connection import get_db
 from services.llm import generate_response
+from textutil import escape_like
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/replies", tags=["replies"])
-
-
-def _escape_like(s: str) -> str:
-    """Escape LIKE/ILIKE metacharacters so user input is matched literally.
-
-    Without this, a `paper_ref` containing `%` or `_` would wildcard-match
-    across the caller's paper library — e.g. `paper_ref = "%"` would grab
-    chunks from whatever paper the DB happened to return first. Backslashes
-    must be escaped first (otherwise we double-escape the escape char).
-    Postgres honors `\\` as the default LIKE escape char.
-    """
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 async def _load_reply_context_chunks(
@@ -108,7 +97,7 @@ async def _load_reply_context_chunks(
     # paper_ref so legacy posts still have a retrieval scope.
     if not source_paper_ids and paper_ref:
         raw_ref = paper_ref.split(' et al')[0] if ' et al' in paper_ref else paper_ref[:30]
-        safe_ref = _escape_like(raw_ref)
+        safe_ref = escape_like(raw_ref)
         paper_row = await db.fetchval(
             """SELECT id FROM papers
                WHERE user_id = $2 AND (title ILIKE $1 OR filename ILIKE $1)

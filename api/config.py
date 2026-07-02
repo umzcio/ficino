@@ -76,6 +76,15 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str = ""
     elevenlabs_model_id: str = "eleven_turbo_v2_5"  # fast + cheap; good enough for post-length snippets
 
+    # Feature flag (2.20). When true, post search hits the normalized
+    # feed_posts table via tsvector — O(log n) indexed search. When false,
+    # falls back to the legacy in-memory JSONB scan. Default true after
+    # backfill verified parity; flip back to false if the new path
+    # misbehaves. R10 BP-14: previously read via bare `os.getenv` in
+    # search.py instead of flowing through this Settings class like every
+    # other API config knob.
+    search_use_normalized_posts: bool = True
+
     # SaaS / hosted-deployment lock. When true:
     #   - the Settings → AI UI hides LLM provider + API-key controls
     #   - the settings-update endpoint silently drops any attempt to set

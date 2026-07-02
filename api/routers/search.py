@@ -1,26 +1,18 @@
 """Search across papers, chunks, and feed posts."""
 
 import json
-import os
 
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, Query
 
 from auth import AuthUser, get_current_user
+from config import settings
 from db.connection import get_db
-from routers.replies import _escape_like
+from textutil import escape_like
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/search", tags=["search"])
-
-
-# Feature flag (2.20). When true, post search hits the normalized feed_posts
-# table via tsvector — O(log n) indexed search. When false, falls back to
-# the legacy in-memory JSONB scan. Default true after backfill verified
-# parity; flip back to "false" by setting the env var if the new path
-# misbehaves.
-SEARCH_USE_NORMALIZED_POSTS = os.getenv("SEARCH_USE_NORMALIZED_POSTS", "true").lower() == "true"
 
 
 @router.get("")
@@ -43,7 +35,7 @@ async def search(
     # Escape LIKE metachars so a user query like "50%" doesn't wildcard-match
     # everything. Backslash must be escaped first to avoid double-escaping the
     # escape char itself. Postgres uses `\` as the default LIKE escape.
-    safe_query = _escape_like(query)
+    safe_query = escape_like(query)
 
     # Search papers by title, filename, authors
     paper_rows = await db.fetch(
@@ -100,7 +92,7 @@ async def search(
 
     # Search feed posts — prefer the normalized feed_posts tsvector path
     # when the flag is on. Fall back to the legacy JSONB scan otherwise.
-    if SEARCH_USE_NORMALIZED_POSTS:
+    if settings.search_use_normalized_posts:
         post_rows = await db.fetch(
             """SELECT fp.feed_id, fp.post_index, fp.persona, fp.post_type,
                       fp.content_text, fp.paper_ref, f.generated_at,
@@ -162,7 +154,7 @@ async def search(
     logger.info(
         "search_complete",
         papers=len(papers), chunks=len(chunks), posts=len(matching_posts),
-        post_path="normalized" if SEARCH_USE_NORMALIZED_POSTS else "jsonb_scan",
+        post_path="normalized" if settings.search_use_normalized_posts else "jsonb_scan",
     )
 
     return {

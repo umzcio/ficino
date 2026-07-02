@@ -8,10 +8,12 @@ Verifies the normalized search path:
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
 
+from config import settings
 from tests.conftest import USER_A_ID, USER_B_ID
 
 
@@ -140,5 +142,66 @@ async def test_search_posts_result_shape(
     finally:
         await db_conn.execute(
             "DELETE FROM feed_posts WHERE feed_id = $1 AND post_index = 0",
+            feed_id,
+        )
+
+
+# --- R10 BP-14 characterization: the flag now lives on Settings, not
+# `os.getenv`, and search.py reads it dynamically per-request. ---
+
+def test_search_use_normalized_posts_defaults_true():
+    from config import Settings
+    assert Settings().search_use_normalized_posts is True
+
+
+@pytest.mark.asyncio
+async def test_search_respects_legacy_flag_toggle(
+    client_as_user_a, seeded_users, db_conn, monkeypatch,
+):
+    """Flipping `settings.search_use_normalized_posts` to False routes the
+    posts leg of /search away from the feed_posts table and back to the
+    legacy in-memory JSONB scan over feeds.posts — proving search.py reads
+    the live Settings attribute (not a module-level constant snapshotted
+    at import time, like the old `os.getenv`-backed global was)."""
+    feed_id = seeded_users["feed_a"]
+    unique_term = f"legacyflagcheck{uuid.uuid4().hex[:8]}"
+
+    # Seed ONLY the normalized feed_posts row — under the legacy path this
+    # must NOT be found.
+    await db_conn.execute(
+        """INSERT INTO feed_posts
+           (feed_id, user_id, post_index, content_text, persona, post_type, category, paper_ref, data, deleted)
+           VALUES ($1, $2, 0, $3, 'skeptic', 'post', 'methods', 'Test 2024', '{}'::jsonb, false)
+           ON CONFLICT (feed_id, post_index) DO UPDATE SET content_text = EXCLUDED.content_text, deleted = false""",
+        feed_id, USER_A_ID, unique_term,
+    )
+    try:
+        monkeypatch.setattr(settings, "search_use_normalized_posts", False)
+        r = await client_as_user_a.get(f"/search?q={unique_term}")
+        assert r.status_code == 200
+        assert r.json().get("posts") == [], (
+            "legacy path (flag off) should not see the normalized-only row"
+        )
+
+        # Now seed the SAME term into feeds.posts JSONB (what the legacy
+        # scan actually reads) and confirm it IS found with the flag off.
+        await db_conn.execute(
+            "UPDATE feeds SET posts = $2::jsonb, post_count = 1 WHERE id = $1",
+            feed_id,
+            json.dumps([{"content": unique_term, "persona": "skeptic", "post_type": "post"}]),
+        )
+        r = await client_as_user_a.get(f"/search?q={unique_term}")
+        assert r.status_code == 200
+        posts = r.json().get("posts", [])
+        assert any(p["feed_id"] == feed_id for p in posts), (
+            "legacy path (flag off) should find content from feeds.posts JSONB"
+        )
+    finally:
+        await db_conn.execute(
+            "DELETE FROM feed_posts WHERE feed_id = $1 AND post_index = 0",
+            feed_id,
+        )
+        await db_conn.execute(
+            "UPDATE feeds SET posts = '[]'::jsonb, post_count = 0 WHERE id = $1",
             feed_id,
         )
