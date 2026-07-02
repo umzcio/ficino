@@ -3,6 +3,7 @@
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 
 app = Celery(
     "ficino",
@@ -51,7 +52,11 @@ app.conf.update(
     beat_schedule={
         "check-stale-papers-daily": {
             "task": "tasks.alert_tasks.check_stale_papers",
-            "schedule": 86400.0,
+            # Wall-clock schedule (not an interval): crontab due-ness survives
+            # restarts/deploys — an 86400s interval resets its countdown on
+            # every fresh beat state file (ephemeral /tmp), so under frequent
+            # deploys it would never fire (R10 wave-3 final-review fix).
+            "schedule": crontab(hour=3, minute=0),
             "options": {"queue": "persona"},
         },
     },
