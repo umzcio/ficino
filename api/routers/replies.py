@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
+from config import settings
 from db import connection as db_connection
 from db.connection import get_db
 from services.llm import generate_response
@@ -331,7 +332,7 @@ async def create_reply(
     body: ReplyRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-    _rl: None = Depends(RateLimit("reply", 60)),
+    _rl: None = Depends(RateLimit("reply", settings.rate_limit_replies_per_day)),
 ) -> dict[str, object]:
     """Send a reply to a persona and get their response.
 
@@ -703,7 +704,7 @@ async def zap_response(
     body: ZapRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-    _rl: None = Depends(RateLimit("reply", 60)),
+    _rl: None = Depends(RateLimit("reply", settings.rate_limit_replies_per_day)),
 ) -> dict[str, object]:
     """Trigger a specific persona to respond to a specific message (conductor mode)."""
     # Verify the feed belongs to the user

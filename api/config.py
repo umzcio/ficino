@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # synthesis creations, and any other one-shot LLM dispatch that isn't
     # a full feed generation.
     rate_limit_summary_per_day: int = 30
+    # R10 BP-6: replies.py and personas.py hardcoded `RateLimit(..., 60)`
+    # inline with no env override — every other dispatch site's limit
+    # flows through this Settings class. Same default (60), now tunable.
+    rate_limit_replies_per_day: int = 60
+    rate_limit_persona_dm_per_day: int = 60
 
     # App
     environment: str = "development"

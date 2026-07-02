@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
+from config import settings
 from db.connection import get_db
 from services.llm import generate_response
 
@@ -154,7 +155,7 @@ async def send_persona_dm(
     body: PersonaDmRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
-    _rl: None = Depends(RateLimit("persona_dm", 60)),
+    _rl: None = Depends(RateLimit("persona_dm", settings.rate_limit_persona_dm_per_day)),
 ) -> dict[str, object]:
     """Send a DM to a persona. Persona responds grounded in the user's corpus."""
     # Get existing conversation. `existing` is used only to build the LLM
