@@ -74,6 +74,13 @@ async def _generate_ollama(
                 content = msg.get("content", "")
                 if not content and msg.get("thinking"):
                     content = msg["thinking"]
+                # Ollama can return HTTP 200 with empty content (model hit
+                # num_predict with no text, or whitespace-only). Raise here
+                # so callers see a concrete failure instead of a silent ""
+                # propagating up through generate_persona_post — matches
+                # api/services/llm.py's guard (R10 DUP-7b).
+                if not content or not content.strip():
+                    raise RuntimeError("LLM returned empty response")
                 return content
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as e:
             last_exc = e
