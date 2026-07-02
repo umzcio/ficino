@@ -4,7 +4,6 @@ import asyncio
 import json
 
 import asyncpg
-import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,7 +13,7 @@ from auth.rate_limit import RateLimit
 from config import settings
 from db import connection as db_connection
 from db.connection import get_db
-from services.llm import generate_response
+from services.llm import generate_response, llm_error_to_http
 from textutil import escape_like
 
 logger = structlog.get_logger(__name__)
@@ -559,12 +558,16 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
     # --- Walk results in deterministic order: main, mentions..., organic ---
     idx = 0
 
-    # 1. Main persona — a failure still 500s, same as before.
+    # 1. Main persona — a failure now gets the same graded status code as
+    # zap_response/send_persona_dm instead of a blanket 500 (R10 BP-1).
+    # asyncio.gather(..., return_exceptions=True) hands back the exception
+    # instance itself (not a raised one) for any failed task, in the same
+    # position as its coroutine in `tasks` — so `main_result` here is
+    # already the caught exception for the main-persona call specifically.
     main_result = results[idx]
     idx += 1
     if isinstance(main_result, BaseException):
-        logger.error("reply_generation_failed", error=str(main_result))
-        raise HTTPException(status_code=500, detail="Failed to generate persona response")
+        raise llm_error_to_http(main_result, event="reply_generation_failed")
     persona_response: str = main_result
     existing_messages.append({"role": "persona", "content": persona_response})
 
@@ -811,6 +814,9 @@ Rules:
 
 Respond as {target['name']} ({target['handle']})."""
 
+    # Exception -> status-code grading lives in services.llm.llm_error_to_http
+    # (R10 BP-1) — shared with personas.send_persona_dm and this file's own
+    # create_reply main-persona result.
     try:
         content = await generate_response(
             db, system=zap_system,
@@ -818,24 +824,8 @@ Respond as {target['name']} ({target['handle']})."""
             max_tokens=256, temperature=0.8,
             user_id=user.id,
         )
-    except asyncio.TimeoutError as e:
-        logger.warn("zap_failed", error=str(e), reason="timeout")
-        raise HTTPException(status_code=504, detail="LLM request timed out. Try again.")
-    except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-        logger.warn("zap_failed", error=str(e), reason="llm_unreachable")
-        raise HTTPException(status_code=503, detail="LLM provider unreachable. Try again in a moment.")
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        logger.warn("zap_failed", error=str(e), reason="llm_http_error", upstream_status=status)
-        if 400 <= status < 500:
-            raise HTTPException(status_code=502, detail="LLM provider rejected our request.")
-        raise HTTPException(status_code=503, detail="LLM provider error. Try again in a moment.")
-    except (ValueError, KeyError, TypeError) as e:
-        logger.warn("zap_failed", error=str(e), reason="bad_input")
-        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)[:200]}")
     except Exception as e:
-        logger.error("zap_failed", error=str(e), error_type=type(e).__name__)
-        raise HTTPException(status_code=500, detail="Internal error. See server logs.")
+        raise llm_error_to_http(e, event="zap_failed")
 
     # Append atomically via `messages || $1::jsonb` so a concurrent
     # create_reply turn (which uses the same pattern) can't be clobbered.

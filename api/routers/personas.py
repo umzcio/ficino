@@ -1,10 +1,8 @@
 """Persona endpoints — metadata, stats, and direct messages."""
 
-import asyncio
 import json
 
 import asyncpg
-import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -13,7 +11,7 @@ from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from config import settings
 from db.connection import get_db
-from services.llm import generate_response
+from services.llm import generate_response, llm_error_to_http
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/personas", tags=["personas"])
@@ -243,30 +241,16 @@ Do NOT use JSON formatting. Respond naturally.
         for m in existing
     ]
 
-    # Call LLM
+    # Call LLM. Exception -> status-code grading lives in
+    # services.llm.llm_error_to_http (R10 BP-1) — shared with
+    # replies.zap_response and replies.create_reply's main-persona result.
     try:
         persona_response = await generate_response(
             db, system=system, messages=llm_messages, max_tokens=512, temperature=0.7,
             user_id=user.id,
         )
-    except asyncio.TimeoutError as e:
-        logger.warn("persona_dm_failed", error=str(e), reason="timeout")
-        raise HTTPException(status_code=504, detail="LLM request timed out. Try again.")
-    except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-        logger.warn("persona_dm_failed", error=str(e), reason="llm_unreachable")
-        raise HTTPException(status_code=503, detail="LLM provider unreachable. Try again in a moment.")
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        logger.warn("persona_dm_failed", error=str(e), reason="llm_http_error", upstream_status=status)
-        if 400 <= status < 500:
-            raise HTTPException(status_code=502, detail="LLM provider rejected our request.")
-        raise HTTPException(status_code=503, detail="LLM provider error. Try again in a moment.")
-    except (ValueError, KeyError, TypeError) as e:
-        logger.warn("persona_dm_failed", error=str(e), reason="bad_input")
-        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)[:200]}")
     except Exception as e:
-        logger.error("persona_dm_failed", error=str(e), error_type=type(e).__name__)
-        raise HTTPException(status_code=500, detail="Internal error. See server logs.")
+        raise llm_error_to_http(e, event="persona_dm_failed")
 
     persona_turn = {"role": "persona", "content": persona_response}
     existing.append(persona_turn)
