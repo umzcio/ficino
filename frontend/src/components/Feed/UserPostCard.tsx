@@ -4,6 +4,7 @@ import type { UserPost } from '../../lib/api'
 import { getUserPostStatus, deleteUserPost, replyToUserPost, getUserPost } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { useKeyboardAwareInput } from '../../hooks/useKeyboardAwareInput'
+import { usePollTask } from '../../hooks/usePollTask'
 import { Md } from '../_shared/Md'
 import { timeAgo as sharedTimeAgo } from '../../lib/timeAgo'
 
@@ -35,6 +36,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
   const [replying, setReplying] = useState(false)
   const [replyError, setReplyError] = useState<string | null>(null)
   const replyInputRef = useKeyboardAwareInput<HTMLTextAreaElement>()
+  const poll = usePollTask()
 
   // Sync local state from props when the parent refetches the post.
   // Only overwrite if the parent's payload is "newer" (has >= our turn
@@ -63,21 +65,23 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
   // lets the card's own rendering catch up faster).
   useEffect(() => {
     if (status !== 'pending') return
-    const interval = setInterval(async () => {
-      try {
-        const res = await getUserPostStatus(post.id)
-        if (res.status !== 'pending') {
-          setStatus(res.status as typeof status)
-          clearInterval(interval)
-          try {
-            const fresh = await getUserPost(post.id)
-            setReplies(fresh.replies ?? [])
-          } catch { /* parent refresh will correct shortly */ }
-        }
-      } catch { /* ignore; keep polling */ }
-    }, 2000)
-    return () => clearInterval(interval)
-  }, [status, post.id])
+    const controller = poll<{ status: string }>({
+      fn: () => getUserPostStatus(post.id),
+      isDone: (res) => res.status !== 'pending',
+      onDone: async (res) => {
+        setStatus(res.status as typeof status)
+        try {
+          const fresh = await getUserPost(post.id)
+          setReplies(fresh.replies ?? [])
+        } catch { /* parent refresh will correct shortly */ }
+      },
+      // No onError — a transient status-check failure keeps polling
+      // (matches the original's empty catch), same as usePollTask's
+      // documented default.
+      intervalMs: 2000,
+    })
+    return () => controller.stop()
+  }, [status, post.id, poll])
 
   const timeAgo = sharedTimeAgo(post.created_at, { suffix: false })
 

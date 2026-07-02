@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, FileText, Loader2 } from 'lucide-react'
 import type { PaperSummary, SummaryMessage } from '../../types'
 import { getPaperSummary, getPaperSummaryStatus } from '../../lib/api'
+import { usePollTask, type PollController } from '../../hooks/usePollTask'
 
 interface PaperChatProps {
   paperId: string
@@ -77,9 +78,15 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
   const [summary, setSummary] = useState<PaperSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const poll = usePollTask()
+  const pollControllerRef = useRef<PollController | null>(null)
 
   useEffect(() => {
+    // Per-effect-run cancellation flag — distinct from usePollTask's own
+    // mount tracking. usePollTask only gates its isDone/onDone/onError
+    // dispatch; it can't gate the nested `await getPaperSummary(paperId)`
+    // inside onDone below, which can resolve after paperId has already
+    // changed to a new effect run (or after unmount).
     let active = true
     async function load() {
       setLoading(true)
@@ -89,33 +96,37 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
       setSummary(data)
 
       if (data.status === 'generating' && data.task_id) {
-        // Poll for completion. The poll loop must handle terminal non-complete
-        // states (error / unknown) or the spinner runs forever when the worker
-        // has already given up — the API returns `{status: 'error', error: ...}`
-        // when the Celery task faulted, and we used to just re-schedule the
-        // poll and spin.
-        const poll = async () => {
-          try {
-            const status = await getPaperSummaryStatus(paperId, data.task_id!)
-            if (!active) return
+        const taskId = data.task_id
+        // R10 DUP-11: canonical usePollTask poller. The loop must handle
+        // terminal non-complete states (error / unknown) or the spinner
+        // runs forever when the worker has already given up — the API
+        // returns `{status: 'error', error: ...}` when the Celery task
+        // faulted, and we used to just re-schedule the poll and spin.
+        pollControllerRef.current = poll<{ status: string; error?: string }>({
+          fn: () => getPaperSummaryStatus(paperId, taskId),
+          isDone: (status) => status.status === 'complete' || status.status === 'error' || status.status === 'unknown',
+          onDone: async (status) => {
             if (status.status === 'complete') {
               const updated = await getPaperSummary(paperId)
               if (!active) return
               setSummary(updated)
               setLoading(false)
-            } else if (status.status === 'error' || status.status === 'unknown') {
+            } else {
               setError(status.error || 'Summary generation failed')
               setLoading(false)
-            } else {
-              timeoutRef.current = setTimeout(poll, 2000)
             }
-          } catch (e) {
+          },
+          // A rejected getPaperSummaryStatus (network failure, not a
+          // terminal status field) stops the chain outright rather than
+          // retrying — matches the original's catch-and-stop behavior.
+          onError: (e) => {
             if (!active) return
             setError(e instanceof Error ? e.message : 'Failed to check summary status')
             setLoading(false)
-          }
-        }
-        timeoutRef.current = setTimeout(poll, 2000)
+          },
+          maxAttempts: 1,
+          intervalMs: 2000,
+        })
       } else {
         setLoading(false)
       }
@@ -124,9 +135,9 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
 
     return () => {
       active = false
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      pollControllerRef.current?.stop()
     }
-  }, [paperId])
+  }, [paperId, poll])
 
   return (
     <div>
