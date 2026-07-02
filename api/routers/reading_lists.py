@@ -23,6 +23,29 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/reading-lists", tags=["reading-lists"])
 
 
+# R10 BP-17: reorder's batched chapter INSERT can't reuse CHAPTER_INSERT_SQL
+# as-is. That constant encodes *initial-create* semantics: chapter_index
+# always starts at 0, and the first row is always unlocked. Reorder instead
+# preserves already-completed chapters (the caller only deletes
+# feed_id-IS-NULL rows first) and must resume unlocking from wherever the
+# reader left off, so both the starting chapter_index and the unlock
+# boundary are offset by `max_complete` (the highest completed
+# chapter_index) rather than fixed at 0/1. That's a genuine divergence in
+# what the statement computes, not just a different call site, so it gets
+# its own statement instead of forcing a variable offset into the shared
+# create-path constant. apply_ai_ordering, by contrast, wipes ALL chapters
+# unconditionally and always unlocks only the first (see apply_ai_ordering
+# below) -- that path DOES match CHAPTER_INSERT_SQL's semantics exactly and
+# reuses it directly.
+REORDER_CHAPTER_INSERT_SQL = """INSERT INTO reading_list_chapters
+            (reading_list_id, chapter_index, paper_ids, status)
+          SELECT $1::uuid,
+                 $3::int + row_num,
+                 ARRAY[pid]::uuid[],
+                 CASE WHEN row_num = 1 THEN 'unlocked' ELSE 'locked' END
+          FROM unnest($2::uuid[]) WITH ORDINALITY AS t(pid, row_num)"""
+
+
 @router.get("")
 async def list_reading_lists(
     workspace_id: str | None = None,
@@ -282,20 +305,16 @@ async def reorder_reading_list(
         list_id,
     )
 
-    # Recreate chapters for remaining papers
-    for i, pid in enumerate(body.paper_sequence):
-        if i <= max_complete:
-            continue  # Skip already-completed chapters
-        exists = await db.fetchrow(
-            "SELECT id FROM reading_list_chapters WHERE reading_list_id = $1 AND chapter_index = $2",
-            list_id, i,
-        )
-        if not exists:
-            await db.execute(
-                """INSERT INTO reading_list_chapters (reading_list_id, chapter_index, paper_ids, status)
-                   VALUES ($1, $2, $3, $4)""",
-                list_id, i, [pid], "unlocked" if i == max_complete + 1 else "locked",
-            )
+    # Recreate chapters for the remaining (not-yet-completed) papers in one
+    # batched INSERT instead of up to 2N per-paper round trips (R10 BP-17,
+    # same pattern as create_reading_list's CHAPTER_INSERT_SQL). The DELETE
+    # above already cleared every feed_id-IS-NULL chapter, so every index
+    # in `remaining` is guaranteed absent here -- the old per-row "exists"
+    # SELECT-then-INSERT guard never actually fired in practice and isn't
+    # reproduced.
+    remaining = body.paper_sequence[max_complete + 1:]
+    if remaining:
+        await db.execute(REORDER_CHAPTER_INSERT_SQL, list_id, remaining, max_complete)
 
     logger.info("reading_list_reordered", list_id=list_id)
     return {"status": "reordered"}
@@ -354,17 +373,16 @@ async def apply_ai_ordering(
         new_sequence, rationale_json, list_id,
     )
 
-    # Rebuild chapters
+    # Rebuild chapters. Full wipe + "unlock only the first" is exactly
+    # CHAPTER_INSERT_SQL's initial-create semantics (unlike reorder, which
+    # must preserve already-completed chapters -- see
+    # REORDER_CHAPTER_INSERT_SQL above), so this reuses the shared
+    # create-path statement directly (R10 BP-17).
     await db.execute(
         "DELETE FROM reading_list_chapters WHERE reading_list_id = $1",
         list_id,
     )
-    for i, pid in enumerate(new_sequence):
-        await db.execute(
-            """INSERT INTO reading_list_chapters (reading_list_id, chapter_index, paper_ids, status)
-               VALUES ($1, $2, $3, $4)""",
-            list_id, i, [pid], "unlocked" if i == 0 else "locked",
-        )
+    await db.execute(CHAPTER_INSERT_SQL, list_id, new_sequence)
 
     logger.info("ai_ordering_applied", list_id=list_id)
     return {"status": "applied"}
