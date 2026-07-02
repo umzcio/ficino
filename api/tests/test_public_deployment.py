@@ -8,9 +8,11 @@ Covers:
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from routers.settings import DEFAULTS
+from tests.conftest import USER_A_ID
 
 
 @pytest.mark.asyncio
@@ -35,7 +37,7 @@ async def test_auth_provider_defaults_public_deployment_false(client_as_user_a):
 
 @pytest.mark.asyncio
 async def test_public_deployment_drops_provider_overrides(
-    client_as_user_a, monkeypatch,
+    client_as_user_a, db_conn, monkeypatch,
 ):
     """When public_deployment=true, a user PUT to /settings with provider
     keys must leave those keys at their configured defaults — the operator's
@@ -59,13 +61,22 @@ async def test_public_deployment_drops_provider_overrides(
     g = await client_as_user_a.get("/settings")
     body = g.json()
     assert body["auto_generate_on_upload"] is True
-    # anthropic_api_key is redacted as 'set'/'' — it must reflect the
-    # operator-configured DEFAULT (env-derived, R10 DUP-1), not the
-    # attacker-supplied "sk-evil" that PROVIDER_OVERRIDE_KEYS dropped. We
-    # compare against DEFAULTS directly rather than hardcoding "" so this
-    # test doesn't assume a particular deployment's env has no key set.
-    expected_anthropic_redacted = "set" if DEFAULTS["anthropic_api_key"] else ""
-    assert body["anthropic_api_key"] == expected_anthropic_redacted
+    # The GET/PUT responses redact secrets to 'set'/'' — since DEFAULTS is
+    # now env-derived (R10 DUP-1), a deployment with ANTHROPIC_API_KEY set
+    # would show "set" for BOTH the correct rejection AND a broken path
+    # that persisted "sk-evil". So assert against the persisted, UNREDACTED
+    # row: the attacker's key must never reach the database.
+    row = await db_conn.fetchrow(
+        "SELECT settings FROM user_settings WHERE user_id = $1", USER_A_ID
+    )
+    persisted = (
+        json.loads(row["settings"])
+        if row and isinstance(row["settings"], str)
+        else (row["settings"] if row else {})
+    )
+    assert (persisted or {}).get("anthropic_api_key") != "sk-evil", (
+        "PUBLIC_DEPLOYMENT must drop provider-key overrides before persistence"
+    )
     # llm_provider comes back as the DEFAULTS value, not the override.
     assert body["llm_provider"] in ("ollama", "api")
 
