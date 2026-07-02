@@ -1,4 +1,3 @@
-import os
 from ficino_shared import settings_schema as sch
 
 

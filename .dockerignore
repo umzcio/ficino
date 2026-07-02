@@ -7,3 +7,12 @@ dist
 .vite
 tests/screenshots
 .pytest_cache
+**/node_modules
+frontend/
+docs/
+review/
+/tests/
+.superpowers/
+.github/
+infra/
+*.md
