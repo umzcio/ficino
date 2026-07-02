@@ -136,7 +136,13 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
     { icon: Bookmark, view: 'bookmarks', label: 'Saved' },
     { icon: User, view: 'profile', label: 'Profile' },
   ]
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null
+  // R10 FE-15: a plain render-scoped local is re-initialized to null on every
+  // render, so a re-render between touchstart and touchend (corpus polling,
+  // alerts polling, feed generation all flow new props through while a user
+  // is mid-press) orphans the timer set by the prior render — touchend reads
+  // its own fresh `null` and never clears it, so a quick tap still fires the
+  // long-press callback ~500ms later. A ref survives across renders.
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   return (
     <nav aria-label="Mobile navigation" className="fixed bottom-0 left-0 right-0 bg-bg/95 backdrop-blur-md border-t border-border flex md:hidden z-50 pb-[env(safe-area-inset-bottom)]">
@@ -145,13 +151,13 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
           key={view}
           onClick={() => onNavigate(view)}
           onTouchStart={view === 'feed' ? () => {
-            longPressTimer = setTimeout(onLongPressHome, 500)
+            longPressTimerRef.current = setTimeout(onLongPressHome, 500)
           } : undefined}
           onTouchEnd={view === 'feed' ? () => {
-            if (longPressTimer) clearTimeout(longPressTimer)
+            if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
           } : undefined}
           onTouchCancel={view === 'feed' ? () => {
-            if (longPressTimer) clearTimeout(longPressTimer)
+            if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
           } : undefined}
           aria-label={label}
           aria-current={active === view ? 'page' : undefined}
