@@ -30,8 +30,14 @@ def test_fence_survives_fence_token_collision():
 
 
 def test_truncation_backstop():
-    fenced = sanitize.fence_untrusted("A" * 20000)
-    assert len(fenced) < 20000 + 1000  # _MAX_BLOCK_LEN=8000 + fence overhead
+    from ficino_shared.sanitize import _MAX_BLOCK_LEN
+
+    fenced = sanitize.fence_untrusted("A" * (_MAX_BLOCK_LEN * 3))
+    # Bound against the backstop constant, not the input size — the whole
+    # point is that output length must NOT scale with hostile input.
+    assert len(fenced) < _MAX_BLOCK_LEN + 200
+    # Exact marker text fence_untrusted's truncation branch appends.
+    assert "… [truncated]" in fenced
 
 
 def test_strip_role_markers_returns_plain_text():
