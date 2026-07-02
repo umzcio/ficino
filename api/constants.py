@@ -1,7 +1,6 @@
 """Shared constants for the Ficino API."""
 
-STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
-DEFAULT_WORKSPACE_ID = "00000000-0000-0000-0000-000000000001"
+from ficino_shared.constants import DEFAULT_WORKSPACE_ID, STUB_USER_ID  # noqa: F401
 
 # Synthetic engagement counts attached to generated posts. These are
 # cosmetic — the feed renders like Twitter and an empty-zero display

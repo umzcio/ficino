@@ -7,6 +7,19 @@ tests fail until DEFAULTS is rewritten."""
 from __future__ import annotations
 
 import pytest
+from ficino_shared import settings_schema
+
+
+@pytest.fixture(autouse=True)
+def _isolate_baseline_env():
+    """The reassert test resets the module-level baseline; restore module
+    state after every test in this file so later tests (or files) don't
+    inherit a poisoned snapshot (wave-2 final-review Minor)."""
+    saved = dict(settings_schema.baseline_env())
+    yield
+    settings_schema.reset_baseline_for_tests()
+    settings_schema.baseline_env().clear()
+    settings_schema.baseline_env().update(saved)
 
 
 # ---- characterization: current behavior that must survive the rewrite ----
