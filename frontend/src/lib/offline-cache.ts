@@ -1,5 +1,5 @@
 import { getDB } from './offline-db'
-import type { Feed, Paper, Workspace } from '../types'
+import type { Feed, Paper, PaperSummary, GroupChat, Workspace } from '../types'
 import type { BookmarkItem, AnnotationItem, AlertItem, PersonaData, UserPost, FeedLikes } from './api'
 
 // ── Generic network-first helper ────────────────────────────────────────────
@@ -87,6 +87,33 @@ export async function getCachedPapers(workspaceId?: string): Promise<Paper[]> {
     return db.getAllFromIndex('papers', 'by-workspace', workspaceId)
   }
   return db.getAll('papers')
+}
+
+// ── Paper summaries / group chats ───────────────────────────────────────────
+// R10 FE-5: PaperChat/GroupChatView had no offline fallback despite these
+// stores existing since v1 — a failed initial fetch just spun forever with
+// nothing to fall back to. Single-record put/get (keyed by paper_id / id
+// respectively) rather than the list upsert-then-delete shape above; these
+// are read one at a time by the detail views, never listed.
+
+export async function cachePaperSummary(summary: PaperSummary): Promise<void> {
+  const db = await getDB()
+  await db.put('paperSummaries', summary)
+}
+
+export async function getCachedPaperSummary(paperId: string): Promise<PaperSummary | undefined> {
+  const db = await getDB()
+  return db.get('paperSummaries', paperId)
+}
+
+export async function cacheGroupChat(chat: GroupChat): Promise<void> {
+  const db = await getDB()
+  await db.put('groupChats', chat)
+}
+
+export async function getCachedGroupChat(id: string): Promise<GroupChat | undefined> {
+  const db = await getDB()
+  return db.get('groupChats', id)
 }
 
 // ── Bookmarks ───────────────────────────────────────────────────────────────

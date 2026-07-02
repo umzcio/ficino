@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { ArrowLeft, Users, FileText, Loader2, Zap, AlertTriangle, HelpCircle } from 'lucide-react'
 import type { GroupChat, SummaryMessage } from '../../types'
 import { getGroupChat } from '../../lib/api'
+import { cacheGroupChat, getCachedGroupChat } from '../../lib/offline-cache'
 
 interface GroupChatViewProps {
   groupId: string
@@ -51,15 +52,44 @@ function SynthesisMessage({ message }: { message: SummaryMessage }) {
 export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
   const [chat, setChat] = useState<GroupChat | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // R10 FE-5: the initial fetch used to be a bare `await` with no
+    // try/catch — a transient 5xx / offline rejection escaped as an
+    // unhandled promise rejection and `loading` never flipped back to
+    // false, wedging the spinner forever. Mirrors Inbox.tsx's
+    // try/catch/finally + `active` sentinel shape.
+    let active = true
     async function load() {
       setLoading(true)
-      const data = await getGroupChat(groupId)
-      setChat(data)
-      setLoading(false)
+      setError(null)
+      try {
+        const data = await getGroupChat(groupId)
+        if (!active) return
+        cacheGroupChat(data).catch(() => {})
+        setChat(data)
+      } catch (err) {
+        if (!active) return
+        // Offline fallback: fall back to the last cached synthesis rather
+        // than surfacing the error branch when we have one to show.
+        let usedCache = false
+        try {
+          const cached = await getCachedGroupChat(groupId)
+          if (active && cached) {
+            setChat(cached)
+            usedCache = true
+          }
+        } catch { /* IDB unavailable — fall through to the error state */ }
+        if (!usedCache) {
+          setError(err instanceof Error ? err.message : 'Failed to load group synthesis')
+        }
+      } finally {
+        if (active) setLoading(false)
+      }
     }
     load()
+    return () => { active = false }
   }, [groupId])
 
   return (
@@ -85,7 +115,12 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
         </div>
       </div>
 
-      {loading ? (
+      {error ? (
+        <div role="alert" className="flex flex-col items-center justify-center py-20 gap-3 px-6 text-center">
+          <p className="text-sm text-text">Synthesis failed to load</p>
+          <p className="text-xs text-text-muted">{error}</p>
+        </div>
+      ) : loading ? (
         // Group synthesis takes many seconds; announce it so SR users
         // aren't left in silence while Claude works through the prompts.
         <div role="status" aria-live="polite" aria-busy="true" aria-label="Generating group synthesis" className="flex items-center justify-center py-20">

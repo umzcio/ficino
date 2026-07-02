@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, FileText, Loader2 } from 'lucide-react'
 import type { PaperSummary, SummaryMessage } from '../../types'
 import { getPaperSummary, getPaperSummaryStatus } from '../../lib/api'
+import { cachePaperSummary, getCachedPaperSummary } from '../../lib/offline-cache'
 import { usePollTask, type PollController } from '../../hooks/usePollTask'
 
 interface PaperChatProps {
@@ -91,44 +92,77 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
     async function load() {
       setLoading(true)
       setError(null)
-      const data = await getPaperSummary(paperId)
-      if (!active) return
-      setSummary(data)
+      // R10 FE-5: this initial fetch used to be a bare `await` with no
+      // try/catch — a transient 5xx / offline rejection escaped as an
+      // unhandled promise rejection, `setLoading` never flipped back to
+      // false, and the view spun forever with no way out short of a full
+      // reload. Mirrors Inbox.tsx's try/catch/finally shape.
+      try {
+        const data = await getPaperSummary(paperId)
+        if (!active) return
+        // Only cache a *complete* summary — a mid-generation snapshot
+        // (few/no messages) would clobber a previously-cached complete
+        // one and make the offline fallback regress instead of help.
+        if (data.status === 'complete') {
+          cachePaperSummary(data).catch(() => {})
+        }
+        setSummary(data)
 
-      if (data.status === 'generating' && data.task_id) {
-        const taskId = data.task_id
-        // R10 DUP-11: canonical usePollTask poller. The loop must handle
-        // terminal non-complete states (error / unknown) or the spinner
-        // runs forever when the worker has already given up — the API
-        // returns `{status: 'error', error: ...}` when the Celery task
-        // faulted, and we used to just re-schedule the poll and spin.
-        pollControllerRef.current = poll<{ status: string; error?: string }>({
-          fn: () => getPaperSummaryStatus(paperId, taskId),
-          isDone: (status) => status.status === 'complete' || status.status === 'error' || status.status === 'unknown',
-          onDone: async (status) => {
-            if (status.status === 'complete') {
-              const updated = await getPaperSummary(paperId)
+        if (data.status === 'generating' && data.task_id) {
+          const taskId = data.task_id
+          // R10 DUP-11: canonical usePollTask poller. The loop must handle
+          // terminal non-complete states (error / unknown) or the spinner
+          // runs forever when the worker has already given up — the API
+          // returns `{status: 'error', error: ...}` when the Celery task
+          // faulted, and we used to just re-schedule the poll and spin.
+          pollControllerRef.current = poll<{ status: string; error?: string }>({
+            fn: () => getPaperSummaryStatus(paperId, taskId),
+            isDone: (status) => status.status === 'complete' || status.status === 'error' || status.status === 'unknown',
+            onDone: async (status) => {
+              if (status.status === 'complete') {
+                const updated = await getPaperSummary(paperId)
+                if (!active) return
+                cachePaperSummary(updated).catch(() => {})
+                setSummary(updated)
+                setLoading(false)
+              } else {
+                setError(status.error || 'Summary generation failed')
+                setLoading(false)
+              }
+            },
+            // A rejected getPaperSummaryStatus (network failure, not a
+            // terminal status field) stops the chain outright rather than
+            // retrying — matches the original's catch-and-stop behavior.
+            onError: (e) => {
               if (!active) return
-              setSummary(updated)
+              setError(e instanceof Error ? e.message : 'Failed to check summary status')
               setLoading(false)
-            } else {
-              setError(status.error || 'Summary generation failed')
-              setLoading(false)
-            }
-          },
-          // A rejected getPaperSummaryStatus (network failure, not a
-          // terminal status field) stops the chain outright rather than
-          // retrying — matches the original's catch-and-stop behavior.
-          onError: (e) => {
-            if (!active) return
-            setError(e instanceof Error ? e.message : 'Failed to check summary status')
-            setLoading(false)
-          },
-          maxAttempts: 1,
-          intervalMs: 2000,
-        })
-      } else {
-        setLoading(false)
+            },
+            maxAttempts: 1,
+            intervalMs: 2000,
+          })
+        }
+      } catch (err) {
+        if (!active) return
+        // Offline fallback: fall back to the last cached summary rather
+        // than surfacing the error branch when we have one to show.
+        let usedCache = false
+        try {
+          const cached = await getCachedPaperSummary(paperId)
+          if (active && cached) {
+            setSummary(cached)
+            usedCache = true
+          }
+        } catch { /* IDB unavailable — fall through to the error state */ }
+        if (!usedCache) {
+          setError(err instanceof Error ? err.message : 'Failed to load paper summary')
+        }
+      } finally {
+        // Runs even on the `generating` path above — harmless there since
+        // the render below also gates the spinner on
+        // `summary?.status === 'generating'`, which stays true until the
+        // poll's onDone/onError fires and calls setLoading(false) itself.
+        if (active) setLoading(false)
       }
     }
     load()
