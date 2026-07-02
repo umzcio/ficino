@@ -2,7 +2,9 @@
 
 
 def test_loop_runner_concurrent_submissions_dont_serialize():
-    import asyncio, time, threading
+    import asyncio
+    import threading
+    import time
     from lib.event_loop import LoopRunner
     r = LoopRunner("test-loop")
     async def sleeper():
@@ -11,7 +13,10 @@ def test_loop_runner_concurrent_submissions_dont_serialize():
     start = time.monotonic()
     results = []
     threads = [threading.Thread(target=lambda: results.append(r.run(sleeper()))) for _ in range(4)]
-    [t.start() for t in threads]; [t.join() for t in threads]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
     elapsed = time.monotonic() - start
     assert elapsed < 0.6, f"4 concurrent 0.2s coroutines took {elapsed:.2f}s — serialized?"
     assert all(name == "test-loop" for name in results)
