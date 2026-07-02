@@ -188,7 +188,7 @@ export function LoginPage() {
       <div className="w-full max-w-[380px]">
         <div className="text-center mb-8">
           <img
-            src="/ficino-logo-dark.png"
+            src={`${import.meta.env.BASE_URL}ficino-logo-dark.png`}
             alt="Ficino"
             className="h-12 mx-auto mb-3"
           />

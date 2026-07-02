@@ -41,7 +41,11 @@ function hostColor(speaker: 'host_a' | 'host_b'): string {
 }
 
 function hostAvatar(speaker: 'host_a' | 'host_b'): string {
-  return speaker === 'host_a' ? '/personas/host1.png' : '/personas/host2.png'
+  // Root-absolute paths 404 under the self-host default base of
+  // `/ficino/` (vite.config.ts) — prefix with BASE_URL like every other
+  // component that references a public/ asset (App.tsx, MobileDrawer.tsx).
+  const base = import.meta.env.BASE_URL
+  return speaker === 'host_a' ? `${base}personas/host1.png` : `${base}personas/host2.png`
 }
 
 /**
