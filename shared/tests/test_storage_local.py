@@ -25,13 +25,21 @@ def test_figure_roundtrip(local):
     assert local.read_figure_bytes("u1", "paper-1", "fig_p1_0.png") == b"png-bytes"
 
 
-def test_read_figure_rejects_traversal(local, tmp_path):
-    """DUP-2: the resolve/relative_to containment the api copy had and the
-    worker copy lacked — now enforced once for both."""
+def test_read_figure_rejects_traversal(tmp_path):
+    """DUP-2: resolve/relative_to containment must cover the paper_id
+    component. The secret sits exactly one level above figures_dir, so a
+    naive join would READ it successfully — only the containment check
+    raises. ValueError ONLY: accepting FileNotFoundError would let a
+    non-discriminating failure pass (caught by review in wave 2)."""
+    figures = tmp_path / "figures"
+    figures.mkdir()
     secret = tmp_path / "secret.txt"
     secret.write_text("nope")
-    with pytest.raises((ValueError, FileNotFoundError)):
-        local.read_figure_bytes("u1", "../..", "secret.txt")
+    local = build_backend(
+        "local", upload_dir=str(tmp_path / "uploads"), figures_dir=str(figures)
+    )
+    with pytest.raises(ValueError):
+        local.read_figure_bytes("u1", "..", "secret.txt")
 
 
 def test_unknown_provider_raises():
