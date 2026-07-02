@@ -37,6 +37,12 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       AUTH_PROVIDER: none
       ENVIRONMENT: test
+      # Settings.upload_dir/figures_dir default to /app/... (the container
+      # image's writable app root). The runner has no /app and can't create
+      # one without sudo, so tests that write real files (e.g.
+      # test_signed_figures.py) need these repointed at a writable path.
+      UPLOAD_DIR: ${{ runner.temp }}/uploads
+      FIGURES_DIR: ${{ runner.temp }}/figures
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
