@@ -97,11 +97,59 @@ export function Select({ value, options, onChange, ariaLabel }: {
   )
 }
 
-export function Slider({ value, min, max, step, onChange, label }: {
+// Accent + thumb-size lookup tables for the "custom track" rendering
+// path below. Kept as literal class strings (not template-interpolated)
+// so Tailwind's JIT scanner can still find them in source.
+const SLIDER_ACCENT_VAR: Record<'gold' | 'muted', string> = {
+  gold: 'var(--color-gold)',
+  muted: 'var(--color-text-mid)',
+}
+const SLIDER_THUMB_COLOR_CLASSES: Record<'gold' | 'muted', string> = {
+  gold: '[&::-webkit-slider-thumb]:bg-gold [&::-moz-range-thumb]:bg-gold',
+  muted: '[&::-webkit-slider-thumb]:bg-text-mid [&::-moz-range-thumb]:bg-text-mid',
+}
+const SLIDER_THUMB_SIZE_CLASSES: Record<'sm' | 'md', string> = {
+  sm: '[&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-moz-range-thumb]:w-2.5 [&::-moz-range-thumb]:h-2.5',
+  md: '[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3',
+}
+
+export function Slider({
+  value, min, max, step, onChange, label,
+  ariaLabel,
+  disabled = false,
+  accent = 'gold',
+  thumbSize = 'md',
+  thumbShadow = false,
+  fillPercent,
+  showValue = true,
+  widthClassName = 'flex-1',
+}: {
   value: number; min: number; max: number; step: number
   onChange: (v: number) => void; label?: string
+  /** Falls back to aria-labelledby via SettingRowContext when unset. */
+  ariaLabel?: string
+  disabled?: boolean
+  /** 'muted' is for lower-emphasis controls (e.g. paired with an icon
+   *  button) that shouldn't compete visually with gold. */
+  accent?: 'gold' | 'muted'
+  thumbSize?: 'sm' | 'md'
+  thumbShadow?: boolean
+  /**
+   * Explicit 0-100 fill percentage. When provided, renders a hand-drawn
+   * gradient track + custom thumb (Listen's transport sliders — the
+   * gradient makes the "played" portion visible even in browsers
+   * without ::-moz-range-progress support). When omitted, keeps the
+   * original native accent-color rendering (Settings' usage) so that
+   * call site is visually unchanged.
+   */
+  fillPercent?: number
+  /** Trailing `label`/value text — off for sliders that already show
+   *  their value elsewhere (e.g. Listen's flanking time labels). */
+  showValue?: boolean
+  widthClassName?: string
 }) {
   const labelId = useContext(SettingRowContext)
+  const customTrack = fillPercent !== undefined
   return (
     <div className="flex items-center gap-3">
       <input
@@ -111,11 +159,25 @@ export function Slider({ value, min, max, step, onChange, label }: {
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        disabled={disabled}
         aria-labelledby={labelId || undefined}
+        aria-label={!labelId ? ariaLabel : undefined}
         aria-valuetext={label || String(value)}
-        className="flex-1 accent-gold h-1"
+        className={
+          customTrack
+            ? `${widthClassName} h-1 appearance-none rounded-full cursor-pointer disabled:cursor-default disabled:opacity-50
+                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer${thumbShadow ? ' [&::-webkit-slider-thumb]:shadow-sm' : ''}
+                [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer
+                ${SLIDER_THUMB_SIZE_CLASSES[thumbSize]} ${SLIDER_THUMB_COLOR_CLASSES[accent]}`
+            : `${widthClassName} accent-gold h-1`
+        }
+        style={customTrack ? {
+          background: `linear-gradient(to right, ${SLIDER_ACCENT_VAR[accent]} 0%, ${SLIDER_ACCENT_VAR[accent]} ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`,
+        } : undefined}
       />
-      <span className="text-[13px] text-gold font-mono w-10 text-right">{label || value}</span>
+      {showValue && (
+        <span className="text-[13px] text-gold font-mono w-10 text-right">{label || value}</span>
+      )}
     </div>
   )
 }

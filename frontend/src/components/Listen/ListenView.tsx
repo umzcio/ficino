@@ -6,6 +6,7 @@ import {
 import type { FeedPost, PodcastSegment } from '../../types'
 import { getFeed, requestFeedAudio, requestFeedPodcast } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { Slider } from '../_shared/primitives'
 
 type Status =
   | 'idle'
@@ -774,23 +775,19 @@ export function ListenView({ feedId, posts }: Props) {
                 progress so even browsers without ::-moz-range-progress
                 support render a filled bar; the thumb is a small gold
                 circle. Disabled while duration is unknown (pre-load). */}
-            <input
-              type="range"
+            <Slider
+              value={Math.min(progress.current, progress.duration || 0)}
               min={0}
               max={progress.duration || 1}
               step={0.1}
-              value={Math.min(progress.current, progress.duration || 0)}
-              onChange={(e) => seekTo(parseFloat(e.target.value))}
+              onChange={seekTo}
               disabled={!progress.duration || !isActive}
-              aria-label="Seek"
-              className="flex-1 h-1 appearance-none rounded-full cursor-pointer disabled:cursor-default disabled:opacity-50
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gold [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer
-                [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-gold [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer"
-              style={{
-                background: progress.duration
-                  ? `linear-gradient(to right, var(--color-gold) 0%, var(--color-gold) ${Math.min(100, (progress.current / progress.duration) * 100)}%, var(--color-border) ${Math.min(100, (progress.current / progress.duration) * 100)}%, var(--color-border) 100%)`
-                  : 'var(--color-border)',
-              }}
+              ariaLabel="Seek"
+              accent="gold"
+              thumbSize="md"
+              thumbShadow
+              showValue={false}
+              fillPercent={progress.duration ? Math.min(100, (progress.current / progress.duration) * 100) : 0}
             />
             <span className="shrink-0">{formatTime(progress.duration)}</span>
           </div>
@@ -819,24 +816,21 @@ export function ListenView({ feedId, posts }: Props) {
                   <Volume2 size={16} />
                 )}
               </button>
-              <input
-                type="range"
+              <Slider
+                value={muted ? 0 : volume}
                 min={0}
                 max={1}
                 step={0.01}
-                value={muted ? 0 : volume}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value)
+                onChange={(v) => {
                   setVolume(v)
                   if (v > 0 && muted) setMuted(false)
                 }}
-                aria-label="Volume"
-                className="w-24 h-1 appearance-none rounded-full cursor-pointer
-                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-mid [&::-webkit-slider-thumb]:cursor-pointer
-                  [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-2.5 [&::-moz-range-thumb]:h-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text-mid [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, var(--color-text-mid) 0%, var(--color-text-mid) ${(muted ? 0 : volume) * 100}%, var(--color-border) ${(muted ? 0 : volume) * 100}%, var(--color-border) 100%)`,
-                }}
+                ariaLabel="Volume"
+                accent="muted"
+                thumbSize="sm"
+                showValue={false}
+                widthClassName="w-24"
+                fillPercent={(muted ? 0 : volume) * 100}
               />
             </div>
             <button
