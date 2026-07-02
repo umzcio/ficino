@@ -16,6 +16,7 @@ from celery import Task
 from celery_app import app
 from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow, fetch
+from lib.post_validation import validate_post_shape
 from lib.sanitize import fence_untrusted
 from lib.settings import apply_provider_settings, STUB_USER_ID
 
@@ -409,6 +410,12 @@ def generate_chapter(
                 # feed gen stay in sync (MED-24 cleanup).
                 from tasks.persona_tasks import _apply_engagement_defaults
                 _apply_engagement_defaults(post_data)
+
+                # Same soft-validation the feed paths apply before persisting
+                # (persona_tasks L812/L1044) — malformed LLM output must not
+                # land in feeds.posts. Raises on missing content, which the
+                # surrounding except turns into a dropped slot (R9 H27).
+                validate_post_shape(post_data, persona_key=persona_key)
 
                 posts.append(post_data)
             except Exception as e:
