@@ -393,3 +393,41 @@ async def test_paper_summary_dispatch_path_charges_rate_limit(
         "the dispatch path must charge the summary rate limit, "
         f"but saw: {fake_redis.counts}"
     )
+
+
+# --- API-11: APA citation formatter 20/21+ author boundaries -------------
+
+def _authors(n: int) -> list[str]:
+    return [f"Author{str(i).zfill(2)} Last{str(i).zfill(2)}" for i in range(1, n + 1)]
+
+
+def test_apa_format_exactly_20_authors_lists_all_20():
+    from routers.citations import _format_apa
+
+    authors = _authors(20)
+    citation = _format_apa("Some Title", authors, 2020, None)
+
+    for a in authors:
+        last = a.split()[-1]
+        assert last in citation, f"author {last} missing from 20-author citation: {citation}"
+    assert ", & " in citation, "APA 7 joins the final author with '& ' when listing all authors"
+
+
+def test_apa_format_21_authors_first_19_then_ellipsis_then_true_last():
+    from routers.citations import _format_apa
+
+    authors = _authors(21)
+    citation = _format_apa("Some Title", authors, 2020, None)
+
+    last_21 = authors[20].split()[-1]  # the TRUE final author
+    last_20 = authors[19].split()[-1]  # must be dropped (ellipsis replaces it)
+
+    assert last_21 in citation, f"author #21 (true last author) missing: {citation}"
+    assert last_20 not in citation, f"author #20 must be replaced by the ellipsis, not shown: {citation}"
+
+    # First 19 authors present.
+    for a in authors[:19]:
+        last = a.split()[-1]
+        assert last in citation, f"author {last} (one of first 19) missing: {citation}"
+
+    assert "..." in citation
