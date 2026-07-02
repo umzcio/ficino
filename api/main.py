@@ -14,7 +14,7 @@ from starlette.responses import Response
 from config import settings
 from constants import STUB_USER_ID, DEFAULT_WORKSPACE_ID
 from csrf import CsrfMiddleware
-from db.connection import close_pool, create_pool, get_db
+from db.connection import close_pool, create_pool
 from routers import alerts as alerts_router, annotations, bookmarks, citations, feed, figures as figures_router, likes, messages, papers, personas, reading_lists, replies, search, settings as settings_router, tags, user_posts, users, workspaces
 
 logger = structlog.get_logger(__name__)

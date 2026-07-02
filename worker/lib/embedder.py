@@ -8,6 +8,7 @@ Provider is selected via EMBED_PROVIDER setting:
 
 import asyncio
 import os
+import threading
 
 import httpx
 import structlog
@@ -245,7 +246,6 @@ async def embed_single(text: str, *, input_type: str = "document") -> list[float
 # don't serialize on a single run_until_complete. The inner asyncio.gather
 # and Voyage batching already provide the concurrency — the previous lock
 # squashed it.
-import threading
 
 _embed_loop: asyncio.AbstractEventLoop | None = None
 _embed_loop_lock = threading.Lock()

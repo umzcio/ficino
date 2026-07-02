@@ -13,14 +13,12 @@ integration tests; here we only verify router auth scoping.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import uuid
-from typing import AsyncGenerator, Generator
+from typing import AsyncGenerator
 
 import asyncpg
 import httpx
-import pytest
 import pytest_asyncio
 
 # Make sure main.py finds the right settings at import time. The api container

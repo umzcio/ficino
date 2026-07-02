@@ -20,7 +20,7 @@ import uuid
 
 import pytest
 
-from tests.conftest import USER_A_ID, USER_B_ID
+from tests.conftest import USER_A_ID
 
 
 @pytest.mark.asyncio

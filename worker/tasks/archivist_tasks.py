@@ -15,7 +15,7 @@ from celery import Task
 from celery_app import app
 from lib import claude_client, retrieval, persona as persona_lib
 from lib.db import execute, fetchrow
-from lib.settings import apply_provider_settings, STUB_USER_ID
+from lib.settings import apply_provider_settings
 
 logger = structlog.get_logger(__name__)
 

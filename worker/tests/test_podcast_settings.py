@@ -1,7 +1,6 @@
 """R10 WORK-2: generate_podcast_for_feed ran retrieval embeddings and an
 LLM script call under whatever provider settings the previous task left
 in this process — the Round 9 C1-C4 bug class, shipped post-remediation."""
-import pytest
 
 
 def test_podcast_task_applies_owner_settings(monkeypatch):

@@ -8,6 +8,7 @@ extraction fails.
 import asyncio
 import json
 import re
+import threading as _threading
 
 import structlog
 
@@ -116,7 +117,6 @@ async def extract_metadata(text: str) -> dict[str, object]:
 
 # Persistent event loop to avoid the repeated-asyncio.run() + httpx-GC race
 # that surfaces as `RuntimeError('Event loop is closed')` in worker logs.
-import threading as _threading
 
 _meta_loop: asyncio.AbstractEventLoop | None = None
 _meta_loop_lock = _threading.Lock()

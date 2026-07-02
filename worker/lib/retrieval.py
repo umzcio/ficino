@@ -6,7 +6,6 @@ academic text where author names, technical terms, and specific
 phrases matter alongside conceptual similarity.
 """
 
-import asyncio
 import os
 
 import structlog

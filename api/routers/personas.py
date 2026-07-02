@@ -9,7 +9,6 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from config import settings
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from db.connection import get_db

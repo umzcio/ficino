@@ -1,0 +1,3 @@
+# Default rule set (E4/E7/E9/F) — F821 alone would have caught the
+# auto-tagging NameError (R10 WORK-1) before it shipped.
+target-version = "py311"

@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
-from config import settings
 from db import connection as db_connection
 from db.connection import get_db
 from services.llm import generate_response

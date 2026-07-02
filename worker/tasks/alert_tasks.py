@@ -9,7 +9,6 @@ Runs post-ingestion and post-feed-generation to detect:
 
 import hashlib
 import json
-from collections import Counter
 
 import structlog
 from celery import Task
@@ -17,7 +16,6 @@ from celery import Task
 from celery_app import app
 from lib import claude_client
 from lib.db import execute, fetch, fetchrow
-from lib.retrieval import retrieve_chunks
 from lib.settings import apply_provider_settings, STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
@@ -183,7 +181,7 @@ def check_contradictions(self: Task, paper_id: str) -> dict[str, object]:
                 seen_other_ids.add(other_id)
                 _create_alert(
                     alert_type="contradiction",
-                    title=f"Contradiction detected",
+                    title="Contradiction detected",
                     body=f'"{paper_title}" challenges a finding in "{other_title}". The papers present conflicting evidence on overlapping topics.',
                     metadata={
                         "new_paper_id": paper_id,
