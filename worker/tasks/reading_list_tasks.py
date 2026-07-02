@@ -309,17 +309,9 @@ def generate_chapter(
         )
         user_settings = apply_provider_settings(effective_user_id)
         num_posts = user_settings.get("posts_per_generation", 12)
-        # Opt-out persona enablement — mirror persona_tasks.generate_feed.
-        # Start from DB-eligible personas, remove only explicit opt-outs.
-        all_feed_personas = {
-            k for k, meta in persona_lib.get_personas().items()
-            if meta.get("feed_eligible")
-        }
-        user_enabled = user_settings.get("personas_enabled", {})
-        enabled_personas = {
-            k for k in all_feed_personas
-            if user_enabled.get(k, True) is not False
-        }
+        # Opt-out persona enablement — shared with persona_tasks.generate_feed
+        # via persona_lib.resolve_enabled_personas (R10 DUP-12).
+        enabled_personas = persona_lib.resolve_enabled_personas(user_settings)
         temperature = user_settings.get("persona_temperature", 0.8)
         post_weights = user_settings.get("post_type_weights", persona_lib.POST_TYPE_WEIGHTS)
         preferences = user_settings.get("preferences")
@@ -380,17 +372,7 @@ def generate_chapter(
 
                 # chunk_id + paper_id let the reply path re-fetch the exact
                 # chunks this chapter post was grounded on.
-                post_data["sources"] = [
-                    {
-                        "chunk_id": c.get("id"),
-                        "paper_id": c.get("paper_id"),
-                        "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
-                        "section": c.get("section", "unknown"),
-                        "content": str(c.get("content", ""))[:300],
-                        "score": round(float(c.get("score", 0)), 3),
-                    }
-                    for c in chunks[:5]
-                ]
+                post_data["sources"] = persona_lib.build_post_sources(chunks)
 
                 # Category assignment via the shared helper (MED-24). The old
                 # inline copy was missing the gradstudent → debates branch so

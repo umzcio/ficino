@@ -137,6 +137,52 @@ def get_active_persona_prompts() -> dict[str, str]:
     return {key: SYSTEM_PREAMBLE + p["system_prompt"] for key, p in personas.items()}
 
 
+def build_post_sources(chunks: list[dict[str, object]], top_n: int = 5) -> list[dict[str, object]]:
+    """Build the `sources` list persisted on a generated post.
+
+    chunk_id + paper_id are the anchors the reply/follow-up paths use to
+    re-fetch the exact chunks a post was grounded on. `content` is
+    truncated to 300 chars for sidebar display; the UUIDs are what the
+    reply path actually loads from. Extracted from four byte-identical
+    copies (persona_tasks.py generate_feed / regenerate, reading_list_tasks.py
+    generate_chapter, archivist_tasks.py respond_to_user_post) so the shape
+    can't drift between call sites again (R10 DUP-6).
+    """
+    return [
+        {
+            "chunk_id": c.get("id"),
+            "paper_id": c.get("paper_id"),
+            "paper_title": c.get("paper_title") or c.get("paper_filename", "Unknown"),
+            "section": c.get("section", "unknown"),
+            "content": str(c.get("content", ""))[:300],
+            "score": round(float(c.get("score", 0)), 3),
+        }
+        for c in chunks[:top_n]
+    ]
+
+
+def resolve_enabled_personas(user_settings: dict[str, object]) -> set[str]:
+    """Derive the opt-out enabled-persona set from user settings.
+
+    Starts from every feed-eligible persona in the DB (is_active=true,
+    feed_eligible=true), then removes any the user has explicitly turned
+    off. Opt-out (not opt-in) so personas added via migration after a
+    user's `personas_enabled` dict was seeded still generate by default —
+    see persona_tasks.py's `generate_feed` docstring for the bug this fixed
+    the first time. Extracted from persona_tasks.py / reading_list_tasks.py
+    where the block was copied verbatim (R10 DUP-12).
+    """
+    all_feed_personas = {
+        k for k, meta in get_personas().items()
+        if meta.get("feed_eligible")
+    }
+    user_enabled = user_settings.get("personas_enabled", {}) or {}
+    return {
+        k for k in all_feed_personas
+        if user_enabled.get(k, True) is not False
+    }
+
+
 def assign_post_category(persona_key: str, post_type: str) -> str:
     """Pick the tab category for a generated post.
 
