@@ -4,8 +4,9 @@ import json
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from db.connection import get_db
 from models.requests import LikeCreate
@@ -89,6 +90,7 @@ async def create_like(
 async def delete_like(
     feed_id: str,
     post_index: int,
+    request: Request,
     message_index: int = -1,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
@@ -101,6 +103,17 @@ async def delete_like(
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Like not found")
     logger.info("like_deleted", feed_id=feed_id, post_index=post_index, message_index=message_index)
+
+    await record_audit(
+        db, request, user,
+        action="like.delete", resource_type="like",
+        metadata={
+            "feed_id": feed_id,
+            "post_index": post_index,
+            "message_index": message_index,
+        },
+        status_code=204,
+    )
 
 
 @router.get("/preferences")

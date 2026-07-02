@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from constants import DEFAULT_WORKSPACE_ID
 from db.connection import get_db
@@ -132,6 +133,7 @@ async def update_workspace(
 @router.delete("/{workspace_id}", status_code=204)
 async def delete_workspace(
     workspace_id: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -179,6 +181,13 @@ async def delete_workspace(
         workspace_id, user.id,
     )
     logger.info("workspace_deleted", workspace_id=workspace_id, moved_papers_to=target)
+
+    await record_audit(
+        db, request, user,
+        action="workspace.delete", resource_type="workspace", resource_id=workspace_id,
+        metadata={"moved_papers_to": target},
+        status_code=204,
+    )
 
 
 @router.get("/{workspace_id}/activity")

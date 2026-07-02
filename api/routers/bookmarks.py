@@ -121,6 +121,7 @@ async def delete_bookmark(
 async def delete_bookmark_by_post(
     feed_id: str,
     post_index: int,
+    request: Request,
     message_index: int = -1,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
@@ -134,4 +135,20 @@ async def delete_bookmark_by_post(
     await db.execute(
         "DELETE FROM bookmarks WHERE user_id = $1 AND feed_id = $2 AND post_index = $3 AND message_index = $4",
         user.id, feed_id, post_index, message_index,
+    )
+
+    # Same logical action as delete_bookmark (by id) above — record it
+    # under the same "bookmark.delete" action so R10 BP-10's "which route
+    # you deleted through determines whether it's logged" gap is closed
+    # for both paths (R10 BP-10). No resource_id since this route has no
+    # bookmark id to hand — the composite key lives in metadata instead.
+    await record_audit(
+        db, request, user,
+        action="bookmark.delete", resource_type="bookmark",
+        metadata={
+            "feed_id": feed_id,
+            "post_index": post_index,
+            "message_index": message_index,
+        },
+        status_code=204,
     )

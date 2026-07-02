@@ -6,8 +6,9 @@ import json
 import asyncpg
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from config import settings as app_settings
 from auth import AuthUser, get_current_user
 from db.connection import get_db
@@ -231,16 +232,22 @@ async def list_ollama_models(
 
 @router.post("/clear-feeds", status_code=200)
 async def clear_all_feeds(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Clear all generated feeds."""
     await db.execute("DELETE FROM feeds WHERE user_id = $1", user.id)
+    await record_audit(
+        db, request, user,
+        action="feed.clear_all", resource_type="feed",
+    )
     return {"status": "cleared"}
 
 
 @router.post("/clear-summaries", status_code=200)
 async def clear_all_summaries(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
@@ -249,21 +256,31 @@ async def clear_all_summaries(
         "DELETE FROM paper_summaries WHERE paper_id IN (SELECT id FROM papers WHERE user_id = $1)",
         user.id,
     )
+    await record_audit(
+        db, request, user,
+        action="summary.clear_all", resource_type="paper_summary",
+    )
     return {"status": "cleared"}
 
 
 @router.post("/clear-user-posts", status_code=200)
 async def clear_all_user_posts(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
     """Clear all user posts and the Archivist replies attached to them."""
     await db.execute("DELETE FROM user_posts WHERE user_id = $1", user.id)
+    await record_audit(
+        db, request, user,
+        action="user_post.clear_all", resource_type="user_post",
+    )
     return {"status": "cleared"}
 
 
 @router.post("/clear-everything", status_code=200)
 async def clear_everything(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -314,11 +331,17 @@ async def clear_everything(
                 user_id=str(user.id),
                 paper_count=len(paper_ids),
                 artifacts_removed=freed)
+    await record_audit(
+        db, request, user,
+        action="account.clear_all", resource_type="account",
+        metadata={"paper_count": len(paper_ids)},
+    )
     return {"status": "cleared", "paper_count": len(paper_ids)}
 
 
 @router.post("/clear-papers", status_code=200)
 async def clear_all_papers(
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -379,4 +402,9 @@ async def clear_all_papers(
                 user_id=str(user.id),
                 paper_count=len(paper_ids),
                 files_removed=freed)
+    await record_audit(
+        db, request, user,
+        action="paper.clear_all", resource_type="paper",
+        metadata={"paper_count": len(paper_ids)},
+    )
     return {"status": "cleared", "paper_count": len(paper_ids)}

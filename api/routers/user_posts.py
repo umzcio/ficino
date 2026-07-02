@@ -4,8 +4,9 @@ import json
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
@@ -208,6 +209,7 @@ async def reply_to_user_post(
 @router.delete("/{post_id}", status_code=204)
 async def delete_user_post(
     post_id: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -218,6 +220,12 @@ async def delete_user_post(
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Post not found")
+
+    await record_audit(
+        db, request, user,
+        action="user_post.delete", resource_type="user_post", resource_id=post_id,
+        status_code=204,
+    )
 
 
 @router.get("/{post_id}/status")

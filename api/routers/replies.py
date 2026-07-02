@@ -5,8 +5,9 @@ import json
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from config import settings
@@ -648,6 +649,7 @@ async def delete_reply_message(
     feed_id: str,
     post_index: int,
     message_index: int,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> None:
@@ -687,6 +689,17 @@ async def delete_reply_message(
     await db.execute(
         "UPDATE post_replies SET messages = messages - $3::int WHERE feed_id = $1 AND post_index = $2",
         feed_id, post_index, message_index,
+    )
+
+    await record_audit(
+        db, request, user,
+        action="reply.delete_message", resource_type="reply",
+        metadata={
+            "feed_id": feed_id,
+            "post_index": post_index,
+            "message_index": message_index,
+        },
+        status_code=204,
     )
 
 

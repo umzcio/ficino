@@ -4,8 +4,9 @@ import json
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from audit import record_audit
 from auth import AuthUser, get_current_user
 from auth.rate_limit import RateLimit
 from config import settings
@@ -275,6 +276,7 @@ Do NOT use JSON formatting. Respond naturally.
 async def delete_persona_dm_message(
     persona_key: str,
     message_index: int,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -312,12 +314,19 @@ async def delete_persona_dm_message(
     if isinstance(messages, str):
         messages = json.loads(messages)
     logger.info("persona_dm_message_deleted", persona=persona_key, index=message_index)
+
+    await record_audit(
+        db, request, user,
+        action="persona_dm.delete_message", resource_type="persona_dm",
+        metadata={"persona_key": persona_key, "message_index": message_index},
+    )
     return {"messages": messages}
 
 
 @router.delete("/{persona_key}/dm")
 async def clear_persona_dm(
     persona_key: str,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
@@ -343,4 +352,10 @@ async def clear_persona_dm(
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="No DM thread with this persona")
     logger.info("persona_dm_cleared", persona=persona_key)
+
+    await record_audit(
+        db, request, user,
+        action="persona_dm.clear", resource_type="persona_dm",
+        metadata={"persona_key": persona_key},
+    )
     return {"messages": []}
