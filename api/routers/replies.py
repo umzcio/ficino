@@ -172,6 +172,54 @@ async def _load_reply_context_chunks(
     return list(chunks.values())
 
 
+async def _load_conversation_and_sources(
+    db: asyncpg.Connection,
+    user_id: str,
+    feed_id: str,
+    post_index: int,
+) -> tuple[str | None, list[dict[str, str]], list[dict]]:
+    """Load a reply thread's existing messages + its post's stored sources.
+
+    Shared by create_reply and zap_response (R10 DUP-17) — both need the
+    same two reads before building the LLM prompt: the post_replies
+    conversation (if a thread already exists) and
+    feeds.posts[post_index].sources, which feeds `_load_reply_context_chunks`
+    for chunk-id anchor grounding. Posts generated before chunk-id
+    persistence have sources without chunk_ids; that helper falls back to
+    tsquery drift search on paper_ref in that case.
+
+    Returns (reply_id, existing_messages, post_sources); reply_id is None
+    when no thread exists yet for this post.
+    """
+    row = await db.fetchrow(
+        "SELECT id, messages FROM post_replies WHERE feed_id = $1 AND post_index = $2",
+        feed_id, post_index,
+    )
+    existing_messages: list[dict[str, str]] = []
+    reply_id: str | None = None
+    if row:
+        reply_id = str(row["id"])
+        existing_messages = row["messages"]
+        if isinstance(existing_messages, str):
+            existing_messages = json.loads(existing_messages)
+
+    post_row = await db.fetchrow(
+        "SELECT posts FROM feeds WHERE id = $1 AND user_id = $2",
+        feed_id, user_id,
+    )
+    post_sources: list[dict] = []
+    if post_row:
+        posts_json = post_row["posts"]
+        if isinstance(posts_json, str):
+            posts_json = json.loads(posts_json)
+        if isinstance(posts_json, list) and 0 <= post_index < len(posts_json):
+            raw_sources = posts_json[post_index].get("sources") or []
+            if isinstance(raw_sources, list):
+                post_sources = [s for s in raw_sources if isinstance(s, dict)]
+
+    return reply_id, existing_messages, post_sources
+
+
 async def _llm_call_with_fresh_conn(
     system: str,
     messages: list[dict[str, str]],
@@ -312,19 +360,10 @@ async def create_reply(
     if not feed_owner:
         raise HTTPException(status_code=404, detail="Feed not found")
 
-    # Get existing conversation or start new
-    row = await db.fetchrow(
-        "SELECT id, messages FROM post_replies WHERE feed_id = $1 AND post_index = $2",
-        body.feed_id, body.post_index,
+    # Get existing conversation + this post's stored sources (R10 DUP-17).
+    reply_id, existing_messages, post_sources = await _load_conversation_and_sources(
+        db, user.id, body.feed_id, body.post_index,
     )
-
-    existing_messages: list[dict[str, str]] = []
-    reply_id = None
-    if row:
-        reply_id = str(row["id"])
-        existing_messages = row["messages"]
-        if isinstance(existing_messages, str):
-            existing_messages = json.loads(existing_messages)
 
     # Mark the boundary so the final DB write can append ONLY the new items
     # via `messages || $1::jsonb`. This avoids the classic SELECT→mutate→
@@ -342,25 +381,7 @@ async def create_reply(
     if not persona_prompt:
         persona_prompt = f"You are {body.persona_key}"
 
-    # Load the post's stored sources (for chunk-id anchor grounding) from
-    # feeds.posts[post_index].sources. Posts generated before chunk-id
-    # persistence have sources without chunk_ids; the helper falls back
-    # to tsquery drift search on paper_ref in that case.
     from sanitize import fence_untrusted
-
-    post_row = await db.fetchrow(
-        "SELECT posts FROM feeds WHERE id = $1 AND user_id = $2",
-        body.feed_id, user.id,
-    )
-    post_sources: list[dict] = []
-    if post_row:
-        posts_json = post_row["posts"]
-        if isinstance(posts_json, str):
-            posts_json = json.loads(posts_json)
-        if isinstance(posts_json, list) and 0 <= body.post_index < len(posts_json):
-            raw_sources = posts_json[body.post_index].get("sources") or []
-            if isinstance(raw_sources, list):
-                post_sources = [s for s in raw_sources if isinstance(s, dict)]
 
     grounded_chunks = await _load_reply_context_chunks(
         db,
@@ -699,39 +720,14 @@ async def zap_response(
     )
     source_name = source["name"] if source else body.source_persona_key
 
-    # Get existing conversation or start new
-    row = await db.fetchrow(
-        "SELECT id, messages FROM post_replies WHERE feed_id = $1 AND post_index = $2",
-        body.feed_id, body.post_index,
+    # Get existing conversation + this post's stored sources (R10 DUP-17).
+    # Drift search below uses the source persona's message as the query
+    # since this is the zap target responding to that turn.
+    reply_id, existing_messages, post_sources = await _load_conversation_and_sources(
+        db, user.id, body.feed_id, body.post_index,
     )
 
-    existing_messages: list[dict[str, str]] = []
-    reply_id = None
-    if row:
-        reply_id = str(row["id"])
-        existing_messages = row["messages"]
-        if isinstance(existing_messages, str):
-            import json as _json
-            existing_messages = _json.loads(existing_messages)
-
-    # Load post.sources for chunk-id anchor grounding, same pattern as
-    # create_reply above. Drift search uses the source persona's message
-    # as the query since this is the zap target responding to that turn.
     from sanitize import fence_untrusted
-
-    post_row = await db.fetchrow(
-        "SELECT posts FROM feeds WHERE id = $1 AND user_id = $2",
-        body.feed_id, user.id,
-    )
-    post_sources: list[dict] = []
-    if post_row:
-        posts_json = post_row["posts"]
-        if isinstance(posts_json, str):
-            posts_json = json.loads(posts_json)
-        if isinstance(posts_json, list) and 0 <= body.post_index < len(posts_json):
-            raw_sources = posts_json[body.post_index].get("sources") or []
-            if isinstance(raw_sources, list):
-                post_sources = [s for s in raw_sources if isinstance(s, dict)]
 
     grounded_chunks = await _load_reply_context_chunks(
         db,
