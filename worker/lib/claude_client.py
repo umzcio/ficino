@@ -83,6 +83,8 @@ async def _generate_ollama(
                     raise RuntimeError("LLM returned empty response")
                 return content
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as e:
+            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500:
+                raise  # 4xx = caller error (bad model name etc.) — retrying can't help
             last_exc = e
             if attempt == 2:
                 break

@@ -129,6 +129,35 @@ async def test_ollama_5xx_exhausts_retries_and_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ollama_4xx_is_not_retried(monkeypatch):
+    """A 404 (bad model name, wrong path) is a caller error — retrying cannot
+    help. Must raise after exactly ONE attempt with no sleep (R10 DUP-7
+    follow-up: the first cut of the port retried anything raise_for_status
+    threw, including 4xx, contradicting its own docstring)."""
+    fake_404 = _FakeResp(status_code=404)
+    FakeClient, calls = _make_fake_client([fake_404, fake_404, fake_404])
+    sleeps: list[float] = []
+
+    async def _recording_sleep(seconds):
+        sleeps.append(seconds)
+
+    async def _fake_get_llm_config(db, user_id=""):
+        return _fake_cfg()
+
+    monkeypatch.setattr(llm_service, "get_llm_config", _fake_get_llm_config)
+    monkeypatch.setattr(llm_service.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(llm_service.asyncio, "sleep", _recording_sleep)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await llm_service.generate_response(
+            _FakeConn(), "system", [{"role": "user", "content": "hi"}],
+        )
+
+    assert len(calls) == 1, "4xx must fail fast — one attempt, no retry"
+    assert sleeps == [], "no backoff sleep on a non-retryable 4xx"
+
+
+@pytest.mark.asyncio
 async def test_ollama_connect_error_retries_then_succeeds(monkeypatch):
     """Connection errors (Ollama down/restarting) are retried the same as
     5xx — matching claude_client.py's ConnectError handling."""

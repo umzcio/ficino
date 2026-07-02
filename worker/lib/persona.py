@@ -176,6 +176,9 @@ def resolve_enabled_personas(user_settings: dict[str, object]) -> set[str]:
         k for k, meta in get_personas().items()
         if meta.get("feed_eligible")
     }
+    # `or {}` is intentional hardening vs the original inline copies: a user
+    # row can carry an explicit null personas_enabled, which .get() returns
+    # as None and would crash the .get() in the comprehension below.
     user_enabled = user_settings.get("personas_enabled", {}) or {}
     return {
         k for k in all_feed_personas

@@ -78,6 +78,8 @@ async def _post_ollama_chat_with_retry(
                 resp.raise_for_status()
                 return resp
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as e:
+            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500:
+                raise  # 4xx = caller error (bad model name etc.) — retrying can't help
             last_exc = e
             if attempt == 2:
                 break
