@@ -8,6 +8,23 @@ import { Md } from '../_shared/Md'
 import { UserPostCard } from '../Feed/UserPostCard'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
+// R10 FE-21: ReplyMessage carries no server id (and no timestamp), and DM
+// bubbles are deletable at arbitrary indices — not just the tail — via the
+// per-bubble delete button. Index keys let a deleted bubble's key get
+// reused by whichever message shifts into its old slot; on two rapid
+// deletes the first DELETE's response can even momentarily resurrect the
+// second-deleted message under a reused key. Stamp every message with a
+// client-side id the moment a fresh array comes back from the server so
+// React keys stay tied to the message that's actually there, not to a
+// position. Module-level counter (not per-render/per-mount) so ids from an
+// earlier load can never collide with ids from a later one.
+export type DmMessage = ReplyMessage & { _id: number }
+let dmMessageIdSeq = 0
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing (R10 FE-21); not a component
+export function withDmIds(messages: ReplyMessage[]): DmMessage[] {
+  return messages.map((m) => ({ ...m, _id: ++dmMessageIdSeq }))
+}
+
 interface PersonaProfileProps {
   personaKey: string
   onBack: () => void
@@ -23,7 +40,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
   const p = personas[personaKey]
   const [tab, setTab] = useState<'posts' | 'replies' | 'dm'>('posts')
   const [stats, setStats] = useState<{ reply_threads: number } | null>(null)
-  const [dmMessages, setDmMessages] = useState<ReplyMessage[]>([])
+  const [dmMessages, setDmMessages] = useState<DmMessage[]>([])
   const [dmInput, setDmInput] = useState('')
   const [dmLoading, setDmLoading] = useState(false)
   const [dmLoaded, setDmLoaded] = useState(false)
@@ -87,7 +104,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
   useEffect(() => {
     if (tab === 'dm' && !dmLoaded) {
       getPersonaDm(personaKey).then((data) => {
-        setDmMessages(data.messages)
+        setDmMessages(withDmIds(data.messages))
         setDmLoaded(true)
         // Scroll the INTERNAL messages container to its bottom (shows
         // the most recent message). Does not touch viewport scroll.
@@ -126,7 +143,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
     setDmLoading(true)
     try {
       const data = await sendPersonaDm(personaKey, dmInput.trim())
-      setDmMessages(data.messages)
+      setDmMessages(withDmIds(data.messages))
       setDmInput('')
       setTimeout(scrollMessagesToBottom, 100)
     } catch {
@@ -143,7 +160,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
     setDmMessages(msgs => msgs.filter((_, i) => i !== messageIndex))
     try {
       const data = await deletePersonaDmMessage(personaKey, messageIndex)
-      setDmMessages(data.messages)
+      setDmMessages(withDmIds(data.messages))
     } catch {
       setDmMessages(previous)
     }
@@ -471,7 +488,7 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
                   // the bubble on the free-side gutter.
                   return (
                     <div
-                      key={i}
+                      key={msg._id}
                       className={`group relative flex items-center gap-1 ${spacingClass} ${isUser ? 'justify-end' : 'justify-start'}`}
                     >
                       {isUser && (
