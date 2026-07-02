@@ -4,7 +4,7 @@ import { usePersonas } from '../../hooks/usePersonas'
 import { getPersonaStats, getPersonaDm, sendPersonaDm, deletePersonaDmMessage, clearPersonaDm, getPersonaReplies, listUserPosts, type ReplyMessage, type PersonaReplyItem, type UserPost } from '../../lib/api'
 import type { FeedPost } from '../../types'
 import { PostCard } from '../Feed/PostCard'
-import { Md } from '../Feed/_shared/Md'
+import { Md } from '../_shared/Md'
 import { UserPostCard } from '../Feed/UserPostCard'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 

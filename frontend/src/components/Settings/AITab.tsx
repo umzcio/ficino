@@ -3,7 +3,7 @@ import { Cpu, Users, Shield } from 'lucide-react'
 import { getOllamaModels } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { useAuth } from '../../auth/AuthContext'
-import { Section, SettingRow, Toggle, Select, Slider, ApiKeyInput, Loader2 } from './primitives'
+import { Section, SettingRow, Toggle, Select, Slider, ApiKeyInput, Loader2 } from '../_shared/primitives'
 
 interface Props {
   settings: Record<string, unknown>

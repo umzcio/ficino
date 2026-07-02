@@ -3,7 +3,7 @@ import { HardDrive, AlertTriangle, Download, Trash2, Check } from 'lucide-react'
 import { clearAllFeeds, clearAllSummaries, clearAllUserPosts, clearAllPapers, clearEverything } from '../../lib/api'
 import { estimateCacheSize, clearOfflineData, getLastSync } from '../../lib/workspace-download'
 import type { Workspace } from '../../types'
-import { Section, SettingRow, DangerButton, Loader2 } from './primitives'
+import { Section, SettingRow, DangerButton, Loader2 } from '../_shared/primitives'
 
 interface Props {
   settings: Record<string, unknown>

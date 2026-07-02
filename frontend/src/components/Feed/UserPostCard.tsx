@@ -4,7 +4,7 @@ import type { UserPost } from '../../lib/api'
 import { getUserPostStatus, deleteUserPost, replyToUserPost, getUserPost } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { useKeyboardAwareInput } from '../../hooks/useKeyboardAwareInput'
-import { Md } from './_shared/Md'
+import { Md } from '../_shared/Md'
 import { timeAgo as sharedTimeAgo } from '../../lib/timeAgo'
 
 interface UserPostCardProps {

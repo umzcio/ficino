@@ -3,7 +3,7 @@ import type { FeedPost } from '../../types'
 import { usePersonas, type PersonaMap } from '../../hooks/usePersonas'
 import { useLikes } from '../../hooks/useLikes'
 import { PostCard } from './PostCard'
-import { Md } from './_shared/Md'
+import { Md } from '../_shared/Md'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface PostDetailProps {

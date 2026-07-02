@@ -1,5 +1,5 @@
 import { LogOut, Palette, User } from 'lucide-react'
-import { Section, SettingRow, Select, EditableField } from './primitives'
+import { Section, SettingRow, Select, EditableField } from '../_shared/primitives'
 import { useAuth } from '../../auth/AuthContext'
 
 interface Props {

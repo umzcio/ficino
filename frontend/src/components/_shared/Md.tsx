@@ -4,7 +4,7 @@
 // has no markdown dep and our inputs are LLM output with a narrow, known
 // marker set — a 60-line parser beats pulling in remark.
 import type React from 'react'
-import { InlineMd } from './InlineMd'
+import { InlineMd } from '../Feed/_shared/InlineMd'
 
 interface MdProps {
   text: string

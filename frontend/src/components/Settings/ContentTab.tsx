@@ -1,5 +1,5 @@
 import { Zap, FileText } from 'lucide-react'
-import { Section, SettingRow, Toggle, Select, Slider } from './primitives'
+import { Section, SettingRow, Toggle, Select, Slider } from '../_shared/primitives'
 
 interface Props {
   settings: Record<string, unknown>
