@@ -1,14 +1,9 @@
-"""Paper, Chunk, and Figure data models."""
+"""Paper data models."""
 
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
-
-
-class PaperCreate(BaseModel):
-    title: str | None = None
-    corpus_id: UUID | None = None
 
 
 class PaperTag(BaseModel):
@@ -32,27 +27,4 @@ class Paper(BaseModel):
     figure_count: int = 0
     tags: list[PaperTag] = Field(default_factory=list)
     uploaded_at: datetime | None = None
-    processed_at: datetime | None = None
-
-
-class Chunk(BaseModel):
-    id: UUID
-    paper_id: UUID
-    section: str
-    content: str
-    chunk_type: str = "text"
-    chunk_index: int
-    token_count: int | None = None
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
-class Figure(BaseModel):
-    id: UUID
-    paper_id: UUID
-    page_number: int
-    image_path: str
-    extraction_type: str
-    description: str | None = None
-    claim_summary: str | None = None
-    figure_index: int
     processed_at: datetime | None = None
