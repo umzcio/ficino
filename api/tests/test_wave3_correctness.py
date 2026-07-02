@@ -431,3 +431,83 @@ def test_apa_format_21_authors_first_19_then_ellipsis_then_true_last():
         assert last in citation, f"author {last} (one of first 19) missing: {citation}"
 
     assert "..." in citation
+
+
+# --- API-12/BP-5: reading-list reorder/apply-ordering duplicate IDs ------
+
+@pytest.mark.asyncio
+async def test_reorder_reading_list_rejects_duplicate_paper_ids(
+    client_as_user_a, seeded_users, db_conn,
+):
+    """[A, A, B] passes the old set-based check (2 distinct owned == len(set))
+    but must be rejected — duplicating a paper_id in the sequence would
+    materialize duplicate chapters."""
+    paper_a2 = str(uuid.uuid4())
+    await db_conn.execute(
+        """INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status)
+           VALUES ($1, $2, $3, 'a2.pdf', '/tmp/a2.pdf', 'complete')""",
+        paper_a2, USER_A_ID, seeded_users["workspace_a"],
+    )
+    list_row = await db_conn.fetchrow(
+        """INSERT INTO reading_lists (user_id, corpus_id, name, paper_sequence)
+           VALUES ($1, $2, 'dup-reorder', $3) RETURNING id""",
+        USER_A_ID, seeded_users["workspace_a"], [seeded_users["paper_a"], paper_a2],
+    )
+    list_id = str(list_row["id"])
+
+    r = await client_as_user_a.put(
+        f"/reading-lists/{list_id}/reorder",
+        json={"paper_sequence": [seeded_users["paper_a"], seeded_users["paper_a"], paper_a2]},
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_apply_ai_ordering_rejects_duplicate_paper_ids(
+    client_as_user_a, seeded_users, db_conn,
+):
+    """[A, A, B, C] passes the old set-based permutation check but must be
+    rejected for the same reason as reorder."""
+    paper_a2 = str(uuid.uuid4())
+    await db_conn.execute(
+        """INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status)
+           VALUES ($1, $2, $3, 'a3.pdf', '/tmp/a3.pdf', 'complete')""",
+        paper_a2, USER_A_ID, seeded_users["workspace_a"],
+    )
+    list_row = await db_conn.fetchrow(
+        """INSERT INTO reading_lists (user_id, corpus_id, name, paper_sequence)
+           VALUES ($1, $2, 'dup-apply', $3) RETURNING id""",
+        USER_A_ID, seeded_users["workspace_a"], [seeded_users["paper_a"], paper_a2],
+    )
+    list_id = str(list_row["id"])
+
+    r = await client_as_user_a.put(
+        f"/reading-lists/{list_id}/apply-ordering",
+        json={"ordered_papers": [
+            {"paper_id": seeded_users["paper_a"]},
+            {"paper_id": seeded_users["paper_a"]},
+            {"paper_id": paper_a2},
+        ]},
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_apply_ai_ordering_malformed_body_returns_422_not_500(
+    client_as_user_a, seeded_users, db_conn,
+):
+    """A malformed ordered_papers item (a bare string instead of
+    {"paper_id": ...}) must 422 via pydantic validation, not 500 with a
+    raw KeyError/TypeError from `p["paper_id"]`."""
+    list_row = await db_conn.fetchrow(
+        """INSERT INTO reading_lists (user_id, corpus_id, name, paper_sequence)
+           VALUES ($1, $2, 'malformed', $3) RETURNING id""",
+        USER_A_ID, seeded_users["workspace_a"], [seeded_users["paper_a"]],
+    )
+    list_id = str(list_row["id"])
+
+    r = await client_as_user_a.put(
+        f"/reading-lists/{list_id}/apply-ordering",
+        json={"ordered_papers": ["x"]},
+    )
+    assert r.status_code == 422, r.text

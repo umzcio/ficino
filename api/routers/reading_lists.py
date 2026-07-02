@@ -29,6 +29,14 @@ class ReadingListReorder(BaseModel):
     paper_sequence: list[str]
 
 
+class OrderedPaper(BaseModel):
+    paper_id: str
+
+
+class ApplyOrderingRequest(BaseModel):
+    ordered_papers: list[OrderedPaper]
+
+
 @router.get("")
 async def list_reading_lists(
     workspace_id: str | None = None,
@@ -249,6 +257,17 @@ async def reorder_reading_list(
     # reading list (which downstream chapter generation will happily
     # dereference).
     if body.paper_sequence:
+        # R10 API-12: the set-based ownership check below (`owned_count ==
+        # len(set(...))`) admits a sequence like [A, A, B] where A, B are
+        # both owned — COUNT of distinct owned rows is 2, which equals
+        # len(set([A, A, B])) == 2, so the duplicate silently passes and
+        # gets materialized as duplicate chapters. Reject duplicates
+        # up front, independent of ownership.
+        if len(body.paper_sequence) != len(set(body.paper_sequence)):
+            raise HTTPException(
+                status_code=422,
+                detail="Duplicate paper IDs in sequence",
+            )
         owned_count = await db.fetchval(
             "SELECT COUNT(*) FROM papers WHERE id = ANY($1::uuid[]) AND user_id = $2",
             body.paper_sequence, user.id,
@@ -299,11 +318,17 @@ async def reorder_reading_list(
 @router.put("/{list_id}/apply-ordering")
 async def apply_ai_ordering(
     list_id: str,
-    body: dict,
+    body: ApplyOrderingRequest,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
-    """Apply AI-proposed ordering to a reading list. Called after ordering task completes."""
+    """Apply AI-proposed ordering to a reading list. Called after ordering task completes.
+
+    R10 API-12/BP-5: `body` was a raw `dict` — the only endpoint in this
+    file bypassing pydantic validation. A malformed item (e.g. a bare
+    string instead of {"paper_id": ...}) raised a raw KeyError/TypeError
+    -> 500 instead of a 422. Now validated as `ApplyOrderingRequest`.
+    """
     row = await db.fetchrow(
         "SELECT id, paper_sequence FROM reading_lists WHERE id = $1 AND user_id = $2",
         list_id, user.id,
@@ -311,11 +336,20 @@ async def apply_ai_ordering(
     if not row:
         raise HTTPException(status_code=404, detail="Reading list not found")
 
-    ordered_papers = body.get("ordered_papers", [])
+    ordered_papers = body.ordered_papers
     if not ordered_papers:
         raise HTTPException(status_code=400, detail="No ordering data")
 
-    new_sequence = [p["paper_id"] for p in ordered_papers]
+    new_sequence = [p.paper_id for p in ordered_papers]
+
+    # R10 API-12: the old set-based permutation check (`set(new_sequence)
+    # != existing_set`) admits a sequence like [A, A, B, C] where
+    # {A,B,C} == existing_set — the duplicate silently passes and gets
+    # materialized as duplicate chapters (double LLM spend per duplicate
+    # in the sequential chapter-generation flow). Reject duplicates before
+    # the permutation check.
+    if len(new_sequence) != len(set(new_sequence)):
+        raise HTTPException(status_code=422, detail="Duplicate paper IDs in ordering")
 
     # The ordering must be a permutation of the list's existing papers —
     # a bad client (or a malicious one) shouldn't be able to inject foreign
@@ -327,7 +361,7 @@ async def apply_ai_ordering(
             detail="Ordering must be a permutation of the existing paper list",
         )
 
-    rationale_json = json.dumps(ordered_papers)
+    rationale_json = json.dumps([p.model_dump() for p in ordered_papers])
 
     await db.execute(
         "UPDATE reading_lists SET paper_sequence = $1, rationale = $2 WHERE id = $3",
