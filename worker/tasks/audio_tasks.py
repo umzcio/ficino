@@ -34,6 +34,7 @@ from celery import Task
 from celery_app import app
 from lib.db import execute, fetchrow
 from lib.persona import get_personas
+from lib.settings import apply_provider_settings
 from lib.podcast import build_podcast_script
 from lib.storage import storage
 from lib.tts import (
@@ -357,6 +358,10 @@ def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
         return {"status": "skipped", "reason": "claimed_or_ready"}
 
     user_id = str(claimed["user_id"])
+    # Scope the retrieval embedding + LLM script call to the feed owner's
+    # provider settings — same rule as every other LLM-bearing task
+    # (Round 9 C1-C4; this task shipped without it, R10 WORK-2).
+    apply_provider_settings(user_id)
     corpus_id = str(claimed["corpus_id"]) if claimed["corpus_id"] else None
     posts = claimed["posts"]
     if isinstance(posts, str):
