@@ -14,6 +14,7 @@ import structlog
 
 from lib.pdf_extractor import rasterize_pages, get_page_count
 from lib.settings import get_active
+from ficino_shared.settings_schema import default_for
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +39,7 @@ def _get_config() -> dict[str, str]:
         ),
         # ollama_base_url is env-only (SSRF defense).
         "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
-        "ollama_vision_model": get_active("ollama_vision_model", "OLLAMA_VISION_MODEL", ""),
+        "ollama_vision_model": get_active("ollama_vision_model", "OLLAMA_VISION_MODEL", default_for("ollama_vision_model")),
         "anthropic_api_key": get_active("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
         "claude_model": get_active("claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6"),
     }

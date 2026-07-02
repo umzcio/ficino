@@ -22,8 +22,10 @@ async def create_pool() -> asyncpg.Pool:
     Postgres directly.
     """
     global _pool
-    min_size = int(os.getenv("DB_POOL_MIN_SIZE", "5"))
-    max_size = int(os.getenv("DB_POOL_MAX_SIZE", "20"))
+    # Service-prefixed so tuning the api pool doesn't silently resize the
+    # worker's (same var names previously — R10 DUP-14). Old names honored.
+    min_size = int(os.getenv("API_DB_POOL_MIN_SIZE", os.getenv("DB_POOL_MIN_SIZE", "5")))
+    max_size = int(os.getenv("API_DB_POOL_MAX_SIZE", os.getenv("DB_POOL_MAX_SIZE", "20")))
     _pool = await asyncpg.create_pool(
         dsn=settings.database_url,
         min_size=min_size,
