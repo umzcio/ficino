@@ -101,20 +101,6 @@ class StorageBackend(ABC):
     # -- Podcast (NotebookLM-style two-host episodes) --
 
     @abstractmethod
-    def save_podcast_segment(
-        self, user_id: str, feed_id: str, segment_index: int, content: bytes
-    ) -> str:
-        """Persist an mp3 for one host dialogue line. Returns a backend
-        reference suitable for storing in feeds.podcast_segments[i].audio_key."""
-
-    @abstractmethod
-    def podcast_segment_url(
-        self, user_id: str, feed_id: str, segment_index: int, ttl: int = 86400
-    ) -> str:
-        """Return a signed URL for one podcast segment mp3. Default TTL
-        matches audio_url (24h)."""
-
-    @abstractmethod
     def save_podcast_episode(
         self, user_id: str, feed_id: str, content: bytes
     ) -> str:

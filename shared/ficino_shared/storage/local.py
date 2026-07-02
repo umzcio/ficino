@@ -10,6 +10,9 @@ backends but ignored here — the filesystem layout is flat per-paper.
 Multi-tenant isolation is enforced at the database layer (papers are
 user-scoped; any caller reaching the filesystem has already passed the
 DB ownership check).
+
+Config is injected by the caller (api reads `config.settings`, worker
+reads env vars directly) — this module never reads env itself.
 """
 
 from __future__ import annotations
@@ -18,16 +21,16 @@ import os
 import shutil
 from pathlib import Path
 
-from config import settings
-from signed_url import sign_resource
+from ficino_shared.constants import MEDIA_URL_TTL
+from ficino_shared.signed_url import sign_resource
 
 from .base import StorageBackend
 
 
 class LocalStorage(StorageBackend):
-    def __init__(self) -> None:
-        self.upload_dir = settings.upload_dir
-        self.figures_dir = settings.figures_dir
+    def __init__(self, upload_dir: str, figures_dir: str) -> None:
+        self.upload_dir = upload_dir
+        self.figures_dir = figures_dir
 
     # -- PDFs --
 
@@ -80,10 +83,13 @@ class LocalStorage(StorageBackend):
     ) -> bytes:
         safe = os.path.basename(filename)
         base = Path(self.figures_dir).resolve()
+        # Defence in depth: resolve the *whole* key (paper_id + filename)
+        # against the figures root and refuse anything that escapes it.
+        # Filename is already basenamed above, but paper_id is also
+        # attacker-influenced (R10 DUP-2) — the api copy only checked the
+        # final path; the worker copy didn't check at all. Both components
+        # are validated here, once, for both backends' callers.
         full = (base / paper_id / safe).resolve()
-        # Defence in depth: even though callers check this too, make sure
-        # the storage layer can never be coerced into reading outside the
-        # figures tree.
         full.relative_to(base)
         with open(full, "rb") as f:
             return f.read()
@@ -113,27 +119,13 @@ class LocalStorage(StorageBackend):
         )
 
     def audio_url(
-        self, user_id: str, feed_id: str, post_index: int, ttl: int = 86400
+        self, user_id: str, feed_id: str, post_index: int, ttl: int = MEDIA_URL_TTL
     ) -> str:
         raise NotImplementedError(
             "Feed audio requires STORAGE_PROVIDER=supabase"
         )
 
     # -- Podcast --
-
-    def save_podcast_segment(
-        self, user_id: str, feed_id: str, segment_index: int, content: bytes
-    ) -> str:
-        raise NotImplementedError(
-            "Feed podcast requires STORAGE_PROVIDER=supabase"
-        )
-
-    def podcast_segment_url(
-        self, user_id: str, feed_id: str, segment_index: int, ttl: int = 86400
-    ) -> str:
-        raise NotImplementedError(
-            "Feed podcast requires STORAGE_PROVIDER=supabase"
-        )
 
     def save_podcast_episode(
         self, user_id: str, feed_id: str, content: bytes
@@ -143,7 +135,7 @@ class LocalStorage(StorageBackend):
         )
 
     def podcast_episode_url(
-        self, user_id: str, feed_id: str, ttl: int = 86400
+        self, user_id: str, feed_id: str, ttl: int = MEDIA_URL_TTL
     ) -> str:
         raise NotImplementedError(
             "Feed podcast requires STORAGE_PROVIDER=supabase"

@@ -1,34 +1,17 @@
-"""Pluggable storage backend for uploaded PDFs and extracted figure crops.
+"""Shim — backends live in ficino_shared.storage (R10 DUP-2).
 
-The backend is selected at import time based on settings.storage_provider:
-  - "local"    — filesystem under settings.upload_dir and settings.figures_dir
-                 (default; used for self-host)
-  - "supabase" — Supabase Storage (single bucket, path-keyed by
-                 {user_id}/{paper_id}[...])
-
-Usage:
-    from storage import storage
-    ref = storage.save_pdf(user_id, paper_id, content_bytes)
-    url = storage.figure_image_url(user_id, paper_id, figure_id, image_path)
+Wiring stays here: the api reads config.settings; the worker reads env.
 """
-
 from config import settings
-from .base import StorageBackend
-from .local import LocalStorage
+from ficino_shared.storage import StorageBackend, build_backend  # noqa: F401
 
-
-def _build_backend() -> StorageBackend:
-    provider = (settings.storage_provider or "local").lower()
-    if provider == "local":
-        return LocalStorage()
-    if provider == "supabase":
-        from .supabase import SupabaseStorage
-        return SupabaseStorage()
-    raise ValueError(
-        f"Unknown STORAGE_PROVIDER: {provider}. Must be 'local' or 'supabase'."
-    )
-
-
-storage: StorageBackend = _build_backend()
+storage: StorageBackend = build_backend(
+    settings.storage_provider or "local",
+    upload_dir=settings.upload_dir,
+    figures_dir=settings.figures_dir,
+    supabase_url=settings.supabase_url or "",
+    supabase_service_role_key=settings.supabase_service_role_key or "",
+    supabase_bucket=settings.supabase_storage_bucket or "papers",
+)
 
 __all__ = ["StorageBackend", "storage"]
