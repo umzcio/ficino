@@ -96,11 +96,10 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
     settings = merge_settings(user_explicit)
 
     # Under PUBLIC_DEPLOYMENT the operator's env is authoritative:
-    # get_user_settings already reasserted env values over stale user rows
-    # in `settings`, so the env writes must follow the MERGED values or
-    # os.environ would diverge from _active_settings (stale user value
-    # leaking to legacy env readers). Same truthiness check as
-    # get_user_settings.
+    # `settings` was already reasserted from the operator baseline above
+    # (reassert_public_deployment), so the env writes must follow the
+    # MERGED values or os.environ would diverge from _active_settings
+    # (stale user value leaking to legacy env readers).
     public_deployment = is_public_deployment()
     if public_deployment:
         settings = reassert_public_deployment(settings)

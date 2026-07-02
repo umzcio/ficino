@@ -204,6 +204,9 @@ def reset_baseline_for_tests() -> None:
     """Clear the baseline snapshot and immediately re-capture it from the
     CURRENT os.environ.
 
+    Callers must configure the desired baseline env (monkeypatch.setenv/delenv)
+    BEFORE calling this — the snapshot is taken immediately.
+
     Test-only: this simulates a fresh process's pristine-env snapshot at
     the moment the test calls it. It must snapshot immediately rather than
     merely clearing and deferring to the next lazy `_snapshot_baseline_env()`
@@ -263,6 +266,6 @@ def default_for(setting_key: str) -> str:
 # Capture the operator baseline at import time, while os.environ is still
 # pristine in each prefork child — before any apply_provider_settings call
 # has written per-user values into it. The lazy call inside
-# apply_provider_settings remains as a re-snapshot hook (tests clear
-# _baseline_env to simulate a fresh process).
+# apply_provider_settings remains as a re-snapshot hook (tests call
+# reset_baseline_for_tests() to clear and immediately re-snapshot).
 snapshot_baseline_env()
