@@ -7,6 +7,7 @@ frontend can render directly.
 
 import json
 import random
+import time
 
 import structlog
 
@@ -43,8 +44,6 @@ POST_TYPE_WEIGHTS = {
     "reply": 0.25,
     "figure": 0.10,
 }
-
-import time
 
 _personas_cache: dict[str, dict[str, str]] | None = None
 _personas_cache_time: float = 0.0
@@ -674,8 +673,8 @@ def _blend_weights(
     blended = {}
     for k in all_keys:
         m = manual.get(k, 0.0)
-        l = learned.get(k, 0.0)
-        blended[k] = m * (1 - blend) + l * blend
+        learned_val = learned.get(k, 0.0)
+        blended[k] = m * (1 - blend) + learned_val * blend
 
     # Normalize
     total = sum(blended.values())

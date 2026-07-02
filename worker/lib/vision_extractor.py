@@ -7,11 +7,12 @@ Provider is selected via VISION_PROVIDER setting (ollama or api).
 import asyncio
 import base64
 import os
+import threading as _threading
 
 import httpx
 import structlog
 
-from lib.pdf_extractor import rasterize_page, rasterize_pages, get_page_count
+from lib.pdf_extractor import rasterize_pages, get_page_count
 from lib.settings import get_active
 
 logger = structlog.get_logger(__name__)
@@ -166,7 +167,6 @@ async def extract_with_vision(file_path: str) -> str:
 # same pattern as the other worker/lib sync wrappers. BUG-LIVE-06.
 # Round-4: loop runs on a dedicated daemon thread; concurrent callers
 # submit via run_coroutine_threadsafe instead of queuing on a lock.
-import threading as _threading
 
 _vision_loop: asyncio.AbstractEventLoop | None = None
 _vision_loop_lock = _threading.Lock()

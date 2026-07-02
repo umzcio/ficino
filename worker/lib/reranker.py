@@ -15,7 +15,6 @@ Typical quality lift: reorder top_k × multiplier → top_k.
 Typical latency: 50-300ms for 100 candidates (local), 50-200ms (hosted).
 """
 
-import os
 import threading
 
 import httpx

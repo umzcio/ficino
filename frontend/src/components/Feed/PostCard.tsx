@@ -1256,20 +1256,29 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
 /**
  * Re-render only when data or flags that PostCard visibly depends on change.
  *
- * Callback identity is intentionally NOT in the comparator — Feed.tsx passes
- * inline arrow functions for onBookmarkToggle/onClick/onPostDeleted that
- * change every render. Including them would defeat the memo.
+ * Event-handler callback identity is intentionally NOT in the comparator —
+ * Feed.tsx passes inline arrow functions for onBookmarkToggle/onClick/
+ * onPostDeleted that change every render. Including them would defeat the
+ * memo.
+ *
+ * isReplyLiked/isReplyBookmarked are different: they're data-keyed render
+ * inputs (their identity changes only when the underlying liked/bookmarked
+ * state they read changes), not per-render event handlers, so they ARE
+ * compared below.
  *
  * Reference equality on `post` works because the feed array is rebuilt only
  * when the server returns new post data; an intermediate `posts.filter(...)`
  * preserves the underlying object refs.
  */
-function arePostsEqual(prev: PostCardProps, next: PostCardProps): boolean {
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing (R10 FE-1); not a component
+export function arePostsEqual(prev: PostCardProps, next: PostCardProps): boolean {
   return (
     prev.post === next.post &&
     prev.feedId === next.feedId &&
     prev.postIndex === next.postIndex &&
     prev.liked === next.liked &&
+    prev.isReplyLiked === next.isReplyLiked &&
+    prev.isReplyBookmarked === next.isReplyBookmarked &&
     prev.bookmarkedId === next.bookmarkedId &&
     prev.hasUserReply === next.hasUserReply &&
     prev.annotation === next.annotation &&

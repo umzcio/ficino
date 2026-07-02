@@ -111,7 +111,6 @@ async def upload_paper(
     # Dispatch Celery ingestion task. Only paper_id is passed — the worker
     # resolves the storage reference via the shared storage adapter so the
     # API never has to care what the backend layout looks like.
-    redis = _get_redis()
     from celery import Celery
     celery_app = Celery(broker=settings.redis_url)
     celery_app.send_task(

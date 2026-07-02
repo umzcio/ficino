@@ -4,7 +4,6 @@ Full pipeline: retrieve → classify contradictions → generate posts → store
 """
 
 import json
-import os
 import random
 import time
 import uuid

@@ -421,7 +421,7 @@ function AppContent() {
   const handleIsReplyBookmarked = useCallback(
     (postIdx: number, msgIdx: number) =>
       feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false,
-    [feed.feedId, bm],
+    [feed.feedId, bm.isReplyBookmarked],
   )
   const handlePostClick = useCallback((idx: number) => {
     feedScrollRef.current = document.querySelector('main')?.scrollTop ?? 0

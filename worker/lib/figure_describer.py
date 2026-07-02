@@ -7,6 +7,7 @@ If no vision model is available, returns empty descriptions.
 import asyncio
 import base64
 import os
+import threading as _threading
 
 import httpx
 import structlog
@@ -149,7 +150,6 @@ async def describe_figure(image_bytes: bytes) -> dict[str, str]:
 # dead loop (see BUG-LIVE-06 in phase2 playwright report).
 # Round-4: loop runs on a dedicated daemon thread via run_forever so
 # concurrent Celery threads don't serialize behind a single run_until_complete.
-import threading as _threading
 
 _figure_loop: asyncio.AbstractEventLoop | None = None
 _figure_loop_lock = _threading.Lock()

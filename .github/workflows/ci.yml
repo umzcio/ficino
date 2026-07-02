@@ -1,0 +1,124 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check api/ worker/
+
+  api-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16   # matches docker-compose.yml
+        env:
+          POSTGRES_USER: ficino
+          POSTGRES_PASSWORD: ficino
+          POSTGRES_DB: ficino
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ficino"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql://ficino:ficino@localhost:5432/ficino
+      REDIS_URL: redis://localhost:6379/0
+      AUTH_PROVIDER: none
+      ENVIRONMENT: test
+      # Settings.upload_dir/figures_dir default to /app/... (the container
+      # image's writable app root). The runner has no /app and can't create
+      # one without sudo, so tests that write real files (e.g.
+      # test_signed_figures.py) need these repointed at a writable path.
+      # (job-level `env:` can't read the `runner` context, so this uses a
+      # plain /tmp path rather than `${{ runner.temp }}`.)
+      UPLOAD_DIR: /tmp/ficino-ci-uploads
+      FIGURES_DIR: /tmp/ficino-ci-figures
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r api/requirements-dev.txt
+      - name: Load schema
+        # docker-compose.yml only bind-mounts infra/postgres/init.sql into
+        # /docker-entrypoint-initdb.d — it does NOT load the rest of
+        # infra/postgres/. The live dev DB's volume has had every standalone
+        # add_*.sql migration applied on top of init.sql by hand over time,
+        # so init.sql alone is missing feeds.audio_status/podcast_* columns
+        # and the feed_posts/audit_log tables the api suite exercises.
+        #
+        # A fresh CI postgres needs init.sql followed by every add_*.sql /
+        # update_*.sql migration, in an order that satisfies their
+        # cross-file dependencies. Verified empirically against a scratch
+        # pgvector/pgvector:pg16 container (init.sql, then each migration,
+        # ON_ERROR_STOP=1) — plain alphabetical order fails because
+        # add_feed_posts_search_partial.sql indexes the `feed_posts` table
+        # that add_feed_posts_table.sql (alphabetically later) creates.
+        # Swapping just that pair is the only reordering alphabetical order
+        # needs; every other file is independent of load order. The two
+        # backfill/migrate *.py files in infra/postgres/ are Python data
+        # migrations, not schema — they're intentionally excluded (the *.sql
+        # glob already skips them).
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
+          for f in \
+            infra/postgres/add_alerts_dedupe.sql \
+            infra/postgres/add_amplifier_persona.sql \
+            infra/postgres/add_audit_log.sql \
+            infra/postgres/add_chunks_contextual_prefix.sql \
+            infra/postgres/add_chunks_unique_paper_chunk_idx.sql \
+            infra/postgres/add_feed_audio_status.sql \
+            infra/postgres/add_feed_podcast.sql \
+            infra/postgres/add_feed_posts_table.sql \
+            infra/postgres/add_feed_posts_search_partial.sql \
+            infra/postgres/add_figures_unique_paper_figure_idx.sql \
+            infra/postgres/add_fk_indexes.sql \
+            infra/postgres/add_hnsw_index.sql \
+            infra/postgres/add_papers_feeds_indexes.sql \
+            infra/postgres/add_persona_dms_table.sql \
+            infra/postgres/add_personas_feed_eligible.sql \
+            infra/postgres/add_persona_temperature.sql \
+            infra/postgres/add_post_replies_unique.sql \
+            infra/postgres/add_typed_figures.sql \
+            infra/postgres/add_user_id_to_chunks_feed_posts.sql \
+            infra/postgres/update_amplifier_prompt.sql \
+          ; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - run: cd api && pytest tests/ -q
+
+  worker-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r worker/requirements-dev.txt
+      - run: cd worker && pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - run: cd frontend && npx tsc -b
+      - run: cd frontend && npm test
+      - run: cd frontend && npm run build

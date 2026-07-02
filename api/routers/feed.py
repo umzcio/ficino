@@ -1,7 +1,6 @@
 """Feed generation and retrieval endpoints."""
 
 import json
-from uuid import UUID
 
 import asyncpg
 import structlog

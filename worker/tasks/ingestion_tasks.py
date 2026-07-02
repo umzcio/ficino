@@ -20,7 +20,7 @@ from lib import (
     quality_check,
     vision_extractor,
 )
-from lib.db import execute, fetchrow, store_chunks_batch, store_figure
+from lib.db import execute, fetch, fetchrow, store_chunks_batch, store_figure
 from lib.settings import STUB_USER_ID
 from lib.storage import storage
 
@@ -213,7 +213,9 @@ def process_paper(
                     )
                 log.info("auto_tags_assigned", tags=auto_tags)
             except Exception as e:
-                log.warn("auto_tag_failed", tags=auto_tags, error=str(e))
+                # error (not warn) + error_type: a NameError hid here for
+                # months as a routine warning (R10 WORK-1).
+                log.error("auto_tag_failed", tags=auto_tags, error=str(e), error_type=type(e).__name__)
 
         # --- Step 3: Chunking ---
         self.update_state(state="PROGRESS", meta={"step": "chunking", "paper_id": paper_id})

@@ -8,10 +8,8 @@ Heading detection uses multiple signals:
 """
 
 import io
-import os
 import re
 from collections import Counter
-from pathlib import Path
 from typing import Iterable, Iterator
 
 import fitz  # PyMuPDF

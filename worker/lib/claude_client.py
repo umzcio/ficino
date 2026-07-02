@@ -9,6 +9,7 @@ Provider is selected via LLM_PROVIDER env var:
 import asyncio
 import json
 import os
+import threading
 
 import httpx
 import structlog
@@ -298,7 +299,6 @@ Respond with exactly one word: supports, contradicts, or extends
 # in the same process), squandering async concurrency. A tiny creation
 # lock still guards the first-time loop bring-up so two threads can't
 # race to create two loops.
-import threading
 
 _llm_loop: asyncio.AbstractEventLoop | None = None
 _llm_loop_lock = threading.Lock()
