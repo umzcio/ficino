@@ -4,7 +4,7 @@
 // a generic fallback — same behavior the old per-site raw-fetch code got by
 // manually parsing res.json().detail.
 import { describe, it, expect } from 'vitest'
-import { ApiError, getApiErrorDetail } from './api'
+import { ApiError, getApiErrorDetail, isNotFoundError } from './api'
 
 describe('getApiErrorDetail', () => {
   it('extracts a string detail from an ApiError JSON body', () => {
@@ -41,5 +41,30 @@ describe('getApiErrorDetail', () => {
     expect(err.message).toBe('API error 404: {"detail":"Not found"}')
     expect(err.status).toBe(404)
     expect(err).toBeInstanceOf(Error)
+  })
+})
+
+// R10 wave-3 final-review Minor 5 (carried): PersonaProfile's handleClearDm
+// optimistically clears local DM state before the DELETE resolves; if the
+// thread was already cleared server-side (e.g. from another tab) the
+// DELETE 404s. isNotFoundError lets that catch branch tell "already gone"
+// (treat as success) apart from a real failure (roll back).
+describe('isNotFoundError', () => {
+  it('is true for an ApiError with status 404', () => {
+    const err = new ApiError(404, 'API error 404: {"detail":"Not found"}', { detail: 'Not found' })
+    expect(isNotFoundError(err)).toBe(true)
+  })
+
+  it('is false for an ApiError with a different status', () => {
+    const err = new ApiError(500, 'API error 500: server exploded', undefined)
+    expect(isNotFoundError(err)).toBe(false)
+  })
+
+  it('is false for a plain Error (network-level failure, not an ApiError)', () => {
+    expect(isNotFoundError(new TypeError('Failed to fetch'))).toBe(false)
+  })
+
+  it('is false for a non-Error thrown value', () => {
+    expect(isNotFoundError('boom')).toBe(false)
   })
 })

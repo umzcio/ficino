@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, Loader2, Send, MessagesSquare, Trash2 } from 'lucide-react'
 import { usePersonas } from '../../hooks/usePersonas'
-import { getPersonaStats, getPersonaDm, sendPersonaDm, deletePersonaDmMessage, clearPersonaDm, getPersonaReplies, listUserPosts, type ReplyMessage, type PersonaReplyItem, type UserPost } from '../../lib/api'
+import { getPersonaStats, getPersonaDm, sendPersonaDm, deletePersonaDmMessage, clearPersonaDm, getPersonaReplies, listUserPosts, isNotFoundError, type ReplyMessage, type PersonaReplyItem, type UserPost } from '../../lib/api'
 import type { FeedPost } from '../../types'
 import { PostCard } from '../Feed/PostCard'
 import { Md } from '../_shared/Md'
@@ -173,7 +173,13 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
     setDmMessages([])
     try {
       await clearPersonaDm(personaKey)
-    } catch {
+    } catch (err) {
+      // R10 carried fix (wave-3 final-review Minor 5): a 404 here means the
+      // thread is already gone server-side (e.g. cleared from another
+      // tab) — that's success, not a failure. Restoring `previous` in
+      // that case would resurrect a dead thread; only roll back on a
+      // real failure.
+      if (isNotFoundError(err)) return
       setDmMessages(previous)
     }
   }

@@ -50,6 +50,17 @@ export function getApiErrorDetail(err: unknown, fallback: string): string {
   return fallback
 }
 
+// True when `err` is an ApiError for a 404 — i.e. the resource is already
+// gone server-side. Callers that optimistically clear/delete local state
+// before the request resolves (e.g. PersonaProfile's handleClearDm) use
+// this to treat "already gone" as success rather than rolling back and
+// resurrecting a dead thread. (R10 wave-3 final-review Minor 5: personas'
+// DM-clear 404s when the thread was already cleared from another tab; the
+// naive catch-and-restore then brings a dead thread back to life.)
+export function isNotFoundError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404
+}
+
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) }
 
