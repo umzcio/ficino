@@ -1,10 +1,28 @@
-"""Load user settings from DB for use in worker tasks."""
+"""Load user settings from DB for use in worker tasks.
 
-import json
+Defaults, env map, and merge/reassert logic live in ficino_shared.settings_schema
+(R10 DUP-1) so the api and worker can never drift on provider defaults or
+secret/override key sets. This module keeps the worker-specific, DB-touching
+and process-local pieces: fetching a user's row, publishing the active
+config into _active_settings, and get_active's env-fallback read.
+"""
+
 import os
+import json
 import threading
 
 import structlog
+
+from ficino_shared.constants import STUB_USER_ID  # noqa: F401  (re-export)
+from ficino_shared.settings_schema import (
+    DEFAULTS,  # noqa: F401  (re-export for callers)
+    SETTINGS_TO_ENV,
+    baseline_env,
+    is_public_deployment,
+    merge_settings,
+    reassert_public_deployment,
+    snapshot_baseline_env,
+)
 
 from lib.db import fetchrow
 
@@ -20,19 +38,6 @@ logger = structlog.get_logger(__name__)
 _env_lock = threading.Lock()
 _active_settings: dict[str, object] = {}
 
-# Operator-baseline env snapshot, captured once at first apply.
-# apply_provider_settings mutates os.environ per-user; without restoring
-# between users, user A's key leaks into user B's task via get_active's
-# env fallback (R10 WORK-3). None = the operator never set that var.
-_baseline_env: dict[str, str | None] = {}
-
-
-def _snapshot_baseline_env() -> None:
-    if _baseline_env:
-        return
-    for env_var in _SETTINGS_TO_ENV.values():
-        _baseline_env[env_var] = os.getenv(env_var)
-
 
 def get_active(setting_key: str, env_key: str, default: str = "") -> str:
     """Read a provider setting, preferring the per-task apply over env.
@@ -46,86 +51,9 @@ def get_active(setting_key: str, env_key: str, default: str = "") -> str:
         return str(value)
     return os.getenv(env_key, default)
 
-STUB_USER_ID = "00000000-0000-0000-0000-000000000000"
 
-# Provider defaults come from env, not from a hard-coded string. Docker-compose
-# self-host sets LLM_PROVIDER=ollama in .env; Railway / SaaS sets it to "api".
-# No deploy target biases the other — if the env is unset we fall back to
-# "ollama" purely because it's the zero-config local-only option a fresh
-# self-host clone is expected to run on.
-DEFAULTS = {
-    "llm_provider":   os.getenv("LLM_PROVIDER", "ollama"),
-    "embed_provider": os.getenv("EMBED_PROVIDER", "ollama"),
-    "vision_provider": os.getenv("VISION_PROVIDER", "ollama"),
-    "claude_model":   os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
-    "ollama_llm_model":    os.getenv("OLLAMA_LLM_MODEL", "qwen3.5:latest"),
-    "ollama_embed_model":  os.getenv("OLLAMA_EMBED_MODEL", "bge-m3:latest"),
-    "ollama_vision_model": os.getenv("OLLAMA_VISION_MODEL", "gemma4:latest"),
-    "voyage_embed_model":  os.getenv("VOYAGE_EMBED_MODEL", "voyage-4-large"),
-    "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
-    "openai_api_key":    os.getenv("OPENAI_API_KEY", ""),
-    "voyage_api_key":    os.getenv("VOYAGE_API_KEY", ""),
-    "cohere_api_key":    os.getenv("COHERE_API_KEY", ""),
-    # Cross-encoder rerank of retrieval candidates. "none" = off.
-    "rerank_provider":    os.getenv("RERANK_PROVIDER", "none"),
-    "rerank_local_model":  os.getenv("RERANK_LOCAL_MODEL", "BAAI/bge-reranker-v2-m3"),
-    "rerank_voyage_model": os.getenv("RERANK_VOYAGE_MODEL", "rerank-2-lite"),
-    "rerank_cohere_model": os.getenv("RERANK_COHERE_MODEL", "rerank-v3.5"),
-    # Per-chunk contextual prefix generation at ingest time. "none" = off.
-    "context_provider":        os.getenv("CONTEXT_PROVIDER", "none"),
-    "context_anthropic_model": os.getenv("CONTEXT_ANTHROPIC_MODEL", "claude-haiku-4-5"),
-    "context_ollama_model":    os.getenv("CONTEXT_OLLAMA_MODEL", "qwen3.5:latest"),
-    # Non-provider settings — safe to default as data, not env.
-    "personas_enabled": {
-        "skeptic": True,
-        "hype": True,
-        "practitioner": True,
-        "methodologist": True,
-        "gradstudent": True,
-    },
-    "persona_temperature": 0.8,
-    "posts_per_generation": 12,
-    "post_type_weights": {
-        "post": 0.35,
-        "thread": 0.10,
-        "quote": 0.20,
-        "reply": 0.25,
-        "figure": 0.10,
-    },
-    "auto_generate_on_upload": False,
-    "extraction_mode": "auto",
-    "chunk_max_tokens": 800,
-    "user_display_name": "You",
-    "user_handle": "@you",
-    "user_avatar_url": "",
-}
-
-# Settings keys that map directly to env vars
-_SETTINGS_TO_ENV = {
-    "llm_provider": "LLM_PROVIDER",
-    "embed_provider": "EMBED_PROVIDER",
-    "ollama_llm_model": "OLLAMA_LLM_MODEL",
-    "ollama_embed_model": "OLLAMA_EMBED_MODEL",
-    "ollama_vision_model": "OLLAMA_VISION_MODEL",
-    "vision_provider": "VISION_PROVIDER",
-    "anthropic_api_key": "ANTHROPIC_API_KEY",
-    "openai_api_key": "OPENAI_API_KEY",
-    "voyage_api_key": "VOYAGE_API_KEY",
-    "cohere_api_key": "COHERE_API_KEY",
-    "claude_model": "CLAUDE_MODEL",
-    "voyage_embed_model": "VOYAGE_EMBED_MODEL",
-    "rerank_provider": "RERANK_PROVIDER",
-    "rerank_local_model": "RERANK_LOCAL_MODEL",
-    "rerank_voyage_model": "RERANK_VOYAGE_MODEL",
-    "rerank_cohere_model": "RERANK_COHERE_MODEL",
-    "context_provider": "CONTEXT_PROVIDER",
-    "context_anthropic_model": "CONTEXT_ANTHROPIC_MODEL",
-    "context_ollama_model": "CONTEXT_OLLAMA_MODEL",
-}
-
-
-def get_user_settings(user_id: str | None = None) -> dict:
-    """Fetch and merge user settings with defaults."""
+def _fetch_user_row(user_id: str | None = None) -> dict:
+    """Fetch and JSON-decode the raw settings row for a user (or {})."""
     uid = user_id or STUB_USER_ID
     row = fetchrow(
         "SELECT settings FROM user_settings WHERE user_id = $1",
@@ -136,32 +64,15 @@ def get_user_settings(user_id: str | None = None) -> dict:
         user = row["settings"]
         if isinstance(user, str):
             user = json.loads(user)
+    return user
 
-    merged = {**DEFAULTS}
-    for key, value in user.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = {**merged[key], **value}
-        else:
-            merged[key] = value
 
-    # Hosted deploy: the operator's env is authoritative for provider
-    # selection and API keys. DEFAULTS already read from env so a fresh
-    # user (no settings row) gets env values. But an EXISTING user row
-    # may carry stale "ollama" values from a prior self-host install
-    # that got migrated to SaaS — reassert env over those so they can't
-    # accidentally point the worker at an Ollama instance that isn't
-    # reachable from the hosted runtime.
-    #
-    # Read from _baseline_env, NOT live os.getenv: apply_provider_settings
-    # writes per-user values into os.environ, so a live read would launder
-    # a previous user's key into this user's merged config as if the
-    # OPERATOR had configured it (R10 WORK-3 final-review fix).
-    if os.getenv("PUBLIC_DEPLOYMENT", "").lower() in ("1", "true", "yes"):
-        _snapshot_baseline_env()
-        for k, env_key in _SETTINGS_TO_ENV.items():
-            env_val = _baseline_env.get(env_key)
-            if env_val:
-                merged[k] = env_val
+def get_user_settings(user_id: str | None = None) -> dict:
+    """Fetch and merge user settings with defaults."""
+    user = _fetch_user_row(user_id)
+    merged = merge_settings(user)
+    if is_public_deployment():
+        merged = reassert_public_deployment(merged)
     return merged
 
 
@@ -177,19 +88,12 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
     processes can't charge user A's LLM call to user B's key. The os.environ
     writes remain for any legacy reader that hasn't migrated to get_active.
     """
-    settings = get_user_settings(user_id)
-
-    # Fetch raw user settings to distinguish "user didn't set" from "DEFAULTS have it"
-    uid = user_id or STUB_USER_ID
-    row = fetchrow(
-        "SELECT settings FROM user_settings WHERE user_id = $1",
-        uid,
-    )
-    user_explicit = {}
-    if row:
-        user_explicit = row["settings"]
-        if isinstance(user_explicit, str):
-            user_explicit = json.loads(user_explicit)
+    # Fetch raw user settings once — used both to derive the merged
+    # settings and to distinguish "user didn't set" from "DEFAULTS have
+    # it" in the env-write loop below (R10 DUP-1: closes the wave-1
+    # carried duplicate-fetch finding).
+    user_explicit = _fetch_user_row(user_id)
+    settings = merge_settings(user_explicit)
 
     # Under PUBLIC_DEPLOYMENT the operator's env is authoritative:
     # get_user_settings already reasserted env values over stale user rows
@@ -197,13 +101,15 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
     # os.environ would diverge from _active_settings (stale user value
     # leaking to legacy env readers). Same truthiness check as
     # get_user_settings.
-    public_deployment = os.getenv("PUBLIC_DEPLOYMENT", "").lower() in ("1", "true", "yes")
+    public_deployment = is_public_deployment()
+    if public_deployment:
+        settings = reassert_public_deployment(settings)
 
     with _env_lock:
-        _snapshot_baseline_env()
+        snapshot_baseline_env()
         _active_settings.clear()
         _active_settings.update(settings)
-        for setting_key, env_var in _SETTINGS_TO_ENV.items():
+        for setting_key, env_var in SETTINGS_TO_ENV.items():
             # Check user's explicitly-set value, not merged (which includes
             # DEFAULTS) — except under PUBLIC_DEPLOYMENT, where the operator
             # baseline is authoritative and must win in os.environ too.
@@ -212,7 +118,7 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
             # previous apply (R10 WORK-3 final-review fix). In production
             # baseline == the reasserted merged values, so this is equivalent.
             if public_deployment:
-                value = _baseline_env.get(env_var) or user_explicit.get(setting_key)
+                value = baseline_env().get(env_var) or user_explicit.get(setting_key)
             else:
                 value = user_explicit.get(setting_key)
             if value:
@@ -225,18 +131,10 @@ def apply_provider_settings(user_id: str | None = None) -> dict:
                 # Also remove from _active_settings if user didn't explicitly set it,
                 # so get_active falls back to env (which has been restored).
                 _active_settings.pop(setting_key, None)
-                baseline = _baseline_env.get(env_var)
+                baseline = baseline_env().get(env_var)
                 if baseline is None:
                     os.environ.pop(env_var, None)
                 else:
                     os.environ[env_var] = baseline
 
     return settings
-
-
-# Capture the operator baseline at import time, while os.environ is still
-# pristine in each prefork child — before any apply_provider_settings call
-# has written per-user values into it. The lazy call inside
-# apply_provider_settings remains as a re-snapshot hook (tests clear
-# _baseline_env to simulate a fresh process).
-_snapshot_baseline_env()
