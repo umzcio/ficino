@@ -186,9 +186,10 @@ async def test_regenerate_post_rejects_cross_user(client_as_user_b, seeded_users
     r = await client_as_user_b.post(
         f"/feed/{seeded_users['feed_a']}/regenerate/0"
     )
-    # 404 (feed not found scoped to user) or 400 (post index out of range) —
-    # both mean the cross-user access was blocked.
-    assert r.status_code in (400, 404)
+    # Always 404: feed-not-found (scoped to user_b) here, but as of R10 BP-2
+    # an out-of-range post_index within an owned feed is 404 too — the old
+    # 400 branch no longer exists, so this is no longer ambiguous.
+    assert r.status_code == 404
 
 
 # ---------- Search: must not return other users' rows ----------

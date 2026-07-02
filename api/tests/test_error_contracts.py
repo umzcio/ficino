@@ -1,10 +1,14 @@
 """R10 Wave-3 Task 10 — error contract standardization (BP-1/BP-2/BP-3).
 
-BP-1: `services.llm.llm_error_to_http` is the single exception->status
-mapping shared by personas.send_persona_dm, replies.zap_response, and
-replies.create_reply's main-persona `asyncio.gather` result (previously
-duplicated verbatim between personas.py and replies.py, and blanket-500'd
-in create_reply).
+- BP-1: `services.llm.llm_error_to_http` is the single exception->status
+  mapping shared by personas.send_persona_dm, replies.zap_response, and
+  replies.create_reply's main-persona `asyncio.gather` result (previously
+  duplicated verbatim between personas.py and replies.py, and blanket-500'd
+  in create_reply).
+- BP-2: feed.py's `delete_post`/`regenerate_post` out-of-range indices,
+  previously 400 "Post index out of range", now 404 "Post not found" —
+  matching the 404-for-missing-sub-resource contract used by
+  personas.delete_persona_dm_message and replies.delete_reply_message.
 """
 from __future__ import annotations
 
@@ -112,3 +116,23 @@ async def test_create_reply_main_persona_bad_input_maps_to_400(client_as_user_a,
         },
     )
     assert r.status_code == 400, r.text
+
+
+# ---------------------------------------------------------------------------
+# BP-2: feed.py out-of-range post indices are 404, not 400.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_delete_post_out_of_range_is_404_not_found(client_as_user_a, seeded_users):
+    # seeded_users' feed_a has posts=[] / post_count=0, so index 0 is
+    # out of range for an owned, existing feed.
+    r = await client_as_user_a.delete(f"/feed/{seeded_users['feed_a']}/posts/0")
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Post not found"
+
+
+@pytest.mark.asyncio
+async def test_regenerate_post_out_of_range_is_404_not_found(client_as_user_a, seeded_users):
+    r = await client_as_user_a.post(f"/feed/{seeded_users['feed_a']}/regenerate/0")
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Post not found"

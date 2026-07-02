@@ -350,7 +350,14 @@ async def delete_post(
         )
         if length is None:
             raise HTTPException(status_code=404, detail="Feed not found")
-        raise HTTPException(status_code=400, detail="Post index out of range")
+        # R10 BP-2: was 400 "Post index out of range" — an out-of-range
+        # index into a JSONB array is a missing sub-resource, same as
+        # personas.delete_persona_dm_message (404 "Message index out of
+        # range") and replies.delete_reply_message (404 "Message not
+        # found"). Aligned to 404 so clients don't special-case this one
+        # sibling. Phrasing matches user_posts.py's "Post not found" 404s
+        # (the closest peer working on posts, not messages).
+        raise HTTPException(status_code=404, detail="Post not found")
     logger.info("post_soft_deleted", feed_id=feed_id, post_index=post_index)
 
     # Sync the feed_posts search index (2.19). Best-effort — the JSONB
@@ -395,7 +402,9 @@ async def regenerate_post(
     if not row:
         raise HTTPException(status_code=404, detail="Feed not found")
     if post_index < 0 or post_index >= row["post_count"]:
-        raise HTTPException(status_code=400, detail="Post index out of range")
+        # R10 BP-2: aligned to 404 "Post not found", same rationale as
+        # delete_post above.
+        raise HTTPException(status_code=404, detail="Post not found")
 
     celery_app = get_celery()
     task = celery_app.send_task(
