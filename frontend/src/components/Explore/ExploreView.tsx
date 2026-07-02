@@ -3,6 +3,7 @@ import { Folder, Plus, FileText, Zap, Loader2, Trash2, Pencil, Search, X } from 
 import type { Workspace, ActivityItem } from '../../types'
 import { getWorkspaceActivity, searchCorpus, type SearchResults } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { timeAgo } from '../../lib/timeAgo'
 
 interface ExploreViewProps {
   workspaces: Workspace[]
@@ -14,16 +15,6 @@ interface ExploreViewProps {
   papers?: { id: string; title: string | null; status: string }[]
   paperSummaries?: Map<string, string>
   onPaperClick?: (paperId: string) => void
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
 }
 
 function NewWorkspaceInput({ onCreate }: { onCreate: (name: string) => void }) {

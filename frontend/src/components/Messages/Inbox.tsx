@@ -3,6 +3,7 @@ import { FileText, Users, MessageCircle, ChevronRight, Loader2 } from 'lucide-re
 import type { PaperConversation, GroupChatPreview } from '../../types'
 import { listPaperConversations, listGroupChats, listReplyConversations, type ReplyConversation } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { timeAgo as sharedTimeAgo } from '../../lib/timeAgo'
 
 interface InboxProps {
   workspaceId?: string
@@ -12,13 +13,11 @@ interface InboxProps {
   onOpenThread?: (feedId: string, postIndex: number) => void
 }
 
+// Compact, suffix-less rendering ('5m'/'5h'/'5d'); R10 DUP-8 fix: a
+// fresh conversation now shows 'just now' instead of '0m' (drifted local
+// copy lacked the < 1 minute branch).
 function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h`
-  return `${Math.floor(hrs / 24)}d`
+  return sharedTimeAgo(dateStr, { suffix: false })
 }
 
 export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: InboxProps) {

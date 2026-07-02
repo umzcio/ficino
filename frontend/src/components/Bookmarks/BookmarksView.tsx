@@ -2,6 +2,7 @@ import { Bookmark, Loader2 } from 'lucide-react'
 import type { FeedPost } from '../../types'
 import { PostCard } from '../Feed/PostCard'
 import type { BookmarkItem } from '../../lib/api'
+import { timeAgo } from '../../lib/timeAgo'
 
 interface BookmarksViewProps {
   bookmarks: BookmarkItem[]
@@ -10,15 +11,6 @@ interface BookmarksViewProps {
   getAnnotation?: (feedId: string, postIndex: number) => string | null
   onAnnotationSave?: (feedId: string, postIndex: number, body: string) => void
   onAnnotationDelete?: (feedId: string, postIndex: number) => void
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
 }
 
 export function BookmarksView({ bookmarks, loading, onRemove, getAnnotation, onAnnotationSave, onAnnotationDelete }: BookmarksViewProps) {

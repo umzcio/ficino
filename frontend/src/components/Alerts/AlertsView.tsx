@@ -2,6 +2,7 @@ import {
   Bell, AlertTriangle, GitBranch, BookOpen, Clock, X, CheckCheck
 } from 'lucide-react'
 import type { AlertItem } from '../../lib/api'
+import { timeAgo } from '../../lib/timeAgo'
 
 interface AlertsViewProps {
   alerts: AlertItem[]
@@ -18,16 +19,6 @@ const ALERT_CONFIG: Record<string, { icon: typeof AlertTriangle; color: string; 
   reading_gap: { icon: BookOpen, color: 'var(--color-persona-practitioner)', label: 'Go Deeper' },
   stale_paper: { icon: Clock, color: 'var(--color-tab-inactive)', label: 'Stale Paper' },
   emerging_theme: { icon: GitBranch, color: 'var(--color-persona-methodologist)', label: 'Emerging Theme' },
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
 }
 
 function AlertCard({ alert, onMarkRead, onDismiss, onAction }: {
