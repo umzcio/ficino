@@ -301,6 +301,15 @@ export function ListenView({ feedId, posts }: Props) {
           // what let this path drift out of sync with loadedSrcRef in
           // the first place (FE-2), causing pause->resume to restart
           // the clip from 0:00 instead of resuming.
+          //
+          // playAtIndex reads activePostsRef, which only syncs to the
+          // serverPosts state we just set on the NEXT render (via the
+          // effect at the top of the component) — sync it now so the
+          // just-fetched posts are visible to the lookup. Without this
+          // the ref still holds the pre-generation posts (no audio_url),
+          // playAtIndex's `!post.audio_url` guard fires, and auto-play
+          // never starts.
+          activePostsRef.current = fresh
           playAtIndex(firstPlayable)
         }
         activePollerRef.current = null
