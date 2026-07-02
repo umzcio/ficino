@@ -41,8 +41,10 @@ jobs:
       # image's writable app root). The runner has no /app and can't create
       # one without sudo, so tests that write real files (e.g.
       # test_signed_figures.py) need these repointed at a writable path.
-      UPLOAD_DIR: ${{ runner.temp }}/uploads
-      FIGURES_DIR: ${{ runner.temp }}/figures
+      # (job-level `env:` can't read the `runner` context, so this uses a
+      # plain /tmp path rather than `${{ runner.temp }}`.)
+      UPLOAD_DIR: /tmp/ficino-ci-uploads
+      FIGURES_DIR: /tmp/ficino-ci-figures
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
