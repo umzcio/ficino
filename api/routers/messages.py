@@ -129,6 +129,15 @@ async def get_paper_summary(
         paper_id,
     )
 
+    # A row the worker marked 'error' (retries exhausted; task_id NULL)
+    # previously fell into the cached-read branch below and was returned
+    # verbatim forever, with no regenerate path anywhere (R9 H13 /
+    # R10 API-1). Treat it like a dead task: drop it so it falls through
+    # to the dispatch branch, which resets status via its upsert.
+    if summary and (summary["status"] or "complete") == "error":
+        logger.warn("paper_summary_error_redispatch", paper_id=paper_id)
+        summary = None
+
     # Workers can die mid-task (OOM, SIGKILL, container restart) without
     # writing back a terminal status. If the row says 'generating' but the
     # task is actually FAILURE/REVOKED/unknown, re-dispatch rather than
