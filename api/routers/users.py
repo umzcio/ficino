@@ -16,15 +16,15 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/me")
 async def get_current_user_profile(
     user: AuthUser = Depends(get_current_user),
-    db=Depends(get_db),
-):
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
     """Return the authenticated user's profile."""
     row = await db.fetchrow(
         "SELECT id, email, display_name, created_at FROM users WHERE id = $1",
         user.id,
     )
     if not row:
-        raise HTTPException(404, "User not found")
+        raise HTTPException(status_code=404, detail="User not found")
     return {
         "id": str(row["id"]),
         "email": row["email"],
@@ -37,8 +37,8 @@ async def get_current_user_profile(
 async def update_user_profile(
     body: UserUpdate,
     user: AuthUser = Depends(get_current_user),
-    db=Depends(get_db),
-):
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict[str, object]:
     """Update the authenticated user's profile."""
     updates = body.model_dump(exclude_unset=True)
     if "display_name" in updates:
