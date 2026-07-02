@@ -10,10 +10,11 @@ interface KeyboardShortcutsProps {
   generating: boolean
   // The view currently on screen. While it's 'listen', the Listen page
   // owns single-letter keys itself (e.g. "m" for mute — see
-  // ListenView.tsx), so the global nav shortcuts below must stay out of
-  // the way or "m" fires both toggleMute() AND onNavigate('messages'),
-  // unmounting the page the user is trying to control (FE-3). Escape
-  // still closes overlays regardless of view.
+  // ListenView.tsx), so the NAV letters below (h/e/m/b/n) must stay out
+  // of the way or "m" fires both toggleMute() AND onNavigate('messages'),
+  // unmounting the page the user is trying to control (FE-3). Escape and
+  // the non-nav shortcuts ('.' generate, '?' help) don't collide with any
+  // Listen-owned key and keep working there.
   activeView: AppView
 }
 
@@ -39,13 +40,14 @@ export function useKeyboardShortcuts({
         return
       }
 
-      // The Listen view owns single-letter keys for its own transport
-      // controls (space/arrows/M) — see FE-3. Bail before the nav
-      // switch so those keys never double-fire a navigation here.
-      if (activeView === 'listen') return
-
       // Navigation (single key, no modifiers)
       if (e.ctrlKey || e.metaKey || e.altKey) return
+
+      // The Listen view owns single-letter keys for its own transport
+      // controls (space/arrows/M — see ListenView.tsx / FE-3), so ONLY
+      // the nav letters are suppressed there; '.' (generate) and '?'
+      // don't collide with any Listen-owned key and keep working.
+      const suppressNav = activeView === 'listen'
 
       switch (e.key) {
         // Navigation — Twitter/X style
@@ -54,18 +56,23 @@ export function useKeyboardShortcuts({
           break
         case 'h':
           // g then h = home (simplified: just h)
+          if (suppressNav) break
           onNavigate('feed')
           break
         case 'e':
+          if (suppressNav) break
           onNavigate('search') // explore
           break
         case 'm':
+          if (suppressNav) break
           onNavigate('messages')
           break
         case 'b':
+          if (suppressNav) break
           onNavigate('bookmarks')
           break
         case 'n':
+          if (suppressNav) break
           onNavigate('alerts') // notifications
           break
 
