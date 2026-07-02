@@ -151,7 +151,11 @@ def test_claude_vision_client_pins_sdk_retries_off(monkeypatch):
 
     class _RecordingAsyncAnthropic:
         def __init__(self, *a, **k):
-            ctor_kwargs.append(k)
+            # Capture ONLY the non-secret field under test. Recording the
+            # full kwargs dict would echo the live api_key into pytest's
+            # default failure output (the len() assert renders the whole
+            # list) and into locals dumps under -l.
+            ctor_kwargs.append({"max_retries": k.get("max_retries")})
             self.messages = _FakeMessages()
 
     monkeypatch.setattr(anthropic, "AsyncAnthropic", _RecordingAsyncAnthropic)
