@@ -30,6 +30,35 @@ async def _get_redis():
     return _redis_client
 
 
+async def _enforce_rate_limit(key_prefix: str, max_requests: int, window_seconds: int, user_id: str) -> None:
+    """Shared body for both the FastAPI dependency (`RateLimit`) and the
+    imperative twin (`check_rate_limit`, R10 API-2) — one implementation,
+    two call shapes, so they can't drift.
+    """
+    # Skip rate limiting for AUTH_PROVIDER=none (self-hosted single user)
+    if settings.auth_provider == "none":
+        return
+
+    redis = await _get_redis()
+    key = f"ratelimit:{key_prefix}:{user_id}"
+
+    # Atomic INCR-first: the returned value is the post-increment count,
+    # so a race between two requests can't both read "N-1" and decide
+    # they're under the limit. Only set EXPIRE on the fresh key (count==1)
+    # — doing it every hit would slide the TTL forward and let a chatty
+    # caller hold the key open indefinitely. Don't decrement on overflow;
+    # just let the counter run over so sustained abuse stays blocked.
+    count = await redis.incr(key)
+    if count == 1:
+        await redis.expire(key, window_seconds)
+    if count > max_requests:
+        logger.warn("rate_limit_exceeded", user_id=user_id, action=key_prefix, limit=max_requests)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: {max_requests} {key_prefix} per {window_seconds // 3600}h. Try again later.",
+        )
+
+
 class RateLimit:
     """FastAPI dependency that enforces per-user rate limits via Redis.
 
@@ -45,28 +74,21 @@ class RateLimit:
         self.window_seconds = window_seconds
 
     async def __call__(self, user: AuthUser = Depends(get_current_user)) -> None:
-        # Skip rate limiting for AUTH_PROVIDER=none (self-hosted single user)
-        if settings.auth_provider == "none":
-            return
+        await _enforce_rate_limit(self.key_prefix, self.max_requests, self.window_seconds, user.id)
 
-        redis = await _get_redis()
-        key = f"ratelimit:{self.key_prefix}:{user.id}"
 
-        # Atomic INCR-first: the returned value is the post-increment count,
-        # so a race between two requests can't both read "N-1" and decide
-        # they're under the limit. Only set EXPIRE on the fresh key (count==1)
-        # — doing it every hit would slide the TTL forward and let a chatty
-        # caller hold the key open indefinitely. Don't decrement on overflow;
-        # just let the counter run over so sustained abuse stays blocked.
-        count = await redis.incr(key)
-        if count == 1:
-            await redis.expire(key, self.window_seconds)
-        if count > self.max_requests:
-            logger.warn("rate_limit_exceeded", user_id=user.id, action=self.key_prefix, limit=self.max_requests)
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded: {self.max_requests} {self.key_prefix} per {self.window_seconds // 3600}h. Try again later.",
-            )
+async def check_rate_limit(user: AuthUser, key_prefix: str, max_requests: int, window_seconds: int = 86400) -> None:
+    """Imperative twin of the RateLimit dependency — for handlers that must
+    charge the limit only on specific branches (R10 API-2: charging cached
+    reads throttled pure browsing).
+
+    Unlike `RateLimit`, which fires as a FastAPI dependency before the
+    handler body runs (so it can't distinguish a cheap cached-read branch
+    from an expensive dispatch branch), this is called explicitly from
+    inside the handler, right before the code path that actually needs
+    the charge.
+    """
+    await _enforce_rate_limit(key_prefix, max_requests, window_seconds, user.id)
 
 
 class IPRateLimit:

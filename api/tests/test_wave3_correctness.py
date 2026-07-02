@@ -21,6 +21,20 @@ import pytest
 from tests.conftest import USER_A_ID
 
 
+class _FakeRedis:
+    """In-memory counter standing in for `auth.rate_limit._get_redis()`."""
+
+    def __init__(self):
+        self.counts: dict[str, int] = {}
+
+    async def incr(self, key):
+        self.counts[key] = self.counts.get(key, 0) + 1
+        return self.counts[key]
+
+    async def expire(self, key, seconds):
+        return True
+
+
 # --- API-10: create_like / create_bookmark upsert race -----------------
 
 @pytest.mark.asyncio
@@ -293,4 +307,89 @@ def test_delete_persona_dm_message_uses_atomic_jsonb_operator_not_read_modify_wr
     assert "messages - $" in src or "messages -" in src, (
         "delete_persona_dm_message must use the atomic jsonb `-` "
         "operator, same as replies.py's delete_reply_message"
+    )
+
+
+# --- API-2: rate limit on GET /messages/papers/{id} must not charge reads --
+
+@pytest.mark.asyncio
+async def test_cached_paper_summary_reads_never_charge_rate_limit(
+    client_as_user_a, seeded_users, db_conn, monkeypatch,
+):
+    """A paper with an already-complete summary is a pure read. Reading it
+    N times, N far over the per-day limit, must never 429 and must never
+    touch the rate limiter — only dispatch paths should be charged."""
+    import json as _json
+
+    from auth import rate_limit as rate_limit_module
+    from config import settings as app_settings
+
+    fake_redis = _FakeRedis()
+
+    async def _fake_get_redis():
+        return fake_redis
+
+    # The rate limiter no-ops entirely under AUTH_PROVIDER=none (the suite's
+    # default) — flip to "basic" so the limiter is actually active, per the
+    # brief's prescribed test setup.
+    monkeypatch.setattr(app_settings, "auth_provider", "basic")
+    monkeypatch.setattr(rate_limit_module, "_get_redis", _fake_get_redis)
+
+    paper_id = seeded_users["paper_a"]
+    await db_conn.execute(
+        """INSERT INTO paper_summaries (paper_id, messages, status, task_id)
+           VALUES ($1, $2, 'complete', NULL)
+           ON CONFLICT (paper_id) DO UPDATE SET messages = $2, status = 'complete', task_id = NULL""",
+        paper_id, _json.dumps([{"role": "persona", "content": "hi"}]),
+    )
+
+    # 10 reads — the underlying assertion is that none of them touch the
+    # rate limiter at all (not that they 429; the default daily limit is
+    # generous enough not to trip in 10 reads either way).
+    for i in range(10):
+        r = await client_as_user_a.get(f"/messages/papers/{paper_id}")
+        assert r.status_code == 200, f"read #{i} got {r.status_code}: {r.text}"
+
+    assert fake_redis.counts == {}, (
+        "cached-read path must never increment the rate limiter, "
+        f"but saw: {fake_redis.counts}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_paper_summary_dispatch_path_charges_rate_limit(
+    client_as_user_a, seeded_users, db_conn, monkeypatch,
+):
+    """A paper with no existing summary triggers dispatch — that path must
+    still be charged against the summary budget."""
+    from auth import rate_limit as rate_limit_module
+    from config import settings as app_settings
+
+    fake_redis = _FakeRedis()
+
+    async def _fake_get_redis():
+        return fake_redis
+
+    class _FakeCeleryC:
+        def send_task(self, *a, **k):
+            class _T:
+                id = "fake-task-c"
+            return _T()
+
+    from routers import messages as messages_router
+    monkeypatch.setattr(messages_router, "get_celery", lambda: _FakeCeleryC())
+    monkeypatch.setattr(app_settings, "auth_provider", "basic")
+    monkeypatch.setattr(app_settings, "rate_limit_summary_per_day", 30)
+    monkeypatch.setattr(rate_limit_module, "_get_redis", _fake_get_redis)
+
+    paper_id = seeded_users["paper_a"]
+    await db_conn.execute("DELETE FROM paper_summaries WHERE paper_id = $1", paper_id)
+
+    r = await client_as_user_a.get(f"/messages/papers/{paper_id}")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "generating"
+
+    assert any(k.startswith("ratelimit:summary:") for k in fake_redis.counts), (
+        "the dispatch path must charge the summary rate limit, "
+        f"but saw: {fake_redis.counts}"
     )
