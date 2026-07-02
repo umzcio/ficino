@@ -33,6 +33,12 @@ export function LoginPage() {
   const [code, setCode] = useState('')
   const [mode, setMode] = useState<Mode>('login')
   const [loading, setLoading] = useState(false)
+  // Set only when a call below throws instead of resolving — i.e. the
+  // failure happened before any HTTP response existed (offline, DNS
+  // failure, CORS misconfig). AuthContext's methods already setError(...)
+  // internally for anything that got a real HTTP response (bad credentials,
+  // 500, etc), so this is strictly the "never reached the server" case.
+  const [networkError, setNetworkError] = useState<string | null>(null)
   const [captchaToken, setCaptchaToken] = useState('')
   const turnstileRef = useRef<TurnstileInstance>(null)
 
@@ -65,6 +71,7 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setNetworkError(null)
     try {
       if (mode === 'login') {
         if (!email || !password) return
@@ -127,6 +134,13 @@ export function LoginPage() {
           window.history.replaceState(null, '', '/')
         }
       }
+    } catch (err) {
+      // FE-19: a network-level failure (fetch() rejecting before any HTTP
+      // response — offline, DNS failure, CORS misconfig) propagates out of
+      // signIn/signUp rather than being swallowed like an HTTP error
+      // response is. Route it to the same error-banner slot.
+      console.error('Auth request failed:', err)
+      setNetworkError('Network error — check your connection.')
     } finally {
       setLoading(false)
     }
@@ -270,16 +284,16 @@ export function LoginPage() {
             </div>
           )}
 
-          {error && (
+          {(error || networkError) && (
             <div
               role="alert"
               aria-atomic="true"
               className="text-[13px] text-persona-skeptic bg-persona-skeptic/10 border border-persona-skeptic/20 rounded-lg px-3 py-2"
             >
-              {error}
+              {error || networkError}
             </div>
           )}
-          {info && !error && (
+          {info && !error && !networkError && (
             <div
               role="status"
               aria-atomic="true"
