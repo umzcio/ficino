@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Loader2 } from 'lucide-react'
 import type { Workspace } from '../../types'
+import { Spinner } from '../_shared/AsyncState'
 import { SettingsTabs, type SettingsTab } from './SettingsTabs'
 import { SettingsSearchToggle, SettingsSearchResults } from './SettingsSearch'
 import { AccountTab } from './AccountTab'
@@ -26,7 +26,7 @@ export function SettingsView({ settings, loading, onUpdate, workspaces, onDownlo
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="text-gold animate-spin" />
+        <Spinner size={24} />
       </div>
     )
   }
@@ -71,7 +71,7 @@ export function SettingsView({ settings, loading, onUpdate, workspaces, onDownlo
             {activeTab === 'account' && <AccountTab settings={settings} onUpdate={onUpdate} />}
             {activeTab === 'ai' && <AITab settings={settings} onUpdate={onUpdate} />}
             {activeTab === 'content' && <ContentTab settings={settings} onUpdate={onUpdate} />}
-            {activeTab === 'storage' && <StorageTab settings={settings} onUpdate={onUpdate} workspaces={workspaces} onDownloadWorkspace={onDownloadWorkspace} />}
+            {activeTab === 'storage' && <StorageTab workspaces={workspaces} onDownloadWorkspace={onDownloadWorkspace} />}
           </div>
         )}
       </div>

@@ -8,9 +8,10 @@ import type { FeedPost } from '../../types'
 import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, deletePost, updateSettings, deleteReplyMessage, type ReplyMessage } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { InlineMd } from './_shared/InlineMd'
-import { Md } from './_shared/Md'
+import { Md } from '../_shared/Md'
 import { FigureLightbox } from './_shared/FigureLightbox'
 import { Avatar } from './_shared/Avatar'
+import { SourcesList } from './_shared/SourcesList'
 import { formatNum } from './_shared/formatNum'
 import { haptic } from '../../hooks/useHaptic'
 import { SwipeToAct } from '../_shared/SwipeToAct'
@@ -75,7 +76,7 @@ function MenuItem({
   )
 }
 
-interface PostCardProps {
+export interface PostCardProps {
   post: FeedPost
   feedId?: string | null
   postIndex?: number
@@ -725,31 +726,12 @@ function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkTog
 
         {/* Source reveal */}
         {post.sources && post.sources.length > 0 && (
-          <div className="mb-1">
-            <button
-              onClick={(e) => { e.stopPropagation(); setSourcesOpen(!sourcesOpen) }}
-              className="text-[11px] text-text-muted hover:text-gold bg-transparent border-none cursor-pointer transition-colors flex items-center gap-1 px-0"
-            >
-              <FileText size={10} />
-              {sourcesOpen ? 'Hide sources' : `${post.sources.length} sources`}
-            </button>
-            {sourcesOpen && (
-              <div className="mt-2 space-y-2">
-                {post.sources.map((src, i) => (
-                  <div key={i} className="border border-border rounded-lg p-2.5 bg-bg text-[12px]">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-text-mid truncate">{src.paper_title}</span>
-                      <span className="text-text-muted shrink-0">· {src.section}</span>
-                      <span className="text-text-subtle shrink-0 text-[10px] ml-auto">{(src.score * 100).toFixed(0)}%</span>
-                    </div>
-                    <p className="text-text-muted leading-relaxed line-clamp-3">
-                      {src.content}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <SourcesList
+            sources={post.sources}
+            open={sourcesOpen}
+            onToggle={() => setSourcesOpen(!sourcesOpen)}
+            stopPropagation
+          />
         )}
 
         {/* Debug view (dev only) */}

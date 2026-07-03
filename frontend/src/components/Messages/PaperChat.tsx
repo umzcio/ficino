@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, FileText, Loader2 } from 'lucide-react'
 import type { PaperSummary, SummaryMessage } from '../../types'
 import { getPaperSummary, getPaperSummaryStatus } from '../../lib/api'
+import { cachePaperSummary, getCachedPaperSummary } from '../../lib/offline-cache'
+import { usePollTask, type PollController } from '../../hooks/usePollTask'
 
 interface PaperChatProps {
   paperId: string
@@ -77,56 +79,110 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
   const [summary, setSummary] = useState<PaperSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const poll = usePollTask()
+  const pollControllerRef = useRef<PollController | null>(null)
 
   useEffect(() => {
+    // Per-effect-run cancellation flag — distinct from usePollTask's own
+    // mount tracking. usePollTask only gates its isDone/onDone/onError
+    // dispatch; it can't gate the nested `await getPaperSummary(paperId)`
+    // inside onDone below, which can resolve after paperId has already
+    // changed to a new effect run (or after unmount).
     let active = true
     async function load() {
       setLoading(true)
       setError(null)
-      const data = await getPaperSummary(paperId)
-      if (!active) return
-      setSummary(data)
-
-      if (data.status === 'generating' && data.task_id) {
-        // Poll for completion. The poll loop must handle terminal non-complete
-        // states (error / unknown) or the spinner runs forever when the worker
-        // has already given up — the API returns `{status: 'error', error: ...}`
-        // when the Celery task faulted, and we used to just re-schedule the
-        // poll and spin.
-        const poll = async () => {
-          try {
-            const status = await getPaperSummaryStatus(paperId, data.task_id!)
-            if (!active) return
-            if (status.status === 'complete') {
-              const updated = await getPaperSummary(paperId)
-              if (!active) return
-              setSummary(updated)
-              setLoading(false)
-            } else if (status.status === 'error' || status.status === 'unknown') {
-              setError(status.error || 'Summary generation failed')
-              setLoading(false)
-            } else {
-              timeoutRef.current = setTimeout(poll, 2000)
-            }
-          } catch (e) {
-            if (!active) return
-            setError(e instanceof Error ? e.message : 'Failed to check summary status')
-            setLoading(false)
-          }
+      // R10 FE-5: this initial fetch used to be a bare `await` with no
+      // try/catch — a transient 5xx / offline rejection escaped as an
+      // unhandled promise rejection, `setLoading` never flipped back to
+      // false, and the view spun forever with no way out short of a full
+      // reload. Mirrors Inbox.tsx's try/catch/finally shape.
+      try {
+        const data = await getPaperSummary(paperId)
+        if (!active) return
+        // Only cache a *complete* summary — a mid-generation snapshot
+        // (few/no messages) would clobber a previously-cached complete
+        // one and make the offline fallback regress instead of help.
+        if (data.status === 'complete') {
+          cachePaperSummary(data).catch(() => {})
         }
-        timeoutRef.current = setTimeout(poll, 2000)
-      } else {
-        setLoading(false)
+        setSummary(data)
+
+        if (data.status === 'generating' && data.task_id) {
+          const taskId = data.task_id
+          // R10 DUP-11: canonical usePollTask poller. The loop must handle
+          // terminal non-complete states (error / unknown) or the spinner
+          // runs forever when the worker has already given up — the API
+          // returns `{status: 'error', error: ...}` when the Celery task
+          // faulted, and we used to just re-schedule the poll and spin.
+          pollControllerRef.current = poll<{ status: string; error?: string }>({
+            fn: () => getPaperSummaryStatus(paperId, taskId),
+            isDone: (status) => status.status === 'complete' || status.status === 'error' || status.status === 'unknown',
+            onDone: async (status) => {
+              if (status.status === 'complete') {
+                // R10 wave-4 final-review: this getPaperSummary(...) used to
+                // be a bare await inside onDone — a transient failure here
+                // left `loading` stuck true forever (spinner with no way
+                // out). Mirror the onError branch below: surface it as an
+                // error instead of spinning.
+                try {
+                  const updated = await getPaperSummary(paperId)
+                  if (!active) return
+                  cachePaperSummary(updated).catch(() => {})
+                  setSummary(updated)
+                  setLoading(false)
+                } catch (err) {
+                  if (!active) return
+                  setError(err instanceof Error ? err.message : 'Failed to load generated summary')
+                  setLoading(false)
+                }
+              } else {
+                setError(status.error || 'Summary generation failed')
+                setLoading(false)
+              }
+            },
+            // A rejected getPaperSummaryStatus (network failure, not a
+            // terminal status field) stops the chain outright rather than
+            // retrying — matches the original's catch-and-stop behavior.
+            onError: (e) => {
+              if (!active) return
+              setError(e instanceof Error ? e.message : 'Failed to check summary status')
+              setLoading(false)
+            },
+            maxAttempts: 1,
+            intervalMs: 2000,
+          })
+        }
+      } catch (err) {
+        if (!active) return
+        // Offline fallback: fall back to the last cached summary rather
+        // than surfacing the error branch when we have one to show.
+        let usedCache = false
+        try {
+          const cached = await getCachedPaperSummary(paperId)
+          if (active && cached) {
+            setSummary(cached)
+            usedCache = true
+          }
+        } catch { /* IDB unavailable — fall through to the error state */ }
+        if (!usedCache) {
+          setError(err instanceof Error ? err.message : 'Failed to load paper summary')
+        }
+      } finally {
+        // Runs even on the `generating` path above — harmless there since
+        // the render below also gates the spinner on
+        // `summary?.status === 'generating'`, which stays true until the
+        // poll's onDone/onError fires and calls setLoading(false) itself.
+        if (active) setLoading(false)
       }
     }
     load()
 
     return () => {
       active = false
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      pollControllerRef.current?.stop()
     }
-  }, [paperId])
+  }, [paperId, poll])
 
   return (
     <div>

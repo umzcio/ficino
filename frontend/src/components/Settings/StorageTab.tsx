@@ -3,11 +3,9 @@ import { HardDrive, AlertTriangle, Download, Trash2, Check } from 'lucide-react'
 import { clearAllFeeds, clearAllSummaries, clearAllUserPosts, clearAllPapers, clearEverything } from '../../lib/api'
 import { estimateCacheSize, clearOfflineData, getLastSync } from '../../lib/workspace-download'
 import type { Workspace } from '../../types'
-import { Section, SettingRow, DangerButton, Loader2 } from './primitives'
+import { Section, SettingRow, DangerButton, Loader2 } from '../_shared/primitives'
 
 interface Props {
-  settings: Record<string, unknown>
-  onUpdate: (partial: Record<string, unknown>) => void
   workspaces?: Workspace[]
   onDownloadWorkspace?: (id: string) => void
 }
@@ -17,6 +15,15 @@ export function StorageTab({ onDownloadWorkspace, workspaces }: Props) {
   const [syncTimes, setSyncTimes] = useState<Record<string, number>>({})
   const [clearing, setClearing] = useState(false)
   const [cleared, setCleared] = useState(false)
+  // Date.now() is impure to call during render — the react-hooks "purity"
+  // rule flags a direct call inside formatAgo below (it ran on every render,
+  // same as any other in-render expression). Capture it once via a lazy
+  // useState initializer instead: that runs exactly once, at mount, the
+  // same sanctioned pattern React docs use for useState(() =>
+  // window.innerWidth). A live-ticking "5m ago" label isn't worth a
+  // setInterval subscription; "since this component mounted" is close
+  // enough for a settings-page timestamp.
+  const [now] = useState<number>(() => Date.now())
 
   useEffect(() => {
     estimateCacheSize().then(({ formatted }) => setCacheSize(formatted))
@@ -47,7 +54,7 @@ export function StorageTab({ onDownloadWorkspace, workspaces }: Props) {
   }
 
   const formatAgo = (ts: number) => {
-    const mins = Math.floor((Date.now() - ts) / 60000)
+    const mins = Math.floor((now - ts) / 60000)
     if (mins < 1) return 'just now'
     if (mins < 60) return `${mins}m ago`
     const hrs = Math.floor(mins / 60)

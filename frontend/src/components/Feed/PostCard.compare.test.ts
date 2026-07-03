@@ -3,10 +3,22 @@
 // bookmark state) — when a reply is liked, their identity changes but the
 // comparator said "equal", so the heart never repainted.
 import { describe, it, expect } from 'vitest'
-import { arePostsEqual } from './PostCard'
+import { arePostsEqual, type PostCardProps } from './PostCard'
+import type { FeedPost } from '../../types'
 
-function baseProps() {
-  const post = { id: 1, persona: 'skeptic', post_type: 'post', content: 'x' }
+function baseProps(): PostCardProps {
+  const post: FeedPost = {
+    id: 1,
+    persona: 'skeptic',
+    post_type: 'post',
+    content: 'x',
+    paper_ref: null,
+    time: '2024-01-01T00:00:00Z',
+    likes: 0,
+    retweets: 0,
+    replies: 0,
+    bookmarks: 0,
+  }
   return {
     post,
     feedId: 'feed-1',
@@ -18,7 +30,7 @@ function baseProps() {
     autoOpenReply: false,
     isReplyLiked: () => false,
     isReplyBookmarked: () => false,
-  } as any
+  }
 }
 
 describe('arePostsEqual', () => {

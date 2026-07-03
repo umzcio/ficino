@@ -17,7 +17,51 @@ function getCsrfToken(): string | null {
   return match ? decodeURIComponent(match[1]) : null
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+// Thrown by request() on any non-2xx response. Carries the HTTP status and
+// the parsed JSON body (when the response was valid JSON) alongside the
+// existing `message` string, so callers that need to branch on status code
+// (e.g. treating 404 as "already gone" rather than a real failure) or pull
+// a server-supplied `detail` string (FastAPI's HTTPException shape) don't
+// have to re-parse `err.message`. `message` keeps the exact
+// `API error {status}: {text}` format request() has always thrown, so any
+// existing `catch (err) { ... err.message ... }` caller is unaffected.
+export class ApiError extends Error {
+  status: number
+  body: unknown
+
+  constructor(status: number, message: string, body?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
+// Pulls a FastAPI-style { detail: string } message out of a thrown ApiError,
+// falling back to `fallback` when the error isn't an ApiError, has no JSON
+// body, or the body has no string `detail`. Pure — no I/O — so it's unit
+// tested directly (see api.test.ts) rather than only through the auth flows
+// that consume it.
+export function getApiErrorDetail(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+    const detail = (err.body as { detail?: unknown }).detail
+    if (typeof detail === 'string' && detail) return detail
+  }
+  return fallback
+}
+
+// True when `err` is an ApiError for a 404 — i.e. the resource is already
+// gone server-side. Callers that optimistically clear/delete local state
+// before the request resolves (e.g. PersonaProfile's handleClearDm) use
+// this to treat "already gone" as success rather than rolling back and
+// resurrecting a dead thread. (R10 wave-3 final-review Minor 5: personas'
+// DM-clear 404s when the thread was already cleared from another tab; the
+// naive catch-and-restore then brings a dead thread back to life.)
+export function isNotFoundError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404
+}
+
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) }
 
   // Inject auth token for supabase provider
@@ -44,7 +88,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`API error ${res.status}: ${text}`)
+    let body: unknown
+    try {
+      body = text ? JSON.parse(text) : undefined
+    } catch {
+      body = undefined // not JSON — leave body unset, message still carries the raw text
+    }
+    throw new ApiError(res.status, `API error ${res.status}: ${text}`, body)
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -61,10 +111,6 @@ export async function uploadPaper(file: File, workspaceId?: string): Promise<Pap
 export async function listPapers(workspaceId?: string): Promise<Paper[]> {
   const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
   return request<Paper[]>(`/papers${query}`)
-}
-
-export async function getPaper(paperId: string): Promise<Paper> {
-  return request<Paper>(`/papers/${paperId}`)
 }
 
 export async function deletePaper(paperId: string): Promise<void> {
@@ -336,6 +382,38 @@ export async function deleteAnnotation(feedId: string, postIndex: number): Promi
   return request<void>(`/annotations/${feedId}/${postIndex}`, { method: 'DELETE' })
 }
 
+// User profile / account activity
+export interface UserProfile {
+  id: string
+  email: string
+  display_name: string | null
+  created_at: string
+}
+
+export async function getMe(): Promise<UserProfile> {
+  return request<UserProfile>('/users/me')
+}
+
+// Mirrors api/routers/users.py's audit_log row shape exactly (id, action,
+// resource_type, resource_id, metadata, ip, status_code, created_at) — no
+// projection happens server-side.
+export interface AuditLogEntry {
+  id: string
+  action: string
+  resource_type: string
+  resource_id: string | null
+  metadata: Record<string, unknown> | null
+  ip: string | null
+  status_code: number | null
+  created_at: string
+}
+
+// Server clamps `limit` to [1, 500] (GET /users/me/audit-log); default here
+// matches AccountTab's "last ~20 rows" display, not the server clamp.
+export async function listAuditLog(limit: number = 20): Promise<AuditLogEntry[]> {
+  return request<AuditLogEntry[]>(`/users/me/audit-log?limit=${limit}`)
+}
+
 // Settings
 export async function getSettings(): Promise<Record<string, unknown>> {
   return request('/settings')
@@ -456,14 +534,6 @@ export async function reorderReadingList(listId: string, paperSequence: string[]
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paper_sequence: paperSequence }),
-  })
-}
-
-export async function applyReadingListOrdering(listId: string, orderedPapers: unknown[]): Promise<void> {
-  return request(`/reading-lists/${listId}/apply-ordering`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ordered_papers: orderedPapers }),
   })
 }
 
@@ -612,18 +682,6 @@ export async function deleteLike(feedId: string, postIndex: number, messageIndex
 }
 
 // Tags
-export async function listTags(): Promise<{ id: string; name: string; paper_count: number }[]> {
-  return request('/tags')
-}
-
-export async function createTag(name: string): Promise<{ id: string; name: string }> {
-  return request('/tags', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  })
-}
-
 export async function assignTag(paperId: string, tagName: string): Promise<void> {
   return request('/tags/assign', {
     method: 'POST',
@@ -634,10 +692,6 @@ export async function assignTag(paperId: string, tagName: string): Promise<void>
 
 export async function unassignTag(paperId: string, tagId: string): Promise<void> {
   return request(`/tags/assign/${paperId}/${tagId}`, { method: 'DELETE' })
-}
-
-export async function deleteTag(tagId: string): Promise<void> {
-  return request(`/tags/${tagId}`, { method: 'DELETE' })
 }
 
 // Messages / DMs

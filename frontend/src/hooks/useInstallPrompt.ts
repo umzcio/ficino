@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { safeLocal } from '../lib/safeLocal'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
@@ -9,9 +10,8 @@ const DISMISSED_KEY = 'ficino_install_dismissed'
 
 export function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [isInstalled, setIsInstalled] = useState(false)
   const [isDismissed, setIsDismissed] = useState(() =>
-    localStorage.getItem(DISMISSED_KEY) === 'true'
+    safeLocal.get(DISMISSED_KEY) === 'true'
   )
 
   // Detect if already installed as PWA
@@ -19,11 +19,21 @@ export function useInstallPrompt() {
     window.matchMedia('(display-mode: standalone)').matches ||
     (navigator as unknown as { standalone?: boolean }).standalone === true
 
+  // Lazy-initialize from isStandalone's mount-time value instead of always
+  // starting `false` and flipping it synchronously inside the effect below
+  // (which the set-state-in-effect lint rule flags). `prevIsStandalone`
+  // handles the render-time sync for the (very rare — display-mode doesn't
+  // normally change without an app relaunch) case where isStandalone itself
+  // changes later, via the same pattern as MessagesView's consumedPaperId.
+  const [isInstalled, setIsInstalled] = useState(isStandalone)
+  const [prevIsStandalone, setPrevIsStandalone] = useState(isStandalone)
+  if (isStandalone !== prevIsStandalone) {
+    setPrevIsStandalone(isStandalone)
+    if (isStandalone) setIsInstalled(true)
+  }
+
   useEffect(() => {
-    if (isStandalone) {
-      setIsInstalled(true)
-      return
-    }
+    if (isStandalone) return
 
     const handler = (e: Event) => {
       e.preventDefault()
@@ -52,7 +62,7 @@ export function useInstallPrompt() {
 
   const dismiss = useCallback(() => {
     setIsDismissed(true)
-    localStorage.setItem(DISMISSED_KEY, 'true')
+    safeLocal.set(DISMISSED_KEY, 'true')
   }, [])
 
   const isIOS = /iPhone|iPad/.test(navigator.userAgent) && !isStandalone

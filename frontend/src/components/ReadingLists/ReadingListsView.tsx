@@ -5,6 +5,7 @@ import {
   type ReadingListSummary,
 } from '../../lib/api'
 import { ReadingListDetail } from './ReadingListDetail'
+import { Spinner, EmptyState } from '../_shared/AsyncState'
 
 interface ReadingListsViewProps {
   workspaceId: string | null
@@ -90,14 +91,14 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
       {/* List */}
       {loading ? (
         <div className="flex justify-center py-12">
-          <Loader2 size={24} className="text-gold animate-spin" />
+          <Spinner size={24} />
         </div>
       ) : lists.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-          <BookOpen size={48} strokeWidth={1} className="mb-4 text-gold/30" />
-          <p className="text-lg font-semibold text-text-mid mb-2">No reading lists yet</p>
-          <p className="text-sm">Create one to get a guided path through your papers</p>
-        </div>
+        <EmptyState
+          icon={BookOpen}
+          title="No reading lists yet"
+          hint={<p className="text-sm">Create one to get a guided path through your papers</p>}
+        />
       ) : (
         <div>
           {lists.map((list) => (

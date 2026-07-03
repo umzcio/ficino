@@ -32,8 +32,6 @@ export type PaperStatus =
   | 'complete'
   | 'error'
 
-export type { PersonaData } from '../lib/api'
-
 export interface FeedPost {
   id: number
   persona: string

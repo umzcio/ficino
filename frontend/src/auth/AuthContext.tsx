@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { clearOfflineData } from '../lib/workspace-download'
-import { setAuthTokenGetter } from '../lib/api'
+import { setAuthTokenGetter, request, ApiError, getApiErrorDetail } from '../lib/api'
 
 // Holds the current Supabase access token so api.ts can attach it to the
 // Authorization header synchronously on every request. Refreshed below by
@@ -73,14 +73,24 @@ const AuthCtx = createContext<AuthContextValue>({
   info: null,
 })
 
+// Standard Context provider + consumer-hook pairing (AuthProvider/useAuth);
+// splitting the hook into its own file would only serve Fast Refresh
+// granularity, at the cost of the usual
+// "import { AuthProvider, useAuth } from './AuthContext'" call sites
+// everywhere auth is used. Same pattern as arePostsEqual's disable in
+// PostCard.tsx.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   return useContext(AuthCtx)
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/ficino/api'
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _supabaseClient: any = null
+
+interface ProviderInfo {
+  provider: 'none' | 'basic' | 'supabase'
+  public_deployment?: boolean
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -91,14 +101,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
 
+  // Fetches /auth/me and adopts the session user when one exists. A 401/403
+  // ApiError just means "not logged in" — not an error state, so it's
+  // swallowed here (matches the pre-request() behavior of checking
+  // `meRes.ok` and doing nothing on failure). Anything else (a network-level
+  // failure, thrown by fetch() itself before a response exists) propagates
+  // to the caller: at init() time that's the outer catch below; when called
+  // right after signIn/signUp it surfaces to LoginPage's handleSubmit catch
+  // (FE-19) as a "Network error" rather than silently leaving the user
+  // stuck on a spinner.
+  const loadMe = useCallback(async () => {
+    try {
+      const me = await request<AuthUser>('/auth/me')
+      setUser(me)
+    } catch (err) {
+      if (err instanceof ApiError) return
+      throw err
+    }
+  }, [])
+
   // Discover provider and initialize auth state
   useEffect(() => {
     async function init() {
       try {
         // Discover provider + deployment mode
-        const res = await fetch(`${API_BASE}/auth/provider`)
-        const data = await res.json()
-        const p = data.provider as 'none' | 'basic' | 'supabase'
+        const data = await request<ProviderInfo>('/auth/provider')
+        const p = data.provider
         setProvider(p)
         setPublicDeployment(Boolean(data.public_deployment))
 
@@ -111,11 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (p === 'basic') {
           // Check if we have a valid session
-          const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
-          if (meRes.ok) {
-            const me = await meRes.json()
-            setUser(me)
-          }
+          await loadMe()
           setLoading(false)
           return
         }
@@ -184,26 +208,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     }
     init()
-  }, [])
+  }, [loadMe])
 
   const signIn = useCallback(async (email: string, password: string, captchaToken?: string) => {
     setError(null)
     if (provider === 'basic') {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        setError(data.detail || 'Login failed')
-        return
+      try {
+        await request('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        })
+        await loadMe()
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError(getApiErrorDetail(err, 'Login failed'))
+          return
+        }
+        throw err // network-level failure — surfaces to LoginPage's catch (FE-19)
       }
-      // Fetch user profile
-      const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
-      if (meRes.ok) setUser(await meRes.json())
     } else if (provider === 'supabase') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supabase = _supabaseClient as any
       const { error: err } = await supabase.auth.signInWithPassword({
         email, password,
@@ -211,27 +236,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       if (err) setError(err.message)
     }
-  }, [provider])
+  }, [provider, loadMe])
 
   const signUp = useCallback(async (email: string, password: string, captchaToken?: string): Promise<{ needsConfirmation: boolean }> => {
     setError(null)
     setInfo(null)
     if (provider === 'basic') {
-      const res = await fetch(`${API_BASE}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        setError(data.detail || 'Registration failed')
+      try {
+        await request('/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        })
+        await loadMe()
         return { needsConfirmation: false }
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError(getApiErrorDetail(err, 'Registration failed'))
+          return { needsConfirmation: false }
+        }
+        throw err // network-level failure — surfaces to LoginPage's catch (FE-19)
       }
-      // Fetch user profile
-      const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
-      if (meRes.ok) setUser(await meRes.json())
-      return { needsConfirmation: false }
     } else if (provider === 'supabase') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supabase = _supabaseClient as any
@@ -255,7 +280,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { needsConfirmation }
     }
     return { needsConfirmation: false }
-  }, [provider])
+  }, [provider, loadMe])
 
   const sendPasswordReset = useCallback(async (email: string, captchaToken?: string) => {
     setError(null)
@@ -392,9 +417,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await clearOfflineData()
     } catch { /* ignore */ }
     if (provider === 'basic') {
-      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
+      // Best-effort: always drop local auth state even if the server call
+      // fails (matches the pre-request() behavior, which never checked
+      // res.ok before clearing the client-side user).
+      try {
+        await request('/auth/logout', { method: 'POST' })
+      } catch { /* ignore — still sign out locally below */ }
       setUser(null)
     } else if (provider === 'supabase') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supabase = _supabaseClient as any
       await supabase.auth.signOut()
       setUser(null)

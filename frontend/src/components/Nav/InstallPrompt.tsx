@@ -30,12 +30,12 @@ export function MobileInstallBanner() {
         {canPrompt ? (
           <button
             onClick={install}
-            className="text-sm text-text-primary font-medium bg-transparent border-none cursor-pointer p-0 text-left"
+            className="text-sm text-text font-medium bg-transparent border-none cursor-pointer p-0 text-left"
           >
             Install Ficino for offline access
           </button>
         ) : isIOS ? (
-          <p className="text-sm text-text-primary m-0">
+          <p className="text-sm text-text m-0">
             Tap <Share size={14} className="inline -mt-0.5 text-gold" /> then <span className="font-medium">Add to Home Screen</span>
           </p>
         ) : null}
@@ -43,7 +43,7 @@ export function MobileInstallBanner() {
       <button
         onClick={dismiss}
         aria-label="Dismiss"
-        className="text-text-secondary hover:text-text-primary bg-transparent border-none cursor-pointer p-1"
+        className="text-text-secondary hover:text-text bg-transparent border-none cursor-pointer p-1"
       >
         <X size={16} />
       </button>

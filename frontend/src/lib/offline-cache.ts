@@ -1,27 +1,6 @@
 import { getDB } from './offline-db'
-import type { Feed, Paper, Workspace } from '../types'
+import type { Feed, Paper, PaperSummary, GroupChat, Workspace } from '../types'
 import type { BookmarkItem, AnnotationItem, AlertItem, PersonaData, UserPost, FeedLikes } from './api'
-
-// ── Generic network-first helper ────────────────────────────────────────────
-
-export async function networkFirst<T>(
-  networkFn: () => Promise<T>,
-  cacheFn: (data: T) => Promise<void>,
-  fallbackFn: () => Promise<T | undefined>,
-): Promise<T> {
-  try {
-    const data = await networkFn()
-    // Fire-and-forget cache write so it doesn't slow down the UI
-    cacheFn(data).catch(() => {})
-    return data
-  } catch (err) {
-    if (!navigator.onLine) {
-      const cached = await fallbackFn()
-      if (cached !== undefined) return cached
-    }
-    throw err
-  }
-}
 
 // ── Feeds ───────────────────────────────────────────────────────────────────
 
@@ -89,6 +68,33 @@ export async function getCachedPapers(workspaceId?: string): Promise<Paper[]> {
   return db.getAll('papers')
 }
 
+// ── Paper summaries / group chats ───────────────────────────────────────────
+// R10 FE-5: PaperChat/GroupChatView had no offline fallback despite these
+// stores existing since v1 — a failed initial fetch just spun forever with
+// nothing to fall back to. Single-record put/get (keyed by paper_id / id
+// respectively) rather than the list upsert-then-delete shape above; these
+// are read one at a time by the detail views, never listed.
+
+export async function cachePaperSummary(summary: PaperSummary): Promise<void> {
+  const db = await getDB()
+  await db.put('paperSummaries', summary)
+}
+
+export async function getCachedPaperSummary(paperId: string): Promise<PaperSummary | undefined> {
+  const db = await getDB()
+  return db.get('paperSummaries', paperId)
+}
+
+export async function cacheGroupChat(chat: GroupChat): Promise<void> {
+  const db = await getDB()
+  await db.put('groupChats', chat)
+}
+
+export async function getCachedGroupChat(id: string): Promise<GroupChat | undefined> {
+  const db = await getDB()
+  return db.get('groupChats', id)
+}
+
 // ── Bookmarks ───────────────────────────────────────────────────────────────
 
 export async function cacheBookmarks(bookmarks: BookmarkItem[]) {
@@ -143,6 +149,7 @@ export async function cacheAnnotations(annotations: AnnotationItem[]) {
 export async function getCachedAnnotations(): Promise<AnnotationItem[]> {
   const db = await getDB()
   const items = await db.getAll('annotations')
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- rest-sibling destructure to strip the IDB-only `_key` field
   return items.map(({ _key: _, ...rest }) => rest as unknown as AnnotationItem)
 }
 
@@ -157,6 +164,7 @@ export async function getCachedLikes(feedId: string): Promise<FeedLikes | undefi
   const db = await getDB()
   const result = await db.get('likes', feedId)
   if (!result) return undefined
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- rest-sibling destructure to strip the IDB-only `feedId` key field
   const { feedId: _, ...rest } = result
   return rest as FeedLikes
 }

@@ -1,5 +1,7 @@
-import { Zap, FileText } from 'lucide-react'
-import { Section, SettingRow, Toggle, Select, Slider } from './primitives'
+import { useState } from 'react'
+import { Zap, FileText, Keyboard } from 'lucide-react'
+import { Section, SettingRow, Toggle, Select, Slider } from '../_shared/primitives'
+import { areKeyboardShortcutsEnabled, setKeyboardShortcutsEnabled } from '../../lib/keyboardShortcutsPref'
 
 interface Props {
   settings: Record<string, unknown>
@@ -8,6 +10,10 @@ interface Props {
 
 export function ContentTab({ settings: s, onUpdate }: Props) {
   const postWeights = (s.post_type_weights || {}) as Record<string, number>
+
+  // R10 FE-20: client-only a11y preference (safeLocal, not the server
+  // `settings`/`onUpdate` object) — see keyboardShortcutsPref.ts for why.
+  const [shortcutsEnabled, setShortcutsEnabledState] = useState(() => areKeyboardShortcutsEnabled())
 
   return (
     <div className="p-4 space-y-4">
@@ -89,6 +95,22 @@ export function ContentTab({ settings: s, onUpdate }: Props) {
             label="Show Extraction Badge"
             checked={s.show_extraction_badge as boolean}
             onChange={(v) => onUpdate({ show_extraction_badge: v })}
+          />
+        </SettingRow>
+      </Section>
+
+      <Section icon={Keyboard} title="Accessibility">
+        <SettingRow
+          label="Keyboard Shortcuts"
+          description="Single-letter navigation shortcuts (h/e/m/b/n/.) — WCAG 2.1.4. Saved on this device only."
+        >
+          <Toggle
+            label="Keyboard Shortcuts"
+            checked={shortcutsEnabled}
+            onChange={(v) => {
+              setShortcutsEnabledState(v)
+              setKeyboardShortcutsEnabled(v)
+            }}
           />
         </SettingRow>
       </Section>

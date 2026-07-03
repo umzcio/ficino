@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
+import { areKeyboardShortcutsEnabled } from '../lib/keyboardShortcutsPref'
 
-type AppView = 'feed' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'settings'
+type AppView = 'feed' | 'listen' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
 
 interface KeyboardShortcutsProps {
   onNavigate: (view: AppView) => void
@@ -8,6 +9,14 @@ interface KeyboardShortcutsProps {
   onCloseMobileDrawer: () => void
   onCloseWorkspaceSheet: () => void
   generating: boolean
+  // The view currently on screen. While it's 'listen', the Listen page
+  // owns single-letter keys itself (e.g. "m" for mute — see
+  // ListenView.tsx), so the NAV letters below (h/e/m/b/n) must stay out
+  // of the way or "m" fires both toggleMute() AND onNavigate('messages'),
+  // unmounting the page the user is trying to control (FE-3). Escape and
+  // the non-nav shortcut ('.' generate) don't collide with any Listen-owned
+  // key and keep working there.
+  activeView: AppView
 }
 
 export function useKeyboardShortcuts({
@@ -16,6 +25,7 @@ export function useKeyboardShortcuts({
   onCloseMobileDrawer,
   onCloseWorkspaceSheet,
   generating,
+  activeView,
 }: KeyboardShortcutsProps) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -34,25 +44,43 @@ export function useKeyboardShortcuts({
       // Navigation (single key, no modifiers)
       if (e.ctrlKey || e.metaKey || e.altKey) return
 
+      // R10 FE-20 (WCAG 2.1.4 Character Key Shortcuts): the single-character
+      // set below must be able to be turned off. Read fresh on every
+      // keydown rather than subscribing to the storage event — the native
+      // `storage` event only fires in *other* tabs, never the tab that made
+      // the change, so a listener here would miss the very toggle flip made
+      // from this app's own Settings panel. A keydown-rate localStorage read
+      // is effectively free (bounded by human typing speed, not render
+      // rate), so per-keydown is the simplest correct option. Escape (above)
+      // is exempt — it's a dismiss action, not a navigation shortcut.
+      if (!areKeyboardShortcutsEnabled()) return
+
+      // The Listen view owns single-letter keys for its own transport
+      // controls (space/arrows/M — see ListenView.tsx / FE-3), so ONLY
+      // the nav letters are suppressed there; '.' (generate) doesn't
+      // collide with any Listen-owned key and keeps working.
+      const suppressNav = activeView === 'listen'
+
       switch (e.key) {
         // Navigation — Twitter/X style
-        case 'g':
-          // Wait for second key
-          break
         case 'h':
-          // g then h = home (simplified: just h)
+          if (suppressNav) break
           onNavigate('feed')
           break
         case 'e':
+          if (suppressNav) break
           onNavigate('search') // explore
           break
         case 'm':
+          if (suppressNav) break
           onNavigate('messages')
           break
         case 'b':
+          if (suppressNav) break
           onNavigate('bookmarks')
           break
         case 'n':
+          if (suppressNav) break
           onNavigate('alerts') // notifications
           break
 
@@ -61,15 +89,10 @@ export function useKeyboardShortcuts({
           // Period = generate (like Twitter's "." to load new tweets)
           if (!generating) onGenerate()
           break
-
-        // Question mark = show shortcuts help
-        case '?':
-          // Could show a help modal later
-          break
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onNavigate, onGenerate, onCloseMobileDrawer, onCloseWorkspaceSheet, generating])
+  }, [onNavigate, onGenerate, onCloseMobileDrawer, onCloseWorkspaceSheet, generating, activeView])
 }

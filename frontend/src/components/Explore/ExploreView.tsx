@@ -3,6 +3,8 @@ import { Folder, Plus, FileText, Zap, Loader2, Trash2, Pencil, Search, X } from 
 import type { Workspace, ActivityItem } from '../../types'
 import { getWorkspaceActivity, searchCorpus, type SearchResults } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { timeAgo } from '../../lib/timeAgo'
+import { Spinner } from '../_shared/AsyncState'
 
 interface ExploreViewProps {
   workspaces: Workspace[]
@@ -14,16 +16,6 @@ interface ExploreViewProps {
   papers?: { id: string; title: string | null; status: string }[]
   paperSummaries?: Map<string, string>
   onPaperClick?: (paperId: string) => void
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
 }
 
 function NewWorkspaceInput({ onCreate }: { onCreate: (name: string) => void }) {
@@ -79,18 +71,37 @@ function ActivityTimeline({ workspaceId }: { workspaceId: string }) {
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  // Render-time state sync (React's endorsed alternative to "setState
+  // inside an effect" for adjusting state when a prop changes — see
+  // react.dev "Adjusting some state when a prop changes", and
+  // MessagesView's consumedPaperId for the same pattern elsewhere in this
+  // codebase). Flips back to `loading` synchronously the instant
+  // workspaceId changes, so the effect below only needs to do the actual
+  // fetch (whose setState calls happen inside .then()/.finally(), not
+  // synchronously in the effect body).
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState(workspaceId)
+  if (workspaceId !== loadedWorkspaceId) {
+    setLoadedWorkspaceId(workspaceId)
     setLoading(true)
+  }
+
+  useEffect(() => {
+    // R10 FE-17: without this sentinel, a fast workspace-to-workspace switch
+    // (the workspace grid on this same page does exactly that) can let a
+    // slow response for the previously-active workspace resolve after the
+    // new one's and overwrite it — same class as Round 9 H15.
+    let active = true
     getWorkspaceActivity(workspaceId)
-      .then(setActivities)
+      .then((data) => { if (active) setActivities(data) })
       .catch(() => {})
-      .finally(() => setLoading(false))
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
   }, [workspaceId])
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader2 size={20} className="text-text-muted animate-spin" />
+        <Spinner size={20} className="text-text-muted animate-spin" />
       </div>
     )
   }
@@ -332,9 +343,22 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
           </div>
 
           {workspaces.map((ws) => (
-            <button
+            // Can't be a real <button> — Rename/Delete below are real
+            // buttons and nesting buttons is invalid HTML (FE-13). Use the
+            // role="button" div pattern from ReadingListsView so Rename/
+            // Delete stay independently tabbable siblings.
+            <div
               key={ws.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Switch to workspace ${ws.name}`}
               onClick={() => onSwitch(ws.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSwitch(ws.id)
+                }
+              }}
               className="w-full text-left p-4 rounded-2xl border flex items-start gap-3 bg-transparent cursor-pointer hover:bg-bg-hover transition-colors group"
               style={{
                 borderColor: ws.id === activeId ? 'color-mix(in srgb, var(--color-gold) 25%, transparent)' : 'var(--color-border)',
@@ -390,7 +414,7 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                   </button>
                 </div>
               )}
-            </button>
+            </div>
           ))}
 
           <NewWorkspaceInput onCreate={onCreate} />

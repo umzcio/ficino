@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileText, Users, MessageCircle, ChevronRight, Loader2 } from 'lucide-react'
+import { FileText, Users, MessageCircle, ChevronRight } from 'lucide-react'
 import type { PaperConversation, GroupChatPreview } from '../../types'
 import { listPaperConversations, listGroupChats, listReplyConversations, type ReplyConversation } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { timeAgo as sharedTimeAgo } from '../../lib/timeAgo'
+import { Spinner } from '../_shared/AsyncState'
 
 interface InboxProps {
   workspaceId?: string
@@ -12,13 +14,11 @@ interface InboxProps {
   onOpenThread?: (feedId: string, postIndex: number) => void
 }
 
+// Compact, suffix-less rendering ('5m'/'5h'/'5d'); R10 DUP-8 fix: a
+// fresh conversation now shows 'just now' instead of '0m' (drifted local
+// copy lacked the < 1 minute branch).
 function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h`
-  return `${Math.floor(hrs / 24)}d`
+  return sharedTimeAgo(dateStr, { suffix: false })
 }
 
 export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpenThread }: InboxProps) {
@@ -77,7 +77,7 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 size={24} className="text-gold animate-spin" />
+          <Spinner size={24} />
         </div>
       ) : tab === 'papers' ? (
         <div>
@@ -183,6 +183,7 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
               <p className="text-text-muted text-sm mb-3">No group chats yet</p>
               <button
                 onClick={onNewGroup}
+                aria-haspopup="dialog"
                 className="bg-transparent border border-gold/30 rounded-[20px] text-gold px-4 py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
               >
                 Create Group Chat
@@ -215,6 +216,7 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
               <div className="p-4">
                 <button
                   onClick={onNewGroup}
+                  aria-haspopup="dialog"
                   className="w-full bg-transparent border border-gold/30 rounded-[20px] text-gold py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
                 >
                   New Group Chat

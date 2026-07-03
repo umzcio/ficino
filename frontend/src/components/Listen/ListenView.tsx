@@ -6,6 +6,8 @@ import {
 import type { FeedPost, PodcastSegment } from '../../types'
 import { getFeed, requestFeedAudio, requestFeedPodcast } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
+import { Slider } from '../_shared/primitives'
+import { safeLocal } from '../../lib/safeLocal'
 
 type Status =
   | 'idle'
@@ -41,7 +43,11 @@ function hostColor(speaker: 'host_a' | 'host_b'): string {
 }
 
 function hostAvatar(speaker: 'host_a' | 'host_b'): string {
-  return speaker === 'host_a' ? '/personas/host1.png' : '/personas/host2.png'
+  // Root-absolute paths 404 under the self-host default base of
+  // `/ficino/` (vite.config.ts) — prefix with BASE_URL like every other
+  // component that references a public/ asset (App.tsx, MobileDrawer.tsx).
+  const base = import.meta.env.BASE_URL
+  return speaker === 'host_a' ? `${base}personas/host1.png` : `${base}personas/host2.png`
 }
 
 /**
@@ -96,30 +102,30 @@ export function ListenView({ feedId, posts }: Props) {
   // once per change, (b) re-hydrate on mount from localStorage.
   const [volume, setVolume] = useState<number>(() => {
     if (typeof window === 'undefined') return 1
-    const saved = window.localStorage.getItem('ficino:listen:volume')
+    const saved = safeLocal.get('ficino:listen:volume')
     const v = saved === null ? 1 : parseFloat(saved)
     return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1
   })
   const [muted, setMuted] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
-    return window.localStorage.getItem('ficino:listen:muted') === 'true'
+    return safeLocal.get('ficino:listen:muted') === 'true'
   })
   const [playbackRate, setPlaybackRate] = useState<number>(() => {
     if (typeof window === 'undefined') return 1
-    const saved = window.localStorage.getItem('ficino:listen:rate')
+    const saved = safeLocal.get('ficino:listen:rate')
     const r = saved === null ? 1 : parseFloat(saved)
     return Number.isFinite(r) && r > 0 ? r : 1
   })
   useEffect(() => {
-    try { window.localStorage.setItem('ficino:listen:volume', String(volume)) } catch { /* ignore quota */ }
+    safeLocal.set('ficino:listen:volume', String(volume))
     if (audioRef.current) audioRef.current.volume = volume
   }, [volume])
   useEffect(() => {
-    try { window.localStorage.setItem('ficino:listen:muted', String(muted)) } catch { /* ignore */ }
+    safeLocal.set('ficino:listen:muted', String(muted))
     if (audioRef.current) audioRef.current.muted = muted
   }, [muted])
   useEffect(() => {
-    try { window.localStorage.setItem('ficino:listen:rate', String(playbackRate)) } catch { /* ignore */ }
+    safeLocal.set('ficino:listen:rate', String(playbackRate))
     if (audioRef.current) audioRef.current.playbackRate = playbackRate
   }, [playbackRate])
 
@@ -139,12 +145,16 @@ export function ListenView({ feedId, posts }: Props) {
 
   useEffect(() => {
     mountedRef.current = true
+    // Capture the node now — by the time this cleanup runs (unmount),
+    // audioRef.current may already be null (React clears refs to
+    // unmounting DOM nodes before running cleanup functions).
+    const audioEl = audioRef.current
     return () => {
       mountedRef.current = false
       if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
+      if (audioEl) {
+        audioEl.pause()
+        audioEl.src = ''
       }
     }
   }, [])
@@ -271,7 +281,13 @@ export function ListenView({ feedId, posts }: Props) {
     if (prior !== undefined) playAtIndex(prior)
   }, [mode, playableIndices, currentIndex, playAtIndex])
 
-  const pollUntilFeedAudioReady = useCallback(async () => {
+  // Named function expression (not an arrow fn assigned to the const) so the
+  // recursive setTimeout(...) call below refers to the function's own name
+  // binding, not the outer `const pollUntilFeedAudioReady` — the outer
+  // binding isn't fully initialized until useCallback returns, so reading it
+  // from inside the closure is a real (if practically-safe-once-async) TDZ
+  // read that React Compiler's immutability check rightly flags.
+  const pollUntilFeedAudioReady = useCallback(async function pollUntilFeedAudioReady() {
     if (!feedId || !mountedRef.current) return
     // Bail if the mode was switched out from under us while a prior
     // iteration was awaiting getFeed. Without this, the stale poll would
@@ -291,17 +307,21 @@ export function ListenView({ feedId, posts }: Props) {
         setStatus('ready')
         const firstPlayable = fresh.findIndex((p) => !p.deleted && p.audio_url)
         if (firstPlayable >= 0) {
-          const audio = audioRef.current
-          if (audio) {
-            audio.src = fresh[firstPlayable].audio_url!
-            audio.play()
-              .then(() => {
-                if (!mountedRef.current) return
-                setCurrentIndex(firstPlayable)
-                setStatus('playing')
-              })
-              .catch(() => { if (mountedRef.current) setStatus('paused') })
-          }
+          // Route through playAtIndex rather than duplicating the
+          // src-assignment + play() here — the inline duplication is
+          // what let this path drift out of sync with loadedSrcRef in
+          // the first place (FE-2), causing pause->resume to restart
+          // the clip from 0:00 instead of resuming.
+          //
+          // playAtIndex reads activePostsRef, which only syncs to the
+          // serverPosts state we just set on the NEXT render (via the
+          // effect at the top of the component) — sync it now so the
+          // just-fetched posts are visible to the lookup. Without this
+          // the ref still holds the pre-generation posts (no audio_url),
+          // playAtIndex's `!post.audio_url` guard fires, and auto-play
+          // never starts.
+          activePostsRef.current = fresh
+          playAtIndex(firstPlayable)
         }
         activePollerRef.current = null
         return
@@ -317,9 +337,13 @@ export function ListenView({ feedId, posts }: Props) {
       if (activePollerRef.current !== 'feed') return
       pollTimeoutRef.current = setTimeout(pollUntilFeedAudioReady, 4000)
     }
-  }, [feedId])
+  }, [feedId, playAtIndex])
 
-  const pollUntilPodcastReady = useCallback(async () => {
+  // Named function expression — see pollUntilFeedAudioReady above for why:
+  // the recursive setTimeout(...) calls need the function's own name
+  // binding, not the outer const (which isn't initialized yet from the
+  // closure's point of view).
+  const pollUntilPodcastReady = useCallback(async function pollUntilPodcastReady() {
     if (!feedId || !mountedRef.current) return
     if (activePollerRef.current !== 'podcast') return
     try {
@@ -775,23 +799,19 @@ export function ListenView({ feedId, posts }: Props) {
                 progress so even browsers without ::-moz-range-progress
                 support render a filled bar; the thumb is a small gold
                 circle. Disabled while duration is unknown (pre-load). */}
-            <input
-              type="range"
+            <Slider
+              value={Math.min(progress.current, progress.duration || 0)}
               min={0}
               max={progress.duration || 1}
               step={0.1}
-              value={Math.min(progress.current, progress.duration || 0)}
-              onChange={(e) => seekTo(parseFloat(e.target.value))}
+              onChange={seekTo}
               disabled={!progress.duration || !isActive}
-              aria-label="Seek"
-              className="flex-1 h-1 appearance-none rounded-full cursor-pointer disabled:cursor-default disabled:opacity-50
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gold [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer
-                [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-gold [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer"
-              style={{
-                background: progress.duration
-                  ? `linear-gradient(to right, var(--color-gold) 0%, var(--color-gold) ${Math.min(100, (progress.current / progress.duration) * 100)}%, var(--color-border) ${Math.min(100, (progress.current / progress.duration) * 100)}%, var(--color-border) 100%)`
-                  : 'var(--color-border)',
-              }}
+              ariaLabel="Seek"
+              accent="gold"
+              thumbSize="md"
+              thumbShadow
+              showValue={false}
+              fillPercent={progress.duration ? Math.min(100, (progress.current / progress.duration) * 100) : 0}
             />
             <span className="shrink-0">{formatTime(progress.duration)}</span>
           </div>
@@ -820,24 +840,21 @@ export function ListenView({ feedId, posts }: Props) {
                   <Volume2 size={16} />
                 )}
               </button>
-              <input
-                type="range"
+              <Slider
+                value={muted ? 0 : volume}
                 min={0}
                 max={1}
                 step={0.01}
-                value={muted ? 0 : volume}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value)
+                onChange={(v) => {
                   setVolume(v)
                   if (v > 0 && muted) setMuted(false)
                 }}
-                aria-label="Volume"
-                className="w-24 h-1 appearance-none rounded-full cursor-pointer
-                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-mid [&::-webkit-slider-thumb]:cursor-pointer
-                  [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-2.5 [&::-moz-range-thumb]:h-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text-mid [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, var(--color-text-mid) 0%, var(--color-text-mid) ${(muted ? 0 : volume) * 100}%, var(--color-border) ${(muted ? 0 : volume) * 100}%, var(--color-border) 100%)`,
-                }}
+                ariaLabel="Volume"
+                accent="muted"
+                thumbSize="sm"
+                showValue={false}
+                widthClassName="w-24"
+                fillPercent={(muted ? 0 : volume) * 100}
               />
             </div>
             <button

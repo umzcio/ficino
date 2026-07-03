@@ -17,13 +17,13 @@ export function DownloadProgress({ progress, workspaceName, onClose, onCancel }:
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-bg border border-border rounded-xl w-[340px] shadow-xl">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <div className="flex items-center gap-2 text-text-primary font-medium text-sm">
+          <div className="flex items-center gap-2 text-text font-medium text-sm">
             <Download size={16} className="text-gold" />
             <span>Download for offline</span>
           </div>
           <button
             onClick={progress.done ? onClose : onCancel}
-            className="text-text-secondary hover:text-text-primary bg-transparent border-none cursor-pointer p-1"
+            className="text-text-secondary hover:text-text bg-transparent border-none cursor-pointer p-1"
             aria-label="Close"
           >
             <X size={16} />

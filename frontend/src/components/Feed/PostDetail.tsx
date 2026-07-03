@@ -3,7 +3,7 @@ import type { FeedPost } from '../../types'
 import { usePersonas, type PersonaMap } from '../../hooks/usePersonas'
 import { useLikes } from '../../hooks/useLikes'
 import { PostCard } from './PostCard'
-import { Md } from './_shared/Md'
+import { Md } from '../_shared/Md'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface PostDetailProps {
@@ -76,8 +76,17 @@ function ParentPostCard({ post, personas, onClick }: { post: FeedPost; personas:
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`View parent post by ${p.name}`}
       className="px-4 py-3 flex gap-3 border-b border-border hover:bg-bg-hover cursor-pointer transition-colors"
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
     >
       <div className="flex flex-col items-center">
         {p.avatar_url ? (

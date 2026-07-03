@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { FeedPost } from '../types'
-import { generateFeed, getFeedStatus, getFeed, listFeedSummaries } from '../lib/api'
+import { generateFeed, getFeedStatus, getFeed, listFeedSummaries, type FeedStatus } from '../lib/api'
 import { cacheFeed, getCachedFeeds } from '../lib/offline-cache'
+import { usePollTask, type PollController } from './usePollTask'
 
 type FeedState = 'idle' | 'loading' | 'generating' | 'complete' | 'error'
 
@@ -16,17 +17,19 @@ export function useFeed(workspaceId?: string) {
   const [feedState, setFeedState] = useState<FeedState>('loading')
   const [generatingMeta, setGeneratingMeta] = useState<GeneratingMeta>({})
   const [error, setError] = useState<string | null>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const poll = usePollTask()
+  const pollControllerRef = useRef<PollController | null>(null)
   // Tracks whether the component is still mounted so polling closures can
   // bail out before calling setState on an unmounted component (avoids the
   // "Can't perform a React state update on an unmounted component" warning).
+  // Still needed alongside usePollTask: usePollTask only gates its own
+  // isDone/onDone/onError dispatch, not the nested `await getFeed(...)`
+  // inside onDone below, which can resolve after unmount.
   const mountedRef = useRef(true)
 
   const stopPolling = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
-    }
+    pollControllerRef.current?.stop()
+    pollControllerRef.current = null
   }, [])
 
   // Load most recent feed on mount or workspace change. Every setState is
@@ -83,53 +86,64 @@ export function useFeed(workspaceId?: string) {
   }, [workspaceId])
 
   const pollStatus = useCallback((taskId: string) => {
-    // Use setTimeout chain instead of setInterval to avoid stacking.
-    // Every setState is gated on `mountedRef.current` so a completion arriving
-    // after unmount doesn't fire a state update warning.
-    async function poll() {
-      if (!mountedRef.current) return
-      try {
+    // R10 DUP-11: canonical usePollTask chained-setTimeout poller.
+    // generatingMeta is a per-tick (non-terminal) side effect, so it's set
+    // inside `fn` itself — same mountedRef-gated pattern this file already
+    // uses elsewhere — rather than in isDone/onDone, which only fire once.
+    pollControllerRef.current = poll<FeedStatus>({
+      fn: async () => {
         const status = await getFeedStatus(taskId)
-        if (!mountedRef.current) return
-
-        if (status.status === 'generating' || status.status === 'started') {
+        if (mountedRef.current && (status.status === 'generating' || status.status === 'started')) {
           setGeneratingMeta({
             step: status.meta?.step,
             postProgress: status.meta?.post_progress,
           })
-          timeoutRef.current = setTimeout(poll, 2000)
-        } else if (status.status === 'complete' && status.feed_id) {
-          const feed = await getFeed(status.feed_id)
-          if (!mountedRef.current) return
-          // Pass workspaceId so getCachedFeeds(workspaceId) — which queries
-          // the by-workspace IDB index — returns this feed offline.
-          cacheFeed(feed, workspaceId).catch(() => {})
-          setPosts(feed.posts as FeedPost[])
-          setFeedId(status.feed_id)
-          setFeedState('complete')
-          setGeneratingMeta({})
+        }
+        return status
+      },
+      isDone: (status) => (status.status === 'complete' && !!status.feed_id) || status.status === 'error',
+      onDone: async (status) => {
+        if (status.status === 'complete' && status.feed_id) {
+          // R10 wave-4 final-review: this getFeed(...) used to be a bare
+          // await inside onDone — a transient failure here (offline, 5xx)
+          // was an unhandled promise rejection and feedState stayed wedged
+          // at 'generating' forever (a regression vs. the pre-usePollTask
+          // hand-rolled poller, which retried getFeed failures). Mirror the
+          // status==='error' branch below: surface it as a feed error
+          // instead of spinning.
+          try {
+            const feed = await getFeed(status.feed_id)
+            if (!mountedRef.current) return
+            // Pass workspaceId so getCachedFeeds(workspaceId) — which
+            // queries the by-workspace IDB index — returns this feed
+            // offline.
+            cacheFeed(feed, workspaceId).catch(() => {})
+            setPosts(feed.posts as FeedPost[])
+            setFeedId(status.feed_id)
+            setFeedState('complete')
+            setGeneratingMeta({})
+          } catch (err) {
+            if (!mountedRef.current) return
+            setError(err instanceof Error ? err.message : 'Failed to load generated feed')
+            setFeedState('error')
+          }
         } else if (status.status === 'error') {
           setError(status.error || 'Feed generation failed')
           setFeedState('error')
-        } else {
-          // Still pending or unknown state — keep polling
-          timeoutRef.current = setTimeout(poll, 2000)
         }
-      } catch (err) {
-        console.warn('Poll error:', err)
-        if (mountedRef.current) {
-          // Keep polling on transient errors
-          timeoutRef.current = setTimeout(poll, 3000)
-        }
-      }
-    }
-
-    timeoutRef.current = setTimeout(poll, 1000)
+      },
+      onError: (err) => console.warn('Poll error:', err),
+      intervalMs: 2000,
+      initialDelayMs: 1000,
+      // Flat 3s retry on error (not exponential) — matches the original
+      // hand-rolled poller's fixed retry delay.
+      backoff: () => 3000,
+    })
     // Depend on workspaceId so `cacheFeed(feed, workspaceId)` above writes
     // under the current workspace key. With an empty deps array, a late
     // completion after a workspace switch would cache the new feed under
     // the previous workspace — offline reads from the new workspace miss.
-  }, [workspaceId])
+  }, [workspaceId, poll])
 
   const generate = useCallback(async (corpusId?: string, tagFilter?: string[], appendToFeedId?: string, tabFocus?: string, personaKey?: string, numPosts?: number) => {
     setFeedState('generating')

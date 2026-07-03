@@ -65,6 +65,14 @@ import { downloadWorkspace, type DownloadProgress as DlProgress } from './lib/wo
 
 type AppView = 'feed' | 'listen' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
 
+// Module-level (not component state) — it's a fixed tab→focus-tag map that
+// never changes across renders, so it doesn't belong in any hook's deps
+// array. Previously declared mid-component *after* the useCallback that
+// referenced it, which the TDZ made a live bug: on first render the
+// callback closed over `undefined` until the component body finished
+// executing once.
+const TAB_FOCUS: Record<number, string | undefined> = { 0: undefined, 1: 'debates', 2: 'methods', 3: 'findings' }
+
 const NAV_ITEMS: { icon: typeof Home; view: AppView; label: string }[] = [
   { icon: Home, view: 'feed', label: 'Home' },
   { icon: Headphones, view: 'listen', label: 'Listen' },
@@ -136,7 +144,13 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
     { icon: Bookmark, view: 'bookmarks', label: 'Saved' },
     { icon: User, view: 'profile', label: 'Profile' },
   ]
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null
+  // R10 FE-15: a plain render-scoped local is re-initialized to null on every
+  // render, so a re-render between touchstart and touchend (corpus polling,
+  // alerts polling, feed generation all flow new props through while a user
+  // is mid-press) orphans the timer set by the prior render — touchend reads
+  // its own fresh `null` and never clears it, so a quick tap still fires the
+  // long-press callback ~500ms later. A ref survives across renders.
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   return (
     <nav aria-label="Mobile navigation" className="fixed bottom-0 left-0 right-0 bg-bg/95 backdrop-blur-md border-t border-border flex md:hidden z-50 pb-[env(safe-area-inset-bottom)]">
@@ -145,13 +159,13 @@ function MobileBottomNav({ active, onNavigate, onLongPressHome }: {
           key={view}
           onClick={() => onNavigate(view)}
           onTouchStart={view === 'feed' ? () => {
-            longPressTimer = setTimeout(onLongPressHome, 500)
+            longPressTimerRef.current = setTimeout(onLongPressHome, 500)
           } : undefined}
           onTouchEnd={view === 'feed' ? () => {
-            if (longPressTimer) clearTimeout(longPressTimer)
+            if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
           } : undefined}
           onTouchCancel={view === 'feed' ? () => {
-            if (longPressTimer) clearTimeout(longPressTimer)
+            if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
           } : undefined}
           aria-label={label}
           aria-current={active === view ? 'page' : undefined}
@@ -408,19 +422,29 @@ function AppContent() {
   // paperTldr refresh, every scroll state flicker) produced fresh
   // callback identities, invalidating FeedContent's inner useCallbacks
   // and defeating PostCard's React.memo. Each depends on exactly the
-  // state it reads.
+  // *function* it reads off `bm` (bm.toggle / bm.isReplyBookmarked),
+  // not the `bm` object itself — `useBookmarks` returns a fresh object
+  // literal every render, so depending on `bm` directly (the previous,
+  // inaccurate state of this comment implied both) would recompute
+  // these callbacks on every AppContent render regardless, defeating
+  // the whole point. eslint's exhaustive-deps rule can't see into
+  // useBookmarks to confirm that narrowing is safe, so it asks for the
+  // whole `bm` object; disabled below with that reasoning.
   const handleBookmarkToggleOuter = useCallback(
     (fid: string, idx: number, post: FeedPost) => bm.toggle(fid, idx, post),
-    [bm],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrowed to bm.toggle; see comment above.
+    [bm.toggle],
   )
   const handleReplyBookmark = useCallback(
     (fid: string, postIdx: number, msgIdx: number, snapshot: unknown) =>
       bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx),
-    [bm],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrowed to bm.toggle; see comment above.
+    [bm.toggle],
   )
   const handleIsReplyBookmarked = useCallback(
     (postIdx: number, msgIdx: number) =>
       feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrowed to bm.isReplyBookmarked; see comment above.
     [feed.feedId, bm.isReplyBookmarked],
   )
   const handlePostClick = useCallback((idx: number) => {
@@ -481,8 +505,6 @@ function AppContent() {
     ? completePapers.filter((p) => p.tags?.some((t) => t.name === activeTag)).length
     : completePapers.length
 
-  const TAB_FOCUS: Record<number, string | undefined> = { 0: undefined, 1: 'debates', 2: 'methods', 3: 'findings' }
-
   const handleGenerate = () => {
     setSelectedPostIndex(null)
     feed.generate(ws.activeId, activeTag ? [activeTag] : undefined, undefined, TAB_FOCUS[activeTab])
@@ -494,6 +516,7 @@ function AppContent() {
     onCloseMobileDrawer: () => setShowMobileDrawer(false),
     onCloseWorkspaceSheet: () => setShowWorkspaceSheet(false),
     generating: feed.feedState === 'generating',
+    activeView,
   })
 
   const renderMainContent = () => {
@@ -546,9 +569,22 @@ function AppContent() {
           <AlertsView
             alerts={alertsHook.alerts}
             loading={alertsHook.loading}
-            onMarkRead={alertsHook.markRead}
-            onMarkAllRead={alertsHook.markAllRead}
-            onDismiss={alertsHook.dismiss}
+            // AlertsView's props are typed `() => void` (fire-and-forget UI
+            // actions), but alertsHook's markRead/markAllRead/dismiss are
+            // async and can reject (e.g. dismissing an alert twice — the
+            // second call 404s once the first has already removed it
+            // server-side). TypeScript's structural typing lets a
+            // Promise-returning function satisfy a `void`-returning prop
+            // silently, which previously left that rejection with no
+            // handler anywhere in the call chain — an unhandled promise
+            // rejection on every double-dismiss. Swallow here, matching
+            // the .catch(() => {}) convention used elsewhere in this file
+            // for best-effort UI actions; refresh() inside each of these
+            // already resyncs the list with server state regardless of
+            // whether the mutation itself succeeded.
+            onMarkRead={(id) => { alertsHook.markRead(id).catch(() => {}) }}
+            onMarkAllRead={() => { alertsHook.markAllRead().catch(() => {}) }}
+            onDismiss={(id) => { alertsHook.dismiss(id).catch(() => {}) }}
             onNavigate={(v) => setActiveView(v as AppView)}
           />
         )

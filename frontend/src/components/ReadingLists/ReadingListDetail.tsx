@@ -1,15 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   ArrowLeft, Lock, Unlock, CheckCircle2,
   Loader2, Play, GripVertical, FileText,
 } from 'lucide-react'
 import {
   getReadingList, getFeed, generateChapter, reorderReadingList, getFeedStatus,
-  type ReadingListDetail as ReadingListDetailType,
+  type ReadingListDetail as ReadingListDetailType, type FeedStatus,
 } from '../../lib/api'
 import type { Feed, FeedPost } from '../../types'
 import { PostCard } from '../Feed/PostCard'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
+import { Spinner } from '../_shared/AsyncState'
+import { usePollTask, type PollController } from '../../hooks/usePollTask'
 
 interface Props {
   listId: string
@@ -26,6 +28,22 @@ export function ReadingListDetail({ listId, onBack }: Props) {
   const [chapterFeed, setChapterFeed] = useState<Feed | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderingReady, setOrderingReady] = useState(false)
+  const poll = usePollTask()
+  const chapterPollRef = useRef<PollController | null>(null)
+  // R10 FE-6 fix: the chapter poll below does nested async work
+  // (refresh/getReadingList/getFeed) inside onDone after the terminal
+  // status arrives. usePollTask's own mount-tracking prevents onDone from
+  // firing at all once unmounted, but if it was already in flight when
+  // unmount happens, these later awaits still need a guard before calling
+  // setState — same pattern useFeed/PaperChat use for their nested awaits.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      chapterPollRef.current?.stop()
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
@@ -40,47 +58,71 @@ export function ReadingListDetail({ listId, onBack }: Props) {
 
   useEffect(() => { refresh() }, [refresh])
 
-  // Poll for AI ordering if not ready
+  // Poll for AI ordering if not ready. R10 DUP-11/FE-6: converted from a
+  // bare setInterval with no error handling (an offline `getReadingList`
+  // rejection was an unhandled promise rejection every 3s) to
+  // usePollTask, which retries transient errors by default instead of
+  // dying.
   useEffect(() => {
     if (orderingReady || !list) return
-    const interval = setInterval(async () => {
-      const data = await getReadingList(listId)
-      if (data.papers.some(p => p.rationale)) {
+    const controller = poll<ReadingListDetailType>({
+      fn: () => getReadingList(listId),
+      isDone: (data) => data.papers.some(p => p.rationale),
+      onDone: (data) => {
         setList(data)
         setOrderingReady(true)
-        clearInterval(interval)
-      }
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [orderingReady, listId, list])
+      },
+      intervalMs: 3000,
+    })
+    return () => controller.stop()
+  }, [orderingReady, listId, list, poll])
 
   const handleGenerateChapter = async (chapterIndex: number) => {
     if (!list) return
     setGenerating(true)
     try {
       const { task_id } = await generateChapter(listId, chapterIndex)
-      // Poll for completion
-      const poll = async () => {
-        const status = await getFeedStatus(task_id)
-        if (status.status === 'complete') {
-          await refresh()
-          // Load the chapter's feed
-          const updated = await getReadingList(listId)
-          const ch = updated.chapters.find(c => c.chapter_index === chapterIndex)
-          if (ch?.feed_id) {
-            const feed = await getFeed(ch.feed_id)
-            setChapterFeed(feed)
-            setActiveChapterIndex(chapterIndex)
-            setViewMode('chapter')
+      // R10 FE-6 fix: this poll used to have no stored timeout (leaving
+      // the view didn't stop it — setState-after-unmount) and no
+      // try/catch (one failed status/feed fetch mid-generation left
+      // `generating` stuck true forever, permanently disabling the
+      // "Generate Chapter" button). usePollTask fixes both: the timeout
+      // chain is cancelled on unmount (see the mount effect above) and a
+      // rejected fn() re-schedules instead of dying.
+      chapterPollRef.current = poll<FeedStatus>({
+        fn: () => getFeedStatus(task_id),
+        isDone: (status) => status.status === 'complete' || status.status === 'error',
+        onDone: async (status) => {
+          // R10 wave-4 final-review: this body used to have no try/finally
+          // around its awaits (refresh/getReadingList/getFeed) — a
+          // transient failure among them was an unhandled promise
+          // rejection AND skipped setGenerating(false), permanently
+          // disabling the "Generate Chapter" button. finally guarantees the
+          // button re-enables regardless of how this resolves.
+          try {
+            if (status.status === 'complete') {
+              await refresh()
+              // Load the chapter's feed
+              const updated = await getReadingList(listId)
+              if (!mountedRef.current) return
+              const ch = updated.chapters.find(c => c.chapter_index === chapterIndex)
+              if (ch?.feed_id) {
+                const feed = await getFeed(ch.feed_id)
+                if (!mountedRef.current) return
+                setChapterFeed(feed)
+                setActiveChapterIndex(chapterIndex)
+                setViewMode('chapter')
+              }
+            }
+          } finally {
+            if (mountedRef.current) setGenerating(false)
           }
-          setGenerating(false)
-        } else if (status.status === 'error') {
-          setGenerating(false)
-        } else {
-          setTimeout(poll, 2000)
-        }
-      }
-      poll()
+        },
+        // Original poll() was called directly (no initial setTimeout) —
+        // the first status check fires immediately.
+        initialDelayMs: 0,
+        intervalMs: 2000,
+      })
     } catch {
       setGenerating(false)
     }
@@ -116,7 +158,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
   if (loading || !list) {
     return (
       <div className="flex justify-center py-12">
-        <Loader2 size={24} className="text-gold animate-spin" />
+        <Spinner size={24} />
       </div>
     )
   }
