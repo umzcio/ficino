@@ -72,6 +72,25 @@ export function isGroupChatDone(data: GroupChat): boolean {
   return data.status !== 'generating'
 }
 
+// R10 wave-5 follow-up: startPoll's maxAttempts only bounds consecutive
+// REJECTIONS — a 200 {status:'generating'} is a non-terminal success that
+// resets its attempt counter, so a hard-stuck row (worker OOM-killed
+// before its except block could mark status='error') would poll forever.
+// Pre-fix, the same stuck synthesis 404'd into the bounded ~100s window;
+// the fast path must not be strictly worse. Track the consecutive-
+// generating streak (reset on anything else) and give up at the SAME
+// window as the 404 path. Pure and exported for unit testing, same
+// rationale as isGroupChatDone above.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing (R10 wave-5 follow-up); not a component
+export function nextGeneratingStreak(prevStreak: number, data: GroupChat): number {
+  return data.status === 'generating' ? prevStreak + 1 : 0
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing (R10 wave-5 follow-up); not a component
+export function isGeneratingStreakExhausted(streak: number): boolean {
+  return streak >= SYNTH_RETRY_MAX_ATTEMPTS
+}
+
 export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
   const [chat, setChat] = useState<GroupChat | null>(null)
   const [loading, setLoading] = useState(true)
@@ -121,14 +140,31 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
     // both happen before this effect fires.
     let active = true
     let notFoundCount = 0
+    let generatingStreak = 0
 
     const controller = poll<GroupChat>({
       fn: async () => {
         const data = await getGroupChat(groupId)
-        // Fast path: a 200 with status:'generating' means the row exists
-        // but the worker isn't done — show the same "Synthesizing…" hint
-        // the 404-fallback path used to be the only way to reach.
+        // Bound the fast path with the same ~100s window as the 404
+        // fallback below: a hard-stuck row (worker killed before it could
+        // mark status='error') answers 200 {status:'generating'} forever,
+        // and startPoll's maxAttempts doesn't apply to non-terminal
+        // successes — so count the consecutive-generating streak here and
+        // give up into the existing "taking longer than expected" info
+        // state (timedOut), never an unbounded spinner.
+        generatingStreak = nextGeneratingStreak(generatingStreak, data)
         if (active && data.status === 'generating') {
+          if (isGeneratingStreakExhausted(generatingStreak)) {
+            controller.stop()
+            setSynthesizing(false)
+            setTimedOut(true)
+            setError('Synthesis is taking longer than expected. Go back and reopen this chat in a moment.')
+            setLoading(false)
+            return data
+          }
+          // Fast path: a 200 with status:'generating' means the row exists
+          // but the worker isn't done — show the same "Synthesizing…" hint
+          // the 404-fallback path used to be the only way to reach.
           setSynthesizing(true)
         }
         return data
