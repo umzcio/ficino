@@ -4,7 +4,7 @@ import {
   Volume2, VolumeX, Volume1, Volume, Mic, RotateCcw, RotateCw,
 } from 'lucide-react'
 import type { FeedPost, PodcastSegment } from '../../types'
-import { getFeed, requestFeedAudio, requestFeedPodcast } from '../../lib/api'
+import { ApiError, getFeed, requestFeedAudio, requestFeedPodcast } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { Slider } from '../_shared/primitives'
 import { safeLocal } from '../../lib/safeLocal'
@@ -416,7 +416,7 @@ export function ListenView({ feedId, posts }: Props) {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         console.warn('[listen] requestFeedPodcast failed', msg)
-        if (msg.includes('501') || msg.toLowerCase().includes('not configured')) {
+        if ((err instanceof ApiError && err.status === 501) || msg.toLowerCase().includes('not configured')) {
           setStatus('unavailable')
         } else {
           setStatus('failed')
@@ -453,7 +453,7 @@ export function ListenView({ feedId, posts }: Props) {
       else pollTimeoutRef.current = setTimeout(pollUntilFeedAudioReady, 1500)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('501') || msg.toLowerCase().includes('not configured')) {
+      if ((err instanceof ApiError && err.status === 501) || msg.toLowerCase().includes('not configured')) {
         setStatus('unavailable')
       } else {
         setStatus('failed')

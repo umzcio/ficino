@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { X, Users } from 'lucide-react'
-import { listPapers, createGroupChat } from '../../lib/api'
+import { listPapers, createGroupChat, getApiErrorDetail } from '../../lib/api'
 import type { Paper } from '../../types'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { Spinner, EmptyState } from '../_shared/AsyncState'
@@ -43,7 +43,7 @@ export function NewGroupChatModal({ workspaceId, onClose, onCreated }: NewGroupC
         // a still-processing paper would just 404 the create call.
         setPapers(all.filter((p) => p.status === 'complete'))
       } catch (err) {
-        if (active) setLoadError(err instanceof Error ? err.message : 'Failed to load papers')
+        if (active) setLoadError(getApiErrorDetail(err, 'Failed to load papers'))
       } finally {
         if (active) setLoading(false)
       }
@@ -79,7 +79,7 @@ export function NewGroupChatModal({ workspaceId, onClose, onCreated }: NewGroupC
       const { synthesis_id } = await createGroupChat(name.trim(), Array.from(selected))
       onCreated(synthesis_id)
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create group chat')
+      setCreateError(getApiErrorDetail(err, 'Failed to create group chat'))
       setCreating(false)
     }
   }

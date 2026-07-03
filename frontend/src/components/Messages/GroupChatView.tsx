@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Users, FileText, Loader2, Zap, AlertTriangle, HelpCircle } from 'lucide-react'
 import type { GroupChat, SummaryMessage } from '../../types'
-import { getGroupChat, isNotFoundError } from '../../lib/api'
+import { getGroupChat, isNotFoundError, getApiErrorDetail } from '../../lib/api'
 import { cacheGroupChat, getCachedGroupChat } from '../../lib/offline-cache'
 import { usePollTask } from '../../hooks/usePollTask'
 
@@ -159,7 +159,7 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
         if (!active) return
         if (!usedCache) {
           setTimedOut(false)
-          setError(err instanceof Error ? err.message : 'Failed to load group synthesis')
+          setError(getApiErrorDetail(err, 'Failed to load group synthesis'))
         }
         setSynthesizing(false)
         setLoading(false)
