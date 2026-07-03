@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { areKeyboardShortcutsEnabled } from '../lib/keyboardShortcutsPref'
 
 type AppView = 'feed' | 'listen' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
 
@@ -13,8 +14,8 @@ interface KeyboardShortcutsProps {
   // ListenView.tsx), so the NAV letters below (h/e/m/b/n) must stay out
   // of the way or "m" fires both toggleMute() AND onNavigate('messages'),
   // unmounting the page the user is trying to control (FE-3). Escape and
-  // the non-nav shortcuts ('.' generate, '?' help) don't collide with any
-  // Listen-owned key and keep working there.
+  // the non-nav shortcut ('.' generate) don't collide with any Listen-owned
+  // key and keep working there.
   activeView: AppView
 }
 
@@ -43,19 +44,26 @@ export function useKeyboardShortcuts({
       // Navigation (single key, no modifiers)
       if (e.ctrlKey || e.metaKey || e.altKey) return
 
+      // R10 FE-20 (WCAG 2.1.4 Character Key Shortcuts): the single-character
+      // set below must be able to be turned off. Read fresh on every
+      // keydown rather than subscribing to the storage event — the native
+      // `storage` event only fires in *other* tabs, never the tab that made
+      // the change, so a listener here would miss the very toggle flip made
+      // from this app's own Settings panel. A keydown-rate localStorage read
+      // is effectively free (bounded by human typing speed, not render
+      // rate), so per-keydown is the simplest correct option. Escape (above)
+      // is exempt — it's a dismiss action, not a navigation shortcut.
+      if (!areKeyboardShortcutsEnabled()) return
+
       // The Listen view owns single-letter keys for its own transport
       // controls (space/arrows/M — see ListenView.tsx / FE-3), so ONLY
-      // the nav letters are suppressed there; '.' (generate) and '?'
-      // don't collide with any Listen-owned key and keep working.
+      // the nav letters are suppressed there; '.' (generate) doesn't
+      // collide with any Listen-owned key and keeps working.
       const suppressNav = activeView === 'listen'
 
       switch (e.key) {
         // Navigation — Twitter/X style
-        case 'g':
-          // Wait for second key
-          break
         case 'h':
-          // g then h = home (simplified: just h)
           if (suppressNav) break
           onNavigate('feed')
           break
@@ -80,11 +88,6 @@ export function useKeyboardShortcuts({
         case '.':
           // Period = generate (like Twitter's "." to load new tweets)
           if (!generating) onGenerate()
-          break
-
-        // Question mark = show shortcuts help
-        case '?':
-          // Could show a help modal later
           break
       }
     }
