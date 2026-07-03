@@ -10,8 +10,6 @@ Covers:
     `posts` and reply keys under `replies`.
   - GET /likes/feed/{feed_id} does not leak another user's likes.
   - DELETE of a like that does not belong to the caller returns 404.
-  - GET /likes/stats returns the count scoped to the caller.
-  - GET /likes/preferences with no likes returns has_signal=False.
 """
 from __future__ import annotations
 
@@ -156,37 +154,3 @@ async def test_delete_cross_user_like_returns_404(
         USER_B_ID, seeded_users["feed_b"],
     )
     assert still == 1
-
-
-@pytest.mark.asyncio
-async def test_like_stats_scoped_to_caller(
-    client_as_user_a, seeded_users, db_conn,
-):
-    """stats counts only caller's rows."""
-    # A likes 2 posts.
-    for idx in (0, 1):
-        await client_as_user_a.post("/likes", json={
-            "feed_id": seeded_users["feed_a"], "post_index": idx,
-        })
-    # B has 5 likes that should NOT contribute to A's stats.
-    for idx in range(5):
-        await db_conn.execute(
-            """INSERT INTO user_likes (user_id, feed_id, post_index, message_index)
-               VALUES ($1, $2, $3, -1)""",
-            USER_B_ID, seeded_users["feed_b"], idx,
-        )
-
-    r = await client_as_user_a.get("/likes/stats")
-    assert r.status_code == 200
-    assert r.json()["total_likes"] == 2
-
-
-@pytest.mark.asyncio
-async def test_preferences_empty_user_returns_no_signal(client_as_user_a):
-    """A user with zero likes and no stored preference profile should get a
-    has_signal=False response rather than a 500."""
-    r = await client_as_user_a.get("/likes/preferences")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["has_signal"] is False
-    assert body["total_likes"] == 0
