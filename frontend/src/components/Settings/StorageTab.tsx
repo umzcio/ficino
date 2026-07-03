@@ -6,8 +6,6 @@ import type { Workspace } from '../../types'
 import { Section, SettingRow, DangerButton, Loader2 } from '../_shared/primitives'
 
 interface Props {
-  settings: Record<string, unknown>
-  onUpdate: (partial: Record<string, unknown>) => void
   workspaces?: Workspace[]
   onDownloadWorkspace?: (id: string) => void
 }

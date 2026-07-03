@@ -71,7 +71,7 @@ export function SettingsView({ settings, loading, onUpdate, workspaces, onDownlo
             {activeTab === 'account' && <AccountTab settings={settings} onUpdate={onUpdate} />}
             {activeTab === 'ai' && <AITab settings={settings} onUpdate={onUpdate} />}
             {activeTab === 'content' && <ContentTab settings={settings} onUpdate={onUpdate} />}
-            {activeTab === 'storage' && <StorageTab settings={settings} onUpdate={onUpdate} workspaces={workspaces} onDownloadWorkspace={onDownloadWorkspace} />}
+            {activeTab === 'storage' && <StorageTab workspaces={workspaces} onDownloadWorkspace={onDownloadWorkspace} />}
           </div>
         )}
       </div>
