@@ -88,10 +88,14 @@ async def upload_paper(
                 detail=f"File exceeds {settings.max_upload_size_mb}MB limit",
             )
 
-    # Check file size
+    # Check file size. 413 (not 400) to match the Content-Length pre-check
+    # above — both branches are the same "payload too large" condition, just
+    # caught at different points (declared size vs. actual bytes read); a
+    # client shouldn't see a different status code depending on whether it
+    # was honest about Content-Length.
     contents = await file.read()
     if len(contents) > max_bytes:
-        raise HTTPException(status_code=400, detail=f"File exceeds {settings.max_upload_size_mb}MB limit")
+        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_size_mb}MB limit")
 
     # Verify PDF magic bytes — an .pdf extension alone is trivially spoofable.
     if not contents.startswith(b"%PDF-"):
