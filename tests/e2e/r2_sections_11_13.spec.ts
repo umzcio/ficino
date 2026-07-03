@@ -20,10 +20,17 @@ async function waitForApp(page: Page) {
  */
 async function goToExplore(page: Page) {
   await waitForApp(page)
-  const exploreBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Search"]')
+  // Desktop's Main navigation calls this view "Search"; mobile's bottom nav
+  // (a different, 6-item set) calls the same view "Explore" — see App.tsx
+  // NAV_ITEMS vs MobileBottomNav's local `items`.
+  const mobileNav = page.locator('nav[aria-label="Mobile navigation"]')
+  const isMobile = await mobileNav.isVisible().catch(() => false)
+  const nav = isMobile ? mobileNav : page.locator('nav[aria-label="Main navigation"]')
+  const exploreBtn = nav.locator(`button[aria-label="${isMobile ? 'Explore' : 'Search'}"]`)
   await expect(exploreBtn).toBeVisible()
   await exploreBtn.click()
-  await page.locator('h1', { hasText: 'Explore' }).waitFor({ state: 'visible', timeout: 10_000 })
+  // Phase 3 downgraded the view-title heading from h1 to h2 (one h1 per page).
+  await page.locator('h1, h2', { hasText: 'Explore' }).first().waitFor({ state: 'visible', timeout: 10_000 })
 }
 
 // ---------------------------------------------------------------------------
@@ -35,7 +42,7 @@ test.describe('Section 11: Workspaces — Retest', () => {
     await goToExplore(page)
 
     // "Default" workspace should be visible
-    const defaultWs = page.locator('button', { hasText: 'Default' }).first()
+    const defaultWs = page.getByRole('button', { name: 'Switch to workspace Default' }).first()
     await expect(defaultWs).toBeVisible()
 
     // Hover over Default workspace — should NOT have a delete button
@@ -69,7 +76,7 @@ test.describe('Section 11: Workspaces — Retest', () => {
 
     // Wait for workspace to appear
     await page.waitForTimeout(2000)
-    const newWsCard = page.locator('button', { hasText: testName }).first()
+    const newWsCard = page.getByRole('button', { name: `Switch to workspace ${testName}` }).first()
     await expect(newWsCard).toBeVisible({ timeout: 10_000 })
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s11_workspace_created.png`, fullPage: true })
@@ -114,7 +121,7 @@ test.describe('Section 11: Workspaces — Retest', () => {
     await page.waitForTimeout(2000)
 
     // Click the new workspace to make it active
-    const newWsCard = page.locator('button', { hasText: testName }).first()
+    const newWsCard = page.getByRole('button', { name: `Switch to workspace ${testName}` }).first()
     await expect(newWsCard).toBeVisible({ timeout: 10_000 })
     await newWsCard.click()
     await page.waitForTimeout(1000)
@@ -122,7 +129,7 @@ test.describe('Section 11: Workspaces — Retest', () => {
     // The workspace should now be active — verify ACTIVE badge
     const activeBadge = page.locator('span', { hasText: 'ACTIVE' })
     // It may be on this workspace or elsewhere; look within the card
-    const activeWsCard = page.locator('button', { hasText: testName }).first()
+    const activeWsCard = page.getByRole('button', { name: `Switch to workspace ${testName}` }).first()
     await activeWsCard.hover()
     await page.waitForTimeout(500)
 
@@ -138,12 +145,12 @@ test.describe('Section 11: Workspaces — Retest', () => {
     expect(renameBtnVisible, 'BUG-011: Rename button visible on ACTIVE non-Default workspace').toBe(true)
 
     // Clean up: switch back to Default then delete
-    const defaultWs = page.locator('button', { hasText: 'Default' }).first()
+    const defaultWs = page.getByRole('button', { name: 'Switch to workspace Default' }).first()
     await defaultWs.click()
     await page.waitForTimeout(500)
 
     // Re-hover to get delete button
-    const wsCard = page.locator('button', { hasText: testName }).first()
+    const wsCard = page.getByRole('button', { name: `Switch to workspace ${testName}` }).first()
     await wsCard.hover()
     await page.waitForTimeout(500)
     const delBtn = wsCard.locator(`button[aria-label="Delete ${testName}"]`)
@@ -158,9 +165,7 @@ test.describe('Section 11: Workspaces — Retest', () => {
 
     // Create a workspace so the dropdown appears (need 2+ workspaces)
     // First go to Explore to create it
-    const exploreBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Search"]')
-    await exploreBtn.click()
-    await page.locator('h1', { hasText: 'Explore' }).waitFor({ state: 'visible', timeout: 10_000 })
+    await goToExplore(page)
 
     const testName = `Dropdown-WS-${Date.now()}`
     const newWsBtn = page.locator('button', { hasText: 'New Workspace' })
@@ -170,8 +175,10 @@ test.describe('Section 11: Workspaces — Retest', () => {
     await page.locator('button', { hasText: 'Create' }).click()
     await page.waitForTimeout(2000)
 
-    // Go back to Feed by clicking Home nav
-    const feedBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]')
+    // Go back to Feed by clicking Home nav (same label on both viewports)
+    const mobileNav = page.locator('nav[aria-label="Mobile navigation"]')
+    const isMobile = await mobileNav.isVisible().catch(() => false)
+    const feedBtn = (isMobile ? mobileNav : page.locator('nav[aria-label="Main navigation"]')).locator('button[aria-label="Home"]')
     await feedBtn.click()
     await page.waitForTimeout(1500)
 
@@ -270,7 +277,7 @@ test.describe('Section 11: Workspaces — Retest', () => {
     await page.locator('button', { hasText: 'Create' }).click()
     await page.waitForTimeout(2000)
 
-    const wsCard = page.locator('button', { hasText: originalName }).first()
+    const wsCard = page.getByRole('button', { name: `Switch to workspace ${originalName}` }).first()
     await expect(wsCard).toBeVisible({ timeout: 10_000 })
 
     // Hover to reveal rename button
@@ -291,7 +298,7 @@ test.describe('Section 11: Workspaces — Retest', () => {
       await page.waitForTimeout(2000)
 
       // Verify the renamed workspace appears
-      const renamedWs = page.locator('button', { hasText: renamedName }).first()
+      const renamedWs = page.getByRole('button', { name: `Switch to workspace ${renamedName}` }).first()
       const renameWorked = await renamedWs.isVisible().catch(() => false)
 
       await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s11_after_rename.png`, fullPage: true })
@@ -332,9 +339,10 @@ test.describe('Section 12: Tags — Retest', () => {
     const corpusVisible = await corpusHeading.isVisible().catch(() => false)
 
     if (corpusVisible) {
-      // Look for paper entries or empty state
-      const addTagBtn = page.locator('button:has-text("#")').first()
-      const hasPapers = await addTagBtn.isVisible().catch(() => false)
+      // Look for paper entries or empty state — paper rows are collapsible
+      // header buttons carrying an "N chunks" summary (CorpusPanel.tsx).
+      const paperRow = page.locator('button', { hasText: /chunk/ }).first()
+      const hasPapers = await paperRow.isVisible().catch(() => false)
 
       if (hasPapers) {
         await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s12_corpus_with_papers.png`, fullPage: true })
@@ -350,14 +358,25 @@ test.describe('Section 12: Tags — Retest', () => {
     await waitForApp(page)
     await page.waitForTimeout(3000)
 
-    const addTagBtn = page.locator('button:has-text("#")').first()
-    const hasPapers = await addTagBtn.isVisible().catch(() => false)
+    // CorpusPanel's papers are collapsible rows now — the add-tag button
+    // only renders inside an EXPANDED card body, and the collapsed row
+    // headers themselves contain "#tag · #tag" summary text, so any
+    // substring "#" match is hopelessly ambiguous (it used to click a row
+    // header and just toggle expansion). Expand the first paper row (its
+    // header carries the "N chunks" summary), then match the add-tag
+    // button by its exact accessible name "#".
+    const paperRow = page.locator('button', { hasText: /chunk/ }).first()
+    const hasPapers = await paperRow.isVisible().catch(() => false)
 
     if (!hasPapers) {
       // No papers — skip gracefully
       await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s12_tag_flow_skipped.png`, fullPage: true })
       return
     }
+
+    await paperRow.click()
+    const addTagBtn = page.getByRole('button', { name: '#', exact: true }).first()
+    await expect(addTagBtn).toBeVisible({ timeout: 5_000 })
 
     // Click add tag
     await addTagBtn.click()
@@ -387,6 +406,27 @@ test.describe('Section 12: Tags — Retest', () => {
   })
 })
 
+/**
+ * Helper: open the Alerts view. Desktop clicks the Main-navigation bell
+ * (aria-label grows a ", N unread" suffix once there are unread items —
+ * App.tsx LeftNav — so match the prefix, not the exact string). Mobile's
+ * bottom nav has no Alerts icon at all; the global "n" keyboard shortcut
+ * (useKeyboardShortcuts.ts) is the only way in there and works regardless
+ * of viewport.
+ */
+async function openAlerts(page: Page) {
+  const mobileNav = page.locator('nav[aria-label="Mobile navigation"]')
+  const isMobile = await mobileNav.isVisible().catch(() => false)
+  if (isMobile) {
+    await page.keyboard.press('n')
+    await page.waitForTimeout(400)
+    return
+  }
+  const bellBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label^="Alerts"]')
+  await expect(bellBtn).toBeVisible()
+  await bellBtn.click()
+}
+
 // ---------------------------------------------------------------------------
 // SECTION 13 — Alerts (RETEST)
 // ---------------------------------------------------------------------------
@@ -395,12 +435,10 @@ test.describe('Section 13: Alerts — Retest', () => {
   test('13.1 — Alerts view loads and shows empty state (BUG-010)', async ({ page }) => {
     await waitForApp(page)
 
-    const bellBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Alerts"]')
-    await expect(bellBtn).toBeVisible()
-    await bellBtn.click()
+    await openAlerts(page)
 
-    // Expect "Alerts" heading
-    const alertsHeader = page.locator('h1', { hasText: 'Alerts' })
+    // Expect "Alerts" heading (Phase 3 downgraded it from h1 to h2)
+    const alertsHeader = page.locator('h1, h2', { hasText: 'Alerts' }).first()
     await expect(alertsHeader).toBeVisible({ timeout: 10_000 })
 
     // Expect subtitle
@@ -451,10 +489,14 @@ test.describe('Section 13: Alerts — Retest', () => {
     }
   })
 
-  test('13.2 — Alert nav badge should be absent when empty', async ({ page }) => {
+  test('13.2 — Alert nav badge should be absent when empty', async ({ page }, testInfo) => {
+    // This checks the unread-count badge rendered on the nav's own bell
+    // icon (App.tsx LeftNav) — mobile's bottom nav has no Alerts icon at
+    // all (see openAlerts() above), so there's no badge to inspect there.
+    test.skip(testInfo.project.name === 'mobile', 'no Alerts nav icon exists on the mobile bottom nav to check a badge on — see wave-5 report PRODUCT BUGS')
     await waitForApp(page)
 
-    const bellBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Alerts"]')
+    const bellBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label^="Alerts"]')
     await expect(bellBtn).toBeVisible()
 
     // With no alerts, there should be no badge count
@@ -473,9 +515,8 @@ test.describe('Section 13: Alerts — Retest', () => {
   test('13.3 — Mark all read button should not be visible when no alerts', async ({ page }) => {
     await waitForApp(page)
 
-    const bellBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Alerts"]')
-    await bellBtn.click()
-    await page.locator('h1', { hasText: 'Alerts' }).waitFor({ state: 'visible', timeout: 10_000 })
+    await openAlerts(page)
+    await page.locator('h1, h2', { hasText: 'Alerts' }).first().waitFor({ state: 'visible', timeout: 10_000 })
     await page.waitForTimeout(3000)
 
     const markAllBtn = page.locator('button', { hasText: 'Mark all read' })

@@ -26,7 +26,7 @@ def _clamp_weight(env_key: str, default: float) -> float:
     try:
         v = float(os.getenv(env_key, str(default)))
     except ValueError:
-        logger.warn("invalid_weight_env", key=env_key, value=os.getenv(env_key))
+        logger.warning("invalid_weight_env", key=env_key, value=os.getenv(env_key))
         return default
     return max(0.0, min(1.0, v))
 

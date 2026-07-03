@@ -1,5 +1,6 @@
 import { useState, useEffect, useId, createContext, useContext } from 'react'
 import { Check, ChevronDown, Pencil, Loader2 } from 'lucide-react'
+import { isApiKeyConfigured } from '../../lib/apiKey'
 
 // Context that carries the row's label element id to native inputs nested
 // inside the row — lets Select / Slider / ApiKeyInput wire aria-labelledby
@@ -194,12 +195,20 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
   // never prefill the input with the 3-char string, show a masked
   // placeholder instead, and let typing/saving/clearing behave exactly as
   // if the field started blank.
-  const isConfigured = value === 'set'
+  const isConfigured = isApiKeyConfigured(value)
   const effectiveValue = isConfigured ? '' : (value || '')
   const [local, setLocal] = useState(effectiveValue)
   const [saved, setSaved] = useState(false)
+  // Restores the revoke path lost in wave 4 (R10 W5 Task 3 item 5). Mirrors
+  // DangerButton's click-twice-or-confirm guard rather than a plain onClick
+  // — clearing a configured key is a one-way action from the UI's
+  // perspective (the real value never round-trips back for editing), so it
+  // gets the same "are you sure" friction as other destructive settings
+  // actions.
+  const [confirmingClear, setConfirmingClear] = useState(false)
 
   useEffect(() => { setLocal(effectiveValue) }, [effectiveValue])
+  useEffect(() => { if (!isConfigured) setConfirmingClear(false) }, [isConfigured])
 
   const doSave = () => {
     if (local !== effectiveValue) {
@@ -207,6 +216,11 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     }
+  }
+
+  const doClear = () => {
+    setConfirmingClear(false)
+    onSave('')
   }
 
   const labelId = useContext(SettingRowContext)
@@ -223,6 +237,34 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
         className="bg-bg border border-border rounded-lg px-3 py-1.5 text-[13px] text-text w-48 focus:border-gold outline-none"
       />
       {saved && <Check size={14} className="text-persona-gradstudent" />}
+      {isConfigured && !confirmingClear && (
+        <button
+          type="button"
+          onClick={() => setConfirmingClear(true)}
+          title="Clear the saved key. On a hosted deploy this reverts to the operator's default key; on a self-hosted instance it means no key is configured."
+          className="px-2 py-1 rounded-lg text-[11px] text-persona-skeptic bg-transparent border border-persona-skeptic/30 cursor-pointer hover:bg-persona-skeptic/10 transition-colors"
+        >
+          Clear
+        </button>
+      )}
+      {isConfigured && confirmingClear && (
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={doClear}
+            className="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-persona-skeptic border-none cursor-pointer"
+          >
+            Confirm
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmingClear(false)}
+            className="px-2 py-1 rounded-lg text-[11px] text-text-muted bg-transparent border border-border cursor-pointer"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   )
 }

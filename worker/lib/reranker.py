@@ -79,7 +79,7 @@ def _rerank_voyage(query: str, chunks: list[dict[str, object]]) -> list[dict[str
     """Score candidates with Voyage's hosted rerank endpoint."""
     cfg = _get_rerank_config()
     if not cfg["voyage_api_key"]:
-        logger.warn("rerank_voyage_no_api_key_passthrough")
+        logger.warning("rerank_voyage_no_api_key_passthrough")
         return chunks
 
     documents = [str(c.get("content", "")) for c in chunks]
@@ -114,7 +114,7 @@ def _rerank_cohere(query: str, chunks: list[dict[str, object]]) -> list[dict[str
     """Score candidates with Cohere's hosted rerank endpoint."""
     cfg = _get_rerank_config()
     if not cfg["cohere_api_key"]:
-        logger.warn("rerank_cohere_no_api_key_passthrough")
+        logger.warning("rerank_cohere_no_api_key_passthrough")
         return chunks
 
     documents = [str(c.get("content", "")) for c in chunks]
@@ -173,14 +173,14 @@ def rerank(
         elif provider == "cohere":
             scored = _rerank_cohere(query, chunks)
         else:
-            logger.warn("rerank_unknown_provider_passthrough", provider=provider)
+            logger.warning("rerank_unknown_provider_passthrough", provider=provider)
             return chunks[:top_k]
     except Exception as e:
         # Don't take down retrieval for a rerank outage. Log and degrade to
         # the input ordering, which is already the hybrid-score ordering
         # from the SQL stage — a worse result than reranked, but a fine
         # fallback.
-        logger.warn("rerank_failed_passthrough", provider=provider, error=str(e)[:200])
+        logger.warning("rerank_failed_passthrough", provider=provider, error=str(e)[:200])
         return chunks[:top_k]
 
     # Chunks without a rerank_score (provider dropped them / API returned

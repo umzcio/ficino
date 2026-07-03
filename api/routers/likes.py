@@ -1,7 +1,5 @@
 """Like endpoints — persistent like state for posts and reply messages."""
 
-import json
-
 import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -114,49 +112,3 @@ async def delete_like(
         },
         status_code=204,
     )
-
-
-@router.get("/preferences")
-async def get_preferences(
-    user: AuthUser = Depends(get_current_user),
-    db: asyncpg.Connection = Depends(get_db),
-) -> dict[str, object]:
-    """Return computed preference profile from likes data."""
-    row = await db.fetchrow(
-        "SELECT settings FROM user_settings WHERE user_id = $1",
-        user.id,
-    )
-    if row:
-        settings = row["settings"]
-        if isinstance(settings, str):
-            settings = json.loads(settings)
-        prefs = settings.get("preferences")
-        if prefs:
-            return prefs
-
-    likes = await db.fetch(
-        "SELECT persona_key, post_type, category FROM user_likes WHERE user_id = $1",
-        user.id,
-    )
-    total = len(likes)
-    return {
-        "persona_weights": {},
-        "post_type_weights": {},
-        "category_weights": {},
-        "liked_paper_titles": [],
-        "total_likes": total,
-        "has_signal": False,
-    }
-
-
-@router.get("/stats")
-async def get_like_stats(
-    user: AuthUser = Depends(get_current_user),
-    db: asyncpg.Connection = Depends(get_db),
-) -> dict[str, object]:
-    """Quick stats on like activity."""
-    total = await db.fetchval(
-        "SELECT COUNT(*) FROM user_likes WHERE user_id = $1",
-        user.id,
-    )
-    return {"total_likes": total}

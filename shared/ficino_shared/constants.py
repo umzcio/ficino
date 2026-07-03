@@ -9,6 +9,15 @@ DEFAULT_WORKSPACE_ID = "00000000-0000-0000-0000-000000000001"
 # NOTE: frontend/src/hooks/useWorkspaces.ts:7 mirrors DEFAULT_WORKSPACE_ID
 # as a literal — keep them in sync.
 
+# Local-dev/CI default DSN (docker-compose service name "postgres", the
+# same ficino/ficino creds docker-compose.yml seeds a fresh volume with).
+# R10.5 DUP-14 residual: this literal was duplicated identically across
+# api/config.py, worker/lib/db.py, both services' test conftests, and two
+# infra/postgres/*.py one-off scripts — six copies that could silently
+# drift. Real deployments always set DATABASE_URL explicitly; this is
+# only the fallback for a fresh self-host checkout or test run.
+DEFAULT_DATABASE_URL = "postgresql://ficino:ficino@postgres:5432/ficino"
+
 # Signed-URL TTLs (seconds). Short default for live listings; long for
 # media URLs persisted into feed posts.
 SIGNED_URL_DEFAULT_TTL = 600

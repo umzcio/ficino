@@ -143,7 +143,7 @@ def _coerce_type(raw: object) -> str:
     }
     if s in aliases:
         return aliases[s]
-    logger.warn("figure_detect_unknown_type_coerced_to_other", got=s[:40])
+    logger.warning("figure_detect_unknown_type_coerced_to_other", got=s[:40])
     return "other"
 
 
@@ -227,7 +227,7 @@ def _parse_response(text: str) -> list[dict]:
                 sanitized.append(clean)
         return sanitized
 
-    logger.warn("figure_detect_response_unparseable", preview=text[:160])
+    logger.warning("figure_detect_response_unparseable", preview=text[:160])
     return []
 
 
@@ -309,10 +309,10 @@ async def detect_figures_on_page(
             return await _detect_anthropic(page_png, page_number, page_text)
         if provider == "ollama":
             return await _detect_ollama(page_png, page_number, page_text)
-        logger.warn("figure_detect_unknown_provider", provider=provider)
+        logger.warning("figure_detect_unknown_provider", provider=provider)
         return []
     except Exception as e:
-        logger.warn("figure_detect_page_failed",
+        logger.warning("figure_detect_page_failed",
                     page=page_number, provider=provider, error=str(e)[:200])
         return []
 

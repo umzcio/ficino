@@ -299,7 +299,7 @@ def build_podcast_script(
                 top_k=_RETRIEVAL_TOP_K,
             )
         except Exception as exc:  # noqa: BLE001
-            log.warn("podcast_retrieval_failed", error=str(exc)[:200])
+            log.warning("podcast_retrieval_failed", error=str(exc)[:200])
             chunks = []
 
     # Pull the paper titles in the same order we saw paper_ids — used for
@@ -314,7 +314,7 @@ def build_podcast_script(
             title_by_id = {str(r["id"]): (r["title"] or "Untitled") for r in rows}
             paper_titles = [title_by_id.get(pid, "Untitled") for pid in paper_ids if pid in title_by_id]
         except Exception as exc:  # noqa: BLE001
-            log.warn("podcast_paper_titles_failed", error=str(exc)[:200])
+            log.warning("podcast_paper_titles_failed", error=str(exc)[:200])
 
     chunks_block = _format_chunks_for_prompt(chunks)
     feed_block = _summarize_feed_for_prompt(posts, personas)
@@ -342,7 +342,7 @@ def build_podcast_script(
         )
         segments = _parse_script(raw)
     except Exception as exc:  # noqa: BLE001
-        log.warn("podcast_llm_failed", error_type=type(exc).__name__, error=str(exc)[:300])
+        log.warning("podcast_llm_failed", error_type=type(exc).__name__, error=str(exc)[:300])
         segments = None
 
     if segments:
@@ -352,7 +352,7 @@ def build_podcast_script(
         segments = _fit_total_chars(segments)
 
     if not segments or len(segments) < _MIN_SEGMENTS:
-        log.warn(
+        log.warning(
             "podcast_script_fallback",
             reason="parse_failed_or_too_short",
             produced=len(segments or []),

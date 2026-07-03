@@ -46,7 +46,7 @@ def _cleanup_artifacts(user_id: str, paper_ids: list[str], log_event: str) -> in
             storage.delete_paper_artifacts(user_id, pid)
             freed += 1
         except Exception as e:
-            logger.warn(log_event, paper_id=pid, error=str(e)[:120])
+            logger.warning(log_event, paper_id=pid, error=str(e)[:120])
     return freed
 
 
@@ -132,9 +132,9 @@ async def update_settings(
         else:
             filtered[key] = value
     if dropped:
-        logger.warn("settings_dropped_unknown_keys", keys=dropped, user_id=user.id)
+        logger.warning("settings_dropped_unknown_keys", keys=dropped, user_id=user.id)
     if locked:
-        logger.warn(
+        logger.warning(
             "settings_dropped_provider_override_on_public_deployment",
             keys=locked, user_id=user.id,
         )
@@ -204,7 +204,7 @@ async def list_ollama_models(
             resp.raise_for_status()
             models = resp.json().get("models", [])
     except Exception as e:
-        logger.warn("ollama_models_fetch_failed", error=str(e))
+        logger.warning("ollama_models_fetch_failed", error=str(e))
         return {"llm": [], "embed": [], "vision": []}
 
     llm_models = []

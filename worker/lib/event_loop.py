@@ -12,14 +12,31 @@ class LoopRunner:
     def __init__(self, name: str) -> None:
         self._name = name
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
         with self._lock:
-            if self._loop is None or self._loop.is_closed():
+            # A dead-but-not-closed loop is possible: run_forever() returns
+            # (and the thread exits) if the loop's stop() is ever called
+            # (e.g. an uncaught exception unwinding run_forever, or a
+            # coroutine mistakenly calling loop.stop()) without also
+            # calling loop.close() — is_closed() alone would then miss it
+            # and every subsequent run() would submit to a loop no thread is
+            # driving, hanging forever waiting on .result(). Track the
+            # thread explicitly and recreate whenever it isn't alive, not
+            # just when the loop reports closed.
+            if (
+                self._loop is None
+                or self._loop.is_closed()
+                or self._thread is None
+                or not self._thread.is_alive()
+            ):
                 self._loop = asyncio.new_event_loop()
-                t = threading.Thread(target=self._loop.run_forever, name=self._name, daemon=True)
-                t.start()
+                self._thread = threading.Thread(
+                    target=self._loop.run_forever, name=self._name, daemon=True
+                )
+                self._thread.start()
             return self._loop
 
     def run(self, coro):

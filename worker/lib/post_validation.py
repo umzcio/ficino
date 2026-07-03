@@ -43,7 +43,7 @@ def validate_post_shape(post_data: dict, *, persona_key: str) -> dict:
     # apology string that looks like a broken product.
     for field in REQUIRED_FIELDS:
         if not post_data.get(field):
-            logger.warn(
+            logger.warning(
                 "post_shape_missing_required_field",
                 persona=persona_key,
                 field=field,
@@ -59,7 +59,7 @@ def validate_post_shape(post_data: dict, *, persona_key: str) -> dict:
     # post_type must match the frontend's Literal union
     pt = post_data.get("post_type")
     if pt not in VALID_POST_TYPES:
-        logger.warn(
+        logger.warning(
             "post_shape_invalid_post_type",
             persona=persona_key,
             invalid_post_type=pt,
@@ -80,7 +80,7 @@ def validate_post_shape(post_data: dict, *, persona_key: str) -> dict:
             and all(isinstance(tp, str) and tp.strip() for tp in thread_posts)
         )
         if not valid_thread:
-            logger.warn(
+            logger.warning(
                 "post_shape_invalid_thread_posts",
                 persona=persona_key,
                 thread_posts_type=type(thread_posts).__name__,
@@ -98,7 +98,7 @@ def validate_post_shape(post_data: dict, *, persona_key: str) -> dict:
     # search queries and feed reads diverged for outlier rows.
     content = post_data.get("content")
     if isinstance(content, str) and len(content) > MAX_CONTENT_CHARS:
-        logger.warn(
+        logger.warning(
             "post_shape_content_truncated",
             persona=persona_key,
             original_length=len(content),

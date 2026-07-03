@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import os
 import shutil
-from pathlib import Path
 
 from ficino_shared.constants import MEDIA_URL_TTL
 from ficino_shared.signed_url import sign_resource
@@ -77,22 +76,6 @@ class LocalStorage(StorageBackend):
         with open(path, "wb") as f:
             f.write(content)
         return path
-
-    def read_figure_bytes(
-        self, user_id: str, paper_id: str, filename: str
-    ) -> bytes:
-        safe = os.path.basename(filename)
-        base = Path(self.figures_dir).resolve()
-        # Defence in depth: resolve the *whole* key (paper_id + filename)
-        # against the figures root and refuse anything that escapes it.
-        # Filename is already basenamed above, but paper_id is also
-        # attacker-influenced (R10 DUP-2) — the api copy only checked the
-        # final path; the worker copy didn't check at all. Both components
-        # are validated here, once, for both backends' callers.
-        full = (base / paper_id / safe).resolve()
-        full.relative_to(base)
-        with open(full, "rb") as f:
-            return f.read()
 
     # -- Bulk --
 

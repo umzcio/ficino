@@ -182,7 +182,7 @@ def chunk_markdown(markdown: str, max_tokens: int = 800) -> list[dict[str, objec
     # Previous threshold of <3 was over-aggressive and stripped structure
     # from short papers / preprints.
     if not sections:
-        logger.warn("chunker_no_sections_detected", fallback="untitled")
+        logger.warning("chunker_no_sections_detected", fallback="untitled")
         sections = [("untitled", markdown)]
     elif len(sections) < 3:
         logger.info("chunker_few_sections", count=len(sections))

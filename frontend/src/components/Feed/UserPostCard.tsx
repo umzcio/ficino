@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Trash2, Send } from 'lucide-react'
 import type { UserPost } from '../../lib/api'
-import { getUserPostStatus, deleteUserPost, replyToUserPost, getUserPost } from '../../lib/api'
+import { getUserPostStatus, deleteUserPost, replyToUserPost, getUserPost, isNotFoundError } from '../../lib/api'
 import { usePersonas } from '../../hooks/usePersonas'
 import { useKeyboardAwareInput } from '../../hooks/useKeyboardAwareInput'
 import { usePollTask } from '../../hooks/usePollTask'
@@ -99,8 +99,7 @@ export function UserPostCard({ post, userDisplayName = 'You', userHandle = '@you
     try {
       await deleteUserPost(post.id)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : ''
-      if (!msg.includes('404')) {
+      if (!isNotFoundError(err)) {
         setLocallyDeleted(false)
         setDeleting(false)
         return

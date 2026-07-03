@@ -7,8 +7,12 @@ pymupdf>=1.24.10
 structlog>=24.1.0
 Pillow>=10.3.0
 tiktoken>=0.7.0
+# Transitive via anthropic/openai SDKs — no direct `import pydantic` in
+# worker code (worker/lib/settings.py is a hand-rolled os.getenv loader,
+# not a BaseSettings class). Pin kept as a floor so both SDKs resolve to
+# a version we've tested. R10 DEP-4: pydantic-settings removed — it was
+# pure dead weight (not even transitively required).
 pydantic>=2.9.0
-pydantic-settings>=2.6.0
 httpx>=0.28.0
 # Local cross-encoder reranker (RERANK_PROVIDER=local). Pulls torch + CUDA
 # libs (~5GB); only used when the local provider is actually selected.

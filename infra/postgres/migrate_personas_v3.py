@@ -9,7 +9,9 @@ Or from host:
 import asyncio
 import asyncpg
 
-DATABASE_URL = "postgresql://ficino:ficino@postgres:5432/ficino"
+from ficino_shared.constants import DEFAULT_DATABASE_URL
+
+DATABASE_URL = DEFAULT_DATABASE_URL
 
 PERSONAS_V3 = {
     "skeptic": {

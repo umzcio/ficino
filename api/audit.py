@@ -3,6 +3,15 @@
 Call `record_audit()` from within a route handler to persist an entry.
 The helper never raises — failures log + swallow so the audit path can't
 break the actual operation.
+
+WARNING: never call `record_audit()` from inside a `db.transaction()` block.
+asyncpg poisons a transaction the moment any statement on its connection
+fails — including this helper's own INSERT, which `record_audit` then
+swallows internally. The caller's enclosing transaction is left unusable
+(every subsequent statement on it raises `InFailedSQLTransactionError`) with
+no exception surfacing to explain why, since `record_audit` never raises.
+Call it AFTER the transaction commits (or on a separate connection/outside
+any `async with db.transaction():` block).
 """
 from __future__ import annotations
 
@@ -46,4 +55,4 @@ async def record_audit(
             json.dumps(metadata or {}), ip, ua, status_code,
         )
     except Exception as e:
-        logger.warn("audit_log_write_failed", error_type=type(e).__name__, error=str(e)[:200])
+        logger.warning("audit_log_write_failed", error_type=type(e).__name__, error=str(e)[:200])

@@ -50,7 +50,6 @@ Order ALL papers. Return valid JSON only."""
 def propose_ordering(
     self: Task,
     paper_ids: list[str],
-    corpus_id: str | None = None,
     list_id: str | None = None,
     user_id: str | None = None,
 ) -> dict:
@@ -149,7 +148,7 @@ def propose_ordering(
         if returned_ids != input_ids:
             missing = input_ids - returned_ids
             extra = returned_ids - input_ids
-            log.warn(
+            log.warning(
                 "propose_ordering_id_mismatch",
                 missing=list(missing)[:5],
                 extra=list(extra)[:5],
@@ -421,7 +420,7 @@ def generate_chapter(
             from tasks.persona_tasks import _write_feed_posts_index
             _write_feed_posts_index(feed_id, posts, 0, effective_user_id)
         except Exception as e:
-            log.warn(
+            log.warning(
                 "feed_posts_index_sync_failed",
                 feed_id=feed_id,
                 error_type=type(e).__name__,

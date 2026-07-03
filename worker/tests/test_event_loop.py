@@ -1,4 +1,62 @@
 """Tests for the shared background event-loop helper (R10 DUP-5)."""
+import threading
+
+import pytest
+
+
+@pytest.mark.timeout(10)
+def test_loop_runner_recovers_from_a_dead_but_unclosed_loop_thread():
+    """R10 wave-3 final review: run_forever() can return (its thread exits)
+    without the loop ever being closed — is_closed() alone would then miss
+    a dead thread and _ensure_loop would hand back a loop nothing is
+    driving, so a subsequent run() would hang forever on .result(). Kill
+    the loop's thread directly (loop.stop() from inside the loop, the same
+    effect an uncaught run_forever exit would have) and assert the next
+    run() recovers instead of hanging.
+
+    Bounded two ways (R10 wave-5 follow-up): the failure mode under test IS
+    a hang — LoopRunner.run() calls .result() with no timeout — so an
+    unguarded regression to is_closed()-only logic wouldn't fail this test,
+    it would wedge the whole CI job (GitHub's default 360-min cap).
+    @pytest.mark.timeout(10) is the standard guard; the helper-thread
+    join(timeout=5) below is belt-and-braces so the test still fails fast
+    even where pytest-timeout isn't installed (a dev machine that hasn't
+    re-pip-installed requirements-dev)."""
+    from lib.event_loop import LoopRunner
+
+    r = LoopRunner("test-loop-recovery")
+
+    async def value(n):
+        return n
+
+    assert r.run(value(1)) == 1
+    dead_thread = r._thread
+    assert dead_thread is not None and dead_thread.is_alive()
+
+    # Stop the loop from within itself — same effect as run_forever exiting
+    # on its own (thread ends, loop object is left open/unclosed).
+    r._loop.call_soon_threadsafe(r._loop.stop)
+    dead_thread.join(timeout=2)
+    assert not dead_thread.is_alive(), "loop thread should have exited after stop()"
+    assert not r._loop.is_closed(), "stop() alone must not close the loop (that's the gap)"
+
+    # Run the recovery call on a helper (daemon) thread with a bounded join:
+    # if run() hangs on .result(), the helper thread never finishes, the
+    # join times out, and the assert below fails within ~5s instead of
+    # hanging the test process. Daemon=True so a wedged helper can't keep
+    # the interpreter alive at exit either.
+    results: list[int] = []
+    helper = threading.Thread(target=lambda: results.append(r.run(value(2))), daemon=True)
+    helper.start()
+    helper.join(timeout=5)
+    assert not helper.is_alive(), (
+        "run() after a dead loop thread hung instead of recovering — "
+        "_ensure_loop must recreate the loop when its thread is not alive, "
+        "not only when the loop is closed"
+    )
+    assert results == [2], "run() must recover from a dead thread and return the result"
+    assert r._thread is not dead_thread, "a fresh thread should have been spawned"
+    assert r._thread.is_alive()
 
 
 def test_loop_runner_concurrent_submissions_dont_serialize():

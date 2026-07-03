@@ -139,12 +139,12 @@ test.describe('WAVE 4 — group chat creation', () => {
     // Modal closes and the app navigates straight to the new group view.
     // GroupChatView's header always renders a "Go back" button regardless
     // of whether the synthesis has finished — assert on that stable marker
-    // rather than the chat name. The backend only inserts the
-    // corpus_syntheses row when the Celery task completes (there's no
-    // upfront placeholder row), so the view's first fetches right after
-    // create legitimately 404 — GroupChatView treats those as pending and
-    // retries on a bounded window (R10 FE-4 follow-up), showing the
-    // "Synthesizing…" hint until the row lands.
+    // rather than the chat name. Wave-5 Task 4: create_group_chat now
+    // inserts a status='generating' placeholder row right after dispatch,
+    // so the view's first fetches right after create get a 200 with
+    // {status:'generating'} instead of the old 404 — GroupChatView treats
+    // that status as pending (fast path) and shows the "Synthesizing…"
+    // hint until the worker's completion upsert flips it to complete/error.
     await expect(dialog).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Go back' })).toBeVisible({ timeout: 10_000 })
     // Immediately after create the view must be in one of exactly two
@@ -158,20 +158,32 @@ test.describe('WAVE 4 — group chat creation', () => {
     await page.screenshot({ path: shot('01_after_create'), fullPage: true })
 
     // Ollama synthesis can be slow — poll the backend directly for up to
-    // 90s. A 404 is the documented pending state (row not written until
-    // the Celery task completes); a 5xx is a real backend failure and
-    // must hard-fail the spec instead of being lumped in with pending.
+    // 90s. Wave-5 Task 4: the placeholder row means this GET is a 200 for
+    // the whole window — {status:'generating'} is the new pending signal
+    // (replacing the old "404 means pending" semantics for freshly-created
+    // rows; a bare 404 can still happen for a pre-migration row and is
+    // treated the same way, just falling through the `if (r.ok())` guard).
+    // {status:'error'} means the worker exhausted its retries — a real,
+    // distinguishable failure now, not more pending — and must hard-fail
+    // the spec same as an actual 5xx would.
     let finalChat: any = null
+    let sawErrorStatus = false
     const deadline = Date.now() + 90_000
     while (Date.now() < deadline) {
       const r = await context.request.get(`${BASE}/api/messages/groups/${createBody.synthesis_id}`, { ignoreHTTPSErrors: true })
       expect(r.status(), 'backend error during synthesis poll').toBeLessThan(500)
       if (r.ok()) {
         const body = await r.json()
-        if (Array.isArray(body.messages) && body.messages.length > 0) { finalChat = body; break }
+        if (body.status === 'error') { sawErrorStatus = true; break }
+        if (body.status === 'complete' && Array.isArray(body.messages) && body.messages.length > 0) {
+          finalChat = body
+          break
+        }
+        // status === 'generating' — still pending, keep polling.
       }
       await page.waitForTimeout(2000)
     }
+    expect(sawErrorStatus, 'synthesis worker reported status=error during the smoke run').toBe(false)
     console.log(`W4-01: final synthesis message count=${finalChat?.messages?.length ?? 0}`)
 
     if (finalChat) {
@@ -189,9 +201,10 @@ test.describe('WAVE 4 — group chat creation', () => {
     } else {
       // Still generating after 90s — acceptable for this smoke test
       // (mirrors R9-02's tolerance for a pending Archivist reply). With
-      // the retry-on-404 fix the UI must be showing either the pending
-      // "Synthesizing…" hint or (if the worker finished in the last
-      // moments) the synthesis content — never the failure card.
+      // the placeholder-row + status fast path (Wave-5 Task 4) the UI must
+      // be showing either the pending "Synthesizing…" hint or (if the
+      // worker finished in the last moments) the synthesis content — never
+      // the failure card.
       await expect(page.getByRole('button', { name: 'Go back' })).toBeVisible()
       await expect(
         page.getByText('Synthesizing…').or(page.getByText('Papers in this conversation')).first()

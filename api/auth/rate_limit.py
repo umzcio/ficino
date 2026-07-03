@@ -52,7 +52,7 @@ async def _enforce_rate_limit(key_prefix: str, max_requests: int, window_seconds
     if count == 1:
         await redis.expire(key, window_seconds)
     if count > max_requests:
-        logger.warn("rate_limit_exceeded", user_id=user_id, action=key_prefix, limit=max_requests)
+        logger.warning("rate_limit_exceeded", user_id=user_id, action=key_prefix, limit=max_requests)
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded: {max_requests} {key_prefix} per {window_seconds // 3600}h. Try again later.",
@@ -125,7 +125,7 @@ class IPRateLimit:
         if count == 1:
             await redis.expire(key, self.window_seconds)
         if count > self.max_requests:
-            logger.warn("ip_rate_limit_exceeded", ip=ip, action=self.key_prefix, limit=self.max_requests)
+            logger.warning("ip_rate_limit_exceeded", ip=ip, action=self.key_prefix, limit=self.max_requests)
             raise HTTPException(
                 status_code=429,
                 detail=f"Too many {self.key_prefix} attempts. Try again later.",

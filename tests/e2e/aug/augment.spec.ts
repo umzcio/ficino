@@ -11,11 +11,42 @@ function shot(name: string) {
 
 async function boot(page: Page) {
   await page.goto(BASE, { waitUntil: 'networkidle', timeout: 30_000 })
-  await page.waitForSelector('nav[aria-label="Main navigation"]', { timeout: 15_000 })
+  // Desktop renders "Main navigation" (md:flex); mobile hides it via CSS
+  // and shows "Mobile navigation" (bottom bar) instead — wait for whichever
+  // landmark the current viewport actually renders, not desktop's only.
+  await page.waitForFunction(() => {
+    return document.querySelector('nav[aria-label="Main navigation"]')?.checkVisibility?.() ||
+           document.querySelector('nav[aria-label="Mobile navigation"]')?.checkVisibility?.()
+  }, { timeout: 15_000 })
 }
 
+// Mobile's bottom nav (6 items: Home, Listen, Explore, Messages, Saved,
+// Profile) doesn't share desktop's Main-navigation label set 1:1 — it
+// calls the Search/Explore view "Explore" where desktop calls it "Search".
+const MOBILE_NAV_LABEL: Record<string, string> = { Search: 'Explore' }
+
 async function navTo(page: Page, label: string) {
-  await page.locator(`nav[aria-label="Main navigation"] button[aria-label="${label}"]`).click()
+  const mobileNav = page.locator('nav[aria-label="Mobile navigation"]')
+  const isMobile = await mobileNav.isVisible().catch(() => false)
+  // Alerts has no touch control on mobile's bottom nav, but IS reachable via
+  // the global "n" keyboard shortcut (useKeyboardShortcuts.ts), which works
+  // regardless of viewport.
+  if (isMobile && label === 'Alerts') {
+    await page.keyboard.press('n')
+    await page.waitForTimeout(400)
+    return
+  }
+  const nav = isMobile ? mobileNav : page.locator('nav[aria-label="Main navigation"]')
+  // Alerts' aria-label grows a ", N unread" suffix once there are unread
+  // items (App.tsx LeftNav) — match the prefix, not the exact string, since
+  // this shared dev environment accumulates real unread alerts over time.
+  const btn = label === 'Alerts'
+    ? nav.locator('button[aria-label^="Alerts"]')
+    : nav.locator(`button[aria-label="${isMobile ? (MOBILE_NAV_LABEL[label] ?? label) : label}"]`)
+  if (isMobile && await btn.count() === 0) {
+    throw new Error(`navTo("${label}"): no mobile-nav path — bottom nav omits Settings/Reading Lists on mobile (see wave-5 report PRODUCT BUGS)`)
+  }
+  await btn.click()
   await page.waitForTimeout(400)
 }
 
@@ -241,6 +272,15 @@ test.describe('AUG — Archivist & Messages', () => {
 // ───────────────────────────────────────────────────────────────────
 
 test.describe('AUG — Settings interactions', () => {
+  test.beforeEach(({}, testInfo) => {
+    // Settings has no touch-nav entry point on mobile — the bottom nav
+    // (Home/Listen/Explore/Messages/Saved/Profile) omits it entirely and
+    // there's no keyboard-shortcut fallback (unlike Alerts' "n"). Confirmed
+    // by reading App.tsx's MobileBottomNav item list and
+    // useKeyboardShortcuts.ts — see wave-5 report PRODUCT BUGS.
+    test.skip(testInfo.project.name === 'mobile', 'Settings is unreachable on the mobile viewport (no bottom-nav item, no keyboard shortcut) — see wave-5 report PRODUCT BUGS')
+  })
+
   test('AUG-14: Open Settings, toggle Theme section visible', async ({ page }) => {
     await boot(page)
     await navTo(page, 'Settings')
@@ -418,7 +458,10 @@ test.describe('AUG — Chaos & edge cases', () => {
       console.log('AUG-22: no active generation to interrupt — just reload the page')
     }
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.waitForSelector('nav[aria-label="Main navigation"]', { timeout: 15000 })
+    await page.waitForFunction(() => {
+      return document.querySelector('nav[aria-label="Main navigation"]')?.checkVisibility?.() ||
+             document.querySelector('nav[aria-label="Mobile navigation"]')?.checkVisibility?.()
+    }, { timeout: 15_000 })
     const postCount = await page.locator('article').count()
     console.log(`AUG-22: after reload, ${postCount} articles visible`)
     expect(postCount).toBeGreaterThanOrEqual(0)

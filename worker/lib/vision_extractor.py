@@ -99,7 +99,7 @@ async def _extract_page_claude(page_image: bytes, page_num: int) -> str:
             if attempt == 2:
                 break
             wait = 2 * (3 ** attempt)  # 2s, 6s, (18s if a 4th attempt existed)
-            logger.warn(
+            logger.warning(
                 "claude_vision_transient_error_retrying",
                 page=page_num, attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
             )
@@ -159,7 +159,7 @@ async def _extract_page_ollama(page_image: bytes, page_num: int) -> str:
             if attempt == 2:
                 break
             wait = 2 * (3 ** attempt)  # 2s, 6s, (18s if a 4th attempt existed)
-            logger.warn(
+            logger.warning(
                 "ollama_vision_transient_error_retrying",
                 page=page_num, attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
             )
@@ -195,7 +195,7 @@ async def extract_with_vision(file_path: str) -> str:
     max_pages = int(os.getenv("MAX_VISION_PAGES", "100"))
     pages_to_process = min(page_count, max_pages)
     if page_count > max_pages:
-        logger.warn(
+        logger.warning(
             "vision_extract_truncated",
             file_path=file_path, total_pages=page_count, max_pages=max_pages,
         )

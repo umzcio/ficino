@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Users, FileText, Loader2, Zap, AlertTriangle, HelpCircle } from 'lucide-react'
 import type { GroupChat, SummaryMessage } from '../../types'
-import { getGroupChat, isNotFoundError } from '../../lib/api'
+import { getGroupChat, isNotFoundError, getApiErrorDetail } from '../../lib/api'
 import { cacheGroupChat, getCachedGroupChat } from '../../lib/offline-cache'
 import { usePollTask } from '../../hooks/usePollTask'
 
@@ -50,14 +50,46 @@ function SynthesisMessage({ message }: { message: SummaryMessage }) {
   )
 }
 
-// A fresh group chat's corpus_syntheses row is only inserted when the
-// Celery synthesis task COMPLETES (worker generate_corpus_synthesis) — the
-// POST /messages/groups 202 hands back a synthesis_id whose GET 404s for
-// the whole generation window. Retry 404s on this cadence before showing
-// any failure language: 25 attempts x 4s ≈ 100s, comfortably past typical
-// local-Ollama synthesis time.
+// Wave-5 Task 4: create_group_chat now inserts a status='generating'
+// placeholder row right after dispatch (mirrors paper_summaries), so GET
+// /messages/groups/{id} returns {status: 'generating'} with a 200 for the
+// whole generation window instead of 404ing. The 404-retry loop below is
+// now only a FALLBACK for rows created before that migration shipped (a
+// pre-migration row whose synthesis was mid-flight at deploy time) — kept
+// at the same cadence (25 attempts x 4s ≈ 100s) in case one is still in
+// flight, but the fast path below never needs it.
 const SYNTH_RETRY_MAX_ATTEMPTS = 25
 const SYNTH_RETRY_INTERVAL_MS = 4000
+
+// Exported for testing (this repo has no @testing-library/react — see
+// usePollTask.ts — so component logic worth unit-testing gets pulled out
+// as a plain function, same pattern as PostCard's arePostsEqual). A 200
+// response is only terminal once the row has left 'generating': the
+// placeholder row means the GET can now succeed with status:'generating'
+// well before the synthesis is actually done.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing (Wave-5 Task 4); not a component
+export function isGroupChatDone(data: GroupChat): boolean {
+  return data.status !== 'generating'
+}
+
+// R10 wave-5 follow-up: startPoll's maxAttempts only bounds consecutive
+// REJECTIONS — a 200 {status:'generating'} is a non-terminal success that
+// resets its attempt counter, so a hard-stuck row (worker OOM-killed
+// before its except block could mark status='error') would poll forever.
+// Pre-fix, the same stuck synthesis 404'd into the bounded ~100s window;
+// the fast path must not be strictly worse. Track the consecutive-
+// generating streak (reset on anything else) and give up at the SAME
+// window as the 404 path. Pure and exported for unit testing, same
+// rationale as isGroupChatDone above.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing (R10 wave-5 follow-up); not a component
+export function nextGeneratingStreak(prevStreak: number, data: GroupChat): number {
+  return data.status === 'generating' ? prevStreak + 1 : 0
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing (R10 wave-5 follow-up); not a component
+export function isGeneratingStreakExhausted(streak: number): boolean {
+  return streak >= SYNTH_RETRY_MAX_ATTEMPTS
+}
 
 export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
   const [chat, setChat] = useState<GroupChat | null>(null)
@@ -97,26 +129,59 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
     // unhandled promise rejection and `loading` never flipped back to
     // false, wedging the spinner forever.
     //
-    // R10 FE-4 follow-up: a 404 here is NOT a failure for a fresh group —
-    // no synthesis row exists until the worker finishes, so the previous
-    // single-shot fetch rendered "Synthesis failed to load" on the
-    // feature's primary success path, 100% of the time. Retry 404s (only
-    // 404s — real failures still surface immediately) on a bounded
-    // interval via the shared poll scheduler before giving up.
+    // R10 FE-4 follow-up / Wave-5 Task 4: the 404-retry path below is now
+    // only a FALLBACK — since create_group_chat inserts a placeholder row
+    // at dispatch, the fast path is a 200 with status:'generating', which
+    // isGroupChatDone treats as not-done and the scheduler just reschedules
+    // (no onError involved at all). The 404 branch only fires for a row
+    // created before that migration shipped.
     // No synchronous state resets here: initial useState values cover
     // mount, and the render-time reset above covers groupId changes —
     // both happen before this effect fires.
     let active = true
     let notFoundCount = 0
+    let generatingStreak = 0
 
     const controller = poll<GroupChat>({
-      fn: () => getGroupChat(groupId),
-      // Any successful response is terminal — the row only exists once
-      // the synthesis is complete, so there's no "row present but still
-      // generating" state to keep polling through.
-      isDone: () => true,
+      fn: async () => {
+        const data = await getGroupChat(groupId)
+        // Bound the fast path with the same ~100s window as the 404
+        // fallback below: a hard-stuck row (worker killed before it could
+        // mark status='error') answers 200 {status:'generating'} forever,
+        // and startPoll's maxAttempts doesn't apply to non-terminal
+        // successes — so count the consecutive-generating streak here and
+        // give up into the existing "taking longer than expected" info
+        // state (timedOut), never an unbounded spinner.
+        generatingStreak = nextGeneratingStreak(generatingStreak, data)
+        if (active && data.status === 'generating') {
+          if (isGeneratingStreakExhausted(generatingStreak)) {
+            controller.stop()
+            setSynthesizing(false)
+            setTimedOut(true)
+            setError('Synthesis is taking longer than expected. Go back and reopen this chat in a moment.')
+            setLoading(false)
+            return data
+          }
+          // Fast path: a 200 with status:'generating' means the row exists
+          // but the worker isn't done — show the same "Synthesizing…" hint
+          // the 404-fallback path used to be the only way to reach.
+          setSynthesizing(true)
+        }
+        return data
+      },
+      isDone: isGroupChatDone,
       onDone: (data) => {
         if (!active) return
+        if (data.status === 'error') {
+          // Retries exhausted server-side — finally distinguishable from
+          // a slow synthesis instead of another indefinite spin (the
+          // whole point of this ticket).
+          setSynthesizing(false)
+          setTimedOut(false)
+          setError('Synthesis failed. Go back and try creating the group chat again.')
+          setLoading(false)
+          return
+        }
         cacheGroupChat(data).catch(() => {})
         setChat(data)
         setSynthesizing(false)
@@ -126,6 +191,10 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
       onError: async (err) => {
         if (!active) return
         if (isNotFoundError(err)) {
+          // Fallback path: a pre-migration row whose synthesis was
+          // mid-flight when this shipped — no placeholder row exists for
+          // it, so it still legitimately 404s until the worker's
+          // completion upsert lands.
           notFoundCount += 1
           if (notFoundCount < SYNTH_RETRY_MAX_ATTEMPTS) {
             // Still generating — stay in the loading state (with the
@@ -159,7 +228,7 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
         if (!active) return
         if (!usedCache) {
           setTimedOut(false)
-          setError(err instanceof Error ? err.message : 'Failed to load group synthesis')
+          setError(getApiErrorDetail(err, 'Failed to load group synthesis'))
         }
         setSynthesizing(false)
         setLoading(false)

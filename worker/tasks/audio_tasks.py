@@ -24,6 +24,7 @@ prefix. Same claim-then-update-JSONB shape as feed audio.
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Callable
 
@@ -51,6 +52,23 @@ logger = structlog.get_logger(__name__)
 # Cap per post. Well below ElevenLabs' 40k-char turbo limit but above the
 # app's own 2000-char post cap, so we never truncate legitimate content.
 _MAX_TTS_CHARS = 4000
+
+
+def _reclaim_minutes() -> int:
+    """Minutes after which a 'generating' claim is considered abandoned.
+
+    2x the Celery hard task time limit, floored at 15 minutes. Was a bare
+    hardcoded 15 minutes (task_time_limit 600s + redelivery slack, per the
+    comment at the claim sites) but a deployment that raises
+    CELERY_TIME_LIMIT (e.g. a slower ElevenLabs account under load) then had
+    a reclaim window narrower than the task's own time limit, so a
+    still-running task could get its claim stolen and double-rendered by a
+    second worker. Reads the same env var Celery itself uses
+    (celery_app.py's task_time_limit) so the two stay in lockstep. Computed
+    fresh on every call (cheap arithmetic, no need to cache at import) so
+    tests can monkeypatch the env var without reimporting this module.
+    """
+    return max(15, (int(os.getenv("CELERY_TIME_LIMIT", "600")) * 2) // 60)
 
 
 def _post_to_speech_text(post: dict, display_name: str) -> str | None:
@@ -118,7 +136,7 @@ def _synthesize_with_fallback(
             body_preview = exc.response.text[:300]
         except Exception:  # noqa: BLE001
             pass
-        log.warn(
+        log.warning(
             "synthesis_voice_failed",
             **ctx,
             voice_id=voice_id,
@@ -141,7 +159,7 @@ def _synthesize_with_fallback(
                         fb_body = fb_exc.response.text[:300]
                     except Exception:  # noqa: BLE001
                         pass
-                log.warn(
+                log.warning(
                     "synthesis_fallback_failed",
                     **ctx,
                     error_type=type(fb_exc).__name__,
@@ -155,7 +173,7 @@ def _synthesize_with_fallback(
                 return None
         return None
     except Exception as exc:  # noqa: BLE001 — network/timeouts too
-        log.warn(
+        log.warning(
             "synthesis_error",
             **ctx,
             voice_id=voice_id,
@@ -183,10 +201,10 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
     # 'generating' AND the claim is recent, another worker is in flight —
     # bail out. If it's 'ready', this is a retry after completion — also
     # bail. 'failed' or NULL starts a fresh run. A 'generating' row whose
-    # claim is older than 15 minutes (> task_time_limit 600s + redelivery
-    # slack) is treated as abandoned (e.g. a SIGKILLed worker) and is
-    # reclaimable; a NULL audio_claimed_at (pre-migration stuck row) is
-    # treated the same way (R10 WORK-5).
+    # claim is older than _reclaim_minutes() (2x task_time_limit, floor 15
+    # min — see that function) is treated as abandoned (e.g. a SIGKILLed
+    # worker) and is reclaimable; a NULL audio_claimed_at (pre-migration
+    # stuck row) is treated the same way (R10 WORK-5).
     claimed = fetchrow(
         """UPDATE feeds
            SET audio_status = 'generating', audio_claimed_at = NOW()
@@ -194,9 +212,10 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
              AND (audio_status IS NULL OR audio_status = 'failed'
                   OR (audio_status = 'generating'
                       AND (audio_claimed_at IS NULL
-                           OR audio_claimed_at < NOW() - INTERVAL '15 minutes')))
+                           OR audio_claimed_at < NOW() - make_interval(mins => $2))))
            RETURNING user_id, posts""",
         feed_id,
+        _reclaim_minutes(),
     )
     if not claimed:
         log.info("feed_audio_skipped_already_claimed_or_ready")
@@ -261,7 +280,7 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
             except NotImplementedError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                log.warn(
+                log.warning(
                     "post_audio_upload_failed",
                     post_index=idx,
                     error_type=type(exc).__name__,
@@ -352,9 +371,10 @@ def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
     log.info("feed_podcast_start")
     start = time.time()
 
-    # See generate_audio_for_feed's claim above — same 15-minute staleness
-    # arm (podcast_claimed_at), including the legacy NULL-claimed_at arm for
-    # rows stuck 'generating' since before this migration (R10 WORK-5).
+    # See generate_audio_for_feed's claim above — same _reclaim_minutes()
+    # staleness arm (podcast_claimed_at), including the legacy
+    # NULL-claimed_at arm for rows stuck 'generating' since before this
+    # migration (R10 WORK-5).
     claimed = fetchrow(
         """UPDATE feeds
            SET podcast_status = 'generating', podcast_claimed_at = NOW()
@@ -362,9 +382,10 @@ def generate_podcast_for_feed(self: Task, feed_id: str) -> dict[str, object]:
              AND (podcast_status IS NULL OR podcast_status = 'failed'
                   OR (podcast_status = 'generating'
                       AND (podcast_claimed_at IS NULL
-                           OR podcast_claimed_at < NOW() - INTERVAL '15 minutes')))
+                           OR podcast_claimed_at < NOW() - make_interval(mins => $2))))
            RETURNING user_id, corpus_id, posts""",
         feed_id,
+        _reclaim_minutes(),
     )
     if not claimed:
         log.info("feed_podcast_skipped_already_claimed_or_ready")

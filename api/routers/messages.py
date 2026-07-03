@@ -137,7 +137,7 @@ async def get_paper_summary(
     # R10 API-1). Treat it like a dead task: drop it so it falls through
     # to the dispatch branch, which resets status via its upsert.
     if summary and (summary["status"] or "complete") == "error":
-        logger.warn("paper_summary_error_redispatch", paper_id=paper_id)
+        logger.warning("paper_summary_error_redispatch", paper_id=paper_id)
         summary = None
 
     # Workers can die mid-task (OOM, SIGKILL, container restart) without
@@ -151,7 +151,7 @@ async def get_paper_summary(
         except Exception:
             task_state = "UNKNOWN"
         if task_state in ("FAILURE", "REVOKED", "UNKNOWN"):
-            logger.warn(
+            logger.warning(
                 "paper_summary_stuck_generating",
                 paper_id=paper_id,
                 old_task_id=summary["task_id"],
@@ -298,6 +298,19 @@ async def create_group_chat(
     )
 
     logger.info("corpus_synthesis_dispatched", synthesis_id=synthesis_id, task_id=task.id)
+
+    # Mirror paper_summaries: insert a placeholder row right after dispatch
+    # so GET /messages/groups/{id} has something to read for the entire
+    # generation window instead of 404ing until the worker's completion
+    # upsert lands. ON CONFLICT covers the (practically impossible, but
+    # asyncpg-uuid4-collision-safe) case of a synthesis_id reused.
+    await db.execute(
+        """INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages, status, task_id)
+           VALUES ($1, $2, $3, $4, '[]', 'generating', $5)
+           ON CONFLICT (id) DO UPDATE SET status = 'generating', task_id = $5""",
+        synthesis_id, user_id, body.name, body.paper_ids, task.id,
+    )
+
     return {"synthesis_id": synthesis_id, "task_id": task.id, "status": "generating"}
 
 
@@ -307,15 +320,28 @@ async def get_group_chat(
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, object]:
-    """Get a corpus synthesis group chat."""
+    """Get a corpus synthesis group chat.
+
+    create_group_chat now inserts a placeholder row (status='generating')
+    right after dispatch, so this returns that row's status directly
+    instead of 404ing for the whole generation window (Wave-5 Task 4,
+    completing W4's ticket). A worker that exhausts its retries marks the
+    row status='error' (mirrors paper_summaries), which is now finally
+    distinguishable from a still-in-flight synthesis instead of being
+    another indefinite 404. 404 is reserved for a synthesis_id with no row
+    at all (bad id, wrong user, or — for rows created before this
+    migration shipped — one that genuinely never got created).
+    """
     row = await db.fetchrow(
-        "SELECT id, name, paper_ids, messages, generated_at FROM corpus_syntheses WHERE id = $1 AND user_id = $2",
+        """SELECT id, name, paper_ids, messages, generated_at, status, task_id
+           FROM corpus_syntheses WHERE id = $1 AND user_id = $2""",
         synthesis_id, user.id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Group chat not found")
 
     messages = row["messages"] if isinstance(row["messages"], list) else json.loads(row["messages"])
+    status = row["status"] or "complete"
 
     # Get paper titles
     paper_rows = await db.fetch(
@@ -324,10 +350,14 @@ async def get_group_chat(
     )
     papers = {str(r["id"]): r["title"] or r["filename"] for r in paper_rows}
 
-    return {
+    result: dict[str, object] = {
         "id": str(row["id"]),
         "name": row["name"],
         "papers": papers,
         "messages": messages,
         "generated_at": row["generated_at"],
+        "status": status,
     }
+    if status == "generating" and row["task_id"]:
+        result["task_id"] = row["task_id"]
+    return result

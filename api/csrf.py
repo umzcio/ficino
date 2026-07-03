@@ -58,7 +58,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             cookie = request.cookies.get(CSRF_COOKIE_NAME)
             header = request.headers.get(CSRF_HEADER_NAME)
             if not cookie or not header or not secrets.compare_digest(cookie, header):
-                logger.warn(
+                logger.warning(
                     "csrf_validation_failed",
                     method=method, path=request.url.path,
                     has_cookie=bool(cookie), has_header=bool(header),

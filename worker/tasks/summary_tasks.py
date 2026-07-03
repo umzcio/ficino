@@ -198,7 +198,7 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
             if match:
                 messages = _coerce_messages(json.loads(match.group(0)))
         except (json.JSONDecodeError, ValueError):
-            log.warn("summary_parse_failed", preview=cleaned[:200])
+            log.warning("summary_parse_failed", preview=cleaned[:200])
             # Fallback: wrap raw text as a single message
             messages = [{"role": "paper", "type": "summary", "content": cleaned}]
 
@@ -208,7 +208,7 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
         # status='complete' with an empty message list (which the GET handler
         # would short-circuit forever without a path to regenerate).
         if not messages:
-            log.warn("summary_parse_empty", preview=cleaned[:200])
+            log.warning("summary_parse_empty", preview=cleaned[:200])
             messages = [{"role": "paper", "type": "summary", "content": cleaned or "(no content returned)"}]
 
         # Store
@@ -340,7 +340,7 @@ def generate_corpus_synthesis(
             if match:
                 messages = _coerce_messages(json.loads(match.group(0)))
         except (json.JSONDecodeError, ValueError):
-            log.warn("synthesis_parse_failed", preview=cleaned[:200])
+            log.warning("synthesis_parse_failed", preview=cleaned[:200])
             messages = [{"role": "synthesis", "type": "summary", "content": cleaned}]
 
         # If the regex didn't match at all (not a parse failure, just no
@@ -358,13 +358,19 @@ def generate_corpus_synthesis(
         # but a post-INSERT step crashed doesn't raise UniqueViolationError
         # (the synthesis_id is allocated by the API and stays stable across
         # retries) — the earlier idempotency guard catches the already-
-        # complete case, so this handles only the partial-write path.
+        # complete case, so this handles only the partial-write path. The
+        # row being updated here is the 'generating' placeholder the API
+        # inserted at dispatch time (Wave-5 Task 4), so status/task_id must
+        # be reset to 'complete'/NULL explicitly — the ON CONFLICT branch
+        # doesn't touch columns absent from the SET list.
         messages_json = json.dumps(messages, default=str)
         execute(
-            """INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages)
-               VALUES ($1, $2, $3, $4, $5)
+            """INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages, status, task_id)
+               VALUES ($1, $2, $3, $4, $5, 'complete', NULL)
                ON CONFLICT (id) DO UPDATE SET
                  messages = EXCLUDED.messages,
+                 status = 'complete',
+                 task_id = NULL,
                  generated_at = NOW()""",
             synthesis_id, user_id, name,
             paper_ids, messages_json,
@@ -377,4 +383,17 @@ def generate_corpus_synthesis(
         log.error("corpus_synthesis_failed", error=str(exc))
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc)
+        # Retries exhausted — mark the placeholder row 'error' (mirrors
+        # generate_paper_summary's wave-1-era pattern) so GET
+        # /messages/groups/{id} can surface a real failure instead of the
+        # frontend spinning on 'generating' forever with a dead task_id.
+        try:
+            execute(
+                """UPDATE corpus_syntheses
+                   SET status = 'error', task_id = NULL
+                   WHERE id = $1""",
+                synthesis_id,
+            )
+        except Exception as update_exc:
+            log.error("corpus_synthesis_error_mark_failed", error=str(update_exc))
         raise

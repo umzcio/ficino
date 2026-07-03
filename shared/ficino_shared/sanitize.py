@@ -70,11 +70,6 @@ def fence_untrusted(text: str, *, max_len: int = _MAX_BLOCK_LEN) -> str:
     return f"{_FENCE_OPEN}{cleaned}{_FENCE_CLOSE}"
 
 
-def fence_lines(lines: list[str], *, max_len: int = _MAX_BLOCK_LEN) -> str:
-    """Fence a list of lines as one block, preserving line structure."""
-    return fence_untrusted("\n".join(lines), max_len=max_len)
-
-
 def sanitize_inline(text: object, *, max_len: int = 200) -> str:
     """Neutralize a short metadata field before inline prompt interpolation.
 

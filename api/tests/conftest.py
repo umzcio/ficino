@@ -21,13 +21,12 @@ import asyncpg
 import httpx
 import pytest_asyncio
 
+from ficino_shared.constants import DEFAULT_DATABASE_URL
+
 # Make sure main.py finds the right settings at import time. The api container
 # already provides DATABASE_URL via env_file; in local dev, point at the
 # ficino-postgres service.
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql://ficino:ficino@postgres:5432/ficino",
-)
+os.environ.setdefault("DATABASE_URL", DEFAULT_DATABASE_URL)
 os.environ.setdefault("REDIS_URL", "redis://redis:6379/0")
 os.environ.setdefault("AUTH_PROVIDER", "none")
 os.environ.setdefault("ENVIRONMENT", "test")

@@ -10,9 +10,11 @@ Run inside the worker container:
 """
 import os
 
+from ficino_shared.constants import DEFAULT_DATABASE_URL
+
 # Set BEFORE any worker import: lib.storage builds its backend at import
 # time and the local backend creates its directories.
 os.environ.setdefault("UPLOAD_DIR", "/tmp/ficino-test-uploads")
 os.environ.setdefault("FIGURES_DIR", "/tmp/ficino-test-figures")
-os.environ.setdefault("DATABASE_URL", "postgresql://ficino:ficino@postgres:5432/ficino")
+os.environ.setdefault("DATABASE_URL", DEFAULT_DATABASE_URL)
 os.environ.setdefault("REDIS_URL", "redis://redis:6379/0")

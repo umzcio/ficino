@@ -128,36 +128,98 @@ export function startPoll<T>(
 }
 
 /**
- * React hook wrapper around startPoll. Every poller started via the
+ * Framework-free core behind usePollTask: tracks every inner startPoll
+ * controller in a Set (so unmount can stop them all) and removes each one
+ * the moment it reaches a terminal state, not just on explicit stop().
+ *
+ * Before this, a controller stayed in the Set forever once its poll
+ * finished on its own (onDone fired, or maxAttempts was exhausted) — for a
+ * long-lived component that starts many short-lived pollers over its
+ * lifetime (e.g. one per user action) rather than unmounting between them,
+ * the Set only ever grew, holding dead controllers whose `stop()` is a
+ * no-op. Harmless individually, but an unbounded leak for the component's
+ * lifetime. Exported standalone (mirrors startPoll itself) so the
+ * cleanup-on-terminal behavior is unit testable without rendering React —
+ * this repo has no @testing-library/react.
+ */
+export interface PollTracker {
+  poll: <T>(opts: PollOptions<T>) => PollController
+  stopAll: () => void
+  setActive: (v: boolean) => void
+  controllers: Set<PollController>
+}
+
+export function createPollTracker(): PollTracker {
+  let active = true
+  const controllers = new Set<PollController>()
+
+  function poll<T>(opts: PollOptions<T>): PollController {
+    // A plain mutable box (not a `let` reassigned once) so `cleanup` can
+    // close over the eventual controller without tripping prefer-const —
+    // `inner` genuinely never gets reassigned, only `inner.current` does.
+    const inner: { current: PollController | null } = { current: null }
+    let errorCount = 0
+    const cleanup = () => { if (inner.current) controllers.delete(inner.current) }
+
+    const wrapped: PollOptions<T> = {
+      ...opts,
+      onDone: (result) => {
+        cleanup()
+        return opts.onDone(result)
+      },
+      onError: (err) => {
+        errorCount += 1
+        opts.onError?.(err)
+        // Mirrors startPoll's own give-up check: when maxAttempts is
+        // exhausted, the chain stops itself without ever calling onDone,
+        // so this is the only terminal signal that path produces.
+        if (opts.maxAttempts !== undefined && errorCount >= opts.maxAttempts) {
+          cleanup()
+        }
+      },
+    }
+
+    inner.current = startPoll(wrapped, () => active)
+    controllers.add(inner.current)
+    return {
+      stop: () => {
+        inner.current?.stop()
+        cleanup()
+      },
+    }
+  }
+
+  function stopAll() {
+    controllers.forEach((c) => c.stop())
+    controllers.clear()
+  }
+
+  function setActive(v: boolean) {
+    active = v
+  }
+
+  return { poll, stopAll, setActive, controllers }
+}
+
+/**
+ * React hook wrapper around createPollTracker. Every poller started via the
  * returned `poll()` is auto-stopped on unmount, so call sites don't need
  * their own mountedRef plumbing just to avoid a setState-after-unmount —
  * they still get an explicit PollController.stop() back for cancelling on
  * a dependency change (mode switch, id change) before unmount.
  */
 export function usePollTask() {
-  const active = useRef(true)
-  const controllers = useRef<Set<PollController>>(new Set())
+  const trackerRef = useRef<PollTracker | null>(null)
+  if (trackerRef.current === null) trackerRef.current = createPollTracker()
 
   useEffect(() => {
-    active.current = true
-    const liveControllers = controllers.current
+    const tracker = trackerRef.current!
+    tracker.setActive(true)
     return () => {
-      active.current = false
-      liveControllers.forEach((c) => c.stop())
-      liveControllers.clear()
+      tracker.setActive(false)
+      tracker.stopAll()
     }
   }, [])
 
-  const poll = useCallback(<T,>(opts: PollOptions<T>): PollController => {
-    const inner = startPoll(opts, () => active.current)
-    controllers.current.add(inner)
-    return {
-      stop: () => {
-        inner.stop()
-        controllers.current.delete(inner)
-      },
-    }
-  }, [])
-
-  return poll
+  return useCallback(<T,>(opts: PollOptions<T>): PollController => trackerRef.current!.poll(opts), [])
 }

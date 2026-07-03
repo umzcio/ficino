@@ -33,7 +33,9 @@ logger = structlog.get_logger(__name__)
 # Synthetic engagement-metric ranges. Used in both the first-generation
 # pipeline (generate_feed) and the single-post regenerate path so both
 # sources agree. Not cosmetically random across the two — any future
-# tuning lands in one place. Mirrored in api/constants.py for reference.
+# tuning lands in one place. This is the single source of truth (the
+# api/constants.py mirror was dead — the api can't import worker code
+# across containers — and was removed, R10 BP-16).
 ENGAGEMENT_RANGES: dict[str, tuple[int, int]] = {
     "likes": (100, 5000),
     "retweets": (20, 1000),
@@ -216,7 +218,7 @@ def _detect_contradictions(
             # Log type + message so operator can tell a rate-limit from a
             # parse error from a connection refusal. Still swallow so a
             # single bad pair doesn't kill the whole contradiction pass.
-            logger.warn(
+            logger.warning(
                 "contradiction_classify_failed",
                 error_type=type(e).__name__,
                 error=str(e)[:200],
@@ -348,7 +350,7 @@ def generate_feed(
         effective_user_id = user_id or STUB_USER_ID
         paper_ids = _get_paper_ids_for_corpus(corpus_id, tag_filter, effective_user_id)
         if not paper_ids:
-            log.warn("no_papers_found")
+            log.warning("no_papers_found")
             # Store empty feed
             execute(
                 """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
@@ -553,7 +555,7 @@ def generate_feed(
             chunks = all_chunks.get(persona_key, [])
 
             if not chunks:
-                log.warn("no_chunks_for_persona", persona=persona_key)
+                log.warning("no_chunks_for_persona", persona=persona_key)
                 continue
 
             # Chunk-window rotation: if this persona appears 2+ times in the
@@ -623,7 +625,7 @@ def generate_feed(
                         filtered = fresh_filtered
                         re_retrieved = True
                 except Exception as e:
-                    log.warn("re_retrieve_failed", persona=persona_key, error=str(e))
+                    log.warning("re_retrieve_failed", persona=persona_key, error=str(e))
 
             log.info(
                 "persona_chunks_after_exclusion",
@@ -856,7 +858,7 @@ def generate_feed(
             base_index = len(existing_posts) if append_to_feed_id else 0
             _write_feed_posts_index(feed_id, posts, base_index, effective_user_id)
         except Exception as e:
-            log.warn(
+            log.warning(
                 "feed_posts_index_sync_failed",
                 feed_id=feed_id,
                 error_type=type(e).__name__,
@@ -877,7 +879,7 @@ def generate_feed(
                 queue="persona",
             )
         except Exception:
-            log.warn("post_feed_alert_dispatch_failed")
+            log.warning("post_feed_alert_dispatch_failed")
 
         # Recompute preferences from likes so next generation reflects latest
         # signal. Pass user_id so the recompute writes to THIS user's row
@@ -889,7 +891,7 @@ def generate_feed(
                 queue="persona",
             )
         except Exception:
-            log.warn("preference_recompute_dispatch_failed")
+            log.warning("preference_recompute_dispatch_failed")
 
         return {
             "status": "complete",
@@ -1027,7 +1029,7 @@ def regenerate_post(
     try:
         _write_feed_posts_index(feed_id, [post_data], post_index, effective_user_id)
     except Exception as e:
-        log.warn(
+        log.warning(
             "feed_posts_index_sync_failed",
             feed_id=feed_id, post_index=post_index,
             error_type=type(e).__name__, error=str(e)[:200],

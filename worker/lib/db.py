@@ -10,11 +10,12 @@ import os
 import asyncpg
 import structlog
 
+from ficino_shared.constants import DEFAULT_DATABASE_URL
 from lib.event_loop import LoopRunner
 
 logger = structlog.get_logger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ficino:ficino@postgres:5432/ficino")
+DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 # Persistent pool + shared background event loop (R10 DUP-5: LoopRunner).
 # Round-4: loop runs on a dedicated daemon thread; sync wrappers submit
@@ -79,7 +80,7 @@ async def _execute(query: str, *args: object) -> str:
     except BaseException as exc:
         if not _is_pool_closed_error(exc):
             raise
-        logger.warn("worker_db_pool_closed_rebuilding", op="execute", error=str(exc))
+        logger.warning("worker_db_pool_closed_rebuilding", op="execute", error=str(exc))
         await _reset_pool()
         pool = await _ensure_pool()
         async with pool.acquire() as conn:
@@ -94,7 +95,7 @@ async def _fetchrow(query: str, *args: object) -> asyncpg.Record | None:
     except BaseException as exc:
         if not _is_pool_closed_error(exc):
             raise
-        logger.warn("worker_db_pool_closed_rebuilding", op="fetchrow", error=str(exc))
+        logger.warning("worker_db_pool_closed_rebuilding", op="fetchrow", error=str(exc))
         await _reset_pool()
         pool = await _ensure_pool()
         async with pool.acquire() as conn:
@@ -109,7 +110,7 @@ async def _fetch(query: str, *args: object) -> list[asyncpg.Record]:
     except BaseException as exc:
         if not _is_pool_closed_error(exc):
             raise
-        logger.warn("worker_db_pool_closed_rebuilding", op="fetch", error=str(exc))
+        logger.warning("worker_db_pool_closed_rebuilding", op="fetch", error=str(exc))
         await _reset_pool()
         pool = await _ensure_pool()
         async with pool.acquire() as conn:
@@ -127,7 +128,7 @@ async def _executemany(query: str, rows: list[tuple]) -> None:
     except BaseException as exc:
         if not _is_pool_closed_error(exc):
             raise
-        logger.warn("worker_db_pool_closed_rebuilding", op="executemany", error=str(exc))
+        logger.warning("worker_db_pool_closed_rebuilding", op="executemany", error=str(exc))
         await _reset_pool()
         pool = await _ensure_pool()
         async with pool.acquire() as conn:

@@ -20,28 +20,6 @@ def test_pdf_roundtrip(local):
     local.delete_pdf("u1", "paper-1")
 
 
-def test_figure_roundtrip(local):
-    local.save_figure("u1", "paper-1", "fig_p1_0.png", b"png-bytes")
-    assert local.read_figure_bytes("u1", "paper-1", "fig_p1_0.png") == b"png-bytes"
-
-
-def test_read_figure_rejects_traversal(tmp_path):
-    """DUP-2: resolve/relative_to containment must cover the paper_id
-    component. The secret sits exactly one level above figures_dir, so a
-    naive join would READ it successfully — only the containment check
-    raises. ValueError ONLY: accepting FileNotFoundError would let a
-    non-discriminating failure pass (caught by review in wave 2)."""
-    figures = tmp_path / "figures"
-    figures.mkdir()
-    secret = tmp_path / "secret.txt"
-    secret.write_text("nope")
-    local = build_backend(
-        "local", upload_dir=str(tmp_path / "uploads"), figures_dir=str(figures)
-    )
-    with pytest.raises(ValueError):
-        local.read_figure_bytes("u1", "..", "secret.txt")
-
-
 def test_unknown_provider_raises():
     with pytest.raises(ValueError):
         build_backend("s3", upload_dir="/tmp/x", figures_dir="/tmp/y")

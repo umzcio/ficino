@@ -61,7 +61,7 @@ Everything below is live in production.
 | Feature | Description |
 |---------|-------------|
 | **Paper summaries** | Click a paper in Messages → structured chat-style summary (TL;DR, methods, findings, limitations). Generated once, cached. Generation survives navigation and page refresh |
-| **Group chats** | Select multiple papers for cross-corpus synthesis — agreements, contradictions, gaps presented as a conversation between papers |
+| **Group chats** | Select multiple papers for cross-corpus synthesis — agreements, contradictions, gaps presented as a conversation between papers. Creatable from the Messages inbox ("New Group Chat") |
 | **"What's happening" panel** | Corpus sidebar redesigned as a content discovery module. Papers shown as headlines with TL;DR teasers. Click to expand for details or navigate to summary. Also appears at the top of Explore on mobile |
 | **Auto-tagging** | Papers automatically receive 2-3 topic tags during ingestion (piggybacks on the metadata extraction LLM call) |
 | **Metadata extraction** | Title, authors, year, DOI auto-detected from PDF content |
@@ -100,7 +100,7 @@ Everything below is live in production.
 | **Contradiction alerts** | Triggered when a new paper contradicts findings in an existing corpus paper |
 | **Disagreement spikes** | Flagged when feed generation produces unusual debate volume |
 | **Reading gap nudges** | Prompted when you've debated a paper in feeds but never read its summary |
-| **Stale corpus** | Nudges for papers sitting without generating any discourse |
+| **Stale corpus** | Nudges for papers sitting without generating any discourse. Checked daily via a scheduled Celery beat task (03:00 UTC) |
 
 ### Organization
 | Feature | Description |

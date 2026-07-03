@@ -3,7 +3,7 @@ import { LogOut, Palette, User, Activity } from 'lucide-react'
 import { Section, SettingRow, Select, EditableField } from '../_shared/primitives'
 import { Spinner, EmptyState } from '../_shared/AsyncState'
 import { useAuth } from '../../auth/AuthContext'
-import { getMe, listAuditLog, type UserProfile, type AuditLogEntry } from '../../lib/api'
+import { getMe, listAuditLog, getApiErrorDetail, type UserProfile, type AuditLogEntry } from '../../lib/api'
 import { timeAgo } from '../../lib/timeAgo'
 
 interface Props {
@@ -43,7 +43,7 @@ export function AccountTab({ settings: s, onUpdate }: Props) {
         setProfile(me)
         setAuditLog(log)
       } catch (err) {
-        if (active) setAuditError(err instanceof Error ? err.message : 'Failed to load account activity')
+        if (active) setAuditError(getApiErrorDetail(err, 'Failed to load account activity'))
       } finally {
         if (active) setAuditLoading(false)
       }

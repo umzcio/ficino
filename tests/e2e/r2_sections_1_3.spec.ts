@@ -115,48 +115,17 @@ test.describe('Section 1: Paper Upload & Ingestion', () => {
 
 test.describe('Section 2: Feed Generation', () => {
 
-  test('S2-01: Feed header shows paper and persona counts', async ({ page }) => {
-    await waitForApp(page)
-    // The feed header has a status line with papers/personas
-    const header = page.locator('.sticky')
-    await expect(header.first()).toBeVisible()
-    await page.screenshot({ path: ssPath('r2_s2_feed_header'), fullPage: false })
-
-    // Get the text content of the header status line
-    const statusLine = page.locator('.text-text-muted', { hasText: /paper|persona/ }).first()
-    if (await statusLine.isVisible()) {
-      const text = await statusLine.textContent()
-      console.log(`Feed header status: "${text}"`)
-      // Verify it contains "papers" and "personas"
-      expect(text).toContain('paper')
-      expect(text).toContain('persona')
-    }
-  })
-
-  test('S2-02: BUG-004 FIX — paper count format "X of Y papers" vs "X papers"', async ({ page }) => {
-    await waitForApp(page)
-    const statusLine = page.locator('.text-text-muted', { hasText: /paper/ }).first()
-    await expect(statusLine).toBeVisible({ timeout: 10_000 })
-    const text = await statusLine.textContent() || ''
-    console.log(`BUG-004 verification — status text: "${text}"`)
-    await page.screenshot({ path: ssPath('r2_s2_bug004_paper_count'), fullPage: false })
-
-    // The fix: shows "X of Y papers" when counts differ, "X papers" when same
-    // Either format is acceptable — we just verify neither is a raw mismatch
-    const matchXofY = text.match(/(\d+)\s+of\s+(\d+)\s+papers?/)
-    const matchXpapers = text.match(/(\d+)\s+papers?/)
-
-    if (matchXofY) {
-      const [, filtered, total] = matchXofY
-      console.log(`BUG-004 PASS: Shows "${filtered} of ${total} papers" (filtered view)`)
-      expect(parseInt(filtered)).toBeLessThanOrEqual(parseInt(total))
-    } else if (matchXpapers) {
-      console.log(`BUG-004 PASS: Shows "${matchXpapers[1]} papers" (counts match)`)
-    } else {
-      // Could be 0 papers state
-      console.log('BUG-004 INFO: Could not parse paper count from status line')
-    }
-  })
+  // S2-01 ("Feed header shows paper and persona counts") and S2-02
+  // ("BUG-004 FIX — paper count format") DELETED: the aggregate
+  // "X papers, Y personas" status line they asserted on no longer exists
+  // anywhere in FeedHeader (frontend/src/App.tsx) or any other Feed
+  // component — confirmed by reading the current FeedHeader render and
+  // grepping the whole frontend src for that copy pattern. Both tests were
+  // matching `.text-text-muted` (a class used broadly across the UI) and
+  // incidentally picking up an unrelated post's summary text instead, which
+  // is what made them read as flaky assertion failures rather than the
+  // structurally-obsolete-UI case they actually are. Per-paper chunk/figure
+  // counts are still shown in CorpusPanel; there is no other aggregate count.
 
   test('S2-03: Generate button state reflects paper availability', async ({ page }) => {
     await waitForApp(page)

@@ -4,6 +4,7 @@ import { clearAllFeeds, clearAllSummaries, clearAllUserPosts, clearAllPapers, cl
 import { estimateCacheSize, clearOfflineData, getLastSync } from '../../lib/workspace-download'
 import type { Workspace } from '../../types'
 import { Section, SettingRow, DangerButton, Loader2 } from '../_shared/primitives'
+import { timeAgo } from '../../lib/timeAgo'
 
 interface Props {
   workspaces?: Workspace[]
@@ -15,15 +16,6 @@ export function StorageTab({ onDownloadWorkspace, workspaces }: Props) {
   const [syncTimes, setSyncTimes] = useState<Record<string, number>>({})
   const [clearing, setClearing] = useState(false)
   const [cleared, setCleared] = useState(false)
-  // Date.now() is impure to call during render — the react-hooks "purity"
-  // rule flags a direct call inside formatAgo below (it ran on every render,
-  // same as any other in-render expression). Capture it once via a lazy
-  // useState initializer instead: that runs exactly once, at mount, the
-  // same sanctioned pattern React docs use for useState(() =>
-  // window.innerWidth). A live-ticking "5m ago" label isn't worth a
-  // setInterval subscription; "since this component mounted" is close
-  // enough for a settings-page timestamp.
-  const [now] = useState<number>(() => Date.now())
 
   useEffect(() => {
     estimateCacheSize().then(({ formatted }) => setCacheSize(formatted))
@@ -53,15 +45,6 @@ export function StorageTab({ onDownloadWorkspace, workspaces }: Props) {
     setTimeout(() => setCleared(false), 2000)
   }
 
-  const formatAgo = (ts: number) => {
-    const mins = Math.floor((now - ts) / 60000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m ago`
-    const hrs = Math.floor(mins / 60)
-    if (hrs < 24) return `${hrs}h ago`
-    return `${Math.floor(hrs / 24)}d ago`
-  }
-
   return (
     <div className="p-4 space-y-4">
       <Section icon={HardDrive} title="Offline & Storage">
@@ -79,7 +62,7 @@ export function StorageTab({ onDownloadWorkspace, workspaces }: Props) {
                     <div className="text-[13px] text-text truncate">{ws.name}</div>
                     <div className="text-[11px] text-text-muted">
                       {syncTimes[ws.id]
-                        ? `Synced ${formatAgo(syncTimes[ws.id])}`
+                        ? `Synced ${timeAgo(new Date(syncTimes[ws.id]))}`
                         : 'Not downloaded'}
                     </div>
                   </div>
