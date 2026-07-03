@@ -330,9 +330,22 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
           </div>
 
           {workspaces.map((ws) => (
-            <button
+            // Can't be a real <button> — Rename/Delete below are real
+            // buttons and nesting buttons is invalid HTML (FE-13). Use the
+            // role="button" div pattern from ReadingListsView so Rename/
+            // Delete stay independently tabbable siblings.
+            <div
               key={ws.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Switch to workspace ${ws.name}`}
               onClick={() => onSwitch(ws.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSwitch(ws.id)
+                }
+              }}
               className="w-full text-left p-4 rounded-2xl border flex items-start gap-3 bg-transparent cursor-pointer hover:bg-bg-hover transition-colors group"
               style={{
                 borderColor: ws.id === activeId ? 'color-mix(in srgb, var(--color-gold) 25%, transparent)' : 'var(--color-border)',
@@ -388,7 +401,7 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                   </button>
                 </div>
               )}
-            </button>
+            </div>
           ))}
 
           <NewWorkspaceInput onCreate={onCreate} />
