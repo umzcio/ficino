@@ -11,7 +11,7 @@ from collections import defaultdict
 import structlog
 
 from celery_app import app
-from lib.db import fetch, fetchrow, execute
+from lib.db import fetch, execute
 from lib.settings import STUB_USER_ID
 
 logger = structlog.get_logger(__name__)
@@ -191,18 +191,3 @@ def _store_preferences(user_id: str, preferences: dict) -> None:
                  updated_at = NOW()""",
         user_id, prefs_json,
     )
-
-
-def get_preferences(user_id: str | None = None) -> dict | None:
-    """Read stored preferences from user_settings. Returns None if not computed yet."""
-    uid = user_id or STUB_USER_ID
-    row = fetchrow(
-        "SELECT settings FROM user_settings WHERE user_id = $1",
-        uid,
-    )
-    if not row:
-        return None
-    settings = row["settings"]
-    if isinstance(settings, str):
-        settings = json.loads(settings)
-    return settings.get("preferences")
