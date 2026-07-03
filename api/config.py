@@ -9,27 +9,27 @@ class Settings(BaseSettings):
 
     # Provider selection
     llm_provider: str = "ollama"  # "ollama" or "api"
-    embed_provider: str = "ollama"  # "ollama" or "api"
 
     # Ollama
     ollama_base_url: str = "http://host.docker.internal:11434"
     ollama_llm_model: str = "qwen3.5:latest"
-    ollama_embed_model: str = "bge-m3:latest"
-    ollama_vision_model: str = "gemma4:latest"
-
-    # Embedding dimension
-    embed_dim: int = 1024
 
     # API keys (for api provider)
     anthropic_api_key: str = ""
-    openai_api_key: str = ""
-    voyage_api_key: str = ""
     claude_model: str = "claude-sonnet-4-6"
+
+    # R10 DEP-5: `embed_provider`, `ollama_embed_model`, `ollama_vision_model`,
+    # `openai_api_key`, `voyage_api_key` used to live here as Settings-class
+    # mirrors with zero `settings.X` reads anywhere in api/ — deleted. The
+    # env vars themselves are NOT dead: EMBED_PROVIDER/OLLAMA_EMBED_MODEL/
+    # OLLAMA_VISION_MODEL/OPENAI_API_KEY/VOYAGE_API_KEY are real per-user
+    # settings keys read by the worker via `get_active` (see
+    # api/routers/settings.py's DEFAULTS + shared/ficino_shared/settings_schema.py,
+    # which is the actual source of truth for these knobs now).
 
     # Auth
     auth_provider: str = "none"  # "none", "basic", "supabase"
     supabase_url: str = ""
-    supabase_anon_key: str = ""
     supabase_jwt_secret: str = ""
     # Secure-by-default: registration is OFF unless the operator opts in.
     # basic_routes.py still allows the first-ever user to register so a
@@ -53,7 +53,10 @@ class Settings(BaseSettings):
     # App
     environment: str = "development"
     max_upload_size_mb: int = 50
-    generation_limit_per_day: int = 20
+    # R10 DEP-5: `generation_limit_per_day` deleted — zero `settings.X` reads
+    # anywhere (api or worker); the live knob is `rate_limit_generations_per_day`
+    # above. .env.example documented both, so operators could tune the dead
+    # one and see no effect.
     cors_origins: str = "https://ficino.app,https://ficino.ai"
 
     # Cookie Domain attribute. Set to a parent like ".ficino.app" on hosted
@@ -74,7 +77,9 @@ class Settings(BaseSettings):
     # the play button stays hidden in the frontend (feature-detected via the
     # /feed/{id}/audio endpoint returning 501).
     elevenlabs_api_key: str = ""
-    elevenlabs_model_id: str = "eleven_turbo_v2_5"  # fast + cheap; good enough for post-length snippets
+    # R10 DEP-5: `elevenlabs_model_id` (Settings-class mirror) deleted — zero
+    # `settings.elevenlabs_model_id` reads in api/. The model id is read
+    # env-side by the worker only (worker/lib/tts.py, ELEVENLABS_MODEL_ID).
 
     # Feature flag (2.20). When true, post search hits the normalized
     # feed_posts table via tsvector — O(log n) indexed search. When false,
