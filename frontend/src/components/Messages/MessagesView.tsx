@@ -27,10 +27,22 @@ export function MessagesView({ workspaceId, onOpenThread, initialPaperId, onInit
   // react.dev "Adjusting some state when a prop changes"). Swaps to the
   // paper view the instant a new one-shot `initialPaperId` arrives from
   // the parent without the cascading-render effect the lint rule flags.
-  const [consumedPaperId, setConsumedPaperId] = useState<string | null | undefined>(initialPaperId)
-  if (initialPaperId && initialPaperId !== consumedPaperId) {
-    setConsumedPaperId(initialPaperId)
-    setView({ type: 'paper', paperId: initialPaperId })
+  //
+  // R10 wave-4 final-review fix: this used to be consumed-semantics
+  // (`initialPaperId !== consumedPaperId`, and consumedPaperId was never
+  // reset when the prop cleared to null). That meant clicking the SAME
+  // paper twice — with an inbox visit in between, which is how the parent
+  // clears initialPaperId back to null after consuming it — was a silent
+  // no-op the second time, because consumedPaperId still held that paper's
+  // id from the first click and the prop's new value equalled it again.
+  // prev-prop semantics (compare against the previous *prop* value, reset
+  // on every change including to null) is the pattern GroupChatView's
+  // loadedGroupId already uses elsewhere in this file's sibling — mirror
+  // it here so a repeat click always re-navigates.
+  const [prevPaperId, setPrevPaperId] = useState<string | null | undefined>(initialPaperId)
+  if (initialPaperId !== prevPaperId) {
+    setPrevPaperId(initialPaperId)
+    if (initialPaperId) setView({ type: 'paper', paperId: initialPaperId })
   }
 
   // onInitialPaperConsumed is intentionally omitted from the deps below:
