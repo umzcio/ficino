@@ -255,7 +255,6 @@ async def get_feed(
 @router.post("/{feed_id}/audio", status_code=202)
 async def request_feed_audio(
     feed_id: str,
-    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
@@ -296,7 +295,6 @@ async def request_feed_audio(
 @router.post("/{feed_id}/podcast", status_code=202)
 async def request_feed_podcast(
     feed_id: str,
-    request: Request,
     user: AuthUser = Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, str]:
