@@ -2,9 +2,11 @@
 
 from pydantic_settings import BaseSettings
 
+from ficino_shared.constants import DEFAULT_DATABASE_URL
+
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://ficino:ficino@postgres:5432/ficino"
+    database_url: str = DEFAULT_DATABASE_URL
     redis_url: str = "redis://redis:6379/0"
 
     # Provider selection

@@ -21,8 +21,10 @@ import sys
 
 import asyncpg
 
+from ficino_shared.constants import DEFAULT_DATABASE_URL
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ficino:ficino@postgres:5432/ficino")
+
+DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 
 async def backfill() -> None:

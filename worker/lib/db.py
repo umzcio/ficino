@@ -10,11 +10,12 @@ import os
 import asyncpg
 import structlog
 
+from ficino_shared.constants import DEFAULT_DATABASE_URL
 from lib.event_loop import LoopRunner
 
 logger = structlog.get_logger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ficino:ficino@postgres:5432/ficino")
+DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 # Persistent pool + shared background event loop (R10 DUP-5: LoopRunner).
 # Round-4: loop runs on a dedicated daemon thread; sync wrappers submit
