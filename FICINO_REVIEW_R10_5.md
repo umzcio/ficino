@@ -8,7 +8,7 @@
 
 | Area | FIXED | PARTIAL | DEFERRED (approved) | Notes |
 |---|---|---|---|---|
-| API (20) | 18 | 1 (API-9) | — | API-4/18/20 residuals closed in this wave (`a8e5481`, `b0ff221`, `a9cb6f1`); API-9 is 2/3 — see deferrals |
+| API (20) | 19 | 1 (API-9) | — | API-4/18/20 residuals closed in this wave (`a8e5481`, `b0ff221`, `a9cb6f1`); API-9 is 2/3 — see deferrals |
 | Worker (18) | 18 | — | — | WORK-13/16/18 resolved via `ficino_shared` consolidation rather than in-place |
 | Frontend (21) | 21 | — | — | FE-9 carries one residual label nuance — see deferrals |
 | Duplication (20) | 15 | 3 (DUP-5/7/19) | 2 (DUP-11/20) | DUP-2/14 residuals closed this wave (`6ed869e`, `ab0c8e3`); DUP-10 closed by W4 T3 |
@@ -29,6 +29,7 @@ The 0 CRITICAL / 8 HIGH / 43 MEDIUM / 42 LOW distribution of R10 is fully dispos
 8. **Group-chat error rows are a one-way dead end:** no regeneration path (create mints a fresh uuid), no `DELETE /messages/groups/{id}`, list preview doesn't surface error status, and no `AsyncResult` staleness check mirroring `get_paper_summary`. The wave-5 pending-state work made failures *visible*; recovery UX is the named follow-up. Error rows also carry no error-detail message.
 9. **PRODUCT GAP — user decision needed:** Settings and Reading Lists are unreachable on the mobile viewport (no bottom-nav item, no drawer entry, no shortcut), so the keyboard-shortcuts a11y toggle is desktop-only. Surfaced by the e2e re-baseline; affected specs are explicitly skipped pending a navigation-design decision.
 10. Small test-infra items: `withDmIds` re-stamps unchanged DM bubbles per round-trip (state-drop hazard if bubbles gain local state); the `navTo` e2e helper is triplicated; `review.spec.ts` has three pre-existing bare `test.skip()`s; e2e runs accumulate junk data in the shared dev DB.
+11. Two wave-1 carried trivia, never actioned: the CI migration explicit-list comment was to be clarified (it shipped adequate but the requested wording change was not made) and `worker/tasks/audio_tasks.py`'s local-import block is non-alphabetized. Also: `infra/postgres/*.py` bare-host invocation now additionally requires `pip install ./shared` (containers unaffected); `create_group_chat`'s dispatch-before-insert has a microsecond clobber window that folds into deferral #8's AsyncResult follow-up.
 
 ## New findings during remediation (not in R10 — caught by the campaign's own review loops)
 
