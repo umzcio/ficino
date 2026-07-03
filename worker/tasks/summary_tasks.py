@@ -198,7 +198,7 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
             if match:
                 messages = _coerce_messages(json.loads(match.group(0)))
         except (json.JSONDecodeError, ValueError):
-            log.warn("summary_parse_failed", preview=cleaned[:200])
+            log.warning("summary_parse_failed", preview=cleaned[:200])
             # Fallback: wrap raw text as a single message
             messages = [{"role": "paper", "type": "summary", "content": cleaned}]
 
@@ -208,7 +208,7 @@ def generate_paper_summary(self: Task, paper_id: str) -> dict[str, object]:
         # status='complete' with an empty message list (which the GET handler
         # would short-circuit forever without a path to regenerate).
         if not messages:
-            log.warn("summary_parse_empty", preview=cleaned[:200])
+            log.warning("summary_parse_empty", preview=cleaned[:200])
             messages = [{"role": "paper", "type": "summary", "content": cleaned or "(no content returned)"}]
 
         # Store
@@ -340,7 +340,7 @@ def generate_corpus_synthesis(
             if match:
                 messages = _coerce_messages(json.loads(match.group(0)))
         except (json.JSONDecodeError, ValueError):
-            log.warn("synthesis_parse_failed", preview=cleaned[:200])
+            log.warning("synthesis_parse_failed", preview=cleaned[:200])
             messages = [{"role": "synthesis", "type": "summary", "content": cleaned}]
 
         # If the regex didn't match at all (not a parse failure, just no

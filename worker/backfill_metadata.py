@@ -1,4 +1,14 @@
-"""One-time script to backfill metadata for existing papers."""
+"""One-time script to backfill metadata for existing papers.
+
+R10 DEP-10: not referenced by any Dockerfile, compose file, celery beat
+schedule, or doc — it predates the current metadata/tags flow and is not
+part of the running system. Kept for operator use; run manually:
+
+    docker compose exec worker python backfill_metadata.py
+
+Prints progress via plain print() rather than structlog — this is an
+interactive operator script, not a Celery task, so stdout output read
+directly off the terminal is the point (R10 BP-19)."""
 
 from lib.metadata_extractor import extract_metadata_sync
 from lib.db import fetch, execute

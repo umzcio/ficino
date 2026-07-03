@@ -137,7 +137,7 @@ async def get_paper_summary(
     # R10 API-1). Treat it like a dead task: drop it so it falls through
     # to the dispatch branch, which resets status via its upsert.
     if summary and (summary["status"] or "complete") == "error":
-        logger.warn("paper_summary_error_redispatch", paper_id=paper_id)
+        logger.warning("paper_summary_error_redispatch", paper_id=paper_id)
         summary = None
 
     # Workers can die mid-task (OOM, SIGKILL, container restart) without
@@ -151,7 +151,7 @@ async def get_paper_summary(
         except Exception:
             task_state = "UNKNOWN"
         if task_state in ("FAILURE", "REVOKED", "UNKNOWN"):
-            logger.warn(
+            logger.warning(
                 "paper_summary_stuck_generating",
                 paper_id=paper_id,
                 old_task_id=summary["task_id"],

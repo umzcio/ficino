@@ -146,10 +146,10 @@ def _get_archivist_system_prompt() -> str:
         if db_prompt and str(db_prompt).strip():
             body = str(db_prompt)
         else:
-            logger.warn("archivist_persona_prompt_missing_using_fallback")
+            logger.warning("archivist_persona_prompt_missing_using_fallback")
             body = _ARCHIVIST_SYSTEM_FALLBACK
     except Exception as exc:  # DB blip → degrade rather than fail the task
-        logger.warn("archivist_persona_prompt_load_failed", error=str(exc))
+        logger.warning("archivist_persona_prompt_load_failed", error=str(exc))
         body = _ARCHIVIST_SYSTEM_FALLBACK
     return body + _ARCHIVIST_CONTEXT_SUFFIX
 
@@ -238,7 +238,7 @@ def respond_to_user_post(self: Task, user_post_id: str, corpus_id: str | None = 
         known = _known_citations(chunks)
         response, hallucinated = _validate_citations(response, known)
         if hallucinated:
-            log.warn(
+            log.warning(
                 "archivist_hallucinated_citation",
                 count=len(hallucinated),
                 citations=hallucinated[:10],
@@ -395,7 +395,7 @@ def respond_to_user_post_followup(self: Task, user_post_id: str) -> dict:
         known = _known_citations(chunks)
         response, hallucinated = _validate_citations(response, known)
         if hallucinated:
-            log.warn(
+            log.warning(
                 "archivist_followup_hallucinated_citation",
                 count=len(hallucinated),
                 citations=hallucinated[:10],

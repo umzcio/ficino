@@ -389,7 +389,7 @@ async def delete_post(
             feed_id, post_index,
         )
     except Exception as e:
-        logger.warn(
+        logger.warning(
             "feed_posts_deleted_sync_failed",
             feed_id=feed_id, post_index=post_index,
             error_type=type(e).__name__, error=str(e)[:200],

@@ -79,7 +79,7 @@ async def _embed_ollama(texts: list[str]) -> list[list[float]]:
                         if attempt == 2:
                             raise
                         wait = 2 * (3 ** attempt)
-                        logger.warn(
+                        logger.warning(
                             "ollama_embed_retrying",
                             attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
                         )
@@ -151,7 +151,7 @@ async def _embed_voyage(texts: list[str], input_type: str = "document") -> list[
                 )
                 if resp.status_code == 429:
                     wait = 20 * (attempt + 1)
-                    logger.warn("voyage_rate_limited", attempt=attempt + 1, wait=wait)
+                    logger.warning("voyage_rate_limited", attempt=attempt + 1, wait=wait)
                     await _asyncio.sleep(wait)
                     continue
                 resp.raise_for_status()

@@ -46,4 +46,4 @@ async def record_audit(
             json.dumps(metadata or {}), ip, ua, status_code,
         )
     except Exception as e:
-        logger.warn("audit_log_write_failed", error_type=type(e).__name__, error=str(e)[:200])
+        logger.warning("audit_log_write_failed", error_type=type(e).__name__, error=str(e)[:200])

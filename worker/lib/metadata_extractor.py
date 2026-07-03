@@ -83,9 +83,9 @@ async def extract_metadata(text: str) -> dict[str, object]:
                     if 1800 <= y <= 2100:
                         year = y
                     else:
-                        logger.warn("metadata_year_out_of_range", year=y)
+                        logger.warning("metadata_year_out_of_range", year=y)
                 except (TypeError, ValueError):
-                    logger.warn("metadata_year_unparseable", raw=str(raw_year)[:30])
+                    logger.warning("metadata_year_unparseable", raw=str(raw_year)[:30])
 
             # Validate authors: must be a list of strings.
             authors_raw = data.get("authors")
@@ -109,7 +109,7 @@ async def extract_metadata(text: str) -> dict[str, object]:
             return result
 
     except Exception as e:
-        logger.warn("metadata_extraction_failed", error=str(e))
+        logger.warning("metadata_extraction_failed", error=str(e))
 
     return {"title": None, "authors": [], "year": None, "doi": None, "tags": []}
 

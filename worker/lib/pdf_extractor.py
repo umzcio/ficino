@@ -291,7 +291,7 @@ def extract_figures(file_path: str) -> list[dict[str, object]]:
     logger.info("figure_extract_start", file_path=file_path)
 
     if not figure_detector.is_available():
-        logger.warn("figure_detector_unavailable_skipping_figures")
+        logger.warning("figure_detector_unavailable_skipping_figures")
         return []
 
     # Page rendering + per-page text for the detector. 150 DPI is the
@@ -373,7 +373,7 @@ def extract_figures(file_path: str) -> list[dict[str, object]]:
             )
 
     if len(figures) > MAX_FIGURES_PER_PAPER:
-        logger.warn(
+        logger.warning(
             "figure_extract_capped",
             file_path=file_path,
             extracted=len(figures),

@@ -118,7 +118,7 @@ def _synthesize_with_fallback(
             body_preview = exc.response.text[:300]
         except Exception:  # noqa: BLE001
             pass
-        log.warn(
+        log.warning(
             "synthesis_voice_failed",
             **ctx,
             voice_id=voice_id,
@@ -141,7 +141,7 @@ def _synthesize_with_fallback(
                         fb_body = fb_exc.response.text[:300]
                     except Exception:  # noqa: BLE001
                         pass
-                log.warn(
+                log.warning(
                     "synthesis_fallback_failed",
                     **ctx,
                     error_type=type(fb_exc).__name__,
@@ -155,7 +155,7 @@ def _synthesize_with_fallback(
                 return None
         return None
     except Exception as exc:  # noqa: BLE001 — network/timeouts too
-        log.warn(
+        log.warning(
             "synthesis_error",
             **ctx,
             voice_id=voice_id,
@@ -261,7 +261,7 @@ def generate_audio_for_feed(self: Task, feed_id: str) -> dict[str, object]:
             except NotImplementedError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                log.warn(
+                log.warning(
                     "post_audio_upload_failed",
                     post_index=idx,
                     error_type=type(exc).__name__,

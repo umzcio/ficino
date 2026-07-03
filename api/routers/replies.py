@@ -577,7 +577,7 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
         res = results[idx]
         idx += 1
         if isinstance(res, BaseException):
-            logger.warn("mention_interjection_failed", handle=plan["handle"], error=str(res))
+            logger.warning("mention_interjection_failed", handle=plan["handle"], error=str(res))
             continue
         meta = plan["meta"]
         interjection_entry = {**meta, "content": res}
@@ -595,7 +595,7 @@ The user tagged you ({mentioned['handle']}). Respond as {mentioned['name']}."""
         res = results[idx]
         idx += 1
         if isinstance(res, BaseException):
-            logger.warn("interjection_failed", error=str(res))
+            logger.warning("interjection_failed", error=str(res))
         else:
             meta = organic_plan["meta"]
             interjection = {**meta, "content": res}
@@ -963,5 +963,5 @@ Jump in with your perspective as {chosen['name']} ({chosen['handle']})."""
             "messages": [{"role": "user", "content": interjection_prompt}],
         }
     except Exception as e:
-        logger.warn("interjection_prepare_failed", error=str(e))
+        logger.warning("interjection_prepare_failed", error=str(e))
         return None

@@ -41,19 +41,19 @@ def llm_error_to_http(exc: BaseException, *, event: str = "llm_call_failed") -> 
       - anything else -> 500
     """
     if isinstance(exc, asyncio.TimeoutError):
-        logger.warn(event, error=str(exc), reason="timeout")
+        logger.warning(event, error=str(exc), reason="timeout")
         return HTTPException(status_code=504, detail="LLM request timed out. Try again.")
     if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout)):
-        logger.warn(event, error=str(exc), reason="llm_unreachable")
+        logger.warning(event, error=str(exc), reason="llm_unreachable")
         return HTTPException(status_code=503, detail="LLM provider unreachable. Try again in a moment.")
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
-        logger.warn(event, error=str(exc), reason="llm_http_error", upstream_status=status)
+        logger.warning(event, error=str(exc), reason="llm_http_error", upstream_status=status)
         if 400 <= status < 500:
             return HTTPException(status_code=502, detail="LLM provider rejected our request.")
         return HTTPException(status_code=503, detail="LLM provider error. Try again in a moment.")
     if isinstance(exc, (ValueError, KeyError, TypeError)):
-        logger.warn(event, error=str(exc), reason="bad_input")
+        logger.warning(event, error=str(exc), reason="bad_input")
         return HTTPException(status_code=400, detail=f"Invalid input: {str(exc)[:200]}")
     logger.error(event, error=str(exc), error_type=type(exc).__name__)
     return HTTPException(status_code=500, detail="Internal error. See server logs.")
@@ -125,7 +125,7 @@ async def _post_ollama_chat_with_retry(
             if attempt == 2:
                 break
             wait = 2 * (3 ** attempt)  # 2s, 6s, (18s if a 4th attempt existed)
-            logger.warn(
+            logger.warning(
                 "ollama_transient_error_retrying",
                 attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
             )

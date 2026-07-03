@@ -107,7 +107,7 @@ async def _context_ollama(paper_text: str, chunks: list[dict[str, object]]) -> l
                 # Prefix is best-effort. If a single chunk fails, the rest
                 # should still get their prefix rather than the whole paper
                 # re-ingesting with zero prefixes.
-                logger.warn("context_ollama_chunk_failed", error=str(e)[:200])
+                logger.warning("context_ollama_chunk_failed", error=str(e)[:200])
                 results.append("")
     return results
 
@@ -165,7 +165,7 @@ async def _context_anthropic(paper_text: str, chunks: list[dict[str, object]]) -
                 parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
                 return "".join(parts).strip()
             except Exception as e:
-                logger.warn("context_anthropic_chunk_failed", error=str(e)[:200])
+                logger.warning("context_anthropic_chunk_failed", error=str(e)[:200])
                 return ""
 
     return await asyncio.gather(*[one(c) for c in chunks])
@@ -210,7 +210,7 @@ async def generate_contexts_for_paper(
             return ["" for _ in chunks]
         return await _context_anthropic(paper_text, chunks)
 
-    logger.warn("context_unknown_provider", provider=provider)
+    logger.warning("context_unknown_provider", provider=provider)
     return ["" for _ in chunks]
 
 

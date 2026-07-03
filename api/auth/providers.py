@@ -163,7 +163,7 @@ async def get_user_supabase(
                 audience="authenticated",
             )
     except Exception as e:
-        logger.warn("supabase_jwt_invalid", error=str(e))
+        logger.warning("supabase_jwt_invalid", error=str(e))
         raise HTTPException(status_code=401, detail="Invalid token")
 
     sub = payload.get("sub")

@@ -89,7 +89,7 @@ async def _generate_ollama(
             if attempt == 2:
                 break
             wait = 2 * (3 ** attempt)  # 2s, 6s, (18s if a 4th attempt existed)
-            logger.warn(
+            logger.warning(
                 "ollama_transient_error_retrying",
                 attempt=attempt + 1, wait_seconds=wait, error=str(e)[:120],
             )
@@ -227,19 +227,19 @@ def _parse_post_json(text: str) -> dict[str, object]:
 
     # Empty / whitespace-only means the LLM produced nothing usable. Drop.
     if not content.strip():
-        logger.warn("post_json_empty_response_dropped")
+        logger.warning("post_json_empty_response_dropped")
         raise ValueError("persona_post_empty_content")
 
     # Absurdly long blobs are almost certainly chain-of-thought spillage,
     # not a post. Drop rather than persist a novel.
     if len(content) > 4000:
-        logger.warn("post_json_fallback_too_long_dropped", response_length=len(content))
+        logger.warning("post_json_fallback_too_long_dropped", response_length=len(content))
         raise ValueError("persona_post_content_too_long")
 
     # Substantive plaintext — wrap as a plain post. Log the parse drift so
     # we can see how often models ignore the JSON contract, but do not
     # surface shape info that would leak chunk/PII content.
-    logger.warn("post_json_parse_failed_wrapped_as_plaintext",
+    logger.warning("post_json_parse_failed_wrapped_as_plaintext",
                 response_length=len(content))
     return {"post_type": "post", "content": content}
 
@@ -290,7 +290,7 @@ Respond with exactly one word: supports, contradicts, or extends
         if word in result:
             return word
 
-    logger.warn("contradiction_classify_unexpected", result=result)
+    logger.warning("contradiction_classify_unexpected", result=result)
     return "extends"
 
 

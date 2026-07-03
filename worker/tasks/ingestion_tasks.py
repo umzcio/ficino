@@ -84,6 +84,11 @@ def process_paper(
     PDF location itself (filesystem path for local, tempfile download for
     cloud backends).
     """
+    # R10 BP-19: every Celery task rebinds `log = logger.bind(...)` rather
+    # than logging on the bare module `logger` the way routers/libs do —
+    # deliberate, not drift. Binding task-scoped context (paper_id, task_id)
+    # once here means every subsequent log line in this task carries it
+    # automatically, instead of repeating it on every call site.
     log = logger.bind(paper_id=paper_id, task_id=self.request.id)
 
     # Fetch the paper's real owner first so provider settings below are
@@ -119,7 +124,7 @@ def process_paper(
                 markdown = vision_extractor.extract_with_vision_sync(file_path)
                 extraction_path = "vision_forced"
             else:
-                log.warn("vision_forced_but_unavailable_falling_back_to_pymupdf")
+                log.warning("vision_forced_but_unavailable_falling_back_to_pymupdf")
                 markdown = pdf_extractor.extract_text_pymupdf(file_path)
         elif extraction_mode == "pymupdf":
             # User forced PyMuPDF-only extraction
@@ -132,7 +137,7 @@ def process_paper(
                     markdown = marker_extractor.extract_with_marker(file_path)
                     extraction_path = "marker_clean"
                 except Exception as e:
-                    log.warn("marker_failed", error=str(e))
+                    log.warning("marker_failed", error=str(e))
                     markdown = ""
 
             if not markdown:
@@ -147,13 +152,13 @@ def process_paper(
             is_good, reason = quality_check.check_extraction_quality(markdown)
 
             if not is_good:
-                log.warn("extraction_quality_failed", reason=reason)
+                log.warning("extraction_quality_failed", reason=reason)
                 if vision_extractor.is_available():
                     log.info("falling_back_to_vision")
                     markdown = vision_extractor.extract_with_vision_sync(file_path)
                     extraction_path = "vision_fallback"
                 else:
-                    log.warn("no_vision_provider_available_using_raw_text")
+                    log.warning("no_vision_provider_available_using_raw_text")
 
         # --- Step 2b: Metadata extraction ---
         self.update_state(state="PROGRESS", meta={"step": "metadata", "paper_id": paper_id})
@@ -245,7 +250,7 @@ def process_paper(
                 # If the contextualizer is down (Anthropic outage, local LLM
                 # crashed), fall back to prefix-less ingestion rather than
                 # failing the whole paper.
-                log.warn("contextualizer_failed_falling_back", error=str(e)[:200])
+                log.warning("contextualizer_failed_falling_back", error=str(e)[:200])
                 contextual_prefixes = ["" for _ in chunks]
         else:
             contextual_prefixes = []
@@ -361,7 +366,7 @@ def process_paper(
             except Exception as e:
                 err_type = type(e).__name__
                 figures_failed_by_type[err_type] = figures_failed_by_type.get(err_type, 0) + 1
-                log.warn(
+                log.warning(
                     "figure_store_failed",
                     figure=str(fig.get("filename")),
                     error_type=err_type,
@@ -418,7 +423,7 @@ def process_paper(
             )
             log.info("contradiction_check_dispatched")
         except Exception:
-            log.warn("alert_dispatch_failed")
+            log.warning("alert_dispatch_failed")
 
         # --- Auto-generate feed if enabled ---
         try:
@@ -446,7 +451,7 @@ def process_paper(
                         user_id=str(paper_user_id),
                     )
         except Exception:
-            log.warn("auto_generate_dispatch_failed")
+            log.warning("auto_generate_dispatch_failed")
 
         return {
             "status": "complete",
@@ -472,4 +477,4 @@ def process_paper(
         try:
             storage.release_local(file_path)
         except Exception:
-            log.warn("release_local_failed")
+            log.warning("release_local_failed")
