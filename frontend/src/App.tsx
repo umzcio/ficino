@@ -569,9 +569,22 @@ function AppContent() {
           <AlertsView
             alerts={alertsHook.alerts}
             loading={alertsHook.loading}
-            onMarkRead={alertsHook.markRead}
-            onMarkAllRead={alertsHook.markAllRead}
-            onDismiss={alertsHook.dismiss}
+            // AlertsView's props are typed `() => void` (fire-and-forget UI
+            // actions), but alertsHook's markRead/markAllRead/dismiss are
+            // async and can reject (e.g. dismissing an alert twice — the
+            // second call 404s once the first has already removed it
+            // server-side). TypeScript's structural typing lets a
+            // Promise-returning function satisfy a `void`-returning prop
+            // silently, which previously left that rejection with no
+            // handler anywhere in the call chain — an unhandled promise
+            // rejection on every double-dismiss. Swallow here, matching
+            // the .catch(() => {}) convention used elsewhere in this file
+            // for best-effort UI actions; refresh() inside each of these
+            // already resyncs the list with server state regardless of
+            // whether the mutation itself succeeded.
+            onMarkRead={(id) => { alertsHook.markRead(id).catch(() => {}) }}
+            onMarkAllRead={() => { alertsHook.markAllRead().catch(() => {}) }}
+            onDismiss={(id) => { alertsHook.dismiss(id).catch(() => {}) }}
             onNavigate={(v) => setActiveView(v as AppView)}
           />
         )
