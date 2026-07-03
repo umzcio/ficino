@@ -46,12 +46,11 @@ async def get_persona_stats(
     """Get post/reply stats for a persona, scoped to the caller.
 
     Previously counted across all users, which leaked aggregate engagement
-    across tenants. Join through feeds for ownership; post_replies.feed_id
-    is stored as text so cast it to uuid to match feeds.id.
+    across tenants. Join through feeds for ownership.
     """
     thread_count = await db.fetchval(
         """SELECT COUNT(*) FROM post_replies pr
-           JOIN feeds f ON pr.feed_id::uuid = f.id
+           JOIN feeds f ON pr.feed_id = f.id
            WHERE pr.persona_key = $1 AND f.user_id = $2""",
         persona_key, user.id,
     )

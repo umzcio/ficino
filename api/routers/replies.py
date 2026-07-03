@@ -283,7 +283,7 @@ async def list_conversations(
                     ''
                   ) AS last_persona
            FROM post_replies pr
-           JOIN feeds f ON pr.feed_id::uuid = f.id AND f.user_id = $1
+           JOIN feeds f ON pr.feed_id = f.id AND f.user_id = $1
            ORDER BY pr.updated_at DESC
            LIMIT {MAX_ACTIVITY_FEED}""",
         user.id,
@@ -312,7 +312,7 @@ async def get_replied_post_indices(
     """Return post indices that have reply conversations for a given feed."""
     rows = await db.fetch(
         """SELECT pr.post_index FROM post_replies pr
-           JOIN feeds f ON pr.feed_id::uuid = f.id AND f.user_id = $2
+           JOIN feeds f ON pr.feed_id = f.id AND f.user_id = $2
            WHERE pr.feed_id = $1""",
         feed_id, user.id,
     )
@@ -329,7 +329,7 @@ async def get_replies(
     """Get the conversation thread for a specific post."""
     row = await db.fetchrow(
         """SELECT pr.id, pr.messages, pr.persona_key FROM post_replies pr
-           JOIN feeds f ON pr.feed_id::uuid = f.id AND f.user_id = $3
+           JOIN feeds f ON pr.feed_id = f.id AND f.user_id = $3
            WHERE pr.feed_id = $1 AND pr.post_index = $2""",
         feed_id, post_index, user.id,
     )

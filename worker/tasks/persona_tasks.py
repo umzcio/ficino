@@ -33,7 +33,9 @@ logger = structlog.get_logger(__name__)
 # Synthetic engagement-metric ranges. Used in both the first-generation
 # pipeline (generate_feed) and the single-post regenerate path so both
 # sources agree. Not cosmetically random across the two — any future
-# tuning lands in one place. Mirrored in api/constants.py for reference.
+# tuning lands in one place. This is the single source of truth (the
+# api/constants.py mirror was dead — the api can't import worker code
+# across containers — and was removed, R10 BP-16).
 ENGAGEMENT_RANGES: dict[str, tuple[int, int]] = {
     "likes": (100, 5000),
     "retweets": (20, 1000),
