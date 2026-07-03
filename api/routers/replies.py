@@ -174,6 +174,41 @@ async def _load_reply_context_chunks(
     return list(chunks.values())
 
 
+async def _load_grounding(
+    db: asyncpg.Connection,
+    *,
+    user_id: str,
+    post_sources: list[dict] | None,
+    post_content: str,
+    user_message: str,
+    paper_ref: str | None,
+) -> tuple[list[dict], str]:
+    """Load grounded chunks and pre-assemble their fenced prompt text.
+
+    Thin wrapper around `_load_reply_context_chunks` that also builds the
+    `chunks_text` block both `create_reply` and `zap_response` need for
+    their LLM prompts — this ~8-line assembly was duplicated verbatim in
+    both handlers (R10.5 API-20 residual; the bulk of the original
+    ~26-line duplicate was already extracted into
+    `_load_conversation_and_sources` under DUP-17).
+    """
+    from sanitize import fence_untrusted
+
+    grounded_chunks = await _load_reply_context_chunks(
+        db,
+        user_id=user_id,
+        post_sources=post_sources,
+        post_content=post_content,
+        user_message=user_message,
+        paper_ref=paper_ref,
+    )
+    chunks_text = "\n\n".join(
+        f"[{c['section']}]\n{fence_untrusted(str(c['content']))}"
+        for c in grounded_chunks
+    ) if grounded_chunks else ""
+    return grounded_chunks, chunks_text
+
+
 async def _load_conversation_and_sources(
     db: asyncpg.Connection,
     user_id: str,
@@ -385,7 +420,7 @@ async def create_reply(
 
     from sanitize import fence_untrusted
 
-    grounded_chunks = await _load_reply_context_chunks(
+    grounded_chunks, chunks_text = await _load_grounding(
         db,
         user_id=user.id,
         post_sources=post_sources,
@@ -393,10 +428,6 @@ async def create_reply(
         user_message=body.user_message,
         paper_ref=body.paper_ref,
     )
-    chunks_text = "\n\n".join(
-        f"[{c['section']}]\n{fence_untrusted(str(c['content']))}"
-        for c in grounded_chunks
-    ) if grounded_chunks else ""
 
     fenced_post_content = fence_untrusted(body.post_content)
 
@@ -743,7 +774,7 @@ async def zap_response(
 
     from sanitize import fence_untrusted
 
-    grounded_chunks = await _load_reply_context_chunks(
+    grounded_chunks, chunks_text = await _load_grounding(
         db,
         user_id=user.id,
         post_sources=post_sources,
@@ -751,10 +782,6 @@ async def zap_response(
         user_message=body.source_message,
         paper_ref=body.paper_ref,
     )
-    chunks_text = "\n\n".join(
-        f"[{c['section']}]\n{fence_untrusted(str(c['content']))}"
-        for c in grounded_chunks
-    ) if grounded_chunks else ""
 
     # Build targeted prompt
     convo_summary = "\n".join(
