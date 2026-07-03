@@ -407,12 +407,3 @@ def rasterize_pages(
             yield pix.tobytes("png")
     finally:
         doc.close()
-
-
-def rasterize_page(file_path: str, page_num: int, dpi: int = 300) -> bytes:
-    """Rasterize a single PDF page to PNG bytes at the given DPI.
-
-    Kept for single-page callers (e.g. figure extraction). For loops,
-    prefer `rasterize_pages` which opens the PDF once.
-    """
-    return next(rasterize_pages(file_path, [page_num], dpi=dpi))
