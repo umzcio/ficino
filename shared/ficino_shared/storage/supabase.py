@@ -119,13 +119,6 @@ class SupabaseStorage(StorageBackend):
         )
         return key
 
-    def read_figure_bytes(
-        self, user_id: str, paper_id: str, filename: str
-    ) -> bytes:
-        return self._client.storage.from_(self._bucket).download(
-            self._figure_key(user_id, paper_id, filename)
-        )
-
     # -- Bulk --
 
     def delete_paper_artifacts(self, user_id: str, paper_id: str) -> None:

@@ -48,14 +48,6 @@ class StorageBackend(ABC):
         """Persist a figure crop (basename like 'fig_p1_0.png'). Return a
         backend reference suitable for storing in figures.image_path."""
 
-    @abstractmethod
-    def read_figure_bytes(
-        self, user_id: str, paper_id: str, filename: str
-    ) -> bytes:
-        """Read the figure bytes. Used by the API's FileResponse path for
-        the local backend; cloud backends generally serve via signed URL
-        and don't need this."""
-
     # -- Bulk --
 
     @abstractmethod
