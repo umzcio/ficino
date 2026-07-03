@@ -351,6 +351,34 @@ ficino/
 
 ---
 
+## Development
+
+The `api` and `worker` test suites hit a real Postgres (rolled back per-test
+via transactions), so they're normally run inside the running containers:
+
+```bash
+docker exec ficino-api sh -c "pip install -q -r requirements-dev.txt && pytest tests/ -v"
+docker exec ficino-worker sh -c "pip install -q -r requirements-dev.txt && pytest tests/ -q"
+```
+
+**Bare-metal (host venv, no container):** both suites import `ficino_shared`
+(the `shared/` package used by both api and worker for settings-schema,
+sanitize, and signed-URL code — see Project Structure below). It's not on
+`requirements.txt`/`requirements-dev.txt` because it's a local editable
+package, not a PyPI dependency. Install it once per venv before running
+either suite locally:
+
+```bash
+pip install ./shared
+pip install -r api/requirements-dev.txt      # or worker/requirements-dev.txt
+```
+
+Skipping this step fails collection with `ModuleNotFoundError:
+ficino_shared` (or `asyncpg`/`celery`/etc. if the service requirements
+weren't installed either) rather than a test failure.
+
+---
+
 ## Roadmap
 
 See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
