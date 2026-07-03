@@ -1,11 +1,19 @@
-import { LogOut, Palette, User } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { LogOut, Palette, User, Activity } from 'lucide-react'
 import { Section, SettingRow, Select, EditableField } from '../_shared/primitives'
+import { Spinner, EmptyState } from '../_shared/AsyncState'
 import { useAuth } from '../../auth/AuthContext'
+import { getMe, listAuditLog, type UserProfile, type AuditLogEntry } from '../../lib/api'
+import { timeAgo } from '../../lib/timeAgo'
 
 interface Props {
   settings: Record<string, unknown>
   onUpdate: (partial: Record<string, unknown>) => void
 }
+
+// AccountTab's own "last ~20 rows" display size — independent of the
+// server's separate [1, 500] clamp on the same query param.
+const AUDIT_LOG_LIMIT = 20
 
 export function AccountTab({ settings: s, onUpdate }: Props) {
   const { user, provider, signOut } = useAuth()
@@ -18,6 +26,37 @@ export function AccountTab({ settings: s, onUpdate }: Props) {
   // AUTH_PROVIDER=none there's no session to end and the stub user has no
   // meaningful identity to log out from.
   const canSignOut = provider !== 'none'
+
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
+  const [auditLoading, setAuditLoading] = useState(true)
+  const [auditError, setAuditError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    async function load() {
+      setAuditLoading(true)
+      setAuditError(null)
+      try {
+        const [me, log] = await Promise.all([getMe(), listAuditLog(AUDIT_LOG_LIMIT)])
+        if (!active) return
+        setProfile(me)
+        setAuditLog(log)
+      } catch (err) {
+        if (active) setAuditError(err instanceof Error ? err.message : 'Failed to load account activity')
+      } finally {
+        if (active) setAuditLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [])
+
+  // /users/me's display_name is the server's own record; the settings-backed
+  // field above is a separate client preference (Settings tab, not auth
+  // profile). This is deliberately NOT a second editor — just a read-only
+  // reconciliation hint, and only shown when the two have actually drifted.
+  const serverNameDiffers = !!profile?.display_name && profile.display_name !== displayName
 
   return (
     <div className="p-4 space-y-4">
@@ -34,6 +73,11 @@ export function AccountTab({ settings: s, onUpdate }: Props) {
                 value={displayName || 'You'}
                 onSave={(v) => onUpdate({ user_display_name: v })}
               />
+              {serverNameDiffers && (
+                <div className="text-[11px] text-text-muted mt-1">
+                  Server profile name on file: {profile!.display_name}
+                </div>
+              )}
             </div>
             <div>
               <div className="text-[11px] text-text-muted mb-0.5">Handle</div>
@@ -82,6 +126,35 @@ export function AccountTab({ settings: s, onUpdate }: Props) {
             onChange={(v) => onUpdate({ post_spacing: v })}
           />
         </SettingRow>
+      </Section>
+
+      <Section icon={Activity} title="Recent Account Activity">
+        {auditLoading ? (
+          <div className="flex justify-center py-6">
+            <Spinner size={20} />
+          </div>
+        ) : auditError ? (
+          <div role="alert" className="text-[12px] text-persona-skeptic py-2">
+            {auditError}
+          </div>
+        ) : auditLog.length === 0 ? (
+          <EmptyState
+            icon={Activity}
+            title="No activity yet"
+            hint={<p className="text-sm">Actions you take will show up here.</p>}
+          />
+        ) : (
+          <ul className="space-y-1.5">
+            {auditLog.map((entry) => (
+              <li key={entry.id} className="flex items-center justify-between gap-3 text-[13px]">
+                <span className="text-text truncate">
+                  {entry.action} <span className="text-text-muted">· {entry.resource_type}</span>
+                </span>
+                <span className="text-[11px] text-text-muted shrink-0">{timeAgo(entry.created_at)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
 
       {canSignOut && (

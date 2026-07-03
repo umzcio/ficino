@@ -382,6 +382,38 @@ export async function deleteAnnotation(feedId: string, postIndex: number): Promi
   return request<void>(`/annotations/${feedId}/${postIndex}`, { method: 'DELETE' })
 }
 
+// User profile / account activity
+export interface UserProfile {
+  id: string
+  email: string
+  display_name: string | null
+  created_at: string
+}
+
+export async function getMe(): Promise<UserProfile> {
+  return request<UserProfile>('/users/me')
+}
+
+// Mirrors api/routers/users.py's audit_log row shape exactly (id, action,
+// resource_type, resource_id, metadata, ip, status_code, created_at) — no
+// projection happens server-side.
+export interface AuditLogEntry {
+  id: string
+  action: string
+  resource_type: string
+  resource_id: string | null
+  metadata: Record<string, unknown> | null
+  ip: string | null
+  status_code: number | null
+  created_at: string
+}
+
+// Server clamps `limit` to [1, 500] (GET /users/me/audit-log); default here
+// matches AccountTab's "last ~20 rows" display, not the server clamp.
+export async function listAuditLog(limit: number = 20): Promise<AuditLogEntry[]> {
+  return request<AuditLogEntry[]>(`/users/me/audit-log?limit=${limit}`)
+}
+
 // Settings
 export async function getSettings(): Promise<Record<string, unknown>> {
   return request('/settings')
