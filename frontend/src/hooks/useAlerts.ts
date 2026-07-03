@@ -59,8 +59,15 @@ export function useAlerts() {
   }, [refresh])
 
   const dismiss = useCallback(async (id: string) => {
-    await dismissAlert(id)
-    await refresh()
+    // R10 wave-3 final review Minor 4: refresh unconditionally, even if the
+    // dismiss request itself failed, so the alert list resyncs with server
+    // state instead of staying stuck on a stale optimistic view. The error
+    // still propagates to the caller after refresh runs.
+    try {
+      await dismissAlert(id)
+    } finally {
+      await refresh()
+    }
   }, [refresh])
 
   return { alerts, unreadCount, loading, markRead, markAllRead, dismiss, refresh }
