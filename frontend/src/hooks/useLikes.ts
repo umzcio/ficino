@@ -7,6 +7,16 @@ export function useLikes(feedId: string | null) {
   const [likedReplies, setLikedReplies] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    // R10 FE-16: reset before the feedId guard so a feed switch (or the feed
+    // being cleared to null) never leaves the previous feed's like state
+    // showing against the new feed's post indices — likes are index-keyed,
+    // so a stale carryover lights hearts on arbitrary posts until (unless)
+    // the new fetch resolves.
+    const reset = () => {
+      setLikedPosts(new Set())
+      setLikedReplies(new Set())
+    }
+    reset()
     if (!feedId) return
     // Without this sentinel, switching from a slow-responding feed A to
     // a fast-responding feed B would let A's late response overwrite
