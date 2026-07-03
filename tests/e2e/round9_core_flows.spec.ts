@@ -77,8 +77,12 @@ test.describe('ROUND 9 — core flows', () => {
     console.log(`R9-01: new paper id=${newPaper?.id} status=${newPaper?.status} filename=${newPaper?.filename}`)
     expect(newPaper, 'uploaded PDF never appeared in /api/papers within 15s').not.toBeNull()
     expect(newPaper.filename).toContain('r9-smoke')
-    // status should be queued/processing/complete — NOT error-on-accept
-    expect(['queued', 'processing', 'complete', 'extracting', 'embedding', 'chunking']).toContain(newPaper.status)
+    // status should be queued/processing/complete — NOT error-on-accept.
+    // 'pending' is the row's actual initial status (api/routers/papers.py:180
+    // inserts status="pending"); the poll can legitimately observe it in the
+    // window before the worker picks the paper up and advances it to
+    // 'extracting'. Omitting it here was the known round9 allow-list flake.
+    expect(['pending', 'queued', 'processing', 'complete', 'extracting', 'embedding', 'chunking']).toContain(newPaper.status)
 
     // Clean up — delete the test paper so the corpus doesn't accumulate junk
     await context.request.delete(`${BASE}/api/papers/${newPaper.id}`, { ignoreHTTPSErrors: true }).catch(() => {})
