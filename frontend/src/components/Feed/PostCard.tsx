@@ -76,7 +76,7 @@ function MenuItem({
   )
 }
 
-interface PostCardProps {
+export interface PostCardProps {
   post: FeedPost
   feedId?: string | null
   postIndex?: number

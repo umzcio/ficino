@@ -65,6 +65,14 @@ import { downloadWorkspace, type DownloadProgress as DlProgress } from './lib/wo
 
 type AppView = 'feed' | 'listen' | 'messages' | 'search' | 'alerts' | 'bookmarks' | 'reading-lists' | 'profile' | 'settings'
 
+// Module-level (not component state) — it's a fixed tab→focus-tag map that
+// never changes across renders, so it doesn't belong in any hook's deps
+// array. Previously declared mid-component *after* the useCallback that
+// referenced it, which the TDZ made a live bug: on first render the
+// callback closed over `undefined` until the component body finished
+// executing once.
+const TAB_FOCUS: Record<number, string | undefined> = { 0: undefined, 1: 'debates', 2: 'methods', 3: 'findings' }
+
 const NAV_ITEMS: { icon: typeof Home; view: AppView; label: string }[] = [
   { icon: Home, view: 'feed', label: 'Home' },
   { icon: Headphones, view: 'listen', label: 'Listen' },
@@ -414,19 +422,29 @@ function AppContent() {
   // paperTldr refresh, every scroll state flicker) produced fresh
   // callback identities, invalidating FeedContent's inner useCallbacks
   // and defeating PostCard's React.memo. Each depends on exactly the
-  // state it reads.
+  // *function* it reads off `bm` (bm.toggle / bm.isReplyBookmarked),
+  // not the `bm` object itself — `useBookmarks` returns a fresh object
+  // literal every render, so depending on `bm` directly (the previous,
+  // inaccurate state of this comment implied both) would recompute
+  // these callbacks on every AppContent render regardless, defeating
+  // the whole point. eslint's exhaustive-deps rule can't see into
+  // useBookmarks to confirm that narrowing is safe, so it asks for the
+  // whole `bm` object; disabled below with that reasoning.
   const handleBookmarkToggleOuter = useCallback(
     (fid: string, idx: number, post: FeedPost) => bm.toggle(fid, idx, post),
-    [bm],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrowed to bm.toggle; see comment above.
+    [bm.toggle],
   )
   const handleReplyBookmark = useCallback(
     (fid: string, postIdx: number, msgIdx: number, snapshot: unknown) =>
       bm.toggle(fid, postIdx, snapshot as unknown as FeedPost, msgIdx),
-    [bm],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrowed to bm.toggle; see comment above.
+    [bm.toggle],
   )
   const handleIsReplyBookmarked = useCallback(
     (postIdx: number, msgIdx: number) =>
       feed.feedId ? bm.isReplyBookmarked(feed.feedId, postIdx, msgIdx) : false,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrowed to bm.isReplyBookmarked; see comment above.
     [feed.feedId, bm.isReplyBookmarked],
   )
   const handlePostClick = useCallback((idx: number) => {
@@ -486,8 +504,6 @@ function AppContent() {
   const filteredPaperCount = activeTag
     ? completePapers.filter((p) => p.tags?.some((t) => t.name === activeTag)).length
     : completePapers.length
-
-  const TAB_FOCUS: Record<number, string | undefined> = { 0: undefined, 1: 'debates', 2: 'methods', 3: 'findings' }
 
   const handleGenerate = () => {
     setSelectedPostIndex(null)

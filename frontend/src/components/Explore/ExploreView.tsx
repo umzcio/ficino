@@ -71,13 +71,26 @@ function ActivityTimeline({ workspaceId }: { workspaceId: string }) {
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Render-time state sync (React's endorsed alternative to "setState
+  // inside an effect" for adjusting state when a prop changes — see
+  // react.dev "Adjusting some state when a prop changes", and
+  // MessagesView's consumedPaperId for the same pattern elsewhere in this
+  // codebase). Flips back to `loading` synchronously the instant
+  // workspaceId changes, so the effect below only needs to do the actual
+  // fetch (whose setState calls happen inside .then()/.finally(), not
+  // synchronously in the effect body).
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState(workspaceId)
+  if (workspaceId !== loadedWorkspaceId) {
+    setLoadedWorkspaceId(workspaceId)
+    setLoading(true)
+  }
+
   useEffect(() => {
     // R10 FE-17: without this sentinel, a fast workspace-to-workspace switch
     // (the workspace grid on this same page does exactly that) can let a
     // slow response for the previously-active workspace resolve after the
     // new one's and overwrite it — same class as Round 9 H15.
     let active = true
-    setLoading(true)
     getWorkspaceActivity(workspaceId)
       .then((data) => { if (active) setActivities(data) })
       .catch(() => {})

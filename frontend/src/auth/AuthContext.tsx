@@ -73,6 +73,13 @@ const AuthCtx = createContext<AuthContextValue>({
   info: null,
 })
 
+// Standard Context provider + consumer-hook pairing (AuthProvider/useAuth);
+// splitting the hook into its own file would only serve Fast Refresh
+// granularity, at the cost of the usual
+// "import { AuthProvider, useAuth } from './AuthContext'" call sites
+// everywhere auth is used. Same pattern as arePostsEqual's disable in
+// PostCard.tsx.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   return useContext(AuthCtx)
 }

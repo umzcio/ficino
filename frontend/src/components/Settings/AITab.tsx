@@ -18,13 +18,23 @@ export function AITab({ settings: s, onUpdate }: Props) {
     embed: { name: string; size: string }[]
     vision: { name: string; size: string }[]
   }>({ llm: [], embed: [], vision: [] })
-  const [loadingModels, setLoadingModels] = useState(false)
+  // Lazy-initialize loadingModels from publicDeployment's mount-time value
+  // instead of always starting at `false` and flipping it synchronously
+  // inside the effect below (which the set-state-in-effect lint rule
+  // flags). `prevPublicDeployment` handles the (rare — auth resolves once)
+  // case where publicDeployment itself changes after mount, via the same
+  // render-time state sync pattern as MessagesView's consumedPaperId.
+  const [loadingModels, setLoadingModels] = useState(!publicDeployment)
+  const [prevPublicDeployment, setPrevPublicDeployment] = useState(publicDeployment)
+  if (publicDeployment !== prevPublicDeployment) {
+    setPrevPublicDeployment(publicDeployment)
+    if (!publicDeployment) setLoadingModels(true)
+  }
 
   useEffect(() => {
     // On hosted deployments the user can't change providers, so there's
     // nothing to populate this dropdown with — skip the probe.
     if (publicDeployment) return
-    setLoadingModels(true)
     getOllamaModels()
       .then(setOllamaModels)
       .catch(() => {})

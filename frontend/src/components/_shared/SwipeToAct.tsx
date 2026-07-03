@@ -14,11 +14,19 @@ import { haptic } from '../../hooks/useHaptic'
  * gesture-less passthrough.
  */
 function useTouchDevice(): boolean {
-  const [isTouch, setIsTouch] = useState(false)
+  // Lazy initializer reads the media query once, at mount — the same
+  // sanctioned pattern React docs use for useState(() => window.innerWidth)
+  // — instead of always starting `false` and flipping it synchronously
+  // inside the effect below (which the set-state-in-effect lint rule
+  // flags). The effect then only *subscribes*; its setState call lives
+  // inside the 'change' event callback, not the effect body itself.
+  const [isTouch, setIsTouch] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+  })
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
     const mq = window.matchMedia('(hover: none) and (pointer: coarse)')
-    setIsTouch(mq.matches)
     const onChange = (e: MediaQueryListEvent) => setIsTouch(e.matches)
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)

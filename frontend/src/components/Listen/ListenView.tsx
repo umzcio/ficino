@@ -145,12 +145,16 @@ export function ListenView({ feedId, posts }: Props) {
 
   useEffect(() => {
     mountedRef.current = true
+    // Capture the node now — by the time this cleanup runs (unmount),
+    // audioRef.current may already be null (React clears refs to
+    // unmounting DOM nodes before running cleanup functions).
+    const audioEl = audioRef.current
     return () => {
       mountedRef.current = false
       if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
+      if (audioEl) {
+        audioEl.pause()
+        audioEl.src = ''
       }
     }
   }, [])
@@ -277,7 +281,13 @@ export function ListenView({ feedId, posts }: Props) {
     if (prior !== undefined) playAtIndex(prior)
   }, [mode, playableIndices, currentIndex, playAtIndex])
 
-  const pollUntilFeedAudioReady = useCallback(async () => {
+  // Named function expression (not an arrow fn assigned to the const) so the
+  // recursive setTimeout(...) call below refers to the function's own name
+  // binding, not the outer `const pollUntilFeedAudioReady` — the outer
+  // binding isn't fully initialized until useCallback returns, so reading it
+  // from inside the closure is a real (if practically-safe-once-async) TDZ
+  // read that React Compiler's immutability check rightly flags.
+  const pollUntilFeedAudioReady = useCallback(async function pollUntilFeedAudioReady() {
     if (!feedId || !mountedRef.current) return
     // Bail if the mode was switched out from under us while a prior
     // iteration was awaiting getFeed. Without this, the stale poll would
@@ -329,7 +339,11 @@ export function ListenView({ feedId, posts }: Props) {
     }
   }, [feedId, playAtIndex])
 
-  const pollUntilPodcastReady = useCallback(async () => {
+  // Named function expression — see pollUntilFeedAudioReady above for why:
+  // the recursive setTimeout(...) calls need the function's own name
+  // binding, not the outer const (which isn't initialized yet from the
+  // closure's point of view).
+  const pollUntilPodcastReady = useCallback(async function pollUntilPodcastReady() {
     if (!feedId || !mountedRef.current) return
     if (activePollerRef.current !== 'podcast') return
     try {

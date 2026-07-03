@@ -85,20 +85,40 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
     [],
   )
 
+  // Render-time state sync (React's endorsed alternative to "setState
+  // inside an effect" for adjusting state when a prop changes — see
+  // react.dev "Adjusting some state when a prop changes", and
+  // MessagesView's consumedPaperId for the same pattern in this codebase).
+  // Resets repliedIndices synchronously the instant feedId/feedState stop
+  // pointing at a completed feed's reply data, instead of doing it from
+  // inside the effect body (which the set-state-in-effect lint rule flags).
+  // The actual fetch — which can't run during render — stays in the effect
+  // below and repopulates repliedIndices asynchronously via .then().
+  const [repliedKey, setRepliedKey] = useState(`${feedId}:${feedState}`)
+  const currentRepliedKey = `${feedId}:${feedState}`
+  if (currentRepliedKey !== repliedKey) {
+    setRepliedKey(currentRepliedKey)
+    if (!(feedId && feedState === 'complete')) {
+      setRepliedIndices(new Set())
+    }
+  }
+
   useEffect(() => {
     if (feedId && feedState === 'complete') {
       getRepliedPostIndices(feedId).then((indices) => setRepliedIndices(new Set(indices))).catch(() => {})
-    } else {
-      setRepliedIndices(new Set())
     }
   }, [feedId, feedState])
 
   // deletedIndices is keyed to post-indices in the CURRENT feed — switching
   // feeds must reset it, or a delete on feed A hides whatever post happens
-  // to sit at the same index in feed B.
-  useEffect(() => {
+  // to sit at the same index in feed B. Same render-time-sync pattern as
+  // repliedKey above: a pure reset-on-prop-change belongs in render, not an
+  // effect.
+  const [deletedFeedId, setDeletedFeedId] = useState(feedId)
+  if (feedId !== deletedFeedId) {
+    setDeletedFeedId(feedId)
     setDeletedIndices(new Set())
-  }, [feedId])
+  }
   // If generating with no existing posts, show full-screen spinner. The
   // whole block is a live region so SR users hear step changes — doubly
   // important under prefers-reduced-motion where `.animate-spin` is
