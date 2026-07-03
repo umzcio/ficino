@@ -68,6 +68,12 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
   // — the loading state adds a "Synthesizing…" hint so the user knows why
   // the wait is long.
   const [synthesizing, setSynthesizing] = useState(false)
+  // R10 wave-4 final-review: distinguishes the ~100s 404-retry exhaustion
+  // (still-generating, not a real failure — SYNTH_RETRY_MAX_ATTEMPTS x
+  // SYNTH_RETRY_INTERVAL_MS below) from a genuine fetch failure, so the
+  // error branch's heading doesn't claim "Synthesis failed to load" when
+  // nothing has actually failed yet.
+  const [timedOut, setTimedOut] = useState(false)
   const poll = usePollTask()
 
   // Render-time state reset when groupId changes (React's endorsed
@@ -82,6 +88,7 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
     setLoading(true)
     setError(null)
     setSynthesizing(false)
+    setTimedOut(false)
   }
 
   useEffect(() => {
@@ -113,6 +120,7 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
         cacheGroupChat(data).catch(() => {})
         setChat(data)
         setSynthesizing(false)
+        setTimedOut(false)
         setLoading(false)
       },
       onError: async (err) => {
@@ -125,9 +133,13 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
             setSynthesizing(true)
             return
           }
-          // Bounded window exhausted (~100s of 404s) — now it's fair to
-          // surface an error rather than spin forever.
+          // Bounded window exhausted (~100s of 404s) — this is NOT a
+          // real failure, just a longer-than-usual wait. setTimedOut(true)
+          // lets the render branch below show an info heading ("Still
+          // synthesizing") instead of "Synthesis failed to load", which
+          // would misreport a still-in-progress generation as broken.
           setSynthesizing(false)
+          setTimedOut(true)
           setError('Synthesis is taking longer than expected. Go back and reopen this chat in a moment.')
           setLoading(false)
           return
@@ -146,6 +158,7 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
         } catch { /* IDB unavailable — fall through to the error state */ }
         if (!active) return
         if (!usedCache) {
+          setTimedOut(false)
           setError(err instanceof Error ? err.message : 'Failed to load group synthesis')
         }
         setSynthesizing(false)
@@ -175,7 +188,7 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
         </button>
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-[15px] text-text truncate">
-            {chat?.name || 'Loading...'}
+            {chat?.name ?? (error ? 'Group chat' : 'Loading...')}
           </div>
           {chat?.papers && (
             <div className="text-xs text-text-muted">
@@ -186,8 +199,15 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
       </div>
 
       {error ? (
+        // R10 wave-4 final-review: the ~100s 404-retry exhaustion path
+        // (timedOut) is an info state, not a failure — the synthesis is
+        // probably still running server-side. Only a genuine fetch
+        // failure gets the "Synthesis failed to load" heading; role
+        // stays "alert" either way since both are worth announcing to
+        // screen readers, but the copy no longer claims something broke
+        // when it didn't.
         <div role="alert" className="flex flex-col items-center justify-center py-20 gap-3 px-6 text-center">
-          <p className="text-sm text-text">Synthesis failed to load</p>
+          <p className="text-sm text-text">{timedOut ? 'Still synthesizing' : 'Synthesis failed to load'}</p>
           <p className="text-xs text-text-muted">{error}</p>
         </div>
       ) : loading ? (
