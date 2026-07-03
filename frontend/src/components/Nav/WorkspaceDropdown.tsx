@@ -63,6 +63,8 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
       </button>
 
       {open && (
+        // Items below carry role="menuitem"; arrow-key navigation is
+        // intentionally omitted, mirroring PostCard's MenuItem precedent.
         <div role="menu" aria-label="Workspaces" className="absolute top-full left-0 mt-2 w-[220px] bg-bg border border-border rounded-xl shadow-lg z-50 overflow-hidden">
           <div className="px-3 py-2 text-[11px] text-text-muted font-semibold tracking-wider uppercase border-b border-border">
             Workspaces
@@ -80,7 +82,12 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                         onRename(ws.id, renameValue.trim())
                         setRenamingId(null)
                       }
-                      if (e.key === 'Escape') setRenamingId(null)
+                      if (e.key === 'Escape') {
+                        // Cancel the edit only; don't let the document-level
+                        // Escape close the menu.
+                        e.stopPropagation()
+                        setRenamingId(null)
+                      }
                     }}
                     autoFocus
                     aria-label={`Rename workspace ${ws.name}`}
@@ -152,7 +159,13 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                       setCreating(false)
                       setOpen(false)
                     }
-                    if (e.key === 'Escape') { setCreating(false); setNewName('') }
+                    if (e.key === 'Escape') {
+                      // Cancel the edit only; don't let the document-level
+                      // Escape close the menu.
+                      e.stopPropagation()
+                      setCreating(false)
+                      setNewName('')
+                    }
                   }}
                   placeholder="Name..."
                   autoFocus
