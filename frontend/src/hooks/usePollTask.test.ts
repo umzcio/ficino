@@ -4,7 +4,7 @@
 // a mounted ref — so it can be driven directly with vitest fake timers
 // without a React render context (no @testing-library/react in this repo).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { startPoll } from './usePollTask'
+import { startPoll, createPollTracker } from './usePollTask'
 
 describe('startPoll', () => {
   beforeEach(() => {
@@ -237,5 +237,103 @@ describe('startPoll', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(onDone).not.toHaveBeenCalled()
+  })
+})
+
+describe('createPollTracker', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('removes the controller from the tracked set once onDone fires (terminal dispatch)', async () => {
+    const tracker = createPollTracker()
+    const fn = vi.fn().mockResolvedValue({ status: 'done' })
+    const onDone = vi.fn()
+
+    tracker.poll({ fn, isDone: () => true, onDone, intervalMs: 1000 })
+    expect(tracker.controllers.size).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(tracker.controllers.size).toBe(0)
+  })
+
+  it('removes the controller from the tracked set once maxAttempts is exhausted, even though onDone never fires', async () => {
+    const tracker = createPollTracker()
+    const fn = vi.fn().mockRejectedValue(new Error('down'))
+    const onDone = vi.fn()
+    const onError = vi.fn()
+
+    tracker.poll({ fn, isDone: () => false, onDone, onError, intervalMs: 1000, maxAttempts: 2 })
+    expect(tracker.controllers.size).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(1000) // attempt 1
+    expect(tracker.controllers.size).toBe(1)
+    await vi.advanceTimersByTimeAsync(1000) // attempt 2 -> gives up
+
+    expect(onError).toHaveBeenCalledTimes(2)
+    expect(onDone).not.toHaveBeenCalled()
+    expect(tracker.controllers.size).toBe(0)
+  })
+
+  it('removes the controller when stop() is called explicitly before a terminal state', async () => {
+    const tracker = createPollTracker()
+    const fn = vi.fn().mockResolvedValue({ status: 'pending' })
+    const onDone = vi.fn()
+
+    const controller = tracker.poll({ fn, isDone: () => false, onDone, intervalMs: 1000 })
+    expect(tracker.controllers.size).toBe(1)
+
+    controller.stop()
+    expect(tracker.controllers.size).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('does not accumulate dead controllers across many short-lived polls on one tracker', async () => {
+    const tracker = createPollTracker()
+    for (let i = 0; i < 5; i++) {
+      const fn = vi.fn().mockResolvedValue({ status: 'done' })
+      tracker.poll({ fn, isDone: () => true, onDone: () => {}, intervalMs: 1000 })
+    }
+    expect(tracker.controllers.size).toBe(5)
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(tracker.controllers.size).toBe(0)
+  })
+
+  it('setActive(false) stops future ticks the same way unmount used to', async () => {
+    const tracker = createPollTracker()
+    const fn = vi.fn().mockResolvedValue({ status: 'pending' })
+
+    tracker.poll({ fn, isDone: () => false, onDone: () => {}, intervalMs: 1000 })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(fn).toHaveBeenCalledTimes(1)
+
+    tracker.setActive(false)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('stopAll() stops every tracked poller and empties the set', async () => {
+    const tracker = createPollTracker()
+    const fn1 = vi.fn().mockResolvedValue({ status: 'pending' })
+    const fn2 = vi.fn().mockResolvedValue({ status: 'pending' })
+    tracker.poll({ fn: fn1, isDone: () => false, onDone: () => {}, intervalMs: 1000 })
+    tracker.poll({ fn: fn2, isDone: () => false, onDone: () => {}, intervalMs: 1000 })
+    expect(tracker.controllers.size).toBe(2)
+
+    tracker.stopAll()
+    expect(tracker.controllers.size).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(fn1).not.toHaveBeenCalled()
+    expect(fn2).not.toHaveBeenCalled()
   })
 })
