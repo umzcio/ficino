@@ -183,6 +183,7 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
               <p className="text-text-muted text-sm mb-3">No group chats yet</p>
               <button
                 onClick={onNewGroup}
+                aria-haspopup="dialog"
                 className="bg-transparent border border-gold/30 rounded-[20px] text-gold px-4 py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
               >
                 Create Group Chat
@@ -215,6 +216,7 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
               <div className="p-4">
                 <button
                   onClick={onNewGroup}
+                  aria-haspopup="dialog"
                   className="w-full bg-transparent border border-gold/30 rounded-[20px] text-gold py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
                 >
                   New Group Chat
