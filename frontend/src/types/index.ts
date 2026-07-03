@@ -137,6 +137,11 @@ export interface GroupChat {
   papers: Record<string, string>
   messages: SummaryMessage[]
   generated_at: string
+  // Wave-5 Task 4: the placeholder row inserted at dispatch time means GET
+  // /messages/groups/{id} now returns this status directly (mirrors
+  // PaperSummary) instead of 404ing until the worker finishes.
+  status: 'complete' | 'generating' | 'error'
+  task_id?: string
 }
 
 export interface GroupChatPreview {
