@@ -191,6 +191,37 @@ describe('startPoll', () => {
     expect(fn).toHaveBeenCalledTimes(1)
   })
 
+  it('surfaces a rejected async onDone via onError instead of leaking an unhandled rejection, and does not reschedule', async () => {
+    const fn = vi.fn().mockResolvedValue({ status: 'done' })
+    const onDone = vi.fn().mockRejectedValue(new Error('onDone blew up'))
+    const onError = vi.fn()
+
+    startPoll({ fn, isDone: () => true, onDone, onError, intervalMs: 1000 })
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith(expect.any(Error))
+
+    // The chain is done, not retrying — no further fn() calls even though
+    // onDone rejected.
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to console.warn when a rejected onDone has no onError supplied', async () => {
+    const fn = vi.fn().mockResolvedValue({ status: 'done' })
+    const onDone = vi.fn().mockRejectedValue(new Error('boom'))
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    startPoll({ fn, isDone: () => true, onDone, intervalMs: 1000 })
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(warnSpy).toHaveBeenCalledWith('poll onDone failed', expect.any(Error))
+
+    warnSpy.mockRestore()
+  })
+
   it('stop() called mid-flight (after fn() resolves) suppresses onDone', async () => {
     let resolveFn: (v: { status: string }) => void
     const fn = vi.fn().mockImplementation(

@@ -93,21 +93,30 @@ export function ReadingListDetail({ listId, onBack }: Props) {
         fn: () => getFeedStatus(task_id),
         isDone: (status) => status.status === 'complete' || status.status === 'error',
         onDone: async (status) => {
-          if (status.status === 'complete') {
-            await refresh()
-            // Load the chapter's feed
-            const updated = await getReadingList(listId)
-            if (!mountedRef.current) return
-            const ch = updated.chapters.find(c => c.chapter_index === chapterIndex)
-            if (ch?.feed_id) {
-              const feed = await getFeed(ch.feed_id)
+          // R10 wave-4 final-review: this body used to have no try/finally
+          // around its awaits (refresh/getReadingList/getFeed) — a
+          // transient failure among them was an unhandled promise
+          // rejection AND skipped setGenerating(false), permanently
+          // disabling the "Generate Chapter" button. finally guarantees the
+          // button re-enables regardless of how this resolves.
+          try {
+            if (status.status === 'complete') {
+              await refresh()
+              // Load the chapter's feed
+              const updated = await getReadingList(listId)
               if (!mountedRef.current) return
-              setChapterFeed(feed)
-              setActiveChapterIndex(chapterIndex)
-              setViewMode('chapter')
+              const ch = updated.chapters.find(c => c.chapter_index === chapterIndex)
+              if (ch?.feed_id) {
+                const feed = await getFeed(ch.feed_id)
+                if (!mountedRef.current) return
+                setChapterFeed(feed)
+                setActiveChapterIndex(chapterIndex)
+                setViewMode('chapter')
+              }
             }
+          } finally {
+            if (mountedRef.current) setGenerating(false)
           }
-          if (mountedRef.current) setGenerating(false)
         },
         // Original poll() was called directly (no initial setTimeout) —
         // the first status check fires immediately.

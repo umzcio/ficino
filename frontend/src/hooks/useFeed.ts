@@ -104,15 +104,29 @@ export function useFeed(workspaceId?: string) {
       isDone: (status) => (status.status === 'complete' && !!status.feed_id) || status.status === 'error',
       onDone: async (status) => {
         if (status.status === 'complete' && status.feed_id) {
-          const feed = await getFeed(status.feed_id)
-          if (!mountedRef.current) return
-          // Pass workspaceId so getCachedFeeds(workspaceId) — which queries
-          // the by-workspace IDB index — returns this feed offline.
-          cacheFeed(feed, workspaceId).catch(() => {})
-          setPosts(feed.posts as FeedPost[])
-          setFeedId(status.feed_id)
-          setFeedState('complete')
-          setGeneratingMeta({})
+          // R10 wave-4 final-review: this getFeed(...) used to be a bare
+          // await inside onDone — a transient failure here (offline, 5xx)
+          // was an unhandled promise rejection and feedState stayed wedged
+          // at 'generating' forever (a regression vs. the pre-usePollTask
+          // hand-rolled poller, which retried getFeed failures). Mirror the
+          // status==='error' branch below: surface it as a feed error
+          // instead of spinning.
+          try {
+            const feed = await getFeed(status.feed_id)
+            if (!mountedRef.current) return
+            // Pass workspaceId so getCachedFeeds(workspaceId) — which
+            // queries the by-workspace IDB index — returns this feed
+            // offline.
+            cacheFeed(feed, workspaceId).catch(() => {})
+            setPosts(feed.posts as FeedPost[])
+            setFeedId(status.feed_id)
+            setFeedState('complete')
+            setGeneratingMeta({})
+          } catch (err) {
+            if (!mountedRef.current) return
+            setError(err instanceof Error ? err.message : 'Failed to load generated feed')
+            setFeedState('error')
+          }
         } else if (status.status === 'error') {
           setError(status.error || 'Feed generation failed')
           setFeedState('error')

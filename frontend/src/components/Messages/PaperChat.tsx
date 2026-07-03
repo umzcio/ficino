@@ -120,11 +120,22 @@ export function PaperChat({ paperId, onBack }: PaperChatProps) {
             isDone: (status) => status.status === 'complete' || status.status === 'error' || status.status === 'unknown',
             onDone: async (status) => {
               if (status.status === 'complete') {
-                const updated = await getPaperSummary(paperId)
-                if (!active) return
-                cachePaperSummary(updated).catch(() => {})
-                setSummary(updated)
-                setLoading(false)
+                // R10 wave-4 final-review: this getPaperSummary(...) used to
+                // be a bare await inside onDone — a transient failure here
+                // left `loading` stuck true forever (spinner with no way
+                // out). Mirror the onError branch below: surface it as an
+                // error instead of spinning.
+                try {
+                  const updated = await getPaperSummary(paperId)
+                  if (!active) return
+                  cachePaperSummary(updated).catch(() => {})
+                  setSummary(updated)
+                  setLoading(false)
+                } catch (err) {
+                  if (!active) return
+                  setError(err instanceof Error ? err.message : 'Failed to load generated summary')
+                  setLoading(false)
+                }
               } else {
                 setError(status.error || 'Summary generation failed')
                 setLoading(false)

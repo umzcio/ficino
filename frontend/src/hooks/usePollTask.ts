@@ -86,7 +86,20 @@ export function startPoll<T>(
       const result = await fn()
       if (stopped || !isActive()) return
       if (isDone(result)) {
-        onDone(result)
+        // The poll is DONE at this point — a rejection out of onDone (many
+        // adopters pass an async body that does further awaited work, e.g.
+        // fetching the full resource once a status flips to "complete") is
+        // surfaced via onError, not retried: there is no more polling left
+        // to reschedule. Without this, an async onDone's rejection was an
+        // unhandled promise rejection and the caller's own state (loading
+        // spinners, disabled buttons) never got a chance to unwind (R10
+        // wave-4 final-review finding).
+        try {
+          await Promise.resolve(onDone(result))
+        } catch (err) {
+          if (onError) onError(err)
+          else console.warn('poll onDone failed', err)
+        }
         return
       }
       attempt = 0
