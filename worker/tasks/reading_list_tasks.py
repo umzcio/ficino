@@ -50,7 +50,6 @@ Order ALL papers. Return valid JSON only."""
 def propose_ordering(
     self: Task,
     paper_ids: list[str],
-    corpus_id: str | None = None,
     list_id: str | None = None,
     user_id: str | None = None,
 ) -> dict:
