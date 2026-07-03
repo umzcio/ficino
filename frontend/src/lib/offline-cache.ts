@@ -2,27 +2,6 @@ import { getDB } from './offline-db'
 import type { Feed, Paper, PaperSummary, GroupChat, Workspace } from '../types'
 import type { BookmarkItem, AnnotationItem, AlertItem, PersonaData, UserPost, FeedLikes } from './api'
 
-// ── Generic network-first helper ────────────────────────────────────────────
-
-export async function networkFirst<T>(
-  networkFn: () => Promise<T>,
-  cacheFn: (data: T) => Promise<void>,
-  fallbackFn: () => Promise<T | undefined>,
-): Promise<T> {
-  try {
-    const data = await networkFn()
-    // Fire-and-forget cache write so it doesn't slow down the UI
-    cacheFn(data).catch(() => {})
-    return data
-  } catch (err) {
-    if (!navigator.onLine) {
-      const cached = await fallbackFn()
-      if (cached !== undefined) return cached
-    }
-    throw err
-  }
-}
-
 // ── Feeds ───────────────────────────────────────────────────────────────────
 
 export async function cacheFeeds(feeds: Feed[], workspaceId?: string) {
@@ -170,6 +149,7 @@ export async function cacheAnnotations(annotations: AnnotationItem[]) {
 export async function getCachedAnnotations(): Promise<AnnotationItem[]> {
   const db = await getDB()
   const items = await db.getAll('annotations')
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- rest-sibling destructure to strip the IDB-only `_key` field
   return items.map(({ _key: _, ...rest }) => rest as unknown as AnnotationItem)
 }
 
@@ -184,6 +164,7 @@ export async function getCachedLikes(feedId: string): Promise<FeedLikes | undefi
   const db = await getDB()
   const result = await db.get('likes', feedId)
   if (!result) return undefined
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- rest-sibling destructure to strip the IDB-only `feedId` key field
   const { feedId: _, ...rest } = result
   return rest as FeedLikes
 }

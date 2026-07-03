@@ -113,10 +113,6 @@ export async function listPapers(workspaceId?: string): Promise<Paper[]> {
   return request<Paper[]>(`/papers${query}`)
 }
 
-export async function getPaper(paperId: string): Promise<Paper> {
-  return request<Paper>(`/papers/${paperId}`)
-}
-
 export async function deletePaper(paperId: string): Promise<void> {
   return request<void>(`/papers/${paperId}`, { method: 'DELETE' })
 }
@@ -509,14 +505,6 @@ export async function reorderReadingList(listId: string, paperSequence: string[]
   })
 }
 
-export async function applyReadingListOrdering(listId: string, orderedPapers: unknown[]): Promise<void> {
-  return request(`/reading-lists/${listId}/apply-ordering`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ordered_papers: orderedPapers }),
-  })
-}
-
 export async function generateChapter(listId: string, chapterIndex: number): Promise<{ task_id: string }> {
   return request(`/reading-lists/${listId}/chapters/${chapterIndex}/generate`, { method: 'POST' })
 }
@@ -662,18 +650,6 @@ export async function deleteLike(feedId: string, postIndex: number, messageIndex
 }
 
 // Tags
-export async function listTags(): Promise<{ id: string; name: string; paper_count: number }[]> {
-  return request('/tags')
-}
-
-export async function createTag(name: string): Promise<{ id: string; name: string }> {
-  return request('/tags', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  })
-}
-
 export async function assignTag(paperId: string, tagName: string): Promise<void> {
   return request('/tags/assign', {
     method: 'POST',
@@ -684,10 +660,6 @@ export async function assignTag(paperId: string, tagName: string): Promise<void>
 
 export async function unassignTag(paperId: string, tagId: string): Promise<void> {
   return request(`/tags/assign/${paperId}/${tagId}`, { method: 'DELETE' })
-}
-
-export async function deleteTag(tagId: string): Promise<void> {
-  return request(`/tags/${tagId}`, { method: 'DELETE' })
 }
 
 // Messages / DMs
