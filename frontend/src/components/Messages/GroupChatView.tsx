@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Users, FileText, Loader2, Zap, AlertTriangle, HelpCircle } from 'lucide-react'
 import type { GroupChat, SummaryMessage } from '../../types'
-import { getGroupChat } from '../../lib/api'
+import { getGroupChat, isNotFoundError } from '../../lib/api'
 import { cacheGroupChat, getCachedGroupChat } from '../../lib/offline-cache'
+import { usePollTask } from '../../hooks/usePollTask'
 
 interface GroupChatViewProps {
   groupId: string
@@ -49,30 +50,92 @@ function SynthesisMessage({ message }: { message: SummaryMessage }) {
   )
 }
 
+// A fresh group chat's corpus_syntheses row is only inserted when the
+// Celery synthesis task COMPLETES (worker generate_corpus_synthesis) — the
+// POST /messages/groups 202 hands back a synthesis_id whose GET 404s for
+// the whole generation window. Retry 404s on this cadence before showing
+// any failure language: 25 attempts x 4s ≈ 100s, comfortably past typical
+// local-Ollama synthesis time.
+const SYNTH_RETRY_MAX_ATTEMPTS = 25
+const SYNTH_RETRY_INTERVAL_MS = 4000
+
 export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
   const [chat, setChat] = useState<GroupChat | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // True once the initial fetch has 404'd: the synthesis row doesn't exist
+  // yet, so we're waiting on generation (not on a slow network round-trip)
+  // — the loading state adds a "Synthesizing…" hint so the user knows why
+  // the wait is long.
+  const [synthesizing, setSynthesizing] = useState(false)
+  const poll = usePollTask()
+
+  // Render-time state reset when groupId changes (React's endorsed
+  // "adjusting state when a prop changes" pattern — same shape as
+  // MessagesView). The initial useState values cover first mount; this
+  // covers switching to a different group without an effect-driven
+  // setState cascade.
+  const [loadedGroupId, setLoadedGroupId] = useState(groupId)
+  if (loadedGroupId !== groupId) {
+    setLoadedGroupId(groupId)
+    setChat(null)
+    setLoading(true)
+    setError(null)
+    setSynthesizing(false)
+  }
 
   useEffect(() => {
     // R10 FE-5: the initial fetch used to be a bare `await` with no
     // try/catch — a transient 5xx / offline rejection escaped as an
     // unhandled promise rejection and `loading` never flipped back to
-    // false, wedging the spinner forever. Mirrors Inbox.tsx's
-    // try/catch/finally + `active` sentinel shape.
+    // false, wedging the spinner forever.
+    //
+    // R10 FE-4 follow-up: a 404 here is NOT a failure for a fresh group —
+    // no synthesis row exists until the worker finishes, so the previous
+    // single-shot fetch rendered "Synthesis failed to load" on the
+    // feature's primary success path, 100% of the time. Retry 404s (only
+    // 404s — real failures still surface immediately) on a bounded
+    // interval via the shared poll scheduler before giving up.
+    // No synchronous state resets here: initial useState values cover
+    // mount, and the render-time reset above covers groupId changes —
+    // both happen before this effect fires.
     let active = true
-    async function load() {
-      setLoading(true)
-      setError(null)
-      try {
-        const data = await getGroupChat(groupId)
+    let notFoundCount = 0
+
+    const controller = poll<GroupChat>({
+      fn: () => getGroupChat(groupId),
+      // Any successful response is terminal — the row only exists once
+      // the synthesis is complete, so there's no "row present but still
+      // generating" state to keep polling through.
+      isDone: () => true,
+      onDone: (data) => {
         if (!active) return
         cacheGroupChat(data).catch(() => {})
         setChat(data)
-      } catch (err) {
+        setSynthesizing(false)
+        setLoading(false)
+      },
+      onError: async (err) => {
         if (!active) return
-        // Offline fallback: fall back to the last cached synthesis rather
-        // than surfacing the error branch when we have one to show.
+        if (isNotFoundError(err)) {
+          notFoundCount += 1
+          if (notFoundCount < SYNTH_RETRY_MAX_ATTEMPTS) {
+            // Still generating — stay in the loading state (with the
+            // synthesizing hint) and let the scheduler retry.
+            setSynthesizing(true)
+            return
+          }
+          // Bounded window exhausted (~100s of 404s) — now it's fair to
+          // surface an error rather than spin forever.
+          setSynthesizing(false)
+          setError('Synthesis is taking longer than expected. Go back and reopen this chat in a moment.')
+          setLoading(false)
+          return
+        }
+        // Non-404 (real failure): stop retrying immediately. Offline
+        // fallback: prefer the last cached synthesis over the error
+        // branch when we have one to show.
+        controller.stop()
         let usedCache = false
         try {
           const cached = await getCachedGroupChat(groupId)
@@ -81,16 +144,23 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
             usedCache = true
           }
         } catch { /* IDB unavailable — fall through to the error state */ }
+        if (!active) return
         if (!usedCache) {
           setError(err instanceof Error ? err.message : 'Failed to load group synthesis')
         }
-      } finally {
-        if (active) setLoading(false)
-      }
+        setSynthesizing(false)
+        setLoading(false)
+      },
+      intervalMs: SYNTH_RETRY_INTERVAL_MS,
+      initialDelayMs: 0, // first fetch fires immediately, like the old effect
+      maxAttempts: SYNTH_RETRY_MAX_ATTEMPTS,
+    })
+
+    return () => {
+      active = false
+      controller.stop()
     }
-    load()
-    return () => { active = false }
-  }, [groupId])
+  }, [groupId, poll])
 
   return (
     <div>
@@ -123,8 +193,19 @@ export function GroupChatView({ groupId, onBack }: GroupChatViewProps) {
       ) : loading ? (
         // Group synthesis takes many seconds; announce it so SR users
         // aren't left in silence while Claude works through the prompts.
-        <div role="status" aria-live="polite" aria-busy="true" aria-label="Generating group synthesis" className="flex items-center justify-center py-20">
+        <div role="status" aria-live="polite" aria-busy="true" aria-label="Generating group synthesis" className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 size={28} className="text-gold animate-spin" aria-hidden="true" />
+          {synthesizing && (
+            // The fetch has 404'd at least once: the synthesis row doesn't
+            // exist yet because the worker is still generating. Say so —
+            // an unexplained spinner over a ~30-60s wait reads as a hang.
+            <div className="text-center px-6">
+              <p className="text-sm text-text">Synthesizing…</p>
+              <p className="text-xs text-text-muted mt-1">
+                The papers are talking it over. This can take a minute or two.
+              </p>
+            </div>
+          )}
         </div>
       ) : chat?.messages && chat.messages.length > 0 ? (
         <div className="py-3 space-y-2">
