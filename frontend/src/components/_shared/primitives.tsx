@@ -187,13 +187,22 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
   placeholder: string
   onSave: (v: string) => void
 }) {
-  const [local, setLocal] = useState(value || '')
+  // R10 wave-2 final review Minor 2: the API never round-trips a configured
+  // secret's real value — GET /settings redacts it to the literal string
+  // "set" (api/routers/settings.py `_redact`) precisely so the real key
+  // never leaves the server. Treat "set" purely as a configured-marker:
+  // never prefill the input with the 3-char string, show a masked
+  // placeholder instead, and let typing/saving/clearing behave exactly as
+  // if the field started blank.
+  const isConfigured = value === 'set'
+  const effectiveValue = isConfigured ? '' : (value || '')
+  const [local, setLocal] = useState(effectiveValue)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => { setLocal(value || '') }, [value])
+  useEffect(() => { setLocal(effectiveValue) }, [effectiveValue])
 
   const doSave = () => {
-    if (local !== (value || '')) {
+    if (local !== effectiveValue) {
       onSave(local)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -206,7 +215,7 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
       <input
         type="password"
         value={local}
-        placeholder={placeholder}
+        placeholder={isConfigured ? '••••••••  (configured — enter a new key to replace)' : placeholder}
         onChange={(e) => setLocal(e.target.value)}
         onBlur={doSave}
         onKeyDown={(e) => { if (e.key === 'Enter') doSave() }}
