@@ -8,7 +8,27 @@ const APP_URL = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
  */
 async function waitForApp(page: Page) {
   await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-  await page.waitForSelector('nav[aria-label="Main navigation"]', { timeout: 20_000 })
+  // Desktop uses "Main navigation" (md:flex, CSS-hidden below 768px); mobile
+  // shows "Mobile navigation" (bottom bar) instead — wait for whichever
+  // landmark the current viewport actually renders.
+  await page.waitForFunction(() => {
+    return document.querySelector('nav[aria-label="Main navigation"]')?.checkVisibility?.() ||
+           document.querySelector('nav[aria-label="Mobile navigation"]')?.checkVisibility?.()
+  }, { timeout: 20_000 })
+}
+
+/**
+ * Helper: locator for a nav button by its accessible label, scoped to
+ * whichever nav landmark ("Main navigation" desktop / "Mobile navigation"
+ * bottom bar) the current viewport actually renders. Home/Saved/Messages
+ * use the same label on both — this file never navigates to Search/Alerts/
+ * Settings, which do differ or are mobile-unreachable (see augment.spec.ts).
+ */
+async function navBtn(page: Page, label: string) {
+  const mobileNav = page.locator('nav[aria-label="Mobile navigation"]')
+  const isMobile = await mobileNav.isVisible().catch(() => false)
+  const nav = isMobile ? mobileNav : page.locator('nav[aria-label="Main navigation"]')
+  return nav.locator(`button[aria-label="${label}"]`)
 }
 
 /**
@@ -30,11 +50,11 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
   test('R2-8.1 -- Bookmarks view renders with header', async ({ page }) => {
     await waitForApp(page)
 
-    const savedBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Saved"]')
+    const savedBtn = await navBtn(page, 'Saved')
     await expect(savedBtn).toBeVisible()
     await savedBtn.click()
 
-    const header = page.locator('h1', { hasText: 'Bookmarks' })
+    const header = page.locator('h1, h2', { hasText: 'Bookmarks' }).first()
     await expect(header).toBeVisible({ timeout: 5_000 })
 
     // Verify the saved count text exists (e.g. "0 saved posts" or "N saved posts")
@@ -47,8 +67,8 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
   test('R2-8.2 -- Empty bookmarks shows empty state', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Saved"]').click()
-    await page.locator('h1', { hasText: 'Bookmarks' }).waitFor({ timeout: 5_000 })
+    await (await navBtn(page, 'Saved')).click()
+    await page.locator('h1, h2', { hasText: 'Bookmarks' }).first().waitFor({ timeout: 5_000 })
     await waitForLoading(page)
 
     // Check for empty state text OR bookmarked posts
@@ -77,7 +97,7 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
     await waitForApp(page)
 
     // Go to feed
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]').click()
+    await (await navBtn(page, 'Home')).click()
     await page.waitForTimeout(1_500)
 
     const bookmarkBtn = page.locator('button[aria-label*="Bookmark"]').first()
@@ -107,7 +127,7 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
   test('R2-8.4 -- Bookmarked post shows in Bookmarks view (if posts exist)', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]').click()
+    await (await navBtn(page, 'Home')).click()
     await page.waitForTimeout(1_500)
 
     const bookmarkBtn = page.locator('button[aria-label*="Bookmark"]').first()
@@ -127,8 +147,8 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
     }
 
     // Navigate to Bookmarks
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Saved"]').click()
-    await page.locator('h1', { hasText: 'Bookmarks' }).waitFor({ timeout: 5_000 })
+    await (await navBtn(page, 'Saved')).click()
+    await page.locator('h1, h2', { hasText: 'Bookmarks' }).first().waitFor({ timeout: 5_000 })
     await waitForLoading(page)
     await page.waitForTimeout(500)
 
@@ -146,7 +166,7 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
 
     // Clean up: un-bookmark if we bookmarked it
     if (!wasActive) {
-      await page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]').click()
+      await (await navBtn(page, 'Home')).click()
       await page.waitForTimeout(500)
       const btn = page.locator('button[aria-label*="Bookmark"]').first()
       if (await btn.isVisible().catch(() => false)) {
@@ -165,7 +185,7 @@ test.describe('Section 9 [RETEST]: Feed History -- BUG-009/010 verification', ()
   test('R2-9.1 -- Feed history is workspace-scoped (BUG-009 fix)', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]').click()
+    await (await navBtn(page, 'Home')).click()
     await page.waitForTimeout(1_500)
 
     // Check current feed state
@@ -232,7 +252,7 @@ test.describe('Section 9 [RETEST]: Feed History -- BUG-009/010 verification', ()
     console.log(`API state: ${JSON.stringify(apiState)}`)
 
     // Navigate to feed view
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]').click()
+    await (await navBtn(page, 'Home')).click()
     await page.waitForTimeout(1_500)
 
     // BUG-010 check: if NO papers exist but feeds with posts still exist, that's orphaned data
@@ -264,7 +284,7 @@ test.describe('Section 9 [RETEST]: Feed History -- BUG-009/010 verification', ()
   test('R2-9.3 -- Feed history expand/collapse (if feeds exist)', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]').click()
+    await (await navBtn(page, 'Home')).click()
     await page.waitForTimeout(1_500)
 
     const pastFeedsBtn = page.locator('button', { hasText: /past feed/ })
@@ -303,7 +323,7 @@ test.describe('Section 9 [RETEST]: Feed History -- BUG-009/010 verification', ()
   test('R2-9.4 -- Load a past feed from history (if multiple feeds exist)', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Home"]').click()
+    await (await navBtn(page, 'Home')).click()
     await page.waitForTimeout(1_500)
 
     const pastFeedsBtn = page.locator('button', { hasText: /past feed/ })
@@ -348,11 +368,11 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
   test('R2-10.1 -- Messages view loads with header and subtitle', async ({ page }) => {
     await waitForApp(page)
 
-    const mailBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]')
+    const mailBtn = await navBtn(page, 'Messages')
     await expect(mailBtn).toBeVisible()
     await mailBtn.click()
 
-    const header = page.locator('h1', { hasText: 'Messages' })
+    const header = page.locator('h1, h2', { hasText: 'Messages' }).first()
     await expect(header).toBeVisible({ timeout: 5_000 })
 
     const subtitle = page.locator('text=Paper summaries & corpus synthesis')
@@ -364,7 +384,7 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
   test('R2-10.2 -- Papers and Groups tabs present', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]').click()
+    await (await navBtn(page, 'Messages')).click()
     // Heading is `h2` per the Phase 3 hierarchy cleanup; tolerate either.
     await page.locator('h1, h2', { hasText: 'Messages' }).first().waitFor({ timeout: 5_000 })
 
@@ -373,7 +393,7 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
 
     // The tab's visible label is "Groups" (Inbox.tsx:56) — NOT "Group Chats".
     // The tab is always rendered; earlier "feature gate" assumption was wrong.
-    const groupsTab = page.getByRole('button', { name: /^Groups$/i })
+    const groupsTab = page.getByRole('tab', { name: /^Groups$/i })
     await expect(groupsTab).toBeVisible()
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s10_tabs.png`, fullPage: false })
@@ -382,8 +402,8 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
   test('R2-10.3 -- Papers tab content (empty state or paper list)', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]').click()
-    await page.locator('h1', { hasText: 'Messages' }).waitFor({ timeout: 5_000 })
+    await (await navBtn(page, 'Messages')).click()
+    await page.locator('h1, h2', { hasText: 'Messages' }).first().waitFor({ timeout: 5_000 })
     await waitForLoading(page)
 
     // Papers tab is active by default. Check for:
@@ -413,8 +433,8 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
   test('R2-10.4 -- Paper chat opens when clicking a paper (if papers exist)', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]').click()
-    await page.locator('h1', { hasText: 'Messages' }).waitFor({ timeout: 5_000 })
+    await (await navBtn(page, 'Messages')).click()
+    await page.locator('h1, h2', { hasText: 'Messages' }).first().waitFor({ timeout: 5_000 })
     await waitForLoading(page)
 
     const paperEntry = page.locator('button', { hasText: /chunk/ }).first()
@@ -430,7 +450,7 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
     await page.waitForTimeout(3_000)
 
     // PaperChat should replace the inbox view
-    const messagesHeader = page.locator('h1', { hasText: 'Messages' })
+    const messagesHeader = page.locator('h1, h2', { hasText: 'Messages' }).first()
     const headerGone = !(await messagesHeader.isVisible().catch(() => false))
 
     // Look for a back button or paper title
@@ -445,11 +465,11 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
   test('R2-10.5 -- Groups tab shows content or empty state', async ({ page }) => {
     await waitForApp(page)
 
-    await page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]').click()
+    await (await navBtn(page, 'Messages')).click()
     await page.locator('h1, h2', { hasText: 'Messages' }).first().waitFor({ timeout: 5_000 })
 
     // Tab label is "Groups" (Inbox.tsx:56).
-    const groupsTab = page.getByRole('button', { name: /^Groups$/i })
+    const groupsTab = page.getByRole('tab', { name: /^Groups$/i })
     await expect(groupsTab).toBeVisible()
     await groupsTab.click()
     await page.waitForTimeout(1_000)
@@ -470,7 +490,7 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
   test('R2-10.6 -- Messages nav icon has correct aria-label', async ({ page }) => {
     await waitForApp(page)
 
-    const mailBtn = page.locator('nav[aria-label="Main navigation"] button[aria-label="Messages"]')
+    const mailBtn = await navBtn(page, 'Messages')
     await expect(mailBtn).toBeVisible()
 
     // Verify aria-current changes when Messages is active

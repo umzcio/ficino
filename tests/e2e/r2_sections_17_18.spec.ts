@@ -15,16 +15,15 @@ async function gotoAndWait(page: import('@playwright/test').Page) {
 
 // Helper: open mobile drawer
 async function openDrawer(page: import('@playwright/test').Page) {
-  // There are two img[alt="ficino"] -- the sidebar one (hidden on mobile) and the mobile header one.
-  // Use the visible one with the cursor-pointer / md:hidden class.
-  const logos = page.locator('img[alt="ficino"]');
-  const count = await logos.count();
-  for (let i = 0; i < count; i++) {
-    if (await logos.nth(i).isVisible().catch(() => false)) {
-      await logos.nth(i).click();
-      await page.waitForTimeout(800);
-      return true;
-    }
+  // The logo image is decorative now (alt="" — the "ficino" wordmark next to
+  // it already renders the brand text for SR users, so it isn't announced
+  // twice; see App.tsx FeedHeader / MobileDrawer). The actual tap target is
+  // the wrapping button, which kept its accessible name.
+  const openMenuBtn = page.locator('button[aria-label="Open menu"]');
+  if (await openMenuBtn.isVisible().catch(() => false)) {
+    await openMenuBtn.click();
+    await page.waitForTimeout(800);
+    return true;
   }
   return false;
 }
