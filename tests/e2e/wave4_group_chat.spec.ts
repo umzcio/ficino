@@ -141,23 +141,31 @@ test.describe('WAVE 4 — group chat creation', () => {
     // of whether the synthesis has finished — assert on that stable marker
     // rather than the chat name. The backend only inserts the
     // corpus_syntheses row when the Celery task completes (there's no
-    // upfront placeholder row), so the view's very first fetch right after
-    // create legitimately 404s; the chat name text won't render until a
-    // later successful fetch (see GroupChatView: `chat?.name || 'Loading...'`,
-    // and `chat` stays null on the 404 branch).
+    // upfront placeholder row), so the view's first fetches right after
+    // create legitimately 404 — GroupChatView treats those as pending and
+    // retries on a bounded window (R10 FE-4 follow-up), showing the
+    // "Synthesizing…" hint until the row lands.
     await expect(dialog).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Go back' })).toBeVisible({ timeout: 10_000 })
+    // Immediately after create the view must be in one of exactly two
+    // legitimate states: the Synthesizing hint (row not written yet) or —
+    // if the worker was uncommonly fast — the finished synthesis. It must
+    // NEVER be the failure card (the pre-fix behavior).
+    await expect(
+      page.getByText('Synthesizing…').or(page.getByText('Papers in this conversation')).first()
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Synthesis failed to load')).not.toBeVisible()
     await page.screenshot({ path: shot('01_after_create'), fullPage: true })
 
     // Ollama synthesis can be slow — poll the backend directly for up to
-    // 90s (the page itself has no auto-retry once its initial fetch
-    // 404s). A still-empty `messages` array (synthesis not done yet) is an
-    // acceptable mid-state for this smoke test, mirroring R9-02's
-    // tolerance for 'pending' Archivist replies.
+    // 90s. A 404 is the documented pending state (row not written until
+    // the Celery task completes); a 5xx is a real backend failure and
+    // must hard-fail the spec instead of being lumped in with pending.
     let finalChat: any = null
     const deadline = Date.now() + 90_000
     while (Date.now() < deadline) {
       const r = await context.request.get(`${BASE}/api/messages/groups/${createBody.synthesis_id}`, { ignoreHTTPSErrors: true })
+      expect(r.status(), 'backend error during synthesis poll').toBeLessThan(500)
       if (r.ok()) {
         const body = await r.json()
         if (Array.isArray(body.messages) && body.messages.length > 0) { finalChat = body; break }
@@ -179,12 +187,16 @@ test.describe('WAVE 4 — group chat creation', () => {
       await expect(page.getByText('Papers in this conversation')).toBeVisible({ timeout: 15_000 })
       await page.screenshot({ path: shot('02_synthesis_complete'), fullPage: true })
     } else {
-      // Still generating after 90s. The product currently has no
-      // dedicated "pending" indicator for a synthesis whose backing row
-      // doesn't exist yet (the view either still-spins or shows the 404
-      // error card, both look the same to a user) — assert we're still on
-      // the group view rather than bounced back to Inbox or crashed.
+      // Still generating after 90s — acceptable for this smoke test
+      // (mirrors R9-02's tolerance for a pending Archivist reply). With
+      // the retry-on-404 fix the UI must be showing either the pending
+      // "Synthesizing…" hint or (if the worker finished in the last
+      // moments) the synthesis content — never the failure card.
       await expect(page.getByRole('button', { name: 'Go back' })).toBeVisible()
+      await expect(
+        page.getByText('Synthesizing…').or(page.getByText('Papers in this conversation')).first()
+      ).toBeVisible()
+      await expect(page.getByText('Synthesis failed to load')).not.toBeVisible()
       await page.screenshot({ path: shot('02_synthesis_pending'), fullPage: true })
     }
 
