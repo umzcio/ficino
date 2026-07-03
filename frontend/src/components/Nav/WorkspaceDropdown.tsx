@@ -20,7 +20,9 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
   const [renameValue, setRenameValue] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
-  // Close on click outside
+  // Close on click outside or Escape (ARIA menu pattern requires Escape to
+  // dismiss — PostCard's 3-dot/zap menus use the same click-outside +
+  // Escape document-listener pair, R10 FE-14).
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -28,8 +30,20 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
         setCreating(false)
       }
     }
-    if (open) document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        setCreating(false)
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClick)
+      document.addEventListener('keydown', handleKey)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
   }, [open])
 
   if (!active || workspaces.length <= 1) return null
@@ -76,6 +90,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
               ) : (
                 <>
                   <button
+                    role="menuitem"
                     onClick={() => { onSwitch(ws.id); setOpen(false) }}
                     className="flex-1 text-left px-3 py-2.5 flex items-center gap-2.5 bg-transparent border-none cursor-pointer"
                   >
@@ -93,6 +108,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                     <div className="flex items-center gap-0.5 pr-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                       {onDownload && (
                         <button
+                          role="menuitem"
                           onClick={(e) => { e.stopPropagation(); onDownload(ws.id); setOpen(false) }}
                           aria-label={`Download ${ws.name} for offline`}
                           className="p-2.5 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
@@ -101,6 +117,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                         </button>
                       )}
                       <button
+                        role="menuitem"
                         onClick={(e) => { e.stopPropagation(); setRenamingId(ws.id); setRenameValue(ws.name) }}
                         aria-label={`Rename ${ws.name}`}
                         className="p-2.5 rounded hover:bg-gold/10 bg-transparent border-none cursor-pointer"
@@ -108,6 +125,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
                         <Pencil size={12} className="text-text-muted" />
                       </button>
                       <button
+                        role="menuitem"
                         onClick={(e) => { e.stopPropagation(); onDelete(ws.id); setOpen(false) }}
                         aria-label={`Delete ${ws.name}`}
                         className="p-2.5 rounded hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
@@ -144,6 +162,7 @@ export function WorkspaceDropdown({ workspaces, active, onSwitch, onCreate, onDe
               </div>
             ) : (
               <button
+                role="menuitem"
                 onClick={() => setCreating(true)}
                 className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors text-gold"
               >
