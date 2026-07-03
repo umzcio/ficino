@@ -72,11 +72,17 @@ function ActivityTimeline({ workspaceId }: { workspaceId: string }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // R10 FE-17: without this sentinel, a fast workspace-to-workspace switch
+    // (the workspace grid on this same page does exactly that) can let a
+    // slow response for the previously-active workspace resolve after the
+    // new one's and overwrite it — same class as Round 9 H15.
+    let active = true
     setLoading(true)
     getWorkspaceActivity(workspaceId)
-      .then(setActivities)
+      .then((data) => { if (active) setActivities(data) })
       .catch(() => {})
-      .finally(() => setLoading(false))
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
   }, [workspaceId])
 
   if (loading) {
