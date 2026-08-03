@@ -159,6 +159,23 @@ def fetch(query: str, *args: object) -> list[asyncpg.Record]:
     return _run(_fetch(query, *args))
 
 
+async def _execute_in_transaction(statements: list[tuple[str, tuple]]) -> None:
+    """Run (query, args) pairs in one transaction — all commit or all roll back."""
+    # Deliberately no pool-closed-rebuild retry like _execute/_fetch have:
+    # a transaction must never be retried half-applied. Pool-closed errors
+    # surface to the caller, which retries the whole task.
+    pool = await _ensure_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for query, args in statements:
+                await conn.execute(query, *args)
+
+
+def execute_in_transaction(statements: list[tuple[str, tuple]]) -> None:
+    """Execute multiple statements atomically. Sync wrapper."""
+    return _run(_execute_in_transaction(statements))
+
+
 async def _store_chunks_batch(
     paper_id: str,
     chunks: list[dict[str, object]],

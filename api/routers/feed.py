@@ -11,7 +11,7 @@ from audit import record_audit
 from celery_client import get_celery
 from config import settings
 from auth import AuthUser, get_current_user
-from auth.rate_limit import RateLimit
+from auth.rate_limit import RateLimit, check_rate_limit
 from constants import MAX_FEEDS_LIST
 from db.connection import get_db
 from models.feed import Feed, FeedGenerateRequest
@@ -282,6 +282,11 @@ async def request_feed_audio(
         # existing status/URLs without us spinning up a duplicate task.
         return {"status": current}
 
+    # Charge right before dispatch so the idempotent early-returns above
+    # (already generating/ready) are never charged — mirrors the summary
+    # dispatch in messages.py.
+    await check_rate_limit(user, "audio", settings.rate_limit_audio_per_day)
+
     celery_app = get_celery()
     task = celery_app.send_task(
         "tasks.audio_tasks.generate_audio_for_feed",
@@ -316,6 +321,11 @@ async def request_feed_podcast(
     current = row["podcast_status"]
     if current in ("generating", "ready"):
         return {"status": current}
+
+    # Charge right before dispatch so the idempotent early-returns above
+    # (already generating/ready) are never charged — mirrors the summary
+    # dispatch in messages.py.
+    await check_rate_limit(user, "audio", settings.rate_limit_audio_per_day)
 
     celery_app = get_celery()
     task = celery_app.send_task(

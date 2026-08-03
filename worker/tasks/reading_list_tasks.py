@@ -16,7 +16,7 @@ from celery import Task
 from celery_app import app
 from ficino_shared.constants import CHAPTER_INSERT_SQL
 from lib import claude_client, retrieval, persona as persona_lib
-from lib.db import execute, fetchrow, fetch
+from lib.db import execute, execute_in_transaction, fetchrow, fetch
 from lib.post_validation import validate_post_shape
 from lib.sanitize import fence_untrusted
 from lib.settings import apply_provider_settings, STUB_USER_ID
@@ -191,28 +191,22 @@ def propose_ordering(
         # forever waiting for rationale to appear and the user saw the
         # "Archivist is analyzing your papers..." spinner indefinitely.
         if list_id:
-            try:
-                new_sequence = [p["paper_id"] for p in result]
-                execute(
-                    "UPDATE reading_lists SET paper_sequence = $1::uuid[], rationale = $2::jsonb WHERE id = $3",
-                    new_sequence, json.dumps(result), list_id,
-                )
-                # Rebuild chapters to match the new order. Chapter 0 is
-                # unlocked, the rest start locked — matches the api's
-                # create/reorder behaviour.
-                execute(
-                    "DELETE FROM reading_list_chapters WHERE reading_list_id = $1",
-                    list_id,
-                )
-                # Rebuild all chapters in a single INSERT ... SELECT FROM
-                # unnest(...) instead of one INSERT per paper (same pattern
-                # as the API's create endpoint).
-                execute(CHAPTER_INSERT_SQL, list_id, new_sequence)
-                log.info("propose_ordering_persisted", list_id=list_id)
-            except Exception as e:
-                # Persistence failure is surfaced loudly but doesn't retry
-                # the whole task — the ordering itself already succeeded.
-                log.error("propose_ordering_persist_failed", error=str(e)[:200])
+            # One transaction: a crash between DELETE and INSERT previously
+            # left the list with zero chapters but a set rationale — the
+            # frontend poller exits, nothing retries, chapter flow dead.
+            # Letting the raise reach the outer handler re-enables the
+            # Celery retry the task already supports (chapter rebuild is
+            # idempotent after DELETE).
+            new_sequence = [p["paper_id"] for p in result]
+            execute_in_transaction([
+                ("UPDATE reading_lists SET paper_sequence = $1::uuid[], rationale = $2::jsonb WHERE id = $3",
+                 (new_sequence, json.dumps(result), list_id)),
+                ("DELETE FROM reading_list_chapters WHERE reading_list_id = $1",
+                 (list_id,)),
+                (CHAPTER_INSERT_SQL,
+                 (list_id, new_sequence)),
+            ])
+            log.info("propose_ordering_persisted", list_id=list_id)
 
         log.info("propose_ordering_complete", duration_ms=duration_ms, papers=len(result))
         return {"ordered_papers": result, "duration_ms": duration_ms}

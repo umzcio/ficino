@@ -216,19 +216,23 @@ async def create_reading_list(
     if len(paper_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 papers for a reading list")
 
-    # Create the reading list with papers in upload order initially
-    row = await db.fetchrow(
-        """INSERT INTO reading_lists (user_id, corpus_id, name, paper_sequence)
-           VALUES ($1, $2, $3, $4) RETURNING id""",
-        user.id, body.corpus_id, body.name, paper_ids,
-    )
-    list_id = str(row["id"])
+    # Create the reading list + its chapters atomically: a failure in the
+    # chapter INSERT must not leave a chapterless list row behind (the
+    # dispatch below would then build on an empty chapter flow).
+    async with db.transaction():
+        # Create the reading list with papers in upload order initially
+        row = await db.fetchrow(
+            """INSERT INTO reading_lists (user_id, corpus_id, name, paper_sequence)
+               VALUES ($1, $2, $3, $4) RETURNING id""",
+            user.id, body.corpus_id, body.name, paper_ids,
+        )
+        list_id = str(row["id"])
 
-    # Create one chapter per paper in a single statement. The previous
-    # Python-loop version was N serial INSERTs — a 20-paper list = 20
-    # sequential RTT before the Celery dispatch. unnest WITH ORDINALITY
-    # keeps the per-paper chapter_index deterministic.
-    await db.execute(CHAPTER_INSERT_SQL, list_id, paper_ids)
+        # Create one chapter per paper in a single statement. The previous
+        # Python-loop version was N serial INSERTs — a 20-paper list = 20
+        # sequential RTT before the Celery dispatch. unnest WITH ORDINALITY
+        # keeps the per-paper chapter_index deterministic.
+        await db.execute(CHAPTER_INSERT_SQL, list_id, paper_ids)
 
     # Dispatch AI ordering. The worker persists the result directly into
     # reading_lists.{rationale, paper_sequence} so the frontend's polling
@@ -287,34 +291,40 @@ async def reorder_reading_list(
                 detail="One or more papers not found",
             )
 
-    # Update sequence
-    await db.execute(
-        "UPDATE reading_lists SET paper_sequence = $1 WHERE id = $2",
-        body.paper_sequence, list_id,
-    )
+    # Sequence update + chapter rebuild run atomically: a failure mid-way
+    # previously left the list with a new paper_sequence but stale/missing
+    # chapters. The max_complete read sits inside the transaction too —
+    # the DELETE only touches feed_id-IS-NULL rows, so completed chapters
+    # (and thus the read's result) are unaffected by it.
+    async with db.transaction():
+        # Update sequence
+        await db.execute(
+            "UPDATE reading_lists SET paper_sequence = $1 WHERE id = $2",
+            body.paper_sequence, list_id,
+        )
 
-    # Delete existing chapters (only non-complete ones to preserve generated feeds)
-    await db.execute(
-        "DELETE FROM reading_list_chapters WHERE reading_list_id = $1 AND feed_id IS NULL",
-        list_id,
-    )
+        # Delete existing chapters (only non-complete ones to preserve generated feeds)
+        await db.execute(
+            "DELETE FROM reading_list_chapters WHERE reading_list_id = $1 AND feed_id IS NULL",
+            list_id,
+        )
 
-    # Get highest completed chapter index
-    max_complete = await db.fetchval(
-        "SELECT COALESCE(MAX(chapter_index), -1) FROM reading_list_chapters WHERE reading_list_id = $1 AND status = 'complete'",
-        list_id,
-    )
+        # Get highest completed chapter index
+        max_complete = await db.fetchval(
+            "SELECT COALESCE(MAX(chapter_index), -1) FROM reading_list_chapters WHERE reading_list_id = $1 AND status = 'complete'",
+            list_id,
+        )
 
-    # Recreate chapters for the remaining (not-yet-completed) papers in one
-    # batched INSERT instead of up to 2N per-paper round trips (R10 BP-17,
-    # same pattern as create_reading_list's CHAPTER_INSERT_SQL). The DELETE
-    # above already cleared every feed_id-IS-NULL chapter, so every index
-    # in `remaining` is guaranteed absent here -- the old per-row "exists"
-    # SELECT-then-INSERT guard never actually fired in practice and isn't
-    # reproduced.
-    remaining = body.paper_sequence[max_complete + 1:]
-    if remaining:
-        await db.execute(REORDER_CHAPTER_INSERT_SQL, list_id, remaining, max_complete)
+        # Recreate chapters for the remaining (not-yet-completed) papers in one
+        # batched INSERT instead of up to 2N per-paper round trips (R10 BP-17,
+        # same pattern as create_reading_list's CHAPTER_INSERT_SQL). The DELETE
+        # above already cleared every feed_id-IS-NULL chapter, so every index
+        # in `remaining` is guaranteed absent here -- the old per-row "exists"
+        # SELECT-then-INSERT guard never actually fired in practice and isn't
+        # reproduced.
+        remaining = body.paper_sequence[max_complete + 1:]
+        if remaining:
+            await db.execute(REORDER_CHAPTER_INSERT_SQL, list_id, remaining, max_complete)
 
     logger.info("reading_list_reordered", list_id=list_id)
     return {"status": "reordered"}
@@ -368,21 +378,25 @@ async def apply_ai_ordering(
 
     rationale_json = json.dumps([p.model_dump() for p in ordered_papers])
 
-    await db.execute(
-        "UPDATE reading_lists SET paper_sequence = $1, rationale = $2 WHERE id = $3",
-        new_sequence, rationale_json, list_id,
-    )
+    # Sequence update + chapter rebuild run atomically (same as create and
+    # reorder above): a failure between the DELETE and the INSERT previously
+    # left the list with a new sequence but zero chapters.
+    async with db.transaction():
+        await db.execute(
+            "UPDATE reading_lists SET paper_sequence = $1, rationale = $2 WHERE id = $3",
+            new_sequence, rationale_json, list_id,
+        )
 
-    # Rebuild chapters. Full wipe + "unlock only the first" is exactly
-    # CHAPTER_INSERT_SQL's initial-create semantics (unlike reorder, which
-    # must preserve already-completed chapters -- see
-    # REORDER_CHAPTER_INSERT_SQL above), so this reuses the shared
-    # create-path statement directly (R10 BP-17).
-    await db.execute(
-        "DELETE FROM reading_list_chapters WHERE reading_list_id = $1",
-        list_id,
-    )
-    await db.execute(CHAPTER_INSERT_SQL, list_id, new_sequence)
+        # Rebuild chapters. Full wipe + "unlock only the first" is exactly
+        # CHAPTER_INSERT_SQL's initial-create semantics (unlike reorder, which
+        # must preserve already-completed chapters -- see
+        # REORDER_CHAPTER_INSERT_SQL above), so this reuses the shared
+        # create-path statement directly (R10 BP-17).
+        await db.execute(
+            "DELETE FROM reading_list_chapters WHERE reading_list_id = $1",
+            list_id,
+        )
+        await db.execute(CHAPTER_INSERT_SQL, list_id, new_sequence)
 
     logger.info("ai_ordering_applied", list_id=list_id)
     return {"status": "applied"}

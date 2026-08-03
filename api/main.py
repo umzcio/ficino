@@ -58,11 +58,19 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("shutdown")
 
 
+# Interactive docs are a dev-only convenience — in every other environment
+# /docs, /redoc and /openapi.json would be an unauthenticated inventory of
+# every route, model, and tunable parameter. Same fail-closed posture as
+# the HSTS/CSP branch below.
+_is_dev = settings.environment == "development"
 app = FastAPI(
     title="Ficino API",
     description="AI-powered academic discourse engine",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if _is_dev else None,
+    redoc_url="/redoc" if _is_dev else None,
+    openapi_url="/openapi.json" if _is_dev else None,
 )
 
 # Middleware registration order matters: Starlette wraps middlewares in

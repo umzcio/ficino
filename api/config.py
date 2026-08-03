@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # flows through this Settings class. Same default (60), now tunable.
     rate_limit_replies_per_day: int = 60
     rate_limit_persona_dm_per_day: int = 60
+    rate_limit_audio_per_day: int = 20
 
     # App
     environment: str = "development"

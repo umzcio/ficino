@@ -292,7 +292,29 @@ def generate_feed(
                 "idempotent": True,
             }
     else:
-        feed_id = str(uuid.uuid4())
+        # Deterministic per Celery task id: acks_late redelivery reuses
+        # request.id, so a retried attempt re-derives the SAME feed_id and
+        # the entry guard below short-circuits instead of inserting a
+        # duplicate feed (each real dispatch gets a fresh task id, so fresh
+        # feeds still get fresh ids). Mirrors generate_chapter's uuid5.
+        feed_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"ficino:feed:{self.request.id}"))
+        # Idempotency guard: if a prior attempt of this same task already
+        # inserted its feed, return it rather than re-running the whole
+        # pipeline (and double-billing the owner's LLM keys).
+        existing = fetchrow(
+            "SELECT post_count FROM feeds WHERE id = $1 AND user_id = $2",
+            feed_id, effective_user_id,
+        )
+        if existing and existing["post_count"]:
+            logger.info("generate_feed_idempotent_skip",
+                        feed_id=feed_id, task_id=self.request.id,
+                        existing_post_count=existing["post_count"])
+            return {
+                "feed_id": feed_id,
+                "post_count": existing["post_count"],
+                "duration_ms": 0,
+                "idempotent": True,
+            }
     log = logger.bind(feed_id=feed_id, task_id=self.request.id, append=bool(append_to_feed_id))
     start_time = time.time()
 
@@ -354,7 +376,8 @@ def generate_feed(
             # Store empty feed
             execute(
                 """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                   ON CONFLICT (id) DO NOTHING""",  # redelivery of an empty feed isn't caught by the post_count>0 entry guard — never duplicate or error
                 feed_id,
                 effective_user_id,
                 corpus_id,
@@ -839,7 +862,17 @@ def generate_feed(
         else:
             execute(
                 """INSERT INTO feeds (id, user_id, corpus_id, tag_filter, posts, paper_count, post_count, generation_duration_ms)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                   ON CONFLICT (id) DO UPDATE SET
+                     posts = EXCLUDED.posts,
+                     paper_count = EXCLUDED.paper_count,
+                     post_count = EXCLUDED.post_count,
+                     generation_duration_ms = EXCLUDED.generation_duration_ms""",
+                # A conflict on the fresh path can only be a redelivery of
+                # this same task (deterministic uuid5 from request.id), so
+                # replacing the content is safe — it converts the
+                # empty-feed-then-success case from silent post loss into
+                # recovery.
                 feed_id,
                 effective_user_id,
                 corpus_id,
