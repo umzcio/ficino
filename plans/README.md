@@ -30,8 +30,8 @@ Written against commit `31fef3a` by the `improve` audit on 2026-08-03. Status va
 | 032 | Document the figure-detection model env vars in .env.example | docs | P3 | S | — | DONE |
 | 033 | Correct the Marker extraction docs drift | docs | P3 | S | — | DONE |
 | 034 | Fix the stale docs cluster | docs | P2 | S | 031, 032 | DONE |
-| 035 | Add a component-test layer for the highest-churn frontend files | tests | P3 | L | 024, 028 | TODO |
-| 036 | Replace data-dependent e2e skips with explicit fixtures | tests | P3 | M | — | TODO |
+| 035 | Add a component-test layer for the highest-churn frontend files | tests | P3 | L | 024, 028 | DONE |
+| 036 | Replace data-dependent e2e skips with explicit fixtures | tests | P3 | M | — | DONE |
 | 037 | Add a CI gate for the Playwright e2e suite | tests | P3 | M–L | 036, 022 | TODO |
 
 ## Execution order & dependencies (campaign 2)
