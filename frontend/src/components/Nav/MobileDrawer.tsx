@@ -40,6 +40,18 @@ export function MobileDrawer({
     return () => cancelAnimationFrame(raf)
   }, [open])
 
+  // The parent keeps this component mounted while closed (we return null
+  // below instead of unmounting), so `closing` would otherwise stay true
+  // forever after an animated exit — the next open would render off-canvas
+  // with every close path short-circuited by the `closing` guard. Reset it
+  // when `open` flips false, during render (react.dev "adjusting state when
+  // a prop changes" — an effect here trips react-hooks/set-state-in-effect).
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (prevOpen !== open) {
+    setPrevOpen(open)
+    if (!open) setClosing(false)
+  }
+
   // Exit plays, then we hand off to the parent. 160ms matches the exit
   // duration. Parent-initiated closes (open flips to false from outside)
   // still unmount instantly — documented limitation.
