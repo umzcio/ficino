@@ -55,6 +55,7 @@ export function ReadingListDetail({ listId, onBack }: Props) {
   const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null)
   const [chapterFeed, setChapterFeed] = useState<Feed | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [orderingReady, setOrderingReady] = useState(false)
   const [orderingFailed, setOrderingFailed] = useState(false)
   const orderingStreakRef = useRef(0)
@@ -184,10 +185,17 @@ export function ReadingListDetail({ listId, onBack }: Props) {
     if (!list) return
     const ch = list.chapters.find(c => c.chapter_index === chapterIndex)
     if (ch?.feed_id) {
-      const feed = await getFeed(ch.feed_id)
-      setChapterFeed(feed)
-      setActiveChapterIndex(chapterIndex)
-      setViewMode('chapter')
+      setActionError(null)
+      try {
+        const feed = await getFeed(ch.feed_id)
+        setChapterFeed(feed)
+        setActiveChapterIndex(chapterIndex)
+        setViewMode('chapter')
+      } catch {
+        // Navigational action — surface the failure instead of the click
+        // silently doing nothing (App.tsx fire-and-forget convention).
+        setActionError('Could not load this chapter — check your connection and try again.')
+      }
     }
   }
 
@@ -195,7 +203,9 @@ export function ReadingListDetail({ listId, onBack }: Props) {
     if (!list || index <= 0) return
     const newSequence = list.papers.map(p => p.id)
     ;[newSequence[index - 1], newSequence[index]] = [newSequence[index], newSequence[index - 1]]
-    await reorderReadingList(listId, newSequence)
+    // Best-effort: a failed reorder is self-evident (order unchanged) and
+    // refresh() resyncs from server state — swallow per App.tsx convention.
+    await reorderReadingList(listId, newSequence).catch(() => {})
     refresh()
   }
 
@@ -203,7 +213,9 @@ export function ReadingListDetail({ listId, onBack }: Props) {
     if (!list || index >= list.papers.length - 1) return
     const newSequence = list.papers.map(p => p.id)
     ;[newSequence[index], newSequence[index + 1]] = [newSequence[index + 1], newSequence[index]]
-    await reorderReadingList(listId, newSequence)
+    // Best-effort: a failed reorder is self-evident (order unchanged) and
+    // refresh() resyncs from server state — swallow per App.tsx convention.
+    await reorderReadingList(listId, newSequence).catch(() => {})
     refresh()
   }
 
@@ -306,6 +318,9 @@ export function ReadingListDetail({ listId, onBack }: Props) {
         </div>
 
         {/* AI ordering status */}
+        {actionError && (
+          <p className="px-4 py-2 text-[12px] text-persona-skeptic border-b border-border">{actionError}</p>
+        )}
         {!orderingReady && (
           <div className="px-4 py-3 border-b border-border bg-gold/5 flex items-center gap-2">
             {orderingFailed ? (

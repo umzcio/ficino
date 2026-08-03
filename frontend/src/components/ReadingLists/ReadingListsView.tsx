@@ -18,6 +18,7 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
   const [selectedListId, setSelectedListId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -42,9 +43,16 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
   }
 
   const handleDelete = async (listId: string) => {
-    await deleteReadingList(listId)
-    if (selectedListId === listId) setSelectedListId(null)
-    refresh()
+    setDeleteError(null)
+    try {
+      await deleteReadingList(listId)
+      if (selectedListId === listId) setSelectedListId(null)
+      refresh()
+    } catch {
+      // Destructive action — surface the failure instead of letting the row
+      // silently stay (App.tsx fire-and-forget convention).
+      setDeleteError('Could not delete the reading list — check your connection and try again.')
+    }
   }
 
   if (selectedListId) {
@@ -90,6 +98,9 @@ export function ReadingListsView({ workspaceId }: ReadingListsViewProps) {
       </div>
 
       {/* List */}
+      {deleteError && (
+        <p className="px-4 py-2 text-[12px] text-persona-skeptic border-b border-border">{deleteError}</p>
+      )}
       {loading ? (
         <div className="flex justify-center py-12">
           <Spinner size={24} />

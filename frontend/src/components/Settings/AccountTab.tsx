@@ -8,7 +8,7 @@ import { timeAgo } from '../../lib/timeAgo'
 
 interface Props {
   settings: Record<string, unknown>
-  onUpdate: (partial: Record<string, unknown>) => void
+  onUpdate: (partial: Record<string, unknown>) => Promise<boolean>
 }
 
 // AccountTab's own "last ~20 rows" display size — independent of the

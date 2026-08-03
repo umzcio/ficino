@@ -20,12 +20,12 @@ Written against commit `31fef3a` by the `improve` audit on 2026-08-03. Status va
 | 022 | Make init.sql the actual full schema for fresh self-host installs | bug | P2 | M | — | TODO |
 | 023 | Lock Python dependencies and pin CI tooling | tech-debt | P2 | S–M | 021 | TODO |
 | 024 | DangerButton surfaces failure instead of wedging | bug | P1 | S | — | DONE |
-| 025 | Surface settings save failures (stop the optimistic ApiKeyInput check) | bug | P1 | S | 024 | TODO |
-| 026 | Debounce settings slider writes and apply responses in order | perf | P1 | S | 025 | TODO |
+| 025 | Surface settings save failures (stop the optimistic ApiKeyInput check) | bug | P1 | S | 024 | DONE |
+| 026 | Debounce settings slider writes and apply responses in order | perf | P1 | S | 025 | DONE |
 | 027 | Bound the ReadingListDetail AI-ordering poll | bug | P1 | S | — | DONE |
 | 028 | Mount useUserPosts once and pass it down to UserProfile | perf | P1 | S | — | DONE |
 | 029 | Fix the ExploreView search stale-response race | bug | P1 | S | — | DONE |
-| 030 | Sweep unhandled rejections on user-triggered async actions | bug | P1 | S | 027, 028, 029 | TODO |
+| 030 | Sweep unhandled rejections on user-triggered async actions | bug | P1 | S | 027, 028, 029 | DONE |
 | 031 | Add a root AGENTS.md for agent-driven development | dx | P2 | S | 022, 023 | TODO |
 | 032 | Document the figure-detection model env vars in .env.example | docs | P3 | S | — | TODO |
 | 033 | Correct the Marker extraction docs drift | docs | P3 | S | — | TODO |

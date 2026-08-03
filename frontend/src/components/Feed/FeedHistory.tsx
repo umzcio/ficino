@@ -13,6 +13,7 @@ interface FeedHistoryProps {
 export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHistoryProps) {
   const [feeds, setFeeds] = useState<Feed[]>([])
   const [expanded, setExpanded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     // Metadata-only listing — full posts are fetched via getFeed() when
@@ -37,6 +38,13 @@ export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHist
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </button>
 
+      {/* Rendered outside the collapsible below — the finally above
+          collapses the panel on failure too, and the error must stay
+          visible. */}
+      {loadError && (
+        <p className="px-4 pb-2 text-[12px] text-persona-skeptic">{loadError}</p>
+      )}
+
       <div
         className={`grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none ${
           expanded ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'
@@ -51,9 +59,14 @@ export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHist
                 // Hydrate full posts only when the user picks this feed,
                 // rather than front-loading 20 × feed body on every
                 // history open.
+                setLoadError(null)
                 try {
                   const full = await getFeed(feed.id)
                   onLoadFeed(full)
+                } catch {
+                  // The user clicked to load a feed — surface the failure
+                  // instead of silently collapsing the panel.
+                  setLoadError('Could not load this feed — check your connection and try again.')
                 } finally {
                   setExpanded(false)
                 }

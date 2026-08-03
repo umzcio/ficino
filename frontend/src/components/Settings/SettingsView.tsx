@@ -12,7 +12,7 @@ import { StorageTab } from './StorageTab'
 interface SettingsViewProps {
   settings: Record<string, unknown>
   loading: boolean
-  onUpdate: (partial: Record<string, unknown>) => void
+  onUpdate: (partial: Record<string, unknown>) => Promise<boolean>
   workspaces?: Workspace[]
   onDownloadWorkspace?: (id: string) => void
 }

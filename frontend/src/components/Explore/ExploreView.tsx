@@ -11,7 +11,9 @@ interface ExploreViewProps {
   activeId: string
   onSwitch: (id: string) => void
   onCreate: (name: string) => void
-  onDelete: (id: string) => void
+  // Callers pass an async mutation (useWorkspaces.remove) — the return type
+  // is widened so the delete handler below can await it and surface failures.
+  onDelete: (id: string) => void | Promise<void>
   onRename: (id: string, name: string) => void
   papers?: { id: string; title: string | null; status: string }[]
   paperSummaries?: Map<string, string>
@@ -306,6 +308,19 @@ function SearchBar() {
 }
 
 export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete, onRename, papers, paperSummaries, onPaperClick }: ExploreViewProps) {
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const handleDeleteWorkspace = async (id: string) => {
+    setDeleteError(null)
+    try {
+      await onDelete(id)
+    } catch {
+      // Destructive action — surface the failure instead of the workspace
+      // silently staying in the list (App.tsx fire-and-forget convention).
+      setDeleteError('Could not delete the workspace — check your connection and try again.')
+    }
+  }
+
   return (
     <div>
       {/* Header */}
@@ -353,6 +368,10 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
           <div className="text-[13px] font-bold text-gold tracking-widest uppercase">
             Workspaces
           </div>
+
+          {deleteError && (
+            <p className="text-[12px] text-persona-skeptic">{deleteError}</p>
+          )}
 
           {workspaces.map((ws) => (
             // Can't be a real <button> — Rename/Delete below are real
@@ -418,7 +437,7 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                     <Pencil size={14} className="text-text-muted" />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); onDelete(ws.id) }}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteWorkspace(ws.id) }}
                     aria-label={`Delete ${ws.name}`}
                     className="p-2.5 rounded-lg hover:bg-persona-skeptic/10 bg-transparent border-none cursor-pointer"
                   >

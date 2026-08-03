@@ -7,7 +7,7 @@ import { Section, SettingRow, Toggle, Select, Slider, ApiKeyInput, Loader2 } fro
 
 interface Props {
   settings: Record<string, unknown>
-  onUpdate: (partial: Record<string, unknown>) => void
+  onUpdate: (partial: Record<string, unknown>) => Promise<boolean>
 }
 
 export function AITab({ settings: s, onUpdate }: Props) {

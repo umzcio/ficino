@@ -459,8 +459,15 @@ function AppContent() {
   }, [feed, ws.activeId, activeTag, activeTab])
   const handlePullToRefresh = useCallback(async () => {
     if (!feed.feedId) return
-    const fresh = await getFeed(feed.feedId)
-    feed.loadFeed(fresh as unknown as { id: string; posts: unknown[] })
+    try {
+      const fresh = await getFeed(feed.feedId)
+      feed.loadFeed(fresh as unknown as { id: string; posts: unknown[] })
+    } catch {
+      // Best-effort: a failed refresh is obvious (content doesn't change)
+      // and PullToRefresh's own finally resets the spinner — swallow per
+      // the .catch(() => {}) convention documented at the AlertsView
+      // wiring below.
+    }
   }, [feed])
 
   const handleCancelDownload = useCallback(() => {

@@ -186,7 +186,7 @@ export function Slider({
 export function ApiKeyInput({ value, placeholder, onSave }: {
   value: string
   placeholder: string
-  onSave: (v: string) => void
+  onSave: (v: string) => void | Promise<boolean | void>
 }) {
   // R10 wave-2 final review Minor 2: the API never round-trips a configured
   // secret's real value — GET /settings redacts it to the literal string
@@ -206,21 +206,29 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
   // gets the same "are you sure" friction as other destructive settings
   // actions.
   const [confirmingClear, setConfirmingClear] = useState(false)
+  const [saveFailed, setSaveFailed] = useState(false)
 
   useEffect(() => { setLocal(effectiveValue) }, [effectiveValue])
   useEffect(() => { if (!isConfigured) setConfirmingClear(false) }, [isConfigured])
 
-  const doSave = () => {
-    if (local !== effectiveValue) {
-      onSave(local)
+  const reportOutcome = (ok: boolean | void) => {
+    if (ok === false) {
+      setSaveFailed(true)
+    } else {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     }
   }
 
-  const doClear = () => {
+  const doSave = async () => {
+    if (local !== effectiveValue) {
+      reportOutcome(await onSave(local))
+    }
+  }
+
+  const doClear = async () => {
     setConfirmingClear(false)
-    onSave('')
+    reportOutcome(await onSave(''))
   }
 
   const labelId = useContext(SettingRowContext)
@@ -230,13 +238,14 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
         type="password"
         value={local}
         placeholder={isConfigured ? '••••••••  (configured — enter a new key to replace)' : placeholder}
-        onChange={(e) => setLocal(e.target.value)}
+        onChange={(e) => { setLocal(e.target.value); setSaveFailed(false) }}
         onBlur={doSave}
         onKeyDown={(e) => { if (e.key === 'Enter') doSave() }}
         aria-labelledby={labelId || undefined}
         className="bg-bg border border-border rounded-lg px-3 py-1.5 text-[13px] text-text w-48 focus:border-gold outline-none"
       />
       {saved && <Check size={14} className="text-persona-gradstudent" />}
+      {saveFailed && <span className="text-xs text-persona-skeptic">Save failed</span>}
       {isConfigured && !confirmingClear && (
         <button
           type="button"

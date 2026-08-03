@@ -5,7 +5,7 @@ import { areKeyboardShortcutsEnabled, setKeyboardShortcutsEnabled } from '../../
 
 interface Props {
   settings: Record<string, unknown>
-  onUpdate: (partial: Record<string, unknown>) => void
+  onUpdate: (partial: Record<string, unknown>) => Promise<boolean>
 }
 
 export function ContentTab({ settings: s, onUpdate }: Props) {

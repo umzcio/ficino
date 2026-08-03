@@ -124,7 +124,9 @@ function PaperCard({
   const isProcessing = !isComplete && paper.status !== 'error'
 
   const handleRemoveTag = async (tagId: string) => {
-    await unassignTag(paper.id, tagId)
+    // Best-effort: onRefresh() resyncs tags from server state regardless of
+    // whether the unassign succeeded — swallow per App.tsx convention.
+    await unassignTag(paper.id, tagId).catch(() => {})
     onRefresh()
   }
 
