@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronRight, ChevronDown, Trash2, Loader2, CheckCircle, AlertCircle, Plus, X, MessageCircle } from 'lucide-react'
 import type { Paper, PaperStatus } from '../../types'
 import { assignTag, unassignTag } from '../../lib/api'
+import { FadeIn } from '../_shared/FadeIn'
 
 interface CorpusPanelProps {
   papers: Paper[]
@@ -185,8 +186,13 @@ function PaperCard({
       </button>
 
       {/* Expanded detail */}
-      {expanded && (
-        <div className="mt-2 pl-0">
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none ${
+          expanded ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'
+        }`}
+      >
+        <div className="overflow-hidden min-h-0">
+          <div className="mt-2 pl-0">
           {/* Full TL;DR */}
           {isComplete && tldr && (
             <div className="border-l-2 border-gold/20 pl-3 mb-2">
@@ -249,8 +255,9 @@ function PaperCard({
               Remove
             </button>
           </div>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -278,68 +285,70 @@ export function CorpusPanel({ papers, loading, onDelete, onRefresh, activeTag, o
   const filtered = papers.filter((p) => !activeTag || p.tags?.some((t) => t.name === activeTag))
 
   return (
-    <div className="bg-bg-hover border border-border rounded-2xl p-4">
-      <div className="text-[13px] font-bold text-gold tracking-widest uppercase mb-3">
-        What's happening
-      </div>
+    <FadeIn>
+      <div className="bg-bg-hover border border-border rounded-2xl p-4">
+        <div className="text-[13px] font-bold text-gold tracking-widest uppercase mb-3">
+          What's happening
+        </div>
 
-      {/* Tag filter bar */}
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-3 pb-3 border-b border-border">
-          <button
-            onClick={() => onTagFilter(null)}
-            className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
-            style={{
-              color: activeTag === null ? 'var(--color-bg)' : 'var(--color-text-mid)',
-              backgroundColor: activeTag === null ? 'var(--color-gold)' : 'transparent',
-              borderColor: activeTag === null ? 'var(--color-gold)' : 'var(--color-border)',
-            }}
-          >
-            All
-          </button>
-          {allTags.map((tag) => (
+        {/* Tag filter bar */}
+        {allTags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-3 pb-3 border-b border-border">
             <button
-              key={tag}
-              onClick={() => onTagFilter(activeTag === tag ? null : tag)}
+              onClick={() => onTagFilter(null)}
               className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
               style={{
-                color: activeTag === tag ? 'var(--color-bg)' : 'var(--color-gold)',
-                backgroundColor: activeTag === tag ? 'var(--color-gold)' : 'transparent',
-                borderColor: activeTag === tag ? 'var(--color-gold)' : 'color-mix(in srgb, var(--color-gold) 19%, transparent)',
+                color: activeTag === null ? 'var(--color-bg)' : 'var(--color-text-mid)',
+                backgroundColor: activeTag === null ? 'var(--color-gold)' : 'transparent',
+                borderColor: activeTag === null ? 'var(--color-gold)' : 'var(--color-border)',
               }}
             >
-              #{tag}
+              All
             </button>
-          ))}
-        </div>
-      )}
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => onTagFilter(activeTag === tag ? null : tag)}
+                className="text-[11px] px-2 py-0.5 rounded-full border cursor-pointer transition-colors"
+                style={{
+                  color: activeTag === tag ? 'var(--color-bg)' : 'var(--color-gold)',
+                  backgroundColor: activeTag === tag ? 'var(--color-gold)' : 'transparent',
+                  borderColor: activeTag === tag ? 'var(--color-gold)' : 'color-mix(in srgb, var(--color-gold) 19%, transparent)',
+                }}
+              >
+                #{tag}
+              </button>
+            ))}
+          </div>
+        )}
 
-      {papers.length === 0 ? (
-        <p className="text-xs text-text-muted py-3 text-center">
-          No papers uploaded yet
-        </p>
-      ) : filtered.length === 0 ? (
-        <p className="text-xs text-text-muted py-3 text-center">
-          No papers match #{activeTag}
-        </p>
-      ) : (
-        <div className="divide-y divide-border">
-          {filtered.map((paper) => (
-            <PaperCard
-              key={paper.id}
-              paper={paper}
-              tldr={paperSummaries?.get(paper.id)}
-              expanded={expandedId === paper.id}
-              onToggle={() => setExpandedId(expandedId === paper.id ? null : paper.id)}
-              onDelete={() => onDelete(paper.id)}
-              onRefresh={onRefresh}
-              onPaperClick={onPaperClick ? () => onPaperClick(paper.id) : undefined}
-              addingTag={addingTagFor === paper.id}
-              setAddingTag={(v) => setAddingTagFor(v ? paper.id : null)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+        {papers.length === 0 ? (
+          <p className="text-xs text-text-muted py-3 text-center">
+            No papers uploaded yet
+          </p>
+        ) : filtered.length === 0 ? (
+          <p className="text-xs text-text-muted py-3 text-center">
+            No papers match #{activeTag}
+          </p>
+        ) : (
+          <div className="divide-y divide-border">
+            {filtered.map((paper) => (
+              <PaperCard
+                key={paper.id}
+                paper={paper}
+                tldr={paperSummaries?.get(paper.id)}
+                expanded={expandedId === paper.id}
+                onToggle={() => setExpandedId(expandedId === paper.id ? null : paper.id)}
+                onDelete={() => onDelete(paper.id)}
+                onRefresh={onRefresh}
+                onPaperClick={onPaperClick ? () => onPaperClick(paper.id) : undefined}
+                addingTag={addingTagFor === paper.id}
+                setAddingTag={(v) => setAddingTagFor(v ? paper.id : null)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </FadeIn>
   )
 }

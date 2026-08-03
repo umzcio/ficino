@@ -192,59 +192,59 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
 
   return (
     <div {...panelProps}>
-      <Virtuoso
-        data={filtered}
-        useWindowScroll
-        components={{ List: FeedList }}
-        computeItemKey={(_, { post, originalIndex }) => post.id ?? `post-${originalIndex}`}
-        itemContent={(_, { post, originalIndex }) => (
-          <li className="list-none">
-            <PostCard
-              post={post}
-              feedId={feedId}
-              postIndex={originalIndex}
-              bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
-              onBookmarkToggle={handleBookmarkToggle}
-              onClick={() => onPostClick?.(originalIndex)}
-              hasUserReply={repliedIndices.has(originalIndex)}
-              annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
-              onAnnotationSave={onAnnotationSave}
-              onAnnotationDelete={onAnnotationDelete}
-              onPersonaClick={onPersonaClick}
-              liked={isLiked(originalIndex)}
-              onLikeToggle={toggleLike}
-              isReplyLiked={isReplyLiked}
-              onReplyLikeToggle={toggleReplyLike}
-              onReplyBookmark={onReplyBookmark}
-              isReplyBookmarked={isReplyBookmarked}
-              onPostDeleted={handlePostDeleted}
-            />
-          </li>
-        )}
-      />
-      <div className="py-5 text-center">
-        {feedState === 'generating' ? (
-          <div
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            className="flex flex-col items-center gap-2 py-4"
-          >
-            <Loader2 size={24} className="text-gold animate-spin" aria-hidden="true" />
-            <p className="text-sm text-text-muted">
-              {STEP_LABELS[generatingMeta.step || ''] || 'Generating more posts...'}
-              {generatingMeta.postProgress && ` (${generatingMeta.postProgress})`}
-            </p>
-          </div>
-        ) : (
-          <button
-            onClick={onGenerate}
-            className="bg-transparent border border-border rounded-[20px] text-gold px-6 py-2.5 cursor-pointer text-[15px] font-semibold hover:bg-gold/5 transition-colors"
-          >
-            {activeTab === 0 ? 'Generate more posts' : `Generate more ${TAB_NAMES[activeTab]?.toLowerCase()} posts`}
-          </button>
-        )}
+        <Virtuoso
+          data={filtered}
+          useWindowScroll
+          components={{ List: FeedList }}
+          computeItemKey={(_, { post, originalIndex }) => post.id ?? `post-${originalIndex}`}
+          itemContent={(_, { post, originalIndex }) => (
+            <li className="list-none">
+              <PostCard
+                post={post}
+                feedId={feedId}
+                postIndex={originalIndex}
+                bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
+                onBookmarkToggle={handleBookmarkToggle}
+                onClick={() => onPostClick?.(originalIndex)}
+                hasUserReply={repliedIndices.has(originalIndex)}
+                annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
+                onAnnotationSave={onAnnotationSave}
+                onAnnotationDelete={onAnnotationDelete}
+                onPersonaClick={onPersonaClick}
+                liked={isLiked(originalIndex)}
+                onLikeToggle={toggleLike}
+                isReplyLiked={isReplyLiked}
+                onReplyLikeToggle={toggleReplyLike}
+                onReplyBookmark={onReplyBookmark}
+                isReplyBookmarked={isReplyBookmarked}
+                onPostDeleted={handlePostDeleted}
+              />
+            </li>
+          )}
+        />
+        <div className="py-5 text-center">
+          {feedState === 'generating' ? (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="flex flex-col items-center gap-2 py-4"
+            >
+              <Loader2 size={24} className="text-gold animate-spin" aria-hidden="true" />
+              <p className="text-sm text-text-muted">
+                {STEP_LABELS[generatingMeta.step || ''] || 'Generating more posts...'}
+                {generatingMeta.postProgress && ` (${generatingMeta.postProgress})`}
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={onGenerate}
+              className="bg-transparent border border-border rounded-[20px] text-gold px-6 py-2.5 cursor-pointer text-[15px] font-semibold hover:bg-gold/5 transition-colors"
+            >
+              {activeTab === 0 ? 'Generate more posts' : `Generate more ${TAB_NAMES[activeTab]?.toLowerCase()} posts`}
+            </button>
+          )}
+        </div>
       </div>
-    </div>
   )
 }

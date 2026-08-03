@@ -24,6 +24,11 @@
   --color-tab-active: #e8eaf0;
   --color-tab-inactive: #7a8699;  /* was #555d6e — bumped for WCAG AA 3:1 on bg (UI component) */
   --color-toggle-off: #5b6276;    /* was #1e2028 (= --color-border, invisible track) — bumped for 3:1 UI component contrast on bg/bg-hover; white thumb still ~6:1 */
+  /* Motion tokens */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);        /* strong ease-out for UI entrances/exits */
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);    /* strong ease-in-out for on-screen movement */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);     /* iOS-like drawer/sheet curve */
+  --ease-spring-back: cubic-bezier(0.2, 0.8, 0.2, 1); /* gesture snap-back (existing repo curve) */
 }
 
 /* Light mode overrides */
@@ -106,9 +111,14 @@ button:focus-visible {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
   .animate-spin { animation: none !important; }
+  /* Movement transitions off; opacity/color transitions stay */
+  .transition-transform,
+  .transition-all {
+    transition-duration: 0.01ms !important;
+  }
 }
 
 ::-webkit-scrollbar {

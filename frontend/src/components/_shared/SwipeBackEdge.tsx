@@ -23,9 +23,12 @@ export function SwipeBackEdge({
   threshold?: number
 }) {
   const bind = useDrag(
-    ({ movement: [mx], last, canceled }) => {
+    ({ movement: [mx], velocity: [vx], last, canceled }) => {
       if (!last || canceled) return
-      if (mx > threshold) onBack()
+      // Distance commit as before, or a fast rightward flick (iOS pops on
+      // flick, not just travel). 0.2 px/ms matches SwipeableTabs; 24 px
+      // minimum travel filters tap artifacts on the narrow edge strip.
+      if (mx > threshold || (vx >= 0.2 && mx >= 24)) onBack()
     },
     { axis: 'lock', filterTaps: true },
   )

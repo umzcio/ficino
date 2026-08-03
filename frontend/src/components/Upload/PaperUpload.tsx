@@ -70,7 +70,7 @@ export function PaperUpload({ onUpload, uploading, error }: PaperUploadProps) {
       onKeyDown={handleKeyDown}
       className={`
         border-2 border-dashed rounded-xl p-6 cursor-pointer
-        flex flex-col items-center gap-3 transition-all duration-150
+        flex flex-col items-center gap-3 transition-colors duration-150
         ${dragOver
           ? 'border-gold bg-gold/5'
           : 'border-border hover:border-gold/40 hover:bg-bg-hover'

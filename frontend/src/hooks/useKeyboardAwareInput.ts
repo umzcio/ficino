@@ -30,7 +30,8 @@ export function useKeyboardAwareInput<T extends HTMLElement>() {
       const shrunk = maxHeight - vv.height
       if (shrunk < 100) return
       if (document.activeElement === ref.current) {
-        ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ref.current?.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
       }
     }
 
@@ -65,7 +66,8 @@ export function useKeyboardAwarePage() {
       const focused = document.activeElement as HTMLElement | null
       if (!focused) return
       if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return
-      focused.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      focused.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
     }
 
     vv.addEventListener('resize', onResize)

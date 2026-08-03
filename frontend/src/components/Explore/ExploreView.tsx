@@ -393,7 +393,7 @@ export function ExploreView({ workspaces, activeId, onSwitch, onCreate, onDelete
                 // Always visible on touch / smaller viewports (no hover
                 // to reveal). Above md breakpoint the hover-reveal
                 // pattern kicks back in so the list stays uncluttered.
-                <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-all">
+                <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                   <button
                     onClick={(e) => {
                       e.stopPropagation()

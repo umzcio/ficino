@@ -37,9 +37,14 @@ export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHist
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </button>
 
-      {expanded && (
-        <div className="px-4 pb-3 space-y-1">
-          {pastFeeds.map((feed) => (
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none ${
+          expanded ? '[grid-template-rows:1fr]' : '[grid-template-rows:0fr]'
+        }`}
+      >
+        <div className="overflow-hidden min-h-0">
+          <div className="px-4 pb-3 space-y-1">
+            {pastFeeds.map((feed) => (
             <button
               key={feed.id}
               onClick={async () => {
@@ -68,9 +73,10 @@ export function FeedHistory({ currentFeedId, onLoadFeed, workspaceId }: FeedHist
                 </div>
               </div>
             </button>
-          ))}
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

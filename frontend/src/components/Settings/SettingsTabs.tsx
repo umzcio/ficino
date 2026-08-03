@@ -41,7 +41,7 @@ export function SettingsTabs({ active, onSelect, dimmed }: {
           tabIndex={active === key ? 0 : -1}
           onKeyDown={(e) => handleKeyDown(e, i)}
           onClick={() => onSelect(key)}
-          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[14px] transition-all duration-150"
+          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[14px] transition-[color,border-color,opacity] duration-150"
           style={{
             color: dimmed
               ? 'var(--color-tab-inactive)'

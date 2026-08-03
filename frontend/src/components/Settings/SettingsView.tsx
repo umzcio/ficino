@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Workspace } from '../../types'
 import { Spinner } from '../_shared/AsyncState'
+import { FadeIn } from '../_shared/FadeIn'
 import { SettingsTabs, type SettingsTab } from './SettingsTabs'
 import { SettingsSearchToggle, SettingsSearchResults } from './SettingsSearch'
 import { AccountTab } from './AccountTab'
@@ -68,10 +69,12 @@ export function SettingsView({ settings, loading, onUpdate, workspaces, onDownlo
             aria-labelledby={`settings-tab-${activeTab}`}
             tabIndex={0}
           >
-            {activeTab === 'account' && <AccountTab settings={settings} onUpdate={onUpdate} />}
-            {activeTab === 'ai' && <AITab settings={settings} onUpdate={onUpdate} />}
-            {activeTab === 'content' && <ContentTab settings={settings} onUpdate={onUpdate} />}
-            {activeTab === 'storage' && <StorageTab workspaces={workspaces} onDownloadWorkspace={onDownloadWorkspace} />}
+            <FadeIn key={activeTab}>
+              {activeTab === 'account' && <AccountTab settings={settings} onUpdate={onUpdate} />}
+              {activeTab === 'ai' && <AITab settings={settings} onUpdate={onUpdate} />}
+              {activeTab === 'content' && <ContentTab settings={settings} onUpdate={onUpdate} />}
+              {activeTab === 'storage' && <StorageTab workspaces={workspaces} onDownloadWorkspace={onDownloadWorkspace} />}
+            </FadeIn>
           </div>
         )}
       </div>

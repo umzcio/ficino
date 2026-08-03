@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { Download, X, Share } from 'lucide-react'
 import { useInstallPrompt } from '../../hooks/useInstallPrompt'
 
@@ -10,7 +11,7 @@ export function InstallButton() {
     <button
       onClick={install}
       aria-label="Install Ficino"
-      className="w-[46px] h-[46px] rounded-full border-none bg-transparent cursor-pointer flex items-center justify-center transition-all duration-100 hover:bg-gold/10 hover:text-gold"
+      className="w-[46px] h-[46px] rounded-full border-none bg-transparent cursor-pointer flex items-center justify-center transition-colors duration-100 hover:bg-gold/10 hover:text-gold"
       style={{ color: 'var(--color-nav-inactive)' }}
     >
       <Download size={20} strokeWidth={1.75} />
@@ -21,10 +22,20 @@ export function InstallButton() {
 export function MobileInstallBanner() {
   const { install, dismiss, showPrompt, canPrompt, isIOS } = useInstallPrompt()
 
+  // Mount-entrance flag, same data-mounted pattern as _shared/FadeIn.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
   if (!showPrompt) return null
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-gold/5">
+    <div
+      data-mounted={mounted || undefined}
+      className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-gold/5 opacity-0 -translate-y-full transition-[opacity,transform] duration-200 ease-[var(--ease-out)] motion-reduce:transition-none data-[mounted]:opacity-100 data-[mounted]:translate-y-0"
+    >
       <Download size={18} className="text-gold shrink-0" />
       <div className="flex-1 min-w-0">
         {canPrompt ? (

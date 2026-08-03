@@ -135,7 +135,10 @@ export function PersonaProfile({ personaKey, onBack, posts, feedId, onGenerateTa
     // One animation frame delay so the panel is mounted before we
     // measure its position. `block: 'start'` anchors the panel's top
     // to the top of the viewport (modulo the sticky header above).
-    requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    requestAnimationFrame(() => {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+    })
   }, [tab])
 
   const handleSendDm = async () => {
@@ -624,7 +627,7 @@ function PersonaTabs({ active, onSelect, accentColor, isArchivist }: {
           tabIndex={active === key ? 0 : -1}
           onClick={() => onSelect(key)}
           onKeyDown={(e) => handleKeyDown(e, i)}
-          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] transition-all"
+          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] transition-[color,border-color] duration-150"
           style={{
             color: active === key ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
             fontWeight: active === key ? 700 : 400,

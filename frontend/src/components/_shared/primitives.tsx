@@ -66,8 +66,8 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
       style={{ backgroundColor: checked ? 'var(--color-gold)' : 'var(--color-toggle-off)' }}
     >
       <div
-        className="rounded-full bg-white absolute top-[3px] transition-all"
-        style={{ left: checked ? '22px' : '3px', width: 20, height: 20 }}
+        className="rounded-full bg-white absolute top-[3px] left-[3px] transition-transform duration-150 ease-out motion-reduce:transition-none"
+        style={{ transform: checked ? 'translateX(19px)' : 'translateX(0)', width: 20, height: 20 }}
       />
     </button>
   )

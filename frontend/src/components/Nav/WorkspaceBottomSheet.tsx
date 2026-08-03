@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Folder, Check, Plus, X } from 'lucide-react'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import type { Workspace } from '../../types'
@@ -16,19 +16,47 @@ export function WorkspaceBottomSheet({
 }: WorkspaceBottomSheetProps) {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [mounted, setMounted] = useState(false)
+  const [closing, setClosing] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   useFocusTrap(true, dialogRef)
+
+  // Entry fallback for browsers without @starting-style (older iOS
+  // Safari in the PWA): start translated off, flip to the resting state
+  // on the next frame so the transition runs.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setMounted(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  // Intercept internal close paths so the exit transition plays before
+  // the parent unmounts us. Parent-initiated closes (e.g. the global
+  // Esc shortcut in App.tsx) still unmount instantly — documented
+  // limitation; App.tsx is out of scope.
+  const requestClose = () => {
+    if (closing) return
+    setClosing(true)
+    setTimeout(onClose, 200) // matches exit duration
+  }
 
   return (
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 z-50"
-        onClick={onClose}
+        className={`fixed inset-0 bg-black/60 z-50 transition-opacity duration-200 ease-out ${
+          closing || !mounted ? 'opacity-0' : 'opacity-100'
+        }`}
+        onClick={requestClose}
       />
 
       {/* Sheet */}
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Workspaces" className="fixed bottom-0 left-0 right-0 z-50 bg-bg border-t border-border rounded-t-2xl max-h-[70vh] overflow-y-auto animate-slide-up">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Workspaces" className={`fixed bottom-0 left-0 right-0 z-50 bg-bg border-t border-border rounded-t-2xl max-h-[70vh] overflow-y-auto motion-reduce:transition-none transition-transform ease-[var(--ease-drawer)] starting:translate-y-full ${
+        closing
+          ? 'translate-y-full duration-[200ms]'
+          : mounted
+            ? 'translate-y-0 duration-[250ms]'
+            : 'translate-y-full duration-[250ms]'
+      }`}>
         {/* Drag handle */}
         <div className="flex justify-center pt-3 pb-2">
           <div className="w-10 h-1 rounded-full bg-border" />
@@ -38,7 +66,7 @@ export function WorkspaceBottomSheet({
         <div className="flex items-center justify-between px-4 pb-3 border-b border-border">
           <h2 className="text-lg font-bold text-text">Workspaces</h2>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Close workspaces"
             className="w-8 h-8 rounded-full flex items-center justify-center bg-transparent border-none cursor-pointer hover:bg-bg-hover"
           >
@@ -51,7 +79,7 @@ export function WorkspaceBottomSheet({
           {workspaces.map((ws) => (
             <button
               key={ws.id}
-              onClick={() => { onSwitch(ws.id); onClose() }}
+              onClick={() => { onSwitch(ws.id); requestClose() }}
               className="w-full text-left px-5 py-3.5 flex items-center gap-3 bg-transparent border-none cursor-pointer active:bg-bg-hover transition-colors"
             >
               <div
@@ -92,7 +120,7 @@ export function WorkspaceBottomSheet({
                     onCreate(newName.trim())
                     setNewName('')
                     setCreating(false)
-                    onClose()
+                    requestClose()
                   }
                   if (e.key === 'Escape') { setCreating(false); setNewName('') }
                 }}
@@ -107,7 +135,7 @@ export function WorkspaceBottomSheet({
                     onCreate(newName.trim())
                     setNewName('')
                     setCreating(false)
-                    onClose()
+                    requestClose()
                   }
                 }}
                 className="px-4 py-2.5 rounded-lg text-sm font-semibold text-bg border-none cursor-pointer"
@@ -127,16 +155,6 @@ export function WorkspaceBottomSheet({
           )}
         </div>
       </div>
-
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(100%); }
-          to { transform: translateY(0); }
-        }
-        .animate-slide-up {
-          animation: slideUp 0.25s ease-out;
-        }
-      `}</style>
     </>
   )
 }

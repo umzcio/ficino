@@ -1,6 +1,7 @@
 import { useDrag } from '@use-gesture/react'
 import { Loader2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 /**
  * Pull-to-refresh wrapper. Active only when the window is scrolled to
@@ -22,6 +23,7 @@ export function PullToRefresh({
 }) {
   const [pullPx, setPullPx] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
+  const reducedMotion = useReducedMotion()
 
   const bind = useDrag(
     async ({ movement: [, my], down, canceled, event }) => {
@@ -69,9 +71,9 @@ export function PullToRefresh({
         aria-hidden={!refreshing && progress < 0.5}
         className="flex items-center justify-center pointer-events-none absolute top-0 left-0 right-0 z-20"
         style={{
-          height: pullPx,
+          height: threshold,
           opacity: Math.max(progress, refreshing ? 1 : 0),
-          transition: refreshing ? 'none' : 'opacity 120ms ease',
+          transition: refreshing ? 'none' : 'opacity 120ms ease-out',
         }}
       >
         <Loader2
@@ -79,7 +81,7 @@ export function PullToRefresh({
           className={refreshing ? 'animate-spin' : ''}
           style={{
             color: 'var(--color-gold)',
-            transform: refreshing ? undefined : `rotate(${progress * 360}deg)`,
+            transform: refreshing || reducedMotion ? undefined : `rotate(${progress * 360}deg)`,
             transition: refreshing ? 'none' : 'transform 40ms linear',
           }}
         />
@@ -88,7 +90,7 @@ export function PullToRefresh({
       <div
         style={{
           transform: `translateY(${pullPx}px)`,
-          transition: refreshing || pullPx > 0 ? 'none' : 'transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+          transition: refreshing || pullPx > 0 ? 'none' : 'transform 200ms var(--ease-spring-back)',
         }}
       >
         {children}

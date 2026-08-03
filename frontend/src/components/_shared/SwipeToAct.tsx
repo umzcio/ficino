@@ -81,7 +81,7 @@ export function SwipeToAct({
   const effectivelyDisabled = disabled || !isTouch
 
   const bind = useDrag(
-    ({ movement: [mx], down, last, canceled }) => {
+    ({ movement: [mx], velocity: [vx], down, last, canceled }) => {
       if (effectivelyDisabled) return
       // Dead-zone: ignore the first 8 px so a small hand tremor or
       // start-of-scroll doesn't produce a visible translate.
@@ -91,18 +91,25 @@ export function SwipeToAct({
         return
       }
       if (last && !canceled) {
-        if (mx <= -threshold && onSwipeLeft) {
+        // Flick commit: fast release in the drag direction commits even
+        // below the distance threshold. Velocity floor 0.2 px/ms matches
+        // SwipeableTabs; 24 px minimum travel filters tap artifacts.
+        const flick =
+          Math.abs(vx) >= 0.2 &&
+          Math.abs(mx) >= 24 &&
+          Math.sign(vx) === Math.sign(mx)
+        if ((mx <= -threshold || (flick && vx < 0)) && onSwipeLeft) {
           setCommitting('left')
           haptic(15)
           onSwipeLeft()
-        } else if (mx >= threshold && onSwipeRight) {
+        } else if ((mx >= threshold || (flick && vx > 0)) && onSwipeRight) {
           setCommitting('right')
           haptic(15)
           onSwipeRight()
         }
         setDx(0)
         // Clear the commit flash after the spring-back animation.
-        setTimeout(() => setCommitting(null), 220)
+        setTimeout(() => setCommitting(null), 200)
       }
     },
     { axis: 'lock', filterTaps: true },
@@ -157,7 +164,7 @@ export function SwipeToAct({
         className="touch-pan-y"
         style={{
           transform: `translateX(${dx}px)`,
-          transition: dx === 0 ? 'transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none',
+          transition: dx === 0 ? 'transform 200ms var(--ease-spring-back)' : 'none',
         }}
       >
         {children}

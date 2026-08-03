@@ -755,7 +755,7 @@ export function ListenView({ feedId, posts }: Props) {
             <button
               onClick={handlePauseClick}
               aria-label="Pause"
-              className="w-14 h-14 rounded-full flex items-center justify-center bg-gold text-bg shadow-lg hover:scale-105 transition-transform"
+              className="w-14 h-14 rounded-full flex items-center justify-center bg-gold text-bg shadow-lg transition-transform duration-100 ease-out active:scale-[0.97] [@media(hover:hover)_and_(pointer:fine)]:hover:scale-105"
             >
               <Pause size={26} fill="currentColor" />
             </button>
@@ -763,7 +763,7 @@ export function ListenView({ feedId, posts }: Props) {
             <button
               onClick={handlePlayClick}
               aria-label={status === 'paused' ? 'Resume' : mode === 'podcast' ? 'Play podcast' : 'Play feed'}
-              className="w-14 h-14 rounded-full flex items-center justify-center bg-gold text-bg shadow-lg hover:scale-105 transition-transform"
+              className="w-14 h-14 rounded-full flex items-center justify-center bg-gold text-bg shadow-lg transition-transform duration-100 ease-out active:scale-[0.97] [@media(hover:hover)_and_(pointer:fine)]:hover:scale-105"
             >
               <Play size={26} fill="currentColor" className="ml-1" />
             </button>

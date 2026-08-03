@@ -17,6 +17,7 @@ const ListenView = lazy(() =>
 )
 import { SwipeableTabs } from './components/_shared/SwipeableTabs'
 import { PullToRefresh } from './components/_shared/PullToRefresh'
+import { FadeIn } from './components/_shared/FadeIn'
 import { FeedHistory } from './components/Feed/FeedHistory'
 // Route-level views are code-split via lazy() so Rollup does NOT emit
 // <link rel="modulepreload"> for them on first paint. Each view loads on
@@ -110,7 +111,7 @@ function LeftNav({ active, onNavigate, alertCount }: { active: AppView; onNaviga
           onClick={() => onNavigate(view)}
           aria-label={ariaLabel}
           aria-current={active === view ? 'page' : undefined}
-          className="w-[46px] h-[46px] rounded-full border-none bg-transparent cursor-pointer flex items-center justify-center transition-all duration-100 hover:bg-gold/10 hover:text-gold relative"
+          className="w-[46px] h-[46px] rounded-full border-none bg-transparent cursor-pointer flex items-center justify-center transition-colors duration-100 hover:bg-gold/10 hover:text-gold relative"
           style={{
             color: active === view ? 'var(--color-nav-active)' : 'var(--color-nav-inactive)',
             backgroundColor: active === view ? 'color-mix(in srgb, var(--color-gold) 8%, transparent)' : 'transparent',
@@ -283,7 +284,7 @@ function FeedTabs({ active, onSelect }: { active: number; onSelect: (i: number) 
           tabIndex={active === i ? 0 : -1}
           onClick={() => onSelect(i)}
           onKeyDown={handleKeyDown}
-          className="flex-1 py-3.5 border-none bg-transparent cursor-pointer text-[15px] transition-all duration-150"
+          className="flex-1 py-3.5 border-none bg-transparent cursor-pointer text-[15px] transition-[color,border-color] duration-150"
           style={{
             color: active === i ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
             fontWeight: active === i ? 700 : 400,
@@ -353,7 +354,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }
   if (passwordRecovery || onResetPath) return <LoginPage />
   if (!user && provider !== 'none') return <LoginPage />
-  return <>{children}</>
+  return <FadeIn>{children}</FadeIn>
 }
 
 export default function App() {
@@ -718,24 +719,29 @@ function AppContent() {
             />
             <PullToRefresh onRefresh={handlePullToRefresh}>
               <SwipeableTabs activeIndex={activeTab} tabCount={4} onChange={setActiveTab}>
-                <FeedContent
-                  posts={feed.posts}
-                  feedId={feed.feedId}
-                  feedState={feed.feedState}
-                  generatingMeta={feed.generatingMeta}
-                  error={feed.error}
-                  activeTab={activeTab}
-                  isBookmarked={bm.isBookmarked}
-                  onBookmarkToggle={handleBookmarkToggleOuter}
-                  getAnnotation={notes.getNote}
-                  onAnnotationSave={notes.save}
-                  onAnnotationDelete={notes.remove}
-                  onPostClick={handlePostClick}
-                  onPersonaClick={setSelectedPersona}
-                  onReplyBookmark={handleReplyBookmark}
-                  isReplyBookmarked={handleIsReplyBookmarked}
-                  onGenerate={handleGenerateMore}
-                />
+                {/* Keyed on tab AND feedId so this single fade covers both
+                    triggers — Feed.tsx's main-list return intentionally has
+                    no inner FadeIn (would double-wrap the Virtuoso list). */}
+                <FadeIn key={`${activeTab}-${feed.feedId ?? 'none'}`}>
+                  <FeedContent
+                    posts={feed.posts}
+                    feedId={feed.feedId}
+                    feedState={feed.feedState}
+                    generatingMeta={feed.generatingMeta}
+                    error={feed.error}
+                    activeTab={activeTab}
+                    isBookmarked={bm.isBookmarked}
+                    onBookmarkToggle={handleBookmarkToggleOuter}
+                    getAnnotation={notes.getNote}
+                    onAnnotationSave={notes.save}
+                    onAnnotationDelete={notes.remove}
+                    onPostClick={handlePostClick}
+                    onPersonaClick={setSelectedPersona}
+                    onReplyBookmark={handleReplyBookmark}
+                    isReplyBookmarked={handleIsReplyBookmarked}
+                    onGenerate={handleGenerateMore}
+                  />
+                </FadeIn>
               </SwipeableTabs>
             </PullToRefresh>
           </>

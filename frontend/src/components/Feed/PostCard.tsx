@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect } from 'react'
+import { memo, useState, useRef, useEffect, type CSSProperties } from 'react'
 import {
   MessageCircle, Repeat2, Heart, Bookmark,
   MoreHorizontal, FileText, ImageIcon, ZoomIn, Loader2,
@@ -26,25 +26,21 @@ function ActionBtn({
   onClick?: () => void
   label: string
 }) {
-  const [hovered, setHovered] = useState(false)
-  const isLit = active || hovered
-
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick?.() }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       aria-label={count !== undefined ? `${label}: ${count}` : label}
       aria-pressed={active}
-      className="flex items-center gap-[5px] px-3 py-2.5 rounded-[20px] text-[13px] flex-1 justify-center max-w-[80px] min-h-[44px] border-none bg-transparent cursor-pointer transition-all duration-100"
+      className="flex items-center gap-[5px] px-3 py-2.5 rounded-[20px] text-[13px] flex-1 justify-center max-w-[80px] min-h-[44px] border-none bg-transparent cursor-pointer transition-[color,background-color,transform] duration-100 ease-out active:scale-[0.97] hover:text-[var(--action-color)] hover:bg-[color-mix(in_srgb,var(--action-color)_8%,transparent)]"
       style={{
-        color: isLit ? color : 'var(--color-text-muted)',
-        backgroundColor: isLit ? color + '15' : 'transparent',
-      }}
+        '--action-color': color,
+        color: active ? color : 'var(--color-text-muted)',
+        backgroundColor: active ? `color-mix(in srgb, ${color} 8%, transparent)` : 'transparent',
+      } as CSSProperties}
     >
       <Icon
         size={16}
-        strokeWidth={isLit ? 2.5 : 1.75}
+        strokeWidth={active ? 2.5 : 1.75}
         fill={active && color === 'var(--color-like)' ? color : 'none'}
       />
       {count !== undefined && <span>{formatNum(count)}</span>}

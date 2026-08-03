@@ -4,6 +4,7 @@ import {
 import type { AlertItem } from '../../lib/api'
 import { timeAgo } from '../../lib/timeAgo'
 import { Spinner, EmptyState } from '../_shared/AsyncState'
+import { FadeIn } from '../_shared/FadeIn'
 
 interface AlertsViewProps {
   alerts: AlertItem[]
@@ -144,28 +145,32 @@ export function AlertsView({ alerts, loading, onMarkRead, onMarkAllRead, onDismi
         <div className="flex items-center justify-center py-20">
           <Spinner size={24} />
         </div>
-      ) : alerts.length === 0 ? (
-        <EmptyState
-          icon={Bell}
-          title="No alerts yet"
-          hint={
-            <p className="text-sm text-center max-w-[280px]">
-              Upload papers and generate feeds — Ficino will surface contradictions, patterns, and insights
-            </p>
-          }
-        />
       ) : (
-        <div>
-          {alerts.map((alert) => (
-            <AlertCard
-              key={alert.id}
-              alert={alert}
-              onMarkRead={() => onMarkRead(alert.id)}
-              onDismiss={() => onDismiss(alert.id)}
-              onAction={getAlertAction(alert)}
+        <FadeIn>
+          {alerts.length === 0 ? (
+            <EmptyState
+              icon={Bell}
+              title="No alerts yet"
+              hint={
+                <p className="text-sm text-center max-w-[280px]">
+                  Upload papers and generate feeds — Ficino will surface contradictions, patterns, and insights
+                </p>
+              }
             />
-          ))}
-        </div>
+          ) : (
+            <div>
+              {alerts.map((alert) => (
+                <AlertCard
+                  key={alert.id}
+                  alert={alert}
+                  onMarkRead={() => onMarkRead(alert.id)}
+                  onDismiss={() => onDismiss(alert.id)}
+                  onAction={getAlertAction(alert)}
+                />
+              ))}
+            </div>
+          )}
+        </FadeIn>
       )}
     </div>
   )

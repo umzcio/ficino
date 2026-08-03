@@ -5,6 +5,7 @@ import { listPaperConversations, listGroupChats, listReplyConversations, type Re
 import { usePersonas } from '../../hooks/usePersonas'
 import { timeAgo as sharedTimeAgo } from '../../lib/timeAgo'
 import { Spinner } from '../_shared/AsyncState'
+import { FadeIn } from '../_shared/FadeIn'
 
 interface InboxProps {
   workspaceId?: string
@@ -75,157 +76,159 @@ export function Inbox({ workspaceId, onOpenPaper, onOpenGroup, onNewGroup, onOpe
         tabIndex={0}
       >
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Spinner size={24} />
-        </div>
-      ) : tab === 'papers' ? (
-        <div>
-          {papers.length === 0 ? (
-            <div className="py-16 text-center text-text-muted text-sm">
-              No papers yet. Upload a paper to get started.
-            </div>
-          ) : (
-            papers.map((p) => (
-              <button
-                key={p.paper_id}
-                onClick={() => onOpenPaper(p.paper_id)}
-                className="w-full text-left px-4 py-3 flex gap-3 items-start border-b border-border bg-transparent border-x-0 border-t-0 cursor-pointer hover:bg-bg-hover transition-colors"
-              >
-                <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <FileText size={18} className="text-gold" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-sm text-text truncate">{p.title}</span>
-                    <span className="text-xs text-text-muted shrink-0">{timeAgo(p.uploaded_at)}</span>
-                  </div>
-                  {p.authors.length > 0 && (
-                    <div className="text-xs text-text-muted truncate">{p.authors.slice(0, 2).join(', ')}</div>
-                  )}
-                  <div className="text-[13px] text-text-mid mt-0.5 truncate">
-                    {p.has_summary ? (
-                      p.last_message_preview
-                    ) : (
-                      <span className="text-text-muted italic">Tap to generate summary</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-[11px] text-text-muted">{p.chunk_count} chunks</span>
-                    {p.has_summary && (
-                      <span className="text-[11px] text-gold">{p.message_count} messages</span>
-                    )}
-                  </div>
-                </div>
-                <ChevronRight size={16} className="text-text-muted mt-3 shrink-0" />
-              </button>
-            ))
-          )}
-        </div>
-      ) : tab === 'threads' ? (
-        <div>
-          {threads.length === 0 ? (
-            <div className="py-16 text-center text-text-muted text-sm">
-              No conversations yet. Reply to a persona in your feed to start one.
-            </div>
-          ) : (
-            threads.map((t) => {
-              const persona = personas[t.persona_key]
-              return (
+      <FadeIn key={tab}>
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Spinner size={24} />
+          </div>
+        ) : tab === 'papers' ? (
+          <div>
+            {papers.length === 0 ? (
+              <div className="py-16 text-center text-text-muted text-sm">
+                No papers yet. Upload a paper to get started.
+              </div>
+            ) : (
+              papers.map((p) => (
                 <button
-                  key={t.id}
-                  onClick={() => onOpenThread?.(t.feed_id, t.post_index)}
+                  key={p.paper_id}
+                  onClick={() => onOpenPaper(p.paper_id)}
                   className="w-full text-left px-4 py-3 flex gap-3 items-start border-b border-border bg-transparent border-x-0 border-t-0 cursor-pointer hover:bg-bg-hover transition-colors"
                 >
-                  {persona ? (
-                    persona.avatar_url ? (
-                      <img src={persona.avatar_url} alt={persona.name} className="w-10 h-10 rounded-full shrink-0 mt-0.5 object-cover" style={{ border: `1.5px solid ${persona.color}50` }} />
-                    ) : (
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0 mt-0.5"
-                        style={{ backgroundColor: persona.color + '22', border: `1.5px solid ${persona.color}50`, color: persona.color }}
-                      >
-                        {persona.initials}
-                      </div>
-                    )
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-persona-practitioner/10 flex items-center justify-center shrink-0 mt-0.5">
-                      <MessageCircle size={18} className="text-persona-practitioner" />
-                    </div>
-                  )}
+                  <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center shrink-0 mt-0.5">
+                    <FileText size={18} className="text-gold" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-sm text-text">
-                        {persona?.name || t.persona_key}
-                      </span>
-                      <span className="text-xs text-text-muted shrink-0">{timeAgo(t.updated_at)}</span>
+                      <span className="font-semibold text-sm text-text truncate">{p.title}</span>
+                      <span className="text-xs text-text-muted shrink-0">{timeAgo(p.uploaded_at)}</span>
                     </div>
-                    <div className="text-xs text-text-muted">{persona?.handle}</div>
-                    {t.last_persona_message && (
-                      <div className="text-[13px] text-text-mid mt-0.5 truncate">
-                        {t.last_persona_message}
-                      </div>
+                    {p.authors.length > 0 && (
+                      <div className="text-xs text-text-muted truncate">{p.authors.slice(0, 2).join(', ')}</div>
                     )}
+                    <div className="text-[13px] text-text-mid mt-0.5 truncate">
+                      {p.has_summary ? (
+                        p.last_message_preview
+                      ) : (
+                        <span className="text-text-muted italic">Tap to generate summary</span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="text-[11px] text-text-muted">{t.message_count} messages</span>
+                      <span className="text-[11px] text-text-muted">{p.chunk_count} chunks</span>
+                      {p.has_summary && (
+                        <span className="text-[11px] text-gold">{p.message_count} messages</span>
+                      )}
                     </div>
                   </div>
                   <ChevronRight size={16} className="text-text-muted mt-3 shrink-0" />
                 </button>
-              )
-            })
-          )}
-        </div>
-      ) : (
-        <div>
-          {groups.length === 0 ? (
-            <div className="py-16 text-center">
-              <p className="text-text-muted text-sm mb-3">No group chats yet</p>
-              <button
-                onClick={onNewGroup}
-                aria-haspopup="dialog"
-                className="bg-transparent border border-gold/30 rounded-[20px] text-gold px-4 py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
-              >
-                Create Group Chat
-              </button>
-            </div>
-          ) : (
-            <>
-              {groups.map((g) => (
-                <button
-                  key={g.id}
-                  onClick={() => onOpenGroup(g.id)}
-                  className="w-full text-left px-4 py-3 flex gap-3 items-start border-b border-border bg-transparent border-x-0 border-t-0 cursor-pointer hover:bg-bg-hover transition-colors"
-                >
-                  <div className="w-10 h-10 rounded-full bg-persona-methodologist/10 flex items-center justify-center shrink-0 mt-0.5">
-                    <Users size={18} className="text-persona-methodologist" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-sm text-text">{g.name}</span>
-                      <span className="text-xs text-text-muted shrink-0">{timeAgo(g.generated_at)}</span>
-                    </div>
-                    <div className="text-xs text-text-muted">{g.paper_count} papers</div>
-                    {g.last_message_preview && (
-                      <div className="text-[13px] text-text-mid mt-0.5 truncate">{g.last_message_preview}</div>
+              ))
+            )}
+          </div>
+        ) : tab === 'threads' ? (
+          <div>
+            {threads.length === 0 ? (
+              <div className="py-16 text-center text-text-muted text-sm">
+                No conversations yet. Reply to a persona in your feed to start one.
+              </div>
+            ) : (
+              threads.map((t) => {
+                const persona = personas[t.persona_key]
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => onOpenThread?.(t.feed_id, t.post_index)}
+                    className="w-full text-left px-4 py-3 flex gap-3 items-start border-b border-border bg-transparent border-x-0 border-t-0 cursor-pointer hover:bg-bg-hover transition-colors"
+                  >
+                    {persona ? (
+                      persona.avatar_url ? (
+                        <img src={persona.avatar_url} alt={persona.name} className="w-10 h-10 rounded-full shrink-0 mt-0.5 object-cover" style={{ border: `1.5px solid ${persona.color}50` }} />
+                      ) : (
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0 mt-0.5"
+                          style={{ backgroundColor: persona.color + '22', border: `1.5px solid ${persona.color}50`, color: persona.color }}
+                        >
+                          {persona.initials}
+                        </div>
+                      )
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-persona-practitioner/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <MessageCircle size={18} className="text-persona-practitioner" />
+                      </div>
                     )}
-                  </div>
-                  <ChevronRight size={16} className="text-text-muted mt-3 shrink-0" />
-                </button>
-              ))}
-              <div className="p-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-sm text-text">
+                          {persona?.name || t.persona_key}
+                        </span>
+                        <span className="text-xs text-text-muted shrink-0">{timeAgo(t.updated_at)}</span>
+                      </div>
+                      <div className="text-xs text-text-muted">{persona?.handle}</div>
+                      {t.last_persona_message && (
+                        <div className="text-[13px] text-text-mid mt-0.5 truncate">
+                          {t.last_persona_message}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3 mt-1">
+                        <span className="text-[11px] text-text-muted">{t.message_count} messages</span>
+                      </div>
+                    </div>
+                    <ChevronRight size={16} className="text-text-muted mt-3 shrink-0" />
+                  </button>
+                )
+              })
+            )}
+          </div>
+        ) : (
+          <div>
+            {groups.length === 0 ? (
+              <div className="py-16 text-center">
+                <p className="text-text-muted text-sm mb-3">No group chats yet</p>
                 <button
                   onClick={onNewGroup}
                   aria-haspopup="dialog"
-                  className="w-full bg-transparent border border-gold/30 rounded-[20px] text-gold py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
+                  className="bg-transparent border border-gold/30 rounded-[20px] text-gold px-4 py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
                 >
-                  New Group Chat
+                  Create Group Chat
                 </button>
               </div>
-            </>
-          )}
-        </div>
-      )}
+            ) : (
+              <>
+                {groups.map((g) => (
+                  <button
+                    key={g.id}
+                    onClick={() => onOpenGroup(g.id)}
+                    className="w-full text-left px-4 py-3 flex gap-3 items-start border-b border-border bg-transparent border-x-0 border-t-0 cursor-pointer hover:bg-bg-hover transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-persona-methodologist/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <Users size={18} className="text-persona-methodologist" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-sm text-text">{g.name}</span>
+                        <span className="text-xs text-text-muted shrink-0">{timeAgo(g.generated_at)}</span>
+                      </div>
+                      <div className="text-xs text-text-muted">{g.paper_count} papers</div>
+                      {g.last_message_preview && (
+                        <div className="text-[13px] text-text-mid mt-0.5 truncate">{g.last_message_preview}</div>
+                      )}
+                    </div>
+                    <ChevronRight size={16} className="text-text-muted mt-3 shrink-0" />
+                  </button>
+                ))}
+                <div className="p-4">
+                  <button
+                    onClick={onNewGroup}
+                    aria-haspopup="dialog"
+                    className="w-full bg-transparent border border-gold/30 rounded-[20px] text-gold py-2 text-sm font-semibold cursor-pointer hover:bg-gold/5 transition-colors"
+                  >
+                    New Group Chat
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </FadeIn>
       </div>
     </div>
   )
@@ -265,7 +268,7 @@ function InboxTabs({ active, onSelect }: {
           tabIndex={active === key ? 0 : -1}
           onClick={() => onSelect(key)}
           onKeyDown={(e) => handleKeyDown(e, i)}
-          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-all"
+          className="flex-1 py-3 border-none bg-transparent cursor-pointer text-[15px] flex items-center justify-center gap-2 transition-[color,border-color] duration-150"
           style={{
             color: active === key ? 'var(--color-tab-active)' : 'var(--color-tab-inactive)',
             fontWeight: active === key ? 700 : 400,
