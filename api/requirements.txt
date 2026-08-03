@@ -1,3 +1,4 @@
+# Floors = supported range. Runtime images/CI install from requirements.lock — regenerate with: uv pip compile api/requirements.txt -o api/requirements.lock --python-version 3.11
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 asyncpg>=0.29.0

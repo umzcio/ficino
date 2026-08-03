@@ -18,7 +18,7 @@ Written against commit `31fef3a` by the `improve` audit on 2026-08-03. Status va
 | 020 | Serve security headers from nginx on the SPA surface | security | P2 | S | — | DONE |
 | 021 | Run api and worker containers as a non-root user | security | P2 | S–M | — | DONE |
 | 022 | Make init.sql the actual full schema for fresh self-host installs | bug | P2 | M | — | DONE |
-| 023 | Lock Python dependencies and pin CI tooling | tech-debt | P2 | S–M | 021 | TODO |
+| 023 | Lock Python dependencies and pin CI tooling | tech-debt | P2 | S–M | 021 | DONE |
 | 024 | DangerButton surfaces failure instead of wedging | bug | P1 | S | — | DONE |
 | 025 | Surface settings save failures (stop the optimistic ApiKeyInput check) | bug | P1 | S | 024 | DONE |
 | 026 | Debounce settings slider writes and apply responses in order | perf | P1 | S | 025 | DONE |

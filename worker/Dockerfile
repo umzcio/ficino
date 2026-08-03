@@ -9,8 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY worker/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY worker/requirements.txt worker/requirements.lock ./
+# Install from the lock (reproducible deploys); requirements.txt remains
+# the human-edited supported-range statement — regenerate the lock when it
+# changes (see header of requirements.lock).
+RUN pip install --no-cache-dir -r requirements.lock
 
 COPY shared/ ./shared/
 RUN pip install --no-cache-dir ./shared
