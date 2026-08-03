@@ -1,9 +1,17 @@
 import { test, expect, Page } from '@playwright/test'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
+import { ensureFeedFixtures } from '../helpers/ensureFeed'
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
 const SHOTS = '/projects/ficino/tests/screenshots'
+
+// Plan 036: several AUG tests hard-expect feed posts (AUG-01/02/23 assert
+// articles exist with no skip) — seed deterministic fixtures so those
+// expectations don't depend on the shared dev DB's mood.
+test.beforeAll(() => {
+  ensureFeedFixtures()
+})
 
 function shot(name: string) {
   return join(SHOTS, `aug_${name}.png`)
@@ -436,10 +444,10 @@ test.describe('AUG — Chaos & edge cases', () => {
     await boot(page)
     const gen = page.locator('button:has-text("Generate"), button[aria-label*="Generate"]').first()
     const enabled = await gen.isVisible().catch(() => false) && !(await gen.isDisabled())
-    if (!enabled) {
-      test.skip(true, 'Generate button not visible/enabled')
-      return
-    }
+    // Plan 036: with fixtures seeded this is a hard precondition, not a
+    // skippable data gap. (The whole test stays fixme for the isolation
+    // reasons documented above.)
+    expect(enabled, 'Generate button must be visible/enabled with fixtures seeded').toBe(true)
     await gen.click({ trial: false })
     await gen.click({ trial: false }).catch(() => null)
     // Accept either a "Generating" button OR the indicator text that

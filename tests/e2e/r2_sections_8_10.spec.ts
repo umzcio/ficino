@@ -1,7 +1,16 @@
 import { test, expect, type Page } from '@playwright/test'
+import { ensureFeedFixtures } from './helpers/ensureFeed'
 
 const SCREENSHOT_DIR = '/projects/ficino/tests/screenshots'
 const APP_URL = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
+
+// Plan 036: seed deterministic fixtures (a bookmarkable feed, two feeds so
+// feed history renders, a complete paper for the Messages Papers tab)
+// instead of skipping when the shared dev DB happens to lack data. Missing
+// preconditions after seeding are hard failures below, not skips.
+test.beforeAll(() => {
+  ensureFeedFixtures()
+})
 
 /**
  * Helper: navigate to the Ficino app and wait for the shell to render.
@@ -103,11 +112,7 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
     const bookmarkBtn = page.locator('button[aria-label*="Bookmark"]').first()
     const hasPost = await bookmarkBtn.isVisible({ timeout: 5_000 }).catch(() => false)
 
-    if (!hasPost) {
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s8_no_posts.png`, fullPage: false })
-      test.skip(true, 'No posts in feed -- cannot test bookmark toggle (papers may have been deleted)')
-      return
-    }
+    expect(hasPost, 'fixture feed must render a bookmarkable post (seeded by beforeAll)').toBe(true)
 
     // Record initial state, toggle, verify change
     const initialPressed = await bookmarkBtn.getAttribute('aria-pressed')
@@ -133,11 +138,7 @@ test.describe('Section 8 [RETEST]: Bookmarks', () => {
     const bookmarkBtn = page.locator('button[aria-label*="Bookmark"]').first()
     const hasPost = await bookmarkBtn.isVisible({ timeout: 5_000 }).catch(() => false)
 
-    if (!hasPost) {
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s8_no_posts_for_round_trip.png`, fullPage: false })
-      test.skip(true, 'No posts in feed -- cannot test bookmark round trip')
-      return
-    }
+    expect(hasPost, 'fixture feed must render a bookmarkable post (seeded by beforeAll)').toBe(true)
 
     // Bookmark the first post if not already bookmarked
     const wasActive = (await bookmarkBtn.getAttribute('aria-pressed')) === 'true'
@@ -290,11 +291,7 @@ test.describe('Section 9 [RETEST]: Feed History -- BUG-009/010 verification', ()
     const pastFeedsBtn = page.locator('button', { hasText: /past feed/ })
     const hasPastFeeds = await pastFeedsBtn.isVisible({ timeout: 5_000 }).catch(() => false)
 
-    if (!hasPastFeeds) {
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s9_no_history_to_expand.png`, fullPage: false })
-      test.skip(true, 'No past feeds -- feed history not rendered (expected if papers were deleted)')
-      return
-    }
+    expect(hasPastFeeds, 'two fixture feeds must render feed history (seeded by beforeAll)').toBe(true)
 
     // Verify count label
     const text = await pastFeedsBtn.textContent()
@@ -329,10 +326,7 @@ test.describe('Section 9 [RETEST]: Feed History -- BUG-009/010 verification', ()
     const pastFeedsBtn = page.locator('button', { hasText: /past feed/ })
     const hasPastFeeds = await pastFeedsBtn.isVisible({ timeout: 5_000 }).catch(() => false)
 
-    if (!hasPastFeeds) {
-      test.skip(true, 'No past feeds available')
-      return
-    }
+    expect(hasPastFeeds, 'two fixture feeds must render feed history (seeded by beforeAll)').toBe(true)
 
     await pastFeedsBtn.click()
     await page.waitForTimeout(500)
@@ -340,11 +334,7 @@ test.describe('Section 9 [RETEST]: Feed History -- BUG-009/010 verification', ()
     const feedEntries = page.locator('button', { hasText: /posts/ })
     const count = await feedEntries.count()
 
-    if (count < 2) {
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s9_single_feed.png`, fullPage: false })
-      test.skip(true, 'Only one feed in history -- cannot test switching')
-      return
-    }
+    expect(count, 'fixture seeds two feeds -- history must have at least 2 entries').toBeGreaterThanOrEqual(2)
 
     // Click a non-current entry
     await feedEntries.nth(1).click()
@@ -440,11 +430,7 @@ test.describe('Section 10 [RETEST]: Messages / DMs', () => {
     const paperEntry = page.locator('button', { hasText: /chunk/ }).first()
     const hasPapers = await paperEntry.isVisible().catch(() => false)
 
-    if (!hasPapers) {
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/r2_s10_no_papers_for_chat.png`, fullPage: false })
-      test.skip(true, 'No papers -- cannot test paper chat (expected if papers were deleted)')
-      return
-    }
+    expect(hasPapers, 'fixture paper must appear in the Messages Papers tab (seeded by beforeAll)').toBe(true)
 
     await paperEntry.click()
     await page.waitForTimeout(3_000)

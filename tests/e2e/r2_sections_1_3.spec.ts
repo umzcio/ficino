@@ -20,14 +20,13 @@ async function waitForApp(page: Page) {
 
 test.describe('Section 1: Paper Upload & Ingestion', () => {
 
-  test('S1-01: App loads with ficino branding and BETA badge', async ({ page }) => {
+  test('S1-01: App loads with ficino branding', async ({ page }) => {
     await waitForApp(page)
-    // ficino text
+    // ficino wordmark. The BETA badge this test used to assert was
+    // deliberately removed from FeedHeader in 31fef3a — product truth is
+    // now the bare wordmark (App.tsx FeedHeader).
     const branding = page.locator('span', { hasText: 'ficino' }).first()
     await expect(branding).toBeVisible()
-    // BETA badge
-    const beta = page.locator('text=BETA').first()
-    await expect(beta).toBeVisible()
     await page.screenshot({ path: ssPath('r2_s1_branding'), fullPage: false })
   })
 

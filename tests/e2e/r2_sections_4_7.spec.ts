@@ -1,7 +1,17 @@
 import { test, expect } from '@playwright/test'
+import { ensureFeedFixtures } from './helpers/ensureFeed'
 
 const SCREENSHOTS = '/projects/ficino/tests/screenshots'
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
+
+// Plan 036: seed deterministic fixtures (feed posts incl. thread/figure/
+// sources variants, a complete paper, two feeds for history) instead of
+// skipping when the shared dev DB happens to lack data. If a precondition
+// is still missing after seeding, the expects below FAIL — that is a real
+// breakage, not a skippable data gap.
+test.beforeAll(() => {
+  ensureFeedFixtures()
+})
 
 /**
  * Helper: navigate to the feed and wait for posts (or detect empty state).
@@ -27,11 +37,7 @@ test.describe('R2 Section 4: Thread Expansion', () => {
     const hasPosts = await loadFeedAndDetectPosts(page)
     await page.screenshot({ path: `${SCREENSHOTS}/r2_s4_article_check.png`, fullPage: false })
 
-    if (!hasPosts) {
-      // Even without posts, verify the empty state
-      test.skip(true, 'No posts in feed — cannot verify <article> usage')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     // Every visible post card should be an <article>, not a <div>
     const articles = page.locator('article')
@@ -45,20 +51,10 @@ test.describe('R2 Section 4: Thread Expansion', () => {
 
   test('4.2 — Expand and collapse a thread post', async ({ page }) => {
     const hasPosts = await loadFeedAndDetectPosts(page)
-    if (!hasPosts) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s4_no_posts.png`, fullPage: true })
-      test.skip(true, 'No posts in feed — skipping thread test')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const showThreadBtn = page.locator('button', { hasText: /Show thread/ }).first()
-    const threadExists = await showThreadBtn.isVisible().catch(() => false)
-
-    if (!threadExists) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s4_no_threads.png`, fullPage: true })
-      test.skip(true, 'No thread posts in feed')
-      return
-    }
+    await expect(showThreadBtn, 'fixture feed must contain a thread post').toBeVisible()
 
     // Collapsed state
     await page.screenshot({ path: `${SCREENSHOTS}/r2_s4_collapsed.png`, fullPage: false })
@@ -102,20 +98,10 @@ test.describe('R2 Section 4: Thread Expansion', () => {
 test.describe('R2 Section 5: Figure Posts & Lightbox', () => {
   test('5.1 — Figure post renders with EXTRACTED FIGURE label', async ({ page }) => {
     const hasPosts = await loadFeedAndDetectPosts(page)
-    if (!hasPosts) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s5_no_posts.png`, fullPage: true })
-      test.skip(true, 'No posts in feed')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const figureLabel = page.locator('span', { hasText: 'EXTRACTED FIGURE' }).first()
-    const figureExists = await figureLabel.isVisible().catch(() => false)
-
-    if (!figureExists) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s5_no_figures.png`, fullPage: true })
-      test.skip(true, 'No figure posts in feed')
-      return
-    }
+    await expect(figureLabel, 'fixture feed must contain a figure post').toBeVisible()
 
     // FIGURE badge in header
     const figureBadge = page.locator('span', { hasText: /^FIGURE$/ }).first()
@@ -134,25 +120,19 @@ test.describe('R2 Section 5: Figure Posts & Lightbox', () => {
 
   test('5.2 — BUG-001 FIX: Lightbox has aria-modal and closes on Escape', async ({ page }) => {
     const hasPosts = await loadFeedAndDetectPosts(page)
-    if (!hasPosts) {
-      test.skip(true, 'No posts in feed')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const figureContainer = page.locator('.cursor-zoom-in').first()
-    const figureExists = await figureContainer.isVisible().catch(() => false)
-
-    if (!figureExists) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s5_no_figures_lightbox.png`, fullPage: true })
-      test.skip(true, 'No figure posts in feed')
-      return
-    }
+    await expect(figureContainer, 'fixture feed must contain a figure post').toBeVisible()
 
     // Open lightbox
     await figureContainer.click()
     await page.waitForTimeout(500)
 
-    const lightbox = page.locator('[role="dialog"][aria-label="Figure lightbox"]')
+    // FigureLightbox names the dialog via aria-labelledby="lightbox-caption"
+    // (deliberate a11y change), not the old aria-label="Figure lightbox" —
+    // select on role + aria-modal instead.
+    const lightbox = page.locator('[role="dialog"][aria-modal="true"]')
     await expect(lightbox).toBeVisible()
 
     // BUG-001 FIX: Verify aria-modal="true"
@@ -177,24 +157,16 @@ test.describe('R2 Section 5: Figure Posts & Lightbox', () => {
 
   test('5.3 — Lightbox closes on backdrop click', async ({ page }) => {
     const hasPosts = await loadFeedAndDetectPosts(page)
-    if (!hasPosts) {
-      test.skip(true, 'No posts in feed')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const figureContainer = page.locator('.cursor-zoom-in').first()
-    const figureExists = await figureContainer.isVisible().catch(() => false)
-
-    if (!figureExists) {
-      test.skip(true, 'No figure posts in feed')
-      return
-    }
+    await expect(figureContainer, 'fixture feed must contain a figure post').toBeVisible()
 
     // Open lightbox
     await figureContainer.click()
     await page.waitForTimeout(500)
 
-    const lightbox = page.locator('[role="dialog"][aria-label="Figure lightbox"]')
+    const lightbox = page.locator('[role="dialog"][aria-modal="true"]')
     await expect(lightbox).toBeVisible()
 
     // Click the backdrop (the outer dialog div itself, not the image)
@@ -216,20 +188,10 @@ test.describe('R2 Section 5: Figure Posts & Lightbox', () => {
 test.describe('R2 Section 6: Reply to Persona', () => {
   test('6.1 — Reply UI opens with replying-to handle and input', async ({ page }) => {
     const hasPosts = await loadFeedAndDetectPosts(page)
-    if (!hasPosts) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s6_no_posts.png`, fullPage: true })
-      test.skip(true, 'No posts in feed')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const replyBtn = page.locator('button[aria-label^="Replies:"]').first()
-    const replyExists = await replyBtn.isVisible().catch(() => false)
-
-    if (!replyExists) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s6_no_reply_buttons.png`, fullPage: true })
-      test.skip(true, 'No reply buttons found')
-      return
-    }
+    await expect(replyBtn, 'fixture posts must render reply buttons').toBeVisible()
 
     await page.screenshot({ path: `${SCREENSHOTS}/r2_s6_before_reply.png`, fullPage: false })
 
@@ -268,16 +230,10 @@ test.describe('R2 Section 6: Reply to Persona', () => {
 
   test('6.2 — Reply button disabled when input is empty', async ({ page }) => {
     const hasPosts = await loadFeedAndDetectPosts(page)
-    if (!hasPosts) {
-      test.skip(true, 'No posts in feed')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const replyBtn = page.locator('button[aria-label^="Replies:"]').first()
-    if (!(await replyBtn.isVisible().catch(() => false))) {
-      test.skip(true, 'No reply buttons found')
-      return
-    }
+    await expect(replyBtn, 'fixture posts must render reply buttons').toBeVisible()
 
     await replyBtn.click()
     await page.waitForTimeout(1000)
@@ -298,20 +254,10 @@ test.describe('R2 Section 6: Reply to Persona', () => {
 test.describe('R2 Section 7: Source Reveal', () => {
   test('7.1 — Source chips expand to show paper title, section, relevance', async ({ page }) => {
     const hasPosts = await loadFeedAndDetectPosts(page)
-    if (!hasPosts) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s7_no_posts.png`, fullPage: true })
-      test.skip(true, 'No posts in feed')
-      return
-    }
+    expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const sourcesBtn = page.locator('button', { hasText: /\d+ sources/ }).first()
-    const sourcesExist = await sourcesBtn.isVisible().catch(() => false)
-
-    if (!sourcesExist) {
-      await page.screenshot({ path: `${SCREENSHOTS}/r2_s7_no_sources.png`, fullPage: true })
-      test.skip(true, 'No posts with sources in feed')
-      return
-    }
+    await expect(sourcesBtn, 'fixture feed must contain a post with sources').toBeVisible()
 
     await page.screenshot({ path: `${SCREENSHOTS}/r2_s7_sources_collapsed.png`, fullPage: false })
 
