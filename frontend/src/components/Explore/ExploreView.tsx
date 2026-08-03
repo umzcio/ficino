@@ -143,9 +143,21 @@ function SearchBar() {
   const [searching, setSearching] = useState(false)
   const [focused, setFocused] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Request sequencing (same pattern as PostCard's loadRequestRef): a slow
+  // response for an older query must not overwrite newer results, and only
+  // the latest request owns the `searching` spinner.
+  const searchSeqRef = useRef(0)
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+  }, [])
 
   const handleChange = (value: string) => {
     setQuery(value)
+    // Bumped before scheduling so clearing the query also invalidates
+    // in-flight requests.
+    searchSeqRef.current += 1
+    const seq = searchSeqRef.current
     if (debounceRef.current) clearTimeout(debounceRef.current)
 
     if (!value.trim()) {
@@ -157,11 +169,11 @@ function SearchBar() {
       setSearching(true)
       try {
         const data = await searchCorpus(value.trim())
-        setResults(data)
+        if (seq === searchSeqRef.current) setResults(data)
       } catch {
         // ignore
       } finally {
-        setSearching(false)
+        if (seq === searchSeqRef.current) setSearching(false)
       }
     }, 300)
   }

@@ -1,18 +1,19 @@
-import { useUserPosts } from '../../hooks/useUserPosts'
+import type { UserPost } from '../../lib/api'
 import { UserPostCard } from '../Feed/UserPostCard'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface UserProfileProps {
-  workspaceId: string | null
+  // Supplied by App's single useUserPosts instance — do not instantiate a
+  // second hook here (it would double the fetch/poll and IDB writes).
+  posts: UserPost[]
+  refresh: () => Promise<UserPost[] | null>
   displayName: string
   handle: string
   onBack: () => void
   onPersonaClick?: (key: string) => void
 }
 
-export function UserProfile({ workspaceId, displayName, handle, onBack, onPersonaClick }: UserProfileProps) {
-  const { posts, refresh } = useUserPosts(workspaceId)
-
+export function UserProfile({ posts, refresh, displayName, handle, onBack, onPersonaClick }: UserProfileProps) {
   return (
     <div>
       <SwipeBackEdge onBack={onBack} />

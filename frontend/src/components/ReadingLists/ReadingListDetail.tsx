@@ -21,6 +21,33 @@ interface Props {
 
 type ViewMode = 'overview' | 'chapter'
 
+const ORDERING_POLL_MAX_TICKS = 40 // 40 × 3s = 2 min — mirrors GroupChatView's bounded window
+
+// Exported for unit testing (this repo has no @testing-library/react — see
+// usePollTask.ts — so component logic worth unit-testing gets pulled out as
+// a plain function, same pattern as GroupChatView's isGroupChatDone).
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing; not a component
+export function hasOrderingRationale(data: ReadingListDetailType): boolean {
+  return data.papers.some(p => p.rationale)
+}
+
+// usePollTask's maxAttempts only bounds consecutive REJECTIONS — a healthy
+// 200 without rationale resets its attempt counter, so an ordering task
+// that faults server-side before writing rationale (worker OOM, LLM
+// failure) would poll forever. Count the consecutive no-rationale streak
+// (reset on any response that HAS rationale) and give up at a bounded
+// window. Pure and exported for unit testing, same rationale as
+// hasOrderingRationale above.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing; not a component
+export function nextOrderingStreak(prevStreak: number, data: ReadingListDetailType): number {
+  return hasOrderingRationale(data) ? 0 : prevStreak + 1
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing; not a component
+export function isOrderingStreakExhausted(streak: number): boolean {
+  return streak >= ORDERING_POLL_MAX_TICKS
+}
+
 export function ReadingListDetail({ listId, onBack }: Props) {
   const [list, setList] = useState<ReadingListDetailType | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,6 +56,8 @@ export function ReadingListDetail({ listId, onBack }: Props) {
   const [chapterFeed, setChapterFeed] = useState<Feed | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderingReady, setOrderingReady] = useState(false)
+  const [orderingFailed, setOrderingFailed] = useState(false)
+  const orderingStreakRef = useRef(0)
   const poll = usePollTask()
   const chapterPollRef = useRef<PollController | null>(null)
   // R10 FE-6 fix: the chapter poll below does nested async work
@@ -65,10 +94,23 @@ export function ReadingListDetail({ listId, onBack }: Props) {
   // usePollTask, which retries transient errors by default instead of
   // dying.
   useEffect(() => {
-    if (orderingReady || !list) return
+    if (orderingReady || orderingFailed || !list) return
     const controller = poll<ReadingListDetailType>({
-      fn: () => getReadingList(listId),
-      isDone: (data) => data.papers.some(p => p.rationale),
+      fn: async () => {
+        const data = await getReadingList(listId)
+        // Bound the wait (mirrors GroupChatView's generating-streak bound):
+        // usePollTask's maxAttempts only counts consecutive REJECTIONS — a
+        // healthy 200 without rationale resets it, so a server-side-faulted
+        // ordering task would poll forever. Count the no-rationale streak
+        // and give up into a Retry state at ORDERING_POLL_MAX_TICKS.
+        orderingStreakRef.current = nextOrderingStreak(orderingStreakRef.current, data)
+        if (isOrderingStreakExhausted(orderingStreakRef.current)) {
+          controller.stop()
+          setOrderingFailed(true)
+        }
+        return data
+      },
+      isDone: hasOrderingRationale,
       onDone: (data) => {
         setList(data)
         setOrderingReady(true)
@@ -76,7 +118,16 @@ export function ReadingListDetail({ listId, onBack }: Props) {
       intervalMs: 3000,
     })
     return () => controller.stop()
-  }, [orderingReady, listId, list, poll])
+  }, [orderingReady, orderingFailed, listId, list, poll])
+
+  // Re-arm the bounded ordering poll: resetting the streak and flipping
+  // orderingFailed false re-runs the effect above (it's in its deps). A
+  // second click while already false is a setState no-op, so rapid clicks
+  // can't start a duplicate poll.
+  const handleRetryOrdering = () => {
+    orderingStreakRef.current = 0
+    setOrderingFailed(false)
+  }
 
   const handleGenerateChapter = async (chapterIndex: number) => {
     if (!list) return
@@ -257,8 +308,22 @@ export function ReadingListDetail({ listId, onBack }: Props) {
         {/* AI ordering status */}
         {!orderingReady && (
           <div className="px-4 py-3 border-b border-border bg-gold/5 flex items-center gap-2">
-            <Loader2 size={14} className="text-gold animate-spin" />
-            <span className="text-[13px] text-text-mid">The Archivist is analyzing your papers to propose a reading order...</span>
+            {orderingFailed ? (
+              <>
+                <span className="text-[13px] text-text-mid">Ordering is taking longer than expected — the analysis may have failed.</span>
+                <button
+                  onClick={handleRetryOrdering}
+                  className="shrink-0 text-[12px] text-gold bg-transparent border border-gold/20 rounded-full px-3 py-1 cursor-pointer hover:bg-gold/5 transition-colors"
+                >
+                  Retry
+                </button>
+              </>
+            ) : (
+              <>
+                <Loader2 size={14} className="text-gold animate-spin" />
+                <span className="text-[13px] text-text-mid">The Archivist is analyzing your papers to propose a reading order...</span>
+              </>
+            )}
           </div>
         )}
 

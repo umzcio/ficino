@@ -269,9 +269,24 @@ export function ApiKeyInput({ value, placeholder, onSave }: {
   )
 }
 
-export function DangerButton({ label, onConfirm }: { label: string; onConfirm: () => void }) {
+// eslint-disable-next-line react-refresh/only-export-components -- exported for unit testing; not a component
+export async function runDangerConfirm(
+  onConfirm: () => void | Promise<void>,
+): Promise<'done' | 'failed'> {
+  try {
+    await onConfirm()
+    return 'done'
+  } catch {
+    return 'failed'
+  }
+}
+
+// Failure feedback is deliberate: R10 wave-4 fixed this "wedged forever" class
+// in the poll adopters; this shared primitive was missed.
+export function DangerButton({ label, onConfirm }: { label: string; onConfirm: () => void | Promise<void> }) {
   const [confirming, setConfirming] = useState(false)
   const [done, setDone] = useState(false)
+  const [failed, setFailed] = useState(false)
 
   if (done) {
     return (
@@ -285,17 +300,22 @@ export function DangerButton({ label, onConfirm }: { label: string; onConfirm: (
     return (
       <div className="flex items-center gap-2">
         <button
-          onClick={async () => { await onConfirm(); setDone(true); setConfirming(false) }}
+          onClick={async () => {
+            const outcome = await runDangerConfirm(onConfirm)
+            if (outcome === 'done') { setDone(true); setConfirming(false) }
+            else setFailed(true)
+          }}
           className="px-3 py-1 rounded-lg text-xs font-semibold text-white bg-persona-skeptic border-none cursor-pointer"
         >
           Confirm
         </button>
         <button
-          onClick={() => setConfirming(false)}
+          onClick={() => { setConfirming(false); setFailed(false) }}
           className="px-3 py-1 rounded-lg text-xs text-text-muted bg-transparent border border-border cursor-pointer"
         >
           Cancel
         </button>
+        {failed && <span className="text-xs text-persona-skeptic">Failed — try again</span>}
       </div>
     )
   }

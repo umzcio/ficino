@@ -621,7 +621,8 @@ function AppContent() {
         }
         return (
           <UserProfile
-            workspaceId={ws.activeId}
+            posts={userPosts.posts}
+            refresh={userPosts.refresh}
             displayName={appSettings.settings?.user_display_name as string || 'You'}
             handle={appSettings.settings?.user_handle as string || '@you'}
             onBack={() => setActiveView('feed')}
