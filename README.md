@@ -358,9 +358,12 @@ The `api` and `worker` test suites hit a real Postgres (rolled back per-test
 via transactions), so they're normally run inside the running containers:
 
 ```bash
-docker exec ficino-api sh -c "pip install -q -r requirements-dev.txt && pytest tests/ -v"
-docker exec ficino-worker sh -c "pip install -q -r requirements-dev.txt && pytest tests/ -q"
+docker exec ficino-api sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest tests/ -q"
+docker exec ficino-worker sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest tests/ -q"
 ```
+
+(The containers run as uid 10001, so the `--user` and `python -m pytest`
+are required.)
 
 **Bare-metal (host venv, no container):** both suites import `ficino_shared`
 (the `shared/` package used by both api and worker for settings-schema,
@@ -377,6 +380,12 @@ pip install -r api/requirements-dev.txt      # or worker/requirements-dev.txt
 Skipping this step fails collection with `ModuleNotFoundError:
 ficino_shared` (or `asyncpg`/`celery`/etc. if the service requirements
 weren't installed either) rather than a test failure.
+
+**Frontend gates:** `cd frontend && npm run lint && npm test && npm run build`.
+**e2e:** `npx playwright test` from the repo root — needs the dev stack at
+`localhost:3000/ficino` and hits a shared dev database.
+
+Agent-facing command reference: [AGENTS.md](AGENTS.md).
 
 ---
 

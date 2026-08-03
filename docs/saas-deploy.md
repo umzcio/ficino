@@ -250,3 +250,19 @@ docker compose up -d
 ```
 Fresh installs need nothing — Docker seeds named volumes from the
 image's directory ownership. Railway is unaffected (no volumes).
+
+### 5f. Admin password override
+When corporate link scanners burn the OTP recovery flow (the user never
+gets a usable reset), the operator can set a user's password directly:
+
+- **Dashboard**: Supabase dashboard → Authentication → Users → select the
+  user → set a new password.
+- **Admin API**: `PUT /auth/v1/admin/users/{id}` with a JSON body
+  `{"password": "..."}`, authenticated with the **service-role key**
+  (`Authorization: Bearer <service-role-key>`). The service-role key
+  bypasses Row Level Security — treat it as highly sensitive: it lives in
+  the Supabase dashboard → Project Settings → API, must never ship in
+  frontend code or be exposed client-side.
+
+Hand the new password to the user out-of-band; they can change it again
+from Settings once signed in.
