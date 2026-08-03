@@ -14,7 +14,7 @@ Written against commit `31fef3a` by the `improve` audit on 2026-08-03. Status va
 | 016 | Disable interactive API docs outside development | security | P1 | S | — | DONE |
 | 017 | Make propose_ordering's persist atomic and retryable | bug | P1 | S | — | DONE |
 | 018 | Make fresh generate_feed idempotent under hard-kill redelivery | bug | P1 | S | — | DONE |
-| 019 | Re-sign figure URLs on read instead of persisting 30-day bearer tokens | security | P2 | M | — | TODO |
+| 019 | Re-sign figure URLs on read instead of persisting 30-day bearer tokens | security | P2 | M | — | DONE |
 | 020 | Serve security headers from nginx on the SPA surface | security | P2 | S | — | TODO |
 | 021 | Run api and worker containers as a non-root user | security | P2 | S–M | — | TODO |
 | 022 | Make init.sql the actual full schema for fresh self-host installs | bug | P2 | M | — | TODO |

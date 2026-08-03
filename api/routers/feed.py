@@ -196,6 +196,74 @@ async def _hydrate_audio_urls(
         posts[idx]["audio_url"] = url
 
 
+async def _hydrate_figure_urls(
+    posts: list[dict[str, object]], user_id: str, db: asyncpg.Connection
+) -> None:
+    """Re-sign each figure post's persisted figure_url with a fresh 600s URL.
+
+    The URL persisted at generation time is only a short-lived fallback
+    (1h TTL) for offline copies — under the Supabase backend a signed URL
+    is a pure capability token, so the live token a browser actually uses
+    is minted here, inside the authenticated, ownership-checked feed GET.
+
+    Mutates posts in place. One DB query resolves (paper_id, image_path)
+    for all figure_ids with ownership enforced by the papers JOIN — a
+    figure_id pointing at another user's paper simply doesn't resolve and
+    keeps its persisted URL. All signed-URL calls are then batched into
+    ONE `asyncio.to_thread` hop for the same reason as
+    `_hydrate_audio_urls` (R10 API-3). Fails soft per figure: on any
+    signing error the persisted URL stays in place — a possibly-stale
+    image beats a certainly-broken one.
+    """
+    from storage import storage as storage_backend
+
+    indices = [
+        idx for idx, post in enumerate(posts)
+        if isinstance(post, dict) and post.get("figure_id")
+    ]
+    if not indices:
+        return
+
+    rows = await db.fetch(
+        """SELECT f.id, f.paper_id, f.image_path
+           FROM figures f
+           JOIN papers p ON f.paper_id = p.id AND p.user_id = $1
+           WHERE f.id = ANY($2::uuid[])""",
+        user_id, [posts[i]["figure_id"] for i in indices],
+    )
+    figure_info = {
+        str(row["id"]): (row["paper_id"], row["image_path"]) for row in rows
+    }
+
+    def _fetch_all() -> dict[int, str | None]:
+        urls: dict[int, str | None] = {}
+        for idx in indices:
+            figure_id = str(posts[idx]["figure_id"])
+            info = figure_info.get(figure_id)
+            if info is None:
+                urls[idx] = None
+                continue
+            paper_id, image_path = info
+            try:
+                urls[idx] = storage_backend.figure_image_url(
+                    user_id, str(paper_id), figure_id,
+                    str(image_path or ""), ttl=600,
+                )
+            except Exception:  # noqa: BLE001
+                urls[idx] = None
+        return urls
+
+    urls = await asyncio.to_thread(_fetch_all)
+    for idx, url in urls.items():
+        if url is not None:
+            posts[idx]["figure_url"] = url
+        else:
+            logger.warning(
+                "figure_url_resign_failed",
+                user_id=user_id, figure_id=posts[idx].get("figure_id"),
+            )
+
+
 async def _hydrate_podcast_episode_url(user_id: str, feed_id: str) -> str | None:
     """Sign the episode mp3 for the browser. Returns None on storage error.
 
@@ -244,6 +312,10 @@ async def get_feed(
 
     if row["audio_status"] == "ready":
         await _hydrate_audio_urls(posts_data, user.id, feed_id)
+
+    # Unconditional (not gated on audio/podcast status): figure posts exist
+    # regardless of media generation, and every feed GET re-signs.
+    await _hydrate_figure_urls(posts_data, user.id, db)
 
     podcast_audio_url: str | None = None
     if row["podcast_status"] == "ready":

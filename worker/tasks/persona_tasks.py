@@ -18,15 +18,14 @@ from lib.post_validation import validate_post_shape
 from lib.settings import apply_provider_settings, STUB_USER_ID
 from lib.storage import storage
 
-# TTL for signed figure URLs embedded in persisted feed posts. Feeds are
-# browsed for hours/days AND weeks after generation (bookmarks, older
-# threads, reading-list revisits), and the URL is baked into the feed
-# JSONB at generation time — if it expires, the image 404s even though
-# the post itself is still fine. 30 days is long enough to cover typical
-# revisit patterns while still bounding the blast radius of a leaked
-# URL; the frontend can recover past that by re-fetching
-# GET /papers/{paper_id}/figures for fresh short-lived tokens.
-FIGURE_URL_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
+# TTL for signed figure URLs embedded in persisted feed posts. The
+# persisted URL is only a short-lived fallback for offline/IndexedDB
+# copies between GETs: the API re-signs a fresh 600s URL on every
+# authenticated, ownership-checked feed read (see `_hydrate_figure_urls`
+# in api/routers/feed.py), so a leaked persisted URL grants at most ~1
+# hour instead of 30 days of unauthenticated access under the Supabase
+# backend (where a signed URL is a pure capability token).
+FIGURE_URL_TTL_SECONDS = 60 * 60  # 1 hour
 
 logger = structlog.get_logger(__name__)
 
@@ -450,13 +449,12 @@ def generate_feed(
                WHERE f.paper_id = ANY($1)""",
             paper_ids,
         )
-        # URLs are issued by the storage adapter with a 24h TTL because
-        # they're persisted into feed posts and rendered long after
-        # generation. When a token eventually expires:
+        # URLs are persisted with a 1h TTL and re-signed fresh on every
+        # feed GET by `_hydrate_figure_urls` (600s TTL). When one expires:
         #   - local backend's /figures/... endpoint will 403
         #   - cloud signed URLs will 403 at the provider
-        # Either way the frontend can recover by re-fetching
-        # GET /papers/{paper_id}/figures to get a fresh short-lived token.
+        # The frontend recovers via GET /papers/{paper_id}/figures (fresh
+        # short-lived tokens) or simply the next feed GET (re-sign).
         available_figures = [
             {
                 "id": str(r["id"]),
