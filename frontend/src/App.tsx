@@ -222,9 +222,6 @@ function FeedHeader({
             />
           </button>
           <span className="text-[22px] font-semibold text-text tracking-[0.015em]" style={{ fontFamily: "'Cormorant Garamond', serif", fontKerning: 'normal' }}>ficino</span>
-          <span className="text-[11px] text-gold bg-gold/10 border border-gold/20 rounded px-1.5 py-0.5 font-semibold tracking-wider">
-            BETA
-          </span>
         </div>
         {workspaceProps?.showUI && workspaceProps.active && (
           <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
