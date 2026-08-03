@@ -78,6 +78,9 @@ services:
       retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # init.sql is the FULL schema (all migrations folded in). initdb runs
+      # only on an EMPTY volume — existing deployments keep their schema and
+      # upgrade via the standalone infra/postgres/add_*.sql files.
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - ficino-network

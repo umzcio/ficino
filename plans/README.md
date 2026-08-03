@@ -15,9 +15,9 @@ Written against commit `31fef3a` by the `improve` audit on 2026-08-03. Status va
 | 017 | Make propose_ordering's persist atomic and retryable | bug | P1 | S | — | DONE |
 | 018 | Make fresh generate_feed idempotent under hard-kill redelivery | bug | P1 | S | — | DONE |
 | 019 | Re-sign figure URLs on read instead of persisting 30-day bearer tokens | security | P2 | M | — | DONE |
-| 020 | Serve security headers from nginx on the SPA surface | security | P2 | S | — | TODO |
-| 021 | Run api and worker containers as a non-root user | security | P2 | S–M | — | TODO |
-| 022 | Make init.sql the actual full schema for fresh self-host installs | bug | P2 | M | — | TODO |
+| 020 | Serve security headers from nginx on the SPA surface | security | P2 | S | — | DONE |
+| 021 | Run api and worker containers as a non-root user | security | P2 | S–M | — | DONE |
+| 022 | Make init.sql the actual full schema for fresh self-host installs | bug | P2 | M | — | DONE |
 | 023 | Lock Python dependencies and pin CI tooling | tech-debt | P2 | S–M | 021 | TODO |
 | 024 | DangerButton surfaces failure instead of wedging | bug | P1 | S | — | DONE |
 | 025 | Surface settings save failures (stop the optimistic ApiKeyInput check) | bug | P1 | S | 024 | DONE |
@@ -27,8 +27,8 @@ Written against commit `31fef3a` by the `improve` audit on 2026-08-03. Status va
 | 029 | Fix the ExploreView search stale-response race | bug | P1 | S | — | DONE |
 | 030 | Sweep unhandled rejections on user-triggered async actions | bug | P1 | S | 027, 028, 029 | DONE |
 | 031 | Add a root AGENTS.md for agent-driven development | dx | P2 | S | 022, 023 | TODO |
-| 032 | Document the figure-detection model env vars in .env.example | docs | P3 | S | — | TODO |
-| 033 | Correct the Marker extraction docs drift | docs | P3 | S | — | TODO |
+| 032 | Document the figure-detection model env vars in .env.example | docs | P3 | S | — | DONE |
+| 033 | Correct the Marker extraction docs drift | docs | P3 | S | — | DONE |
 | 034 | Fix the stale docs cluster | docs | P2 | S | 031, 032 | TODO |
 | 035 | Add a component-test layer for the highest-churn frontend files | tests | P3 | L | 024, 028 | TODO |
 | 036 | Replace data-dependent e2e skips with explicit fixtures | tests | P3 | M | — | TODO |

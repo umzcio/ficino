@@ -33,11 +33,28 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 Supabase's connection string is under **Project Settings → Database → Connection string → URI**.
 
 ```bash
-# From your local checkout:
-psql "<SUPABASE_CONNECTION_STRING>" -f infra/postgres/init.sql
-psql "<SUPABASE_CONNECTION_STRING>" -f infra/postgres/add_hnsw_index.sql
-# Any of the add_* migrations that aren't already folded into init.sql
+# From your local checkout. init.sql is the FULL schema — every add_*.sql /
+# update_*.sql migration is folded into it, so a fresh database needs just
+# this one file:
+psql "<SUPABASE_CONNECTION_STRING>" -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
 ```
+
+Only databases created BEFORE the migrations were folded into init.sql
+(2026-08-03) need the standalone files: apply any `add_*.sql` /
+`update_*.sql` migrations not yet applied, in this order (alphabetical,
+except that `add_feed_posts_table.sql` must precede
+`add_feed_posts_search_partial.sql`):
+`add_alerts_dedupe`, `add_amplifier_persona`, `add_audit_log`,
+`add_chunks_contextual_prefix`, `add_chunks_unique_paper_chunk_idx`,
+`add_corpus_synthesis_status`, `add_feed_audio_status`,
+`add_feed_media_claimed_at`, `add_feed_podcast`, `add_feed_posts_table`,
+`add_feed_posts_search_partial`, `add_figures_unique_paper_figure_idx`,
+`add_fk_indexes`, `add_hnsw_index`, `add_papers_feeds_indexes`,
+`add_persona_dms_table`, `add_personas_feed_eligible`,
+`add_persona_temperature`, `add_post_replies_unique`, `add_typed_figures`,
+`add_user_id_to_chunks_feed_posts`, `update_amplifier_prompt`
+(all in `infra/postgres/`, `.sql` suffix). Going forward, every new
+migration must be folded into `init.sql` in the same PR that adds it.
 
 The `migrate_personas_v3.py` script loads the full persona prompts — run it
 against the Supabase DB the same way you would a local one:
@@ -222,3 +239,14 @@ Railway. Once you cross Supabase's free DB (500MB), jump to Pro ($25/mo).
   → redeploy.
 - API keys (Anthropic/Voyage): rotate at the provider → paste into
   Railway → redeploy.
+
+### 5e. Upgrading self-host deployments to non-root images
+The api/worker images now run as user `ficino` (uid 10001) instead of
+root. **Existing docker-compose deployments** must fix ownership of the
+named volumes once, after pulling the new images:
+```bash
+docker compose run --rm --user root --entrypoint sh api -c "chown -R 10001:10001 /app/uploads /app/figures"
+docker compose up -d
+```
+Fresh installs need nothing — Docker seeds named volumes from the
+image's directory ownership. Railway is unaffected (no volumes).

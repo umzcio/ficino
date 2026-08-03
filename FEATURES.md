@@ -25,7 +25,7 @@ Everything below is live in production.
 ### Core Platform
 | Feature | Description |
 |---------|-------------|
-| **Paper ingestion** | Upload PDFs → text extraction (Marker/PyMuPDF/vision fallback) → quality check → section-aware chunking → contextual prefixing → embedding → pgvector storage |
+| **Paper ingestion** | Upload PDFs → text extraction (PyMuPDF by default; optional Marker if the operator installs `marker-pdf`; vision fallback on quality-check failure) → quality check → section-aware chunking → contextual prefixing → embedding → pgvector storage |
 | **Feed generation** | Six AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed with posts, threads, quotes, replies, and figure analysis. A seventh reply-only persona (The Archivist) is gated out of feed authoring via a `feed_eligible` flag |
 | **Append mode** | "Generate more posts" adds to the current feed. New posts can quote/reply to existing ones. Feed ID preserved for bookmarks and annotations |
 | **Feed history** | Browse and reload past feed generations per workspace |

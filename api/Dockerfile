@@ -17,6 +17,14 @@ RUN pip install --no-cache-dir ./shared
 
 COPY api/ .
 
+# Run as non-root: the worker parses untrusted PDFs; a parser exploit
+# shouldn't land as root. /app must be writable — celery -B (embedded
+# beat) writes celerybeat-schedule in the workdir, and the app writes
+# /app/uploads + /app/figures (named volumes, initialized from image
+# ownership on fresh deploys).
+RUN useradd --create-home --uid 10001 ficino && chown -R ficino:ficino /app
+USER ficino
+
 EXPOSE 8000
 
 # PORT is injected by Railway's runtime; docker-compose sets nothing and

@@ -1,4 +1,5 @@
-"""Marker-based PDF text extraction — primary extraction path.
+"""Marker-based PDF text extraction — optional high-quality extraction path
+(not installed by default — `pip install marker-pdf` to enable; PyMuPDF is the default).
 
 Marker re-renders PDFs visually and reconstructs structured markdown,
 handling two-column layouts, equations, tables, and figures correctly.

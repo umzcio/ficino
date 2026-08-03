@@ -332,7 +332,8 @@ ficino/
 │   ├── lib/               # extractor, chunker, embedder, retrieval, persona, LLM client
 │   └── Dockerfile
 └── infra/
-    └── postgres/init.sql  # Full schema with pgvector + tsvector
+    └── postgres/          # init.sql is the full schema (pgvector + tsvector);
+                           # add_*.sql are the upgrade path for older volumes
 ```
 
 ---
