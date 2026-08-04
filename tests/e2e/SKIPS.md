@@ -50,3 +50,25 @@ they must be listed here.
 - `r2_sections_8_10.spec.ts` — 6 sites (bookmarkable posts, feed history,
   paper chat) → same.
 - `aug/augment.spec.ts:440` (inside AUG-21) → hard assertion.
+
+## CI gate split (plan 037)
+
+The `e2e` job in `.github/workflows/ci.yml` runs the `ci` Playwright project
+(desktop viewport, fixtures seeded by globalSetup) against a compose stack
+with NO LLM/embed backend. Everything runs EXCEPT:
+
+- `round9_core_flows.spec.ts` — R9-01 waits on real upload processing
+  (embeddings) and R9-02 expects a real archivist (LLM) reply. Excluded via
+  `testIgnore`.
+- `wave4_group_chat.spec.ts` — `uploadAndWaitComplete` needs embeddings and
+  the synthesis poll needs an LLM. Excluded via `testIgnore`.
+- `r2_sections_14_16.spec.ts:320` (R2-S16-09) — keyboard "." dispatches a
+  REAL feed generation. Excluded via `grepInvert`.
+- `review.spec.ts:140` (R-06) — still self-skips in CI (unconditional
+  `test.skip(true, …)`), as do the AUTH_PROVIDER=none bare skips above.
+  On the CI job's FRESH database R-04 always skips too (exactly one
+  workspace → dropdown not rendered); on a junk-accumulated dev DB it runs.
+
+New specs default INTO the gate; if one needs real generation, exclude it
+in the `ci` project and list it here. Mobile project and an LLM-backed
+smoke with a budget-capped key are named follow-ups (plan 037).

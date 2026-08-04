@@ -24,8 +24,9 @@ COPY api/ .
 # shouldn't land as root. /app must be writable — celery -B (embedded
 # beat) writes celerybeat-schedule in the workdir, and the app writes
 # /app/uploads + /app/figures (named volumes, initialized from image
-# ownership on fresh deploys).
-RUN useradd --create-home --uid 10001 ficino && chown -R ficino:ficino /app
+# ownership on fresh deploys — the dirs must exist pre-chown so a fresh
+# named volume inherits ficino ownership instead of root).
+RUN useradd --create-home --uid 10001 ficino && mkdir -p /app/uploads /app/figures && chown -R ficino:ficino /app
 USER ficino
 
 EXPOSE 8000

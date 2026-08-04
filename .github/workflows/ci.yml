@@ -138,3 +138,66 @@ jobs:
       - run: cd frontend && npm run lint
       - run: cd frontend && npm test
       - run: cd frontend && npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      # Shape A (plan 037): boot the full compose stack. .env.ci holds
+      # CI-safe dummy values (no secrets); .env.secrets must merely EXIST
+      # because docker-compose.yml lists it as an env_file.
+      - name: Prepare CI env
+        run: |
+          cp .env.ci .env
+          touch .env.secrets
+      # --build: GH runners start with no images. init.sql loads
+      # automatically via docker-entrypoint-initdb.d on the fresh postgres
+      # volume (plan 022: it is the FULL schema) — do NOT re-apply it.
+      - name: Boot the stack
+        run: docker compose up -d --build --wait
+      # The api image has no /app/uploads or /app/figures dirs, so Docker
+      # creates the fresh named-volume mount points root:root while the
+      # container runs as uid 10001 — neither the plan-036 fixture helper
+      # nor any upload path can write until they're handed over. (A proper
+      # fix belongs in api/Dockerfile; production code is out of plan 037's
+      # scope.)
+      - name: Chown writable volume dirs
+        run: docker exec -u root ficino-api chown ficino:ficino /app/uploads /app/figures
+      # This checkout's compose deliberately does NOT publish the frontend
+      # port. Run a throwaway container from the same image with port 3000
+      # published (same pattern as the local rehearsal's ficino-e2e-fe);
+      # nginx inside it proxies /ficino/api/ to ficino-api over the compose
+      # network.
+      - name: Publish the frontend
+        run: |
+          FE_IMAGE=$(docker compose images -q frontend)
+          docker run -d --name ficino-e2e-fe --network ficino-network -p 3000:80 "$FE_IMAGE"
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:3000/ficino/ && exit 0
+            sleep 2
+          done
+          echo "frontend never came up" >&2
+          exit 1
+      - run: npx playwright install --with-deps chromium
+      # The `ci` project (playwright.config.ts) is the fixture-runnable
+      # desktop subset; globalSetup seeds the plan-036 fixtures first.
+      # Trailing slash on the base URL is required.
+      - name: Run e2e gate
+        run: npx playwright test --project=ci
+        env:
+          E2E_BASE_URL: http://localhost:3000/ficino/
+      - name: Upload e2e artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            tests/results/
+            tests/screenshots/
+          if-no-files-found: ignore
