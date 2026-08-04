@@ -1,7 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
+import { join } from 'path'
 import { ensureFeedFixtures } from './helpers/ensureFeed'
 
-const SCREENSHOT_DIR = '/projects/ficino/tests/screenshots'
+// Relative to the spec file (r2_sections_1_3 convention) — an absolute
+// dev-checkout path breaks anywhere else, e.g. CI runners.
+const SCREENSHOT_DIR = join(__dirname, '..', 'screenshots')
 const APP_URL = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
 
 // Plan 036: seed deterministic fixtures (a bookmarkable feed, two feeds so

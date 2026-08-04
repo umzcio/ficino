@@ -156,6 +156,10 @@ jobs:
         run: |
           cp .env.ci .env
           touch .env.secrets
+          # tests/screenshots/ is gitignored; globalSetup also mkdirs it,
+          # but create it here so even a globalSetup failure leaves the
+          # artifact-upload path intact.
+          mkdir -p tests/screenshots
       # --build: GH runners start with no images. init.sql loads
       # automatically via docker-entrypoint-initdb.d on the fresh postgres
       # volume (plan 022: it is the FULL schema) — do NOT re-apply it.
