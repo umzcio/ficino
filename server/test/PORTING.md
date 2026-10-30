@@ -48,7 +48,7 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
 - [x] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan01/T9
 - [x] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts)
+- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — plan02, plan03, plan04, plan05 (remaining per-router halves; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts)
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller — plan05
 - [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user — plan05
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace — plan05
