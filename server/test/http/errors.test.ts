@@ -33,6 +33,29 @@ describe('error contract (C §0)', () => {
     expect((await c.delete('/v/other')).status).toBe(404);
   });
 
+  it('c.notFound() from a handler on a path with another method is 404, not 405', async () => {
+    const app = testApp();
+    app.get('/__t/papers/:id', (c) => c.notFound());
+    app.delete('/__t/papers/:id', (c) => c.body(null, 204));
+    const c = client(app);
+    const r = await c.get('/__t/papers/1');
+    expect(r.status).toBe(404);
+    expect(await r.json()).toEqual({ detail: 'Not Found' });
+    expect((await c.post('/__t/papers/1', {})).status).toBe(405);
+  });
+
+  it('non-Error throw → 500 text/plain with security headers', async () => {
+    const app = testApp();
+    app.get('/__t/str', () => {
+      throw 'string';
+    });
+    const r = await client(app).get('/__t/str');
+    expect(r.status).toBe(500);
+    expect(r.headers.get('content-type')).toMatch(/^text\/plain/);
+    expect(await r.text()).toBe('Internal Server Error');
+    expect(r.headers.get('x-frame-options')).toBe('DENY');
+  });
+
   it('HttpError → {detail} with its status', async () => {
     const app = testApp();
     app.get('/__t/teapot', () => {

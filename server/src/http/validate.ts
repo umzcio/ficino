@@ -15,7 +15,7 @@ function make<T>(source: Source, schema: z.ZodType<T>) {
       type: i.code,
       loc: [LOC[source], ...i.path],
       msg: i.message,
-      input: i.input,
+      input: i.input ?? null,
     }));
     return c.json({ detail }, 422);
   });

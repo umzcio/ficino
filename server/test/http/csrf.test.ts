@@ -91,6 +91,30 @@ describe('csrf', () => {
     expect(dev.headers.get('set-cookie')).not.toMatch(/Domain/);
   });
 
+  it('mints the cookie on a 500 response too', async () => {
+    const app = testApp();
+    app.get('/__t/boom', () => {
+      throw new Error('x');
+    });
+    const r = await client(app, { csrf: false }).get('/__t/boom');
+    expect(r.status).toBe(500);
+    expect(r.headers.get('set-cookie')).toMatch(/^ficino_csrf=[\w-]{43};/);
+  });
+
+  it('mints the cookie on HEAD /nope', async () => {
+    const r = await client(testApp(), { csrf: false }).send('HEAD', '/nope');
+    expect(r.status).toBe(404);
+    expect(r.headers.get('set-cookie')).toMatch(/^ficino_csrf=[\w-]{43};/);
+  });
+
+  it('empty cookie with empty header is 403', async () => {
+    const r = await testApp().request('/x', {
+      method: 'POST',
+      headers: { cookie: 'ficino_csrf=', 'x-csrf-token': '' },
+    });
+    expect(r.status).toBe(403);
+  });
+
   it('CSRF 403 body is exact and still carries CORS headers', async () => {
     const app = testApp({ config: { environment: 'development' } });
     const r = await client(app, { csrf: false }).post('/feed/generate', {}, {

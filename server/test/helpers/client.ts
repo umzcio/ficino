@@ -58,9 +58,19 @@ export function client(app: Hono<AppEnv>, opts: { csrf?: boolean } = {}) {
     }
     const res = await app.request(path, { method, headers, body: payload });
     for (const line of res.headers.getSetCookie()) {
-      const [pair] = line.split(';');
+      const [pair, ...attrs] = line.split(';').map((x) => x.trim());
       const eq = pair.indexOf('=');
-      cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+      const name = pair.slice(0, eq);
+      const value = pair.slice(eq + 1);
+      const attr = (k: string) => attrs.find((a) => a.toLowerCase().startsWith(`${k}=`))?.slice(k.length + 1);
+      const maxAge = attr('max-age');
+      const expires = attr('expires');
+      const gone =
+        value === '' ||
+        (maxAge !== undefined && Number(maxAge) <= 0) ||
+        (expires !== undefined && Date.parse(expires) <= Date.now());
+      if (gone) cookies.delete(name);
+      else cookies.set(name, value);
     }
     const text = await res.text();
     return {
@@ -77,6 +87,7 @@ export function client(app: Hono<AppEnv>, opts: { csrf?: boolean } = {}) {
     put: (path: string, body?: unknown, init?: ReqInit) => send('PUT', path, body, init),
     patch: (path: string, body?: unknown, init?: ReqInit) => send('PATCH', path, body, init),
     delete: (path: string, init?: ReqInit) => send('DELETE', path, undefined, init),
+    send,
     cookies,
   };
 }

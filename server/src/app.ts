@@ -51,7 +51,7 @@ function makeAllowedMethods(app: Hono<AppEnv>) {
   let built = -1;
   let router = new SmartRouter<true>({ routers: [new RegExpRouter(), new TrieRouter()] });
   let methods: string[] = [];
-  return (method: string, path: string): string[] => {
+  return (method: string, path: string): { own: boolean; others: string[] } => {
     if (built !== app.routes.length) {
       router = new SmartRouter<true>({ routers: [new RegExpRouter(), new TrieRouter()] });
       const seen = new Set<string>();
@@ -63,7 +63,9 @@ function makeAllowedMethods(app: Hono<AppEnv>) {
       methods = [...seen];
       built = app.routes.length;
     }
-    return methods.filter((m) => m !== method && router.match(m, path)[0].length > 0);
+    const matches = (m: string) => router.match(m, path)[0].length > 0;
+    const own = method === 'HEAD' ? 'GET' : method;
+    return { own: matches(own), others: methods.filter((m) => m !== own && matches(m)) };
   };
 }
 
@@ -75,6 +77,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.use('*', corsMiddleware(deps.config));
   app.use('*', csrf(deps.config));
   app.use('*', securityHeaders(deps.config));
+  // Innermost: Hono's compose rethrows non-Error throws past onError (and past the header
+  // middleware above), so wrap them here to route them through the normal 500 path.
+  app.use('*', async (_c, next) => {
+    try {
+      await next();
+    } catch (e) {
+      throw e instanceof Error ? e : new Error(`non-Error thrown: ${String(e)}`);
+    }
+  });
   app.use('*', async (c, next) => {
     c.set('deps', deps);
     await next();
@@ -82,9 +93,10 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.onError(errorHandler(deps.logger));
   app.notFound((c) => {
-    const allowed = allowedMethods(c.req.method, c.req.path);
-    if (allowed.length > 0) {
-      return c.json({ detail: 'Method Not Allowed' }, 405, { Allow: allowed.join(', ') });
+    const { own, others } = allowedMethods(c.req.method, c.req.path);
+    // A handler called c.notFound() on a real route: that is a 404, not a 405.
+    if (!own && others.length > 0) {
+      return c.json({ detail: 'Method Not Allowed' }, 405, { Allow: others.join(', ') });
     }
     return c.json({ detail: 'Not Found' }, 404);
   });
