@@ -12,6 +12,7 @@ import { csrf } from './http/csrf.js';
 import { errorHandler } from './http/errors.js';
 import { securityHeaders } from './http/securityHeaders.js';
 import { healthRoutes } from './routes/health.js';
+import { settingsRoutes } from './routes/settings.js';
 import { usersRoutes } from './routes/users.js';
 import { workspacesRoutes } from './routes/workspaces.js';
 
@@ -112,6 +113,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // /auth/login|register|logout|me exist only under the basic provider; otherwise they 404.
   if (deps.config.authProvider === 'basic') app.route('/auth', basicRoutes());
 
+  app.route('/settings', settingsRoutes());
   app.route('/users', usersRoutes());
   app.route('/workspaces', workspacesRoutes());
 

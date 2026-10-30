@@ -8,7 +8,7 @@ import { testSql } from './db.js';
 export const CSRF_TEST_TOKEN = 'test-csrf-token-fixture';
 
 /** App over the test database with a silent logger. Defaults to ENVIRONMENT=development (loadConfig's default). */
-export function testApp(opts: { user?: AuthUser; config?: Partial<Config> } = {}): Hono<AppEnv> {
+export function testApp(opts: { user?: AuthUser; config?: Partial<Config>; fetch?: typeof fetch } = {}): Hono<AppEnv> {
   const config: Config = {
     ...loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
     ...opts.config,
@@ -18,6 +18,7 @@ export function testApp(opts: { user?: AuthUser; config?: Partial<Config> } = {}
     config,
     logger: pino({ level: 'silent' }),
     env: {},
+    fetch: opts.fetch,
     userOverride: opts.user,
   });
 }

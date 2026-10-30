@@ -46,9 +46,9 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_rate_limit_config.py::test_rate_limit_replies_per_day_defaults_to_60 — plan01/T7
 - [x] api/tests/test_rate_limit_config.py::test_rate_limit_persona_dm_per_day_defaults_to_60 — plan01/T7
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
-- [ ] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan0X (settings router)
+- [x] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan01/T9
 - [ ] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10 (bookmarks router)
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test
+- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller
 - [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace
@@ -75,7 +75,7 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] shared/tests/test_storage_local.py::test_local_release_local_is_noop — plan02
 - [ ] shared/tests/test_storage_local.py::test_local_delete_pdf_idempotent — plan02
 - [ ] shared/tests/test_storage_local.py::test_local_save_figure_rejects_traversal — plan02
-- [ ] shared/tests/test_storage_local.py::test_local_delete_paper_artifacts_removes_all — plan02
+- [x] shared/tests/test_storage_local.py::test_local_delete_paper_artifacts_removes_all — plan01/T9 (delete path only)
 - [ ] shared/tests/test_storage_local.py::test_local_figure_image_url_is_signed — plan02
 - [ ] shared/tests/test_storage_local.py::test_local_storage_takes_injected_dirs_not_settings — plan02
 - [ ] api/tests/test_feed_figure_hydration.py::test_figure_url_resigned_on_feed_get
@@ -145,11 +145,11 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_hydration_offloop.py::test_feed_audio_url_hydrated_off_loop
 - [ ] api/tests/test_hydration_offloop.py::test_feed_podcast_episode_url_hydrated_off_loop
 - [ ] api/tests/test_hydration_offloop.py::test_figures_image_url_hydrated_off_loop
-- [ ] api/tests/test_settings_contract.py::test_get_settings_returns_defaults_and_ui_keys — plan01/T9
-- [ ] api/tests/test_settings_contract.py::test_put_drops_non_allowlisted_keys — plan01/T9
-- [ ] api/tests/test_settings_contract.py::test_secrets_are_redacted — plan01/T9
+- [x] api/tests/test_settings_contract.py::test_get_settings_returns_defaults_and_ui_keys — plan01/T9
+- [x] api/tests/test_settings_contract.py::test_put_drops_non_allowlisted_keys — plan01/T9
+- [x] api/tests/test_settings_contract.py::test_secrets_are_redacted — plan01/T9
 - [x] api/tests/test_settings_contract.py::test_worker_keys_present_in_defaults — plan01/T4
-- [ ] api/tests/test_settings_contract.py::test_cohere_key_is_settable_and_redacted — plan01/T9
+- [x] api/tests/test_settings_contract.py::test_cohere_key_is_settable_and_redacted — plan01/T9
 - [x] api/tests/test_settings_contract.py::test_get_settings_reasserts_env_under_public_deployment — plan01/T4
 - [x] api/tests/test_settings_contract.py::test_settings_router_uses_shared_schema — n/a: Python router/module identity; TS has one schema module
 - [ ] api/tests/test_summary_redispatch.py::test_error_summary_row_is_redispatched
@@ -188,8 +188,8 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_wave3_correctness.py::test_concurrent_create_bookmark_both_2xx_only_one_row
 - [ ] api/tests/test_wave3_correctness.py::test_create_like_still_returns_created_and_already_liked
 - [x] api/tests/test_wave3_correctness.py::test_activity_sort_key_handles_none_timestamp — plan01/T8 (as an activity endpoint test: NULL timestamp sorts oldest)
-- [ ] api/tests/test_wave3_correctness.py::test_cleanup_artifacts_is_a_single_module_level_function
-- [ ] api/tests/test_wave3_correctness.py::test_clear_all_papers_deletes_papers_and_feeds
+- [x] api/tests/test_wave3_correctness.py::test_cleanup_artifacts_is_a_single_module_level_function — n/a: Python source-inspection of a hoisted closure; TS handlers share deletePaperArtifacts
+- [x] api/tests/test_wave3_correctness.py::test_clear_all_papers_deletes_papers_and_feeds — plan01/T9
 - [ ] api/tests/test_wave3_correctness.py::test_create_user_post_dispatch_failure_marks_error_not_pending
 - [ ] api/tests/test_wave3_correctness.py::test_reply_to_user_post_concurrent_double_fire_only_one_wins
 - [ ] api/tests/test_wave3_correctness.py::test_delete_persona_dm_message_atomic
@@ -201,10 +201,10 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_wave3_correctness.py::test_reorder_reading_list_rejects_duplicate_paper_ids
 - [ ] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_rejects_duplicate_paper_ids
 - [ ] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_malformed_body_returns_422_not_500
-- [ ] api/tests/test_public_deployment.py::test_auth_provider_exposes_public_deployment
-- [ ] api/tests/test_public_deployment.py::test_auth_provider_defaults_public_deployment_false
-- [ ] api/tests/test_public_deployment.py::test_public_deployment_drops_provider_overrides
-- [ ] api/tests/test_public_deployment.py::test_self_host_accepts_provider_overrides
+- [x] api/tests/test_public_deployment.py::test_auth_provider_exposes_public_deployment — plan01/T9
+- [x] api/tests/test_public_deployment.py::test_auth_provider_defaults_public_deployment_false — plan01/T9
+- [x] api/tests/test_public_deployment.py::test_public_deployment_drops_provider_overrides — plan01/T9
+- [x] api/tests/test_public_deployment.py::test_self_host_accepts_provider_overrides — plan01/T9
 - [x] shared/tests/test_settings_schema.py::test_defaults_cover_every_env_mapped_key — plan01/T4
 - [x] shared/tests/test_settings_schema.py::test_new_provider_keys_present_and_protected — plan01/T4
 - [x] shared/tests/test_settings_schema.py::test_secret_keys_subset_of_defaults — plan01/T4
