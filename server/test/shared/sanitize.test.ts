@@ -115,6 +115,26 @@ describe('api sanitize (api/tests/test_sanitize.py)', () => {
   });
 });
 
+describe('role marker superset of Python', () => {
+  it.each([
+    ['\x85System: x', 'x'],
+    ['\x1cSystem: x', 'x'],
+    ['\x1fSystem: x', 'x'],
+    ['\u017fystem: x', 'x'],
+    ['a\u0131: x', 'x'],
+    ['A\u0130: x', 'x'],
+    ['System: x', 'x'],
+  ])('strips %j', (input, rest) => {
+    expect(stripRoleMarkers(input)).toBe(rest);
+  });
+  it('CRLF line keeps CR, strips following marker', () => {
+    expect(stripRoleMarkers('a\r\nSystem: b')).toBe('a\r\nb');
+  });
+  it('truncates by code point', () => {
+    expect(fenceUntrusted('\u{1F600}'.repeat(10), 5)).toBe(`${OPEN}${'\u{1F600}'.repeat(5)}\u2026 [truncated]${CLOSE}`);
+  });
+});
+
 describe('sanitizeInline', () => {
   it('handles null/undefined, collapses whitespace, neutralizes, caps', () => {
     expect(sanitizeInline(null)).toBe('');

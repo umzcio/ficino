@@ -4,8 +4,12 @@ const MAX_BLOCK_LEN = 8000;
 
 // Role markers stripped at the start of a line. `(?<![^\n])` is "start of
 // line" with Python's MULTILINE semantics (only \n counts, unlike JS `^`/m).
+// This must strip a SUPERSET of what the Python regex strips (extra stripping,
+// e.g. U+FEFF via JS \s, is fine): Python's Unicode \s also covers
+// \x1c-\x1f and \x85, and its IGNORECASE folds U+017F (handled by the `u`
+// flag) and dotted/dotless i (`a[iI\u0131\u0130]`).
 const ROLE_MARKER_RE =
-  /(?<![^\n])[\s>*_#-]*(system|assistant|human|user|ai|instruction)[\s]*:[ \t]*/gi;
+  /(?<![^\n])[\s\x1c-\x1f\x85>*_#-]*(system|assistant|human|user|a[i\u0131\u0130]|instruction)[\s\x1c-\x1f\x85]*:[ \t]*/giu;
 
 const FENCE_OPEN = '<untrusted>';
 const FENCE_CLOSE = '</untrusted>';
