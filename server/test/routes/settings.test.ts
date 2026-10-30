@@ -32,6 +32,7 @@ describe('coercePy', () => {
   it.each([
     ['int', 5, 5], ['int', 5.9, 5], ['int', '5', 5], ['int', true, 1],
     ['float', '0.5', 0.5], ['float', true, 1], ['float', 2, 2], ['int', -0.5, 0],
+    ['int', ' 5 ', 5], ['float', '1e3', 1000], ['int', '1_0', 10], ['float', 'inf', Infinity],
   ])('coercePy(%s, %j) = %j', (k, v, out) => expect(coercePy(k as 'int', v)).toBe(out));
   it.each([['int', '5.9'], ['int', 'x'], ['float', 'x'], ['int', null], ['float', []], ['int', {}]])(
     'coercePy(%s, %j) throws',
@@ -110,6 +111,12 @@ describe('GET/PUT /settings', () => {
     expect(await r.json()).toEqual({ detail: 'posts_per_generation must be a int' });
     const f = await asA().put('/settings', { settings: { persona_temperature: 'hot' } });
     expect(await f.json()).toEqual({ detail: 'persona_temperature must be a float' });
+  });
+
+  it('PUT float "nan" -> 422 must be a float', async () => {
+    const r = await asA().put('/settings', { settings: { persona_temperature: 'nan' } });
+    expect(r.status).toBe(422);
+    expect(await r.json()).toEqual({ detail: 'persona_temperature must be a float' });
   });
 
   it('PUT coerces numerics', async () => {
@@ -231,6 +238,29 @@ describe('GET /settings/ollama-models', () => {
   });
 });
 
+const CLEARED_TABLES = ['alerts', 'persona_dms', 'user_posts', 'corpus_syntheses', 'reading_lists', 'feeds', 'papers', 'tags'];
+
+/** One real row per user in every table clear-everything deletes, plus a summary per user's paper. */
+async function seedContent() {
+  for (const [uid, ws, paper] of [
+    [USER_A_ID, seeded.workspace_a, seeded.paper_a],
+    [USER_B_ID, seeded.workspace_b, seeded.paper_b],
+  ]) {
+    await sql`INSERT INTO alerts (user_id, alert_type, title, body) VALUES (${uid}, 'info', 't', 'b')`;
+    await sql`INSERT INTO persona_dms (user_id, persona_key) VALUES (${uid}, 'skeptic')`;
+    await sql`INSERT INTO user_posts (user_id, corpus_id, content) VALUES (${uid}, ${ws}, 'hi')`;
+    await sql`INSERT INTO corpus_syntheses (user_id, name, paper_ids) VALUES (${uid}, 'syn', ${[paper]}::uuid[])`;
+    await sql`INSERT INTO reading_lists (user_id, corpus_id, name) VALUES (${uid}, ${ws}, 'rl')`;
+    await sql`INSERT INTO tags (user_id, name) VALUES (${uid}, 'tag')`;
+    await sql`INSERT INTO paper_summaries (paper_id) VALUES (${paper})`;
+  }
+}
+
+async function countFor(table: string, uid: string) {
+  const [x] = await sql`SELECT count(*)::int n FROM ${sql(table)} WHERE user_id = ${uid}`;
+  return x.n as number;
+}
+
 describe('clear-* routes', () => {
   it('clear-feeds deletes feeds, audits feed.clear_all (test_clear_all_feeds_writes_audit_row)', async () => {
     const r = await asA().post('/settings/clear-feeds');
@@ -242,10 +272,23 @@ describe('clear-* routes', () => {
     expect(await auditCount('feed.clear_all')).toBe(1);
   });
 
-  it('clear-summaries / clear-user-posts audit', async () => {
-    expect((await asA().post('/settings/clear-summaries')).status).toBe(200);
-    expect((await asA().post('/settings/clear-user-posts')).status).toBe(200);
+  it('clear-summaries deletes only the caller\'s summaries and audits', async () => {
+    await seedContent();
+    const r = await asA().post('/settings/clear-summaries');
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ status: 'cleared' });
+    const rows = await sql`SELECT p.user_id FROM paper_summaries s JOIN papers p ON p.id = s.paper_id`;
+    expect(rows.map((x) => x.user_id)).toEqual([USER_B_ID]);
     expect(await auditCount('summary.clear_all')).toBe(1);
+  });
+
+  it('clear-user-posts deletes only the caller\'s posts and audits', async () => {
+    await seedContent();
+    const r = await asA().post('/settings/clear-user-posts');
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ status: 'cleared' });
+    const rows = await sql`SELECT user_id FROM user_posts`;
+    expect(rows.map((x) => x.user_id)).toEqual([USER_B_ID]);
     expect(await auditCount('user_post.clear_all')).toBe(1);
   });
 
@@ -281,16 +324,20 @@ describe('clear-* routes', () => {
 
     it('clear-everything deletes content tables, keeps corpora + user_settings, cleans artifacts, audits account.clear_all', async () => {
       await sql`INSERT INTO user_settings (user_id, settings) VALUES (${USER_A_ID}, '{"theme":"light"}'::jsonb)`;
-      await sql`INSERT INTO tags (user_id, name) VALUES (${USER_A_ID}, 't1'), (${USER_B_ID}, 't2')`.catch(() => undefined);
+      await seedContent();
+      for (const t of CLEARED_TABLES) {
+        expect(await countFor(t, USER_A_ID), `${t} A seeded`).toBeGreaterThan(0);
+        expect(await countFor(t, USER_B_ID), `${t} B seeded`).toBeGreaterThan(0);
+      }
+      const bBefore = Object.fromEntries(await Promise.all(CLEARED_TABLES.map(async (t) => [t, await countFor(t, USER_B_ID)])));
       const r = await asA({ config: cfg }).post('/settings/clear-everything');
       expect(r.status).toBe(200);
       expect(await r.json()).toEqual({ status: 'cleared', paper_count: 1 });
-      for (const t of ['papers', 'feeds', 'tags', 'alerts', 'user_posts', 'reading_lists']) {
-        const [x] = await sql`SELECT count(*)::int n FROM ${sql(t)} WHERE user_id = ${USER_A_ID}`;
-        expect(x.n, t).toBe(0);
+      for (const t of CLEARED_TABLES) {
+        expect(await countFor(t, USER_A_ID), `${t} A`).toBe(0);
+        expect(await countFor(t, USER_B_ID), `${t} B`).toBe(bBefore[t]);
       }
-      const [c] = await sql`SELECT count(*)::int n FROM corpora WHERE user_id = ${USER_A_ID}`;
-      expect(c.n).toBe(1);
+      expect(await countFor('corpora', USER_A_ID)).toBe(1);
       expect(await stored()).toEqual({ theme: 'light' });
       expect(await exists(join(cfg.uploadDir, `${seeded.paper_a}.pdf`))).toBe(false);
       expect(await exists(join(cfg.figuresDir, seeded.paper_a))).toBe(false);

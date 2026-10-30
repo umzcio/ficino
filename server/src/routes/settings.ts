@@ -192,7 +192,7 @@ export function settingsRoutes(): Hono<AppEnv> {
   });
 
   r.post('/clear-everything', async (c) => {
-    const { sql, config } = c.var.deps;
+    const { sql, config, logger } = c.var.deps;
     const uid = c.var.user.id;
     const rows = await sql`SELECT id FROM papers WHERE user_id = ${uid}`;
     const paperIds = rows.map((p) => String(p.id));
@@ -206,7 +206,7 @@ export function settingsRoutes(): Hono<AppEnv> {
       await tx`DELETE FROM papers           WHERE user_id = ${uid}`;
       await tx`DELETE FROM tags             WHERE user_id = ${uid}`;
     });
-    for (const id of paperIds) await deletePaperArtifacts(config, id);
+    for (const id of paperIds) await deletePaperArtifacts(config, id, logger);
     await recordAudit(c, {
       action: 'account.clear_all',
       resourceType: 'account',
@@ -216,7 +216,7 @@ export function settingsRoutes(): Hono<AppEnv> {
   });
 
   r.post('/clear-papers', async (c) => {
-    const { sql, config } = c.var.deps;
+    const { sql, config, logger } = c.var.deps;
     const uid = c.var.user.id;
     const rows = await sql`SELECT id FROM papers WHERE user_id = ${uid}`;
     const paperIds = rows.map((p) => String(p.id));
@@ -224,7 +224,7 @@ export function settingsRoutes(): Hono<AppEnv> {
       await tx`DELETE FROM papers WHERE user_id = ${uid}`;
       await tx`DELETE FROM feeds WHERE user_id = ${uid}`;
     });
-    for (const id of paperIds) await deletePaperArtifacts(config, id);
+    for (const id of paperIds) await deletePaperArtifacts(config, id, logger);
     await recordAudit(c, {
       action: 'paper.clear_all',
       resourceType: 'paper',
