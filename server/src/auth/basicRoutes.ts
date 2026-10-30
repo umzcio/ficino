@@ -3,6 +3,8 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { AppEnv } from '../app.js';
 import { HttpError } from '../http/errors.js';
+import { recordAudit } from '../audit.js';
+import { ipRateLimit } from '../http/rateLimit.js';
 import { body } from '../http/validate.js';
 import { getUserBasic, SESSION_COOKIE } from './currentUser.js';
 import { hashPassword, verifyPassword } from './passwords.js';
@@ -36,9 +38,8 @@ export function basicRoutes(): Hono<AppEnv> {
       path: '/', // no Domain: COOKIE_DOMAIN is deliberately ignored (C §6 item 21)
     });
 
-  r.post('/register', body(registerBody), async (c) => {
+  r.post('/register', ipRateLimit('register', 3, 3600), body(registerBody), async (c) => {
     const { sql, config } = c.var.deps;
-    // Task 7: IPRateLimit('register', 3, 3600) goes here.
     const { email, password } = c.req.valid('json');
 
     const [{ n }] = await sql`SELECT COUNT(*)::int AS n FROM users`;
@@ -65,13 +66,19 @@ export function basicRoutes(): Hono<AppEnv> {
     }
 
     setSessionCookie(c, await createSession(sql, userId));
-    // Task 7: record_audit user.register (user/{id}, metadata {email}, 201) goes here.
+    c.set('user', { id: userId, email, display_name: null });
+    await recordAudit(c, {
+      action: 'user.register',
+      resourceType: 'user',
+      resourceId: userId,
+      metadata: { email },
+      statusCode: 201,
+    });
     return c.json({ status: 'registered', user_id: userId }, 201);
   });
 
-  r.post('/login', body(loginBody), async (c) => {
+  r.post('/login', ipRateLimit('login', 5, 900), body(loginBody), async (c) => {
     const { sql } = c.var.deps;
-    // Task 7: IPRateLimit('login', 5, 900) goes here.
     const { email, password } = c.req.valid('json');
 
     const [row] = await sql`SELECT id, password_hash FROM users WHERE email = ${email}`;
@@ -85,11 +92,12 @@ export function basicRoutes(): Hono<AppEnv> {
 
   r.post('/logout', async (c) => {
     const { sql } = c.var.deps;
-    await getUserBasic(c); // 401s as in Python; the session is deleted by token below
+    const user = await getUserBasic(c); // 401s as in Python; the session is deleted by token below
     const token = getCookie(c, SESSION_COOKIE);
     if (token) await deleteSession(sql, token);
     deleteCookie(c, SESSION_COOKIE, { path: '/' });
-    // Task 7: record_audit user.logout (user/{id}, 200) goes here.
+    c.set('user', user);
+    await recordAudit(c, { action: 'user.logout', resourceType: 'user', resourceId: user.id });
     return c.json({ status: 'logged_out' });
   });
 

@@ -43,12 +43,12 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_signed_figures.py::test_token_bound_to_figure_id
 - [ ] api/tests/test_signed_figures.py::test_cross_user_rejected_even_with_valid_token
 - [ ] api/tests/test_signed_figures.py::test_figures_list_includes_signed_token
-- [ ] api/tests/test_rate_limit_config.py::test_rate_limit_replies_per_day_defaults_to_60
-- [ ] api/tests/test_rate_limit_config.py::test_rate_limit_persona_dm_per_day_defaults_to_60
-- [ ] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed
-- [ ] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row
-- [ ] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit
+- [x] api/tests/test_rate_limit_config.py::test_rate_limit_replies_per_day_defaults_to_60 — plan01/T7
+- [x] api/tests/test_rate_limit_config.py::test_rate_limit_persona_dm_per_day_defaults_to_60 — plan01/T7
+- [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
+- [ ] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan0X (settings router)
+- [ ] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10 (bookmarks router)
+- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7)
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller
 - [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace

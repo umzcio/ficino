@@ -17,8 +17,9 @@ function basicApp(config: NonNullable<Parameters<typeof testApp>[0]>['config'] =
   return a;
 }
 
-async function register(c: ReturnType<typeof client>, email = 'a@x.dev', password = PW) {
-  return c.post('/auth/register', { email, password });
+// `ip` varies X-Real-IP so tests that register more than 3 times don't hit the per-IP limit.
+async function register(c: ReturnType<typeof client>, email = 'a@x.dev', password = PW, ip?: string) {
+  return c.post('/auth/register', { email, password }, ip ? { headers: { 'x-real-ip': ip } } : undefined);
 }
 
 describe('requireUser gate (ports test_auth_gates.py)', () => {
@@ -100,10 +101,10 @@ describe('register', () => {
 
   it('password <12 or >72 chars → 422; exactly 12 and 72 are accepted', async () => {
     const a = basicApp({ allowRegistration: true });
-    expect((await register(client(a), 'a@x.dev', 'a'.repeat(11))).status).toBe(422);
-    expect((await register(client(a), 'b@x.dev', 'a'.repeat(73))).status).toBe(422);
-    expect((await register(client(a), 'c@x.dev', 'a'.repeat(12))).status).toBe(201);
-    expect((await register(client(a), 'd@x.dev', 'a'.repeat(72))).status).toBe(201);
+    expect((await register(client(a), 'a@x.dev', 'a'.repeat(11), '10.0.0.1')).status).toBe(422);
+    expect((await register(client(a), 'b@x.dev', 'a'.repeat(73), '10.0.0.2')).status).toBe(422);
+    expect((await register(client(a), 'c@x.dev', 'a'.repeat(12), '10.0.0.3')).status).toBe(201);
+    expect((await register(client(a), 'd@x.dev', 'a'.repeat(72), '10.0.0.4')).status).toBe(201);
   });
 
   it('a password within 72 chars but over 72 bytes → 422 (would be un-loginable)', async () => {
