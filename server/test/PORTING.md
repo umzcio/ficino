@@ -11,9 +11,9 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_error_not_404
 - [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_complete_row_reports_complete_status
 - [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_missing_row_still_404s
-- [ ] api/tests/test_docs_gating.py::test_docs_disabled_on_the_imported_app
-- [ ] api/tests/test_docs_gating.py::test_docs_disabled_in_production
-- [ ] api/tests/test_docs_gating.py::test_docs_enabled_in_development
+- [x] api/tests/test_docs_gating.py::test_docs_disabled_on_the_imported_app — plan01/T5 (replaced: no docs served)
+- [x] api/tests/test_docs_gating.py::test_docs_disabled_in_production — plan01/T5 (replaced: no docs served)
+- [x] api/tests/test_docs_gating.py::test_docs_enabled_in_development — plan01/T5 (replaced: no docs served)
 - [ ] api/tests/test_likes.py::test_create_like_persists
 - [ ] api/tests/test_likes.py::test_create_like_is_idempotent
 - [ ] api/tests/test_likes.py::test_delete_like_removes_row
@@ -21,21 +21,21 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_likes.py::test_list_likes_returns_posts_and_replies
 - [ ] api/tests/test_likes.py::test_list_likes_does_not_leak_other_users
 - [ ] api/tests/test_likes.py::test_delete_cross_user_like_returns_404
-- [ ] api/tests/test_error_contracts.py::test_timeout_error_maps_to_504
-- [ ] api/tests/test_error_contracts.py::test_connect_error_maps_to_503
-- [ ] api/tests/test_error_contracts.py::test_value_error_maps_to_400
-- [ ] api/tests/test_error_contracts.py::test_generic_exception_maps_to_500
-- [ ] api/tests/test_error_contracts.py::test_upstream_4xx_http_status_error_maps_to_502
-- [ ] api/tests/test_error_contracts.py::test_upstream_5xx_http_status_error_maps_to_503
-- [ ] api/tests/test_error_contracts.py::test_event_name_is_independent_of_mapping
-- [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_timeout_maps_to_504
-- [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_bad_input_maps_to_400
-- [ ] api/tests/test_error_contracts.py::test_delete_post_out_of_range_is_404_not_found
-- [ ] api/tests/test_error_contracts.py::test_regenerate_post_out_of_range_is_404_not_found
-- [ ] api/tests/test_error_contracts.py::test_dismiss_alert_returns_204_then_404_on_second_dismiss
-- [ ] api/tests/test_error_contracts.py::test_dismiss_alert_missing_id_is_404
-- [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_missing_thread_is_404
-- [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_existing_thread_returns_200_and_empty_messages
+- [ ] api/tests/test_error_contracts.py::test_timeout_error_maps_to_504 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_connect_error_maps_to_503 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_value_error_maps_to_400 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_generic_exception_maps_to_500 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_upstream_4xx_http_status_error_maps_to_502 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_upstream_5xx_http_status_error_maps_to_503 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_event_name_is_independent_of_mapping — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_timeout_maps_to_504 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_bad_input_maps_to_400 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_delete_post_out_of_range_is_404_not_found — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_regenerate_post_out_of_range_is_404_not_found — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_dismiss_alert_returns_204_then_404_on_second_dismiss — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_dismiss_alert_missing_id_is_404 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_missing_thread_is_404 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_existing_thread_returns_200_and_empty_messages — later router task (needs its router; not a /health, 404 or CSRF case)
 - [ ] api/tests/test_signed_figures.py::test_signed_url_happy_path
 - [ ] api/tests/test_signed_figures.py::test_missing_token_rejected
 - [ ] api/tests/test_signed_figures.py::test_tampered_token_rejected
@@ -116,11 +116,11 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_idor_followups.py::test_apply_ordering_accepts_valid_permutation
 - [ ] api/tests/test_shared_shims.py::test_sanitize_shim_is_shared_module
 - [ ] api/tests/test_shared_shims.py::test_signed_url_shim_is_shared_module
-- [ ] api/tests/test_csrf.py::test_csrf_enforced_in_auth_none
-- [ ] api/tests/test_csrf.py::test_csrf_allows_health_get
-- [ ] api/tests/test_csrf.py::test_csrf_required_when_auth_basic
-- [ ] api/tests/test_csrf.py::test_csrf_exempt_login
-- [ ] api/tests/test_csrf.py::test_csrf_accepts_matching_cookie_and_header
+- [x] api/tests/test_csrf.py::test_csrf_enforced_in_auth_none — plan01/T5
+- [x] api/tests/test_csrf.py::test_csrf_allows_health_get — plan01/T5
+- [x] api/tests/test_csrf.py::test_csrf_required_when_auth_basic — plan01/T5
+- [x] api/tests/test_csrf.py::test_csrf_exempt_login — plan01/T5
+- [x] api/tests/test_csrf.py::test_csrf_accepts_matching_cookie_and_header — plan01/T5
 - [ ] api/tests/test_feed_audio_rate_limit.py::test_audio_dispatch_for_failed_feed_is_charged_and_dispatched
 - [ ] api/tests/test_feed_audio_rate_limit.py::test_audio_dispatch_over_limit_429s_without_dispatch
 - [ ] api/tests/test_feed_audio_rate_limit.py::test_generating_ready_early_returns_never_charge_budget

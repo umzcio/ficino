@@ -1,0 +1,122 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { HttpError } from '../../src/http/errors.js';
+import { body, params } from '../../src/http/validate.js';
+import { client, testApp } from '../helpers/client.js';
+import { resetDb, testSql } from '../helpers/db.js';
+
+describe('error contract (C §0)', () => {
+  beforeEach(() => resetDb(testSql()));
+
+  it('unknown route → 404 {"detail":"Not Found"}', async () => {
+    const r = await client(testApp()).get('/nope');
+    expect(r.status).toBe(404);
+    expect(await r.json()).toEqual({ detail: 'Not Found' });
+  });
+
+  it('wrong method on a real route → 405 {"detail":"Method Not Allowed"}', async () => {
+    const r = await client(testApp()).delete('/health');
+    expect(r.status).toBe(405);
+    expect(await r.json()).toEqual({ detail: 'Method Not Allowed' });
+    expect(r.headers.get('allow')).toBe('GET');
+  });
+
+  it('405 detection sees routes mounted with app.route()', async () => {
+    const { Hono } = await import('hono');
+    const app = testApp();
+    const sub = new Hono();
+    sub.get('/things/:id', (c) => c.json({ id: c.req.param('id') }));
+    app.route('/v', sub);
+    const c = client(app);
+    expect((await c.get('/v/things/1')).status).toBe(200);
+    expect((await c.delete('/v/things/1')).status).toBe(405);
+    expect((await c.delete('/v/other')).status).toBe(404);
+  });
+
+  it('HttpError → {detail} with its status', async () => {
+    const app = testApp();
+    app.get('/__t/teapot', () => {
+      throw new HttpError(418, 'short and stout');
+    });
+    const r = await client(app).get('/__t/teapot');
+    expect(r.status).toBe(418);
+    expect(await r.json()).toEqual({ detail: 'short and stout' });
+  });
+
+  it('unhandled exception → 500 text/plain "Internal Server Error"', async () => {
+    const app = testApp();
+    app.get('/__t/boom', () => {
+      throw new Error('secret internals');
+    });
+    const r = await client(app).get('/__t/boom');
+    expect(r.status).toBe(500);
+    expect(r.headers.get('content-type')).toMatch(/^text\/plain/);
+    expect(await r.text()).toBe('Internal Server Error');
+  });
+
+  it('PG invalid_text_representation (22P02) → 404 {"detail":"Not Found"}', async () => {
+    const app = testApp();
+    app.get('/__t/uuid', async (c) => {
+      await testSql()`SELECT ${'abc'}::uuid`;
+      return c.json({});
+    });
+    const r = await client(app).get('/__t/uuid');
+    expect(r.status).toBe(404);
+    expect(await r.json()).toEqual({ detail: 'Not Found' });
+  });
+
+  it('other PG errors stay 500', async () => {
+    const app = testApp();
+    app.get('/__t/pg', async (c) => {
+      await testSql()`SELECT 1 FROM no_such_table`;
+      return c.json({});
+    });
+    const r = await client(app).get('/__t/pg');
+    expect(r.status).toBe(500);
+    expect(await r.text()).toBe('Internal Server Error');
+  });
+});
+
+describe('validation helpers (C §0, 422 shape)', () => {
+  const schema = z.object({ name: z.string(), n: z.number().int() });
+
+  function app() {
+    const a = testApp();
+    a.post('/__t/echo', body(schema), (c) => c.json(c.req.valid('json')));
+    a.get('/__t/post/:post_index', params(z.object({ post_index: z.coerce.number().int() })), (c) =>
+      c.json(c.req.valid('param')),
+    );
+    return a;
+  }
+
+  it('valid body passes through', async () => {
+    const r = await client(app()).post('/__t/echo', { name: 'a', n: 1 });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ name: 'a', n: 1 });
+  });
+
+  it('invalid body → 422 with loc[0]="body"', async () => {
+    const r = await client(app()).post('/__t/echo', { name: 'a', n: 'x' });
+    expect(r.status).toBe(422);
+    const { detail } = await r.json();
+    expect(detail[0]).toMatchObject({ loc: ['body', 'n'], input: 'x' });
+    expect(typeof detail[0].type).toBe('string');
+    expect(typeof detail[0].msg).toBe('string');
+  });
+
+  it('malformed JSON → 422 array detail', async () => {
+    const r = await client(app()).post('/__t/echo', undefined, {
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(r.status).toBe(422);
+    expect(Array.isArray((await r.json()).detail)).toBe(true);
+  });
+
+  it('path int coerces; non-int → 422 with loc[0]="path"', async () => {
+    const c = client(app());
+    expect(await (await c.get('/__t/post/3')).json()).toEqual({ post_index: 3 });
+    const r = await c.get('/__t/post/abc');
+    expect(r.status).toBe(422);
+    expect((await r.json()).detail[0].loc).toEqual(['path', 'post_index']);
+  });
+});

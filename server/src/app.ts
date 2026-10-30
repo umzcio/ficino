@@ -1,0 +1,98 @@
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { RegExpRouter } from 'hono/router/reg-exp-router';
+import { SmartRouter } from 'hono/router/smart-router';
+import { TrieRouter } from 'hono/router/trie-router';
+import type { Logger } from 'pino';
+import type { AuthUser } from './auth/types.js';
+import type { Config } from './config.js';
+import type { Sql } from './db/sql.js';
+import { csrf } from './http/csrf.js';
+import { errorHandler } from './http/errors.js';
+import { securityHeaders } from './http/securityHeaders.js';
+import { healthRoutes } from './routes/health.js';
+
+export type AppDeps = {
+  sql: Sql;
+  config: Config;
+  logger: Logger;
+  env: Record<string, string | undefined>;
+  fetch?: typeof fetch;
+  userOverride?: AuthUser;
+};
+
+export type AppEnv = { Variables: { user: AuthUser; deps: AppDeps } };
+
+const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8000'];
+
+function corsMiddleware(config: Config) {
+  if (config.environment === 'development') {
+    // No allowHeaders: hono reflects Access-Control-Request-Headers, like Starlette's "*".
+    return cors({
+      origin: DEV_ORIGINS,
+      credentials: true,
+      allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    });
+  }
+  return cors({
+    origin: config.corsOrigins,
+    credentials: true,
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowHeaders: ['Authorization', 'Content-Type', 'X-Requested-With', 'Accept', 'X-CSRF-Token'],
+  });
+}
+
+/**
+ * Methods (other than the request's own) that have a real route matching `path`.
+ * Reads `app.routes`, which includes routes mounted via `app.route()`; middleware and
+ * `ALL` entries are skipped. The router is rebuilt only when the route table grows.
+ */
+function makeAllowedMethods(app: Hono<AppEnv>) {
+  let built = -1;
+  let router = new SmartRouter<true>({ routers: [new RegExpRouter(), new TrieRouter()] });
+  let methods: string[] = [];
+  return (method: string, path: string): string[] => {
+    if (built !== app.routes.length) {
+      router = new SmartRouter<true>({ routers: [new RegExpRouter(), new TrieRouter()] });
+      const seen = new Set<string>();
+      for (const r of app.routes) {
+        if (r.method === 'ALL') continue;
+        router.add(r.method, r.path, true);
+        seen.add(r.method);
+      }
+      methods = [...seen];
+      built = app.routes.length;
+    }
+    return methods.filter((m) => m !== method && router.match(m, path)[0].length > 0);
+  };
+}
+
+export function createApp(deps: AppDeps): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+  const allowedMethods = makeAllowedMethods(app);
+
+  // Outermost first (C §2.1): CORS wraps CSRF so 403s still carry ACAO; headers are innermost.
+  app.use('*', corsMiddleware(deps.config));
+  app.use('*', csrf(deps.config));
+  app.use('*', securityHeaders(deps.config));
+  app.use('*', async (c, next) => {
+    c.set('deps', deps);
+    await next();
+  });
+
+  app.onError(errorHandler(deps.logger));
+  app.notFound((c) => {
+    const allowed = allowedMethods(c.req.method, c.req.path);
+    if (allowed.length > 0) {
+      return c.json({ detail: 'Method Not Allowed' }, 405, { Allow: allowed.join(', ') });
+    }
+    return c.json({ detail: 'Not Found' }, 404);
+  });
+
+  app.route('/', healthRoutes());
+  app.get('/auth/provider', (c) =>
+    c.json({ provider: deps.config.authProvider, public_deployment: deps.config.publicDeployment }),
+  );
+
+  return app;
+}
