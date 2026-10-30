@@ -48,7 +48,7 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
 - [ ] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan0X (settings router)
 - [ ] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10 (bookmarks router)
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7)
+- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller
 - [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace
@@ -97,7 +97,7 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_auth_scoping.py::test_get_replied_posts_scoped
 - [ ] api/tests/test_auth_scoping.py::test_get_tags_for_paper_scoped
 - [ ] api/tests/test_auth_scoping.py::test_get_user_post_status_scoped
-- [ ] api/tests/test_auth_scoping.py::test_get_workspace_activity_rejects_cross_user
+- [x] api/tests/test_auth_scoping.py::test_get_workspace_activity_rejects_cross_user — plan01/T8
 - [ ] api/tests/test_auth_scoping.py::test_delete_post_rejects_cross_user
 - [ ] api/tests/test_auth_scoping.py::test_regenerate_post_rejects_cross_user
 - [ ] api/tests/test_auth_scoping.py::test_search_scoped_to_own_corpus
@@ -187,7 +187,7 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_wave3_correctness.py::test_concurrent_create_like_both_2xx_only_one_row
 - [ ] api/tests/test_wave3_correctness.py::test_concurrent_create_bookmark_both_2xx_only_one_row
 - [ ] api/tests/test_wave3_correctness.py::test_create_like_still_returns_created_and_already_liked
-- [ ] api/tests/test_wave3_correctness.py::test_activity_sort_key_handles_none_timestamp
+- [x] api/tests/test_wave3_correctness.py::test_activity_sort_key_handles_none_timestamp — plan01/T8 (as an activity endpoint test: NULL timestamp sorts oldest)
 - [ ] api/tests/test_wave3_correctness.py::test_cleanup_artifacts_is_a_single_module_level_function
 - [ ] api/tests/test_wave3_correctness.py::test_clear_all_papers_deletes_papers_and_feeds
 - [ ] api/tests/test_wave3_correctness.py::test_create_user_post_dispatch_failure_marks_error_not_pending
@@ -223,15 +223,15 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] shared/tests/test_storage_supabase.py::test_supabase_no_longer_has_dead_segment_methods — plan02
 - [x] api/tests/test_supabase_bootstrap.py::test_first_signin_creates_default_workspace — n/a: supabase removed
 - [x] api/tests/test_supabase_bootstrap.py::test_repeat_signin_does_not_duplicate_workspace — n/a: supabase removed
-- [ ] api/tests/test_workspaces.py::test_list_workspaces_returns_only_owned
-- [ ] api/tests/test_workspaces.py::test_list_workspaces_includes_counts
-- [ ] api/tests/test_workspaces.py::test_create_workspace_persists
-- [ ] api/tests/test_workspaces.py::test_create_workspace_rejects_empty_name
-- [ ] api/tests/test_workspaces.py::test_rename_workspace_updates_name
-- [ ] api/tests/test_workspaces.py::test_rename_cross_user_workspace_returns_404
-- [ ] api/tests/test_workspaces.py::test_delete_default_workspace_returns_400
-- [ ] api/tests/test_workspaces.py::test_delete_only_workspace_returns_400
-- [ ] api/tests/test_workspaces.py::test_delete_workspace_succeeds_when_not_last
-- [ ] api/tests/test_workspaces.py::test_workspace_activity_returns_papers_and_feeds
-- [ ] api/tests/test_workspaces.py::test_workspace_activity_cross_user_returns_404
-- [ ] api/tests/test_workspaces.py::test_delete_nonexistent_workspace_returns_404_not_400
+- [x] api/tests/test_workspaces.py::test_list_workspaces_returns_only_owned — plan01/T8
+- [x] api/tests/test_workspaces.py::test_list_workspaces_includes_counts — plan01/T8
+- [x] api/tests/test_workspaces.py::test_create_workspace_persists — plan01/T8
+- [x] api/tests/test_workspaces.py::test_create_workspace_rejects_empty_name — plan01/T8
+- [x] api/tests/test_workspaces.py::test_rename_workspace_updates_name — plan01/T8
+- [x] api/tests/test_workspaces.py::test_rename_cross_user_workspace_returns_404 — plan01/T8
+- [x] api/tests/test_workspaces.py::test_delete_default_workspace_returns_400 — plan01/T8
+- [x] api/tests/test_workspaces.py::test_delete_only_workspace_returns_400 — plan01/T8
+- [x] api/tests/test_workspaces.py::test_delete_workspace_succeeds_when_not_last — plan01/T8
+- [x] api/tests/test_workspaces.py::test_workspace_activity_returns_papers_and_feeds — plan01/T8
+- [x] api/tests/test_workspaces.py::test_workspace_activity_cross_user_returns_404 — plan01/T8
+- [x] api/tests/test_workspaces.py::test_delete_nonexistent_workspace_returns_404_not_400 — plan01/T8 (contract: 204, asserted exactly)
