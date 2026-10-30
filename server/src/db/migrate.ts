@@ -1,0 +1,44 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { Sql } from './sql.js';
+
+const LOCK_KEY = 727274;
+const FILE_RE = /^\d{4}_.*\.sql$/;
+
+// src/db -> server/migrations; dist/db -> /app/migrations
+const DEFAULT_DIR = fileURLToPath(new URL('../../migrations', import.meta.url));
+
+/** Applies pending migrations in name order and returns the versions applied. */
+export async function migrate(sql: Sql, dir: string = DEFAULT_DIR): Promise<string[]> {
+  const files = (await readdir(dir)).filter((f) => FILE_RE.test(f)).sort();
+  const applied: string[] = [];
+  // Advisory locks are per-session: hold one reserved connection for the whole run,
+  // while each file's transaction uses another pool connection (so max must be >= 2).
+  const conn = await sql.reserve();
+  try {
+    await conn`SELECT pg_advisory_lock(${LOCK_KEY})`;
+    try {
+      await conn`CREATE TABLE IF NOT EXISTS schema_migrations (
+        version text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      )`;
+      const done = new Set((await conn`SELECT version FROM schema_migrations`).map((r) => r.version as string));
+      for (const file of files) {
+        const version = file.slice(0, 4);
+        if (done.has(version)) continue;
+        const text = await readFile(join(dir, file), 'utf8');
+        await sql.begin(async (tx) => {
+          await tx.unsafe(text);
+          await tx`INSERT INTO schema_migrations (version) VALUES (${version})`;
+        });
+        applied.push(version);
+      }
+    } finally {
+      await conn`SELECT pg_advisory_unlock(${LOCK_KEY})`;
+    }
+  } finally {
+    conn.release();
+  }
+  return applied;
+}
