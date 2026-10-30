@@ -145,13 +145,13 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_hydration_offloop.py::test_feed_audio_url_hydrated_off_loop
 - [ ] api/tests/test_hydration_offloop.py::test_feed_podcast_episode_url_hydrated_off_loop
 - [ ] api/tests/test_hydration_offloop.py::test_figures_image_url_hydrated_off_loop
-- [ ] api/tests/test_settings_contract.py::test_get_settings_returns_defaults_and_ui_keys
-- [ ] api/tests/test_settings_contract.py::test_put_drops_non_allowlisted_keys
-- [ ] api/tests/test_settings_contract.py::test_secrets_are_redacted
-- [ ] api/tests/test_settings_contract.py::test_worker_keys_present_in_defaults
-- [ ] api/tests/test_settings_contract.py::test_cohere_key_is_settable_and_redacted
-- [ ] api/tests/test_settings_contract.py::test_get_settings_reasserts_env_under_public_deployment
-- [ ] api/tests/test_settings_contract.py::test_settings_router_uses_shared_schema
+- [ ] api/tests/test_settings_contract.py::test_get_settings_returns_defaults_and_ui_keys — plan01/T9
+- [ ] api/tests/test_settings_contract.py::test_put_drops_non_allowlisted_keys — plan01/T9
+- [ ] api/tests/test_settings_contract.py::test_secrets_are_redacted — plan01/T9
+- [x] api/tests/test_settings_contract.py::test_worker_keys_present_in_defaults — plan01/T4
+- [ ] api/tests/test_settings_contract.py::test_cohere_key_is_settable_and_redacted — plan01/T9
+- [x] api/tests/test_settings_contract.py::test_get_settings_reasserts_env_under_public_deployment — plan01/T4
+- [x] api/tests/test_settings_contract.py::test_settings_router_uses_shared_schema — n/a: Python router/module identity; TS has one schema module
 - [ ] api/tests/test_summary_redispatch.py::test_error_summary_row_is_redispatched
 - [x] api/tests/test_sanitize.py::test_empty_input_returns_bare_fence — plan01/T3
 - [x] api/tests/test_sanitize.py::test_none_input_returns_bare_fence — plan01/T3
@@ -205,11 +205,11 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_public_deployment.py::test_auth_provider_defaults_public_deployment_false
 - [ ] api/tests/test_public_deployment.py::test_public_deployment_drops_provider_overrides
 - [ ] api/tests/test_public_deployment.py::test_self_host_accepts_provider_overrides
-- [ ] shared/tests/test_settings_schema.py::test_defaults_cover_every_env_mapped_key
-- [ ] shared/tests/test_settings_schema.py::test_new_provider_keys_present_and_protected
-- [ ] shared/tests/test_settings_schema.py::test_secret_keys_subset_of_defaults
-- [ ] shared/tests/test_settings_schema.py::test_merge_is_dict_aware
-- [ ] shared/tests/test_settings_schema.py::test_reassert_reads_baseline_not_live_env
+- [x] shared/tests/test_settings_schema.py::test_defaults_cover_every_env_mapped_key — plan01/T4
+- [x] shared/tests/test_settings_schema.py::test_new_provider_keys_present_and_protected — plan01/T4
+- [x] shared/tests/test_settings_schema.py::test_secret_keys_subset_of_defaults — plan01/T4
+- [x] shared/tests/test_settings_schema.py::test_merge_is_dict_aware — plan01/T4
+- [x] shared/tests/test_settings_schema.py::test_reassert_reads_baseline_not_live_env — plan01/T4 (ported as env-injection test; baseline snapshot itself n/a: env snapshot not ported (immutable env))
 - [ ] api/tests/test_upload_size_precheck.py::test_spoofed_content_length_413s_before_read
 - [ ] api/tests/test_upload_size_precheck.py::test_small_upload_not_rejected_by_precheck
 - [ ] api/tests/test_upload_size_precheck.py::test_post_read_oversize_is_413_not_400
