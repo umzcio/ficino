@@ -29,6 +29,13 @@ describe('every route except the public allowlist requires a session', () => {
   const app = testApp({ config: { authProvider: 'basic' } }); // no userOverride, no session cookie
   const routes = app.routes.filter((r) => r.method !== 'ALL');
 
+  // Middleware (app.use / router.use) is registered as ALL on a path ending in '*'. An ALL entry on a
+  // concrete path is an app.all() handler that this sweep would skip, so fail instead of ignoring it.
+  it('has no ALL handlers outside middleware', () => {
+    const stray = app.routes.filter((r) => r.method === 'ALL' && !r.path.endsWith('*'));
+    expect(stray.map((r) => r.path)).toEqual([]);
+  });
+
   it('enumerates a non-trivial route table', () => {
     expect(routes.length).toBeGreaterThan(40);
     for (const p of PUBLIC) expect(routes.map((r) => `${r.method} ${r.path}`)).toContain(p);

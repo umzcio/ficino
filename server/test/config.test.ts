@@ -32,3 +32,9 @@ it('pool size prefers API_DB_POOL_MAX_SIZE over DB_POOL_MAX_SIZE', () => {
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7' }).dbPoolMax).toBe(7);
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7', API_DB_POOL_MAX_SIZE: '9' }).dbPoolMax).toBe(9);
 });
+
+it('rejects a DB pool max below 2 (migrate would deadlock)', () => {
+  expect(() => loadConfig({ DB_POOL_MAX_SIZE: '1' })).toThrow('DB pool max must be at least 2 (got 1)');
+  expect(() => loadConfig({ API_DB_POOL_MAX_SIZE: '0' })).toThrow('DB pool max must be at least 2 (got 0)');
+  expect(loadConfig({ DB_POOL_MAX_SIZE: '2' }).dbPoolMax).toBe(2);
+});

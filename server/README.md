@@ -10,13 +10,13 @@ Run from `server/` (Node >= 22.18; the image uses Node 24).
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev:api` | Starts the API with file watching (`DATABASE_URL` required; `PORT`, default 8000) |
+| `npm run dev:api` | Starts the API with file watching (`DATABASE_URL` required; `PORT`, default 8000; binds to 127.0.0.1 unless `HOST` is set) |
 | `npm test` | Runs the vitest suite against a throwaway Postgres |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | Emits `dist/` (entry: `dist/api/main.js`) |
 | `npm run migrate` | Applies `migrations/NNNN_*.sql` to `DATABASE_URL` (the API also migrates on startup) |
 
-The container image is built from `server/Dockerfile` and listens on 8000 inside the container.
+The container image is built from `server/Dockerfile` and listens on 8000 inside the container (`HOST=0.0.0.0` is set in the image only).
 
 ## Tests
 

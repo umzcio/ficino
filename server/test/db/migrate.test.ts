@@ -72,3 +72,13 @@ it('has the hnsw embedding index', async () => {
   const rows = await sql`SELECT 1 FROM pg_indexes WHERE indexname = 'chunks_embedding_hnsw'`;
   expect(rows).toHaveLength(1);
 });
+
+it('throws immediately on a pool of 1 instead of deadlocking', async () => {
+  const { createSql } = await import('../../src/db/sql.js');
+  const tiny = createSql(process.env.DATABASE_URL!, { max: 1 });
+  try {
+    await expect(migrate(tiny)).rejects.toThrow('at least 2 connections');
+  } finally {
+    await tiny.end();
+  }
+});

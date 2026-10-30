@@ -11,6 +11,10 @@ const DEFAULT_DIR = fileURLToPath(new URL('../../migrations', import.meta.url));
 
 /** Applies pending migrations in name order and returns the versions applied. */
 export async function migrate(sql: Sql, dir: string = DEFAULT_DIR): Promise<string[]> {
+  const max = sql.options.max;
+  if (typeof max === 'number' && max < 2) {
+    throw new Error(`migrate needs a pool of at least 2 connections (got ${max})`);
+  }
   const files = (await readdir(dir)).filter((f) => FILE_RE.test(f)).sort();
   const applied: string[] = [];
   // Advisory locks are per-session: hold one reserved connection for the whole run,

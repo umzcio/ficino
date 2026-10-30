@@ -59,6 +59,12 @@ function authProvider(v: string): 'none' | 'basic' {
   throw new Error(`Unknown AUTH_PROVIDER: ${v}`);
 }
 
+/** migrate() holds one reserved connection and needs another per file, so a pool of 1 deadlocks. */
+function poolMax(n: number): number {
+  if (n < 2) throw new Error(`DB pool max must be at least 2 (got ${n})`);
+  return n;
+}
+
 export function loadConfig(env: Env = process.env): Config {
   const poolVar = env.API_DB_POOL_MAX_SIZE !== undefined ? 'API_DB_POOL_MAX_SIZE' : 'DB_POOL_MAX_SIZE';
   return {
@@ -80,7 +86,7 @@ export function loadConfig(env: Env = process.env): Config {
     elevenlabsApiKey: str(env, 'ELEVENLABS_API_KEY', ''),
     signedUrlKey: str(env, 'SIGNED_URL_KEY', '').trim(),
     searchUseNormalizedPosts: parseBool(env.SEARCH_USE_NORMALIZED_POSTS, true),
-    dbPoolMax: int(env, poolVar, 20),
+    dbPoolMax: poolMax(int(env, poolVar, 20)),
     port: int(env, 'PORT', 8000),
     rateLimits: {
       paper_upload: int(env, 'RATE_LIMIT_UPLOADS_PER_DAY', 50),

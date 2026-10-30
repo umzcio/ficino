@@ -18,15 +18,16 @@ export interface RunningApi {
 export async function startApi(env: Env = process.env): Promise<RunningApi> {
   const config = loadConfig(env);
   const sql = createSql(config.databaseUrl, { max: config.dbPoolMax });
+  let app: ReturnType<typeof createApp>;
   try {
     await migrate(sql);
     if (config.authProvider === 'none') await ensureStubUser(sql);
+    app = createApp({ sql, config, logger, env });
   } catch (e) {
     await sql.end();
     throw e;
   }
-  const app = createApp({ sql, config, logger, env });
-  const hostname = env.HOST || '0.0.0.0';
+  const hostname = env.HOST || '127.0.0.1';
   // Plain HTTP/1 server (no createServer/tls options), so the union type narrows safely.
   const server = await new Promise<Server>((resolve, reject) => {
     const s = serve({ fetch: app.fetch, port: config.port, hostname }, () => resolve(s)) as Server;
