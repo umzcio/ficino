@@ -6,7 +6,7 @@ import { createScratchDb } from '../helpers/db.js';
 const TABLES = [
   'alerts', 'annotations', 'audit_log', 'bookmarks', 'chunks', 'corpora', 'corpus_syntheses',
   'feed_posts', 'feeds', 'figures', 'paper_summaries', 'paper_tags', 'papers', 'persona_dms',
-  'personas', 'post_replies', 'reading_list_chapters', 'reading_lists', 'tags', 'user_likes',
+  'personas', 'post_replies', 'reading_list_chapters', 'reading_lists', 'sessions', 'tags', 'user_likes',
   'user_posts', 'user_settings', 'users',
 ];
 
@@ -27,12 +27,12 @@ afterAll(async () => {
   await scratch?.drop();
 });
 
-it('applies 0001 once, then nothing', () => {
-  expect(first).toEqual(['0001']);
+it('applies 0001 and 0002 once, then nothing', () => {
+  expect(first).toEqual(['0001', '0002']);
   expect(second).toEqual([]);
 });
 
-it('creates the 23 public tables', async () => {
+it('creates the 24 public tables (23 baseline + sessions)', async () => {
   const rows = await sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations' ORDER BY 1`;
   expect(rows.map((r) => r.tablename)).toEqual(TABLES);
 });
