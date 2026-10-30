@@ -17,6 +17,8 @@ import { bookmarksRoutes } from './routes/bookmarks.js';
 import { likesRoutes } from './routes/likes.js';
 import { healthRoutes } from './routes/health.js';
 import { settingsRoutes } from './routes/settings.js';
+import { citationsRoutes } from './routes/citations.js';
+import { tagsRoutes } from './routes/tags.js';
 import { usersRoutes } from './routes/users.js';
 import { workspacesRoutes } from './routes/workspaces.js';
 
@@ -121,7 +123,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.route('/annotations', annotationsRoutes());
   app.route('/bookmarks', bookmarksRoutes());
   app.route('/likes', likesRoutes());
+  app.route('/citations', citationsRoutes());
   app.route('/settings', settingsRoutes());
+  app.route('/tags', tagsRoutes());
   app.route('/users', usersRoutes());
   app.route('/workspaces', workspacesRoutes());
 

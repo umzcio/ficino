@@ -58,18 +58,18 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_reading_lists.py::test_apply_ordering_applies_valid_permutation
 - [ ] api/tests/test_reading_lists.py::test_delete_reading_list_removes_row
 - [ ] api/tests/test_reading_lists.py::test_delete_reading_list_cross_user_returns_404
-- [ ] api/tests/test_tags.py::test_create_tag_persists
-- [ ] api/tests/test_tags.py::test_create_tag_is_idempotent
-- [ ] api/tests/test_tags.py::test_create_tag_rejects_empty_name
-- [ ] api/tests/test_tags.py::test_list_tags_scoped_to_caller
-- [ ] api/tests/test_tags.py::test_delete_tag_removes_row
-- [ ] api/tests/test_tags.py::test_delete_missing_tag_returns_404
-- [ ] api/tests/test_tags.py::test_delete_cross_user_tag_returns_404
-- [ ] api/tests/test_tags.py::test_assign_tag_attaches_to_own_paper
-- [ ] api/tests/test_tags.py::test_assign_tag_rejects_foreign_paper
-- [ ] api/tests/test_tags.py::test_assign_tag_rejects_empty_name
-- [ ] api/tests/test_tags.py::test_get_paper_tags_returns_assigned
-- [ ] api/tests/test_tags.py::test_unassign_tag_removes_association
+- [x] api/tests/test_tags.py::test_create_tag_persists — plan01/T11
+- [x] api/tests/test_tags.py::test_create_tag_is_idempotent — plan01/T11
+- [x] api/tests/test_tags.py::test_create_tag_rejects_empty_name — plan01/T11
+- [x] api/tests/test_tags.py::test_list_tags_scoped_to_caller — plan01/T11
+- [x] api/tests/test_tags.py::test_delete_tag_removes_row — plan01/T11
+- [x] api/tests/test_tags.py::test_delete_missing_tag_returns_404 — plan01/T11
+- [x] api/tests/test_tags.py::test_delete_cross_user_tag_returns_404 — plan01/T11
+- [x] api/tests/test_tags.py::test_assign_tag_attaches_to_own_paper — plan01/T11
+- [x] api/tests/test_tags.py::test_assign_tag_rejects_foreign_paper — plan01/T11
+- [x] api/tests/test_tags.py::test_assign_tag_rejects_empty_name — plan01/T11
+- [x] api/tests/test_tags.py::test_get_paper_tags_returns_assigned — plan01/T11
+- [x] api/tests/test_tags.py::test_unassign_tag_removes_association — plan01/T11
 - [ ] shared/tests/test_storage_local.py::test_pdf_roundtrip — plan02
 - [ ] shared/tests/test_storage_local.py::test_unknown_provider_raises — plan02
 - [ ] shared/tests/test_storage_local.py::test_local_release_local_is_noop — plan02
@@ -95,7 +95,7 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_auth_scoping.py::test_get_messages_paper_rejects_cross_user_read
 - [ ] api/tests/test_auth_scoping.py::test_get_replies_by_feed_scoped
 - [ ] api/tests/test_auth_scoping.py::test_get_replied_posts_scoped
-- [ ] api/tests/test_auth_scoping.py::test_get_tags_for_paper_scoped
+- [x] api/tests/test_auth_scoping.py::test_get_tags_for_paper_scoped — plan01/T11
 - [ ] api/tests/test_auth_scoping.py::test_get_user_post_status_scoped
 - [x] api/tests/test_auth_scoping.py::test_get_workspace_activity_rejects_cross_user — plan01/T8
 - [ ] api/tests/test_auth_scoping.py::test_delete_post_rejects_cross_user
@@ -108,7 +108,7 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_feed_posts_search.py::test_search_posts_result_shape
 - [ ] api/tests/test_feed_posts_search.py::test_search_use_normalized_posts_defaults_true
 - [ ] api/tests/test_feed_posts_search.py::test_search_respects_legacy_flag_toggle
-- [ ] api/tests/test_idor_followups.py::test_assign_tag_rejects_cross_user_paper
+- [x] api/tests/test_idor_followups.py::test_assign_tag_rejects_cross_user_paper — plan01/T11
 - [ ] api/tests/test_idor_followups.py::test_upload_paper_rejects_cross_user_workspace
 - [ ] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_paper_ids
 - [ ] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_corpus_id
@@ -196,8 +196,8 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_wave3_correctness.py::test_delete_persona_dm_message_uses_atomic_jsonb_operator_not_read_modify_write
 - [ ] api/tests/test_wave3_correctness.py::test_cached_paper_summary_reads_never_charge_rate_limit
 - [ ] api/tests/test_wave3_correctness.py::test_paper_summary_dispatch_path_charges_rate_limit
-- [ ] api/tests/test_wave3_correctness.py::test_apa_format_exactly_20_authors_lists_all_20
-- [ ] api/tests/test_wave3_correctness.py::test_apa_format_21_authors_first_19_then_ellipsis_then_true_last
+- [x] api/tests/test_wave3_correctness.py::test_apa_format_exactly_20_authors_lists_all_20 — plan01/T11
+- [x] api/tests/test_wave3_correctness.py::test_apa_format_21_authors_first_19_then_ellipsis_then_true_last — plan01/T11
 - [ ] api/tests/test_wave3_correctness.py::test_reorder_reading_list_rejects_duplicate_paper_ids
 - [ ] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_rejects_duplicate_paper_ids
 - [ ] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_malformed_body_returns_422_not_500
