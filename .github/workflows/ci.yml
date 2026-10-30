@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      # The test harness starts pgvector/pgvector:pg18 with the docker CLI (preinstalled on runners).
+      - run: cd server && npm ci && npm run typecheck && npm test
+
   python-lint:
     runs-on: ubuntu-latest
     steps:

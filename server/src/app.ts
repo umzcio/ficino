@@ -80,6 +80,9 @@ function makeAllowedMethods(app: Hono<AppEnv>) {
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
+  if (deps.userOverride && !['development', 'test'].includes(deps.config.environment)) {
+    throw new Error('userOverride is only allowed in tests');
+  }
   const app = new Hono<AppEnv>();
   const allowedMethods = makeAllowedMethods(app);
 
