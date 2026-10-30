@@ -123,6 +123,10 @@ describe('role marker superset of Python', () => {
     ['\u017fystem: x', 'x'],
     ['a\u0131: x', 'x'],
     ['A\u0130: x', 'x'],
+    ['\u0131nstruction: x', 'x'],
+    ['ass\u0131stant: x', 'x'],
+    ['ass\u0130stant: x', 'x'],
+    ['\u0130nstruction: x', 'x'],
     ['System: x', 'x'],
   ])('strips %j', (input, rest) => {
     expect(stripRoleMarkers(input)).toBe(rest);

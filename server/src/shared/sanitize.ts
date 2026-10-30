@@ -7,9 +7,9 @@ const MAX_BLOCK_LEN = 8000;
 // This must strip a SUPERSET of what the Python regex strips (extra stripping,
 // e.g. U+FEFF via JS \s, is fine): Python's Unicode \s also covers
 // \x1c-\x1f and \x85, and its IGNORECASE folds U+017F (handled by the `u`
-// flag) and dotted/dotless i (`a[iI\u0131\u0130]`).
+// flag) and dotted/dotless i, which Python treats as `i` in every keyword (hence `[i\u0131\u0130]` in assistant, ai and instruction).
 const ROLE_MARKER_RE =
-  /(?<![^\n])[\s\x1c-\x1f\x85>*_#-]*(system|assistant|human|user|a[i\u0131\u0130]|instruction)[\s\x1c-\x1f\x85]*:[ \t]*/giu;
+  /(?<![^\n])[\s\x1c-\x1f\x85>*_#-]*(system|ass[i\u0131\u0130]stant|human|user|a[i\u0131\u0130]|[i\u0131\u0130]nstruct[i\u0131\u0130]on)[\s\x1c-\x1f\x85]*:[ \t]*/giu;
 
 const FENCE_OPEN = '<untrusted>';
 const FENCE_CLOSE = '</untrusted>';
