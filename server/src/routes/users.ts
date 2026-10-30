@@ -4,9 +4,9 @@ import type { AppEnv } from '../app.js';
 import { requireUser } from '../auth/currentUser.js';
 import { toPydanticIso } from '../db/time.js';
 import { HttpError } from '../http/errors.js';
-import { query } from '../http/validate.js';
+import { query, pyInt } from '../http/validate.js';
 
-const auditQuery = z.object({ limit: z.coerce.number().int().default(100) });
+const auditQuery = z.object({ limit: pyInt.default(100) });
 
 export function usersRoutes(): Hono<AppEnv> {
   const r = new Hono<AppEnv>();

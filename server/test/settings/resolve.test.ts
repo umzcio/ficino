@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveUserSettings } from '../../src/settings/resolve.js';
+import { loadStoredSettings } from '../../src/settings/stored.js';
+import { client, testApp } from '../helpers/client.js';
 import { testSql, resetDb, seedUsers, USER_A_ID, USER_B_ID } from '../helpers/db.js';
 
 const sql = testSql();
@@ -51,5 +53,36 @@ describe('resolveUserSettings', () => {
     const s = await resolveUserSettings(sql, USER_A_ID, { PUBLIC_DEPLOYMENT: 'true', LLM_PROVIDER: 'api' });
     expect(s.llm_provider).toBe('api');
     expect(s.openai_api_key).toBe('user-key'); // operator set no OPENAI key, so the row stands (matches Python)
+  });
+});
+
+describe('loadStoredSettings: resolve and GET /settings agree on odd rows', () => {
+  const userA = { id: USER_A_ID, email: 'auth-test-a@ficino.dev', display_name: 'A' };
+  beforeEach(async () => {
+    await resetDb(sql);
+    await seedUsers(sql);
+  });
+  const rawRows: Array<[string, string]> = [
+    ['malformed string', `'"{not json"'::jsonb`],
+    ['string that parses to an array', `'"[1,2]"'::jsonb`],
+    ['non-object (array)', `'[1,2]'::jsonb`],
+    ['non-object (number)', `'7'::jsonb`],
+    ['own __proto__ key', `'{"__proto__": {"llm_provider": "evil"}, "constructor": 1, "theme": "dark"}'::jsonb`],
+  ];
+  it.each(rawRows)('%s', async (_name, literal) => {
+    await sql.unsafe(`INSERT INTO user_settings (user_id, settings) VALUES ('${USER_A_ID}', ${literal})`);
+    const stored = await loadStoredSettings(sql, USER_A_ID);
+    expect(Object.getPrototypeOf(stored)).toBe(Object.prototype);
+    expect(Object.keys(stored).filter((k) => ['__proto__', 'constructor', 'prototype'].includes(k))).toEqual([]);
+    const resolved = await resolveUserSettings(sql, USER_A_ID, {});
+    const got = await (await client(testApp({ user: userA })).get('/settings')).json();
+    expect(got.llm_provider).toBe(resolved.llm_provider);
+    expect(got.llm_provider).not.toBe('evil');
+    expect(got.theme).toBe(resolved.theme);
+    expect(Object.keys(got).sort()).toEqual(Object.keys(resolved).sort());
+  });
+  it('own __proto__ row keeps the legitimate keys', async () => {
+    await sql.unsafe(`INSERT INTO user_settings (user_id, settings) VALUES ('${USER_A_ID}', ${rawRows[4]![1]})`);
+    expect(await loadStoredSettings(sql, USER_A_ID)).toEqual({ theme: 'dark' });
   });
 });

@@ -28,10 +28,17 @@ describe('settings schema (shared/tests/test_settings_schema.py)', () => {
     expect(p.hype).toBe(true);
   });
   it('test_reassert_reads_baseline_not_live_env (env passed in is the baseline; no mutation)', () => {
-    const env = Object.freeze({ PUBLIC_DEPLOYMENT: 'true' });
-    const merged = reassertPublicDeployment(mergeSettings(buildDefaults(env), {}), env);
-    expect(merged.anthropic_api_key).toBe('');
-    expect(merged.anthropic_api_key).not.toBe('sk-poisoned');
+    const saved = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'sk-poisoned';
+    try {
+      const env = Object.freeze({ PUBLIC_DEPLOYMENT: 'true' });
+      const merged = reassertPublicDeployment(mergeSettings(buildDefaults(env), {}), env);
+      expect(merged.anthropic_api_key).toBe('');
+      expect(JSON.stringify(merged)).not.toContain('sk-poisoned');
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = saved;
+    }
   });
 });
 

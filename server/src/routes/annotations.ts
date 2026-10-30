@@ -5,10 +5,10 @@ import { requireUser } from '../auth/currentUser.js';
 import { recordAudit } from '../audit.js';
 import { toIsoformat } from '../db/time.js';
 import { HttpError } from '../http/errors.js';
-import { body, params } from '../http/validate.js';
+import { body, params, pyInt } from '../http/validate.js';
 import { LIMITS } from '../shared/constants.js';
 
-const pathSchema = z.object({ feed_id: z.string(), post_index: z.coerce.number().int() });
+const pathSchema = z.object({ feed_id: z.string(), post_index: pyInt });
 const upsertSchema = z.object({ body: z.string() });
 
 export function annotationsRoutes(): Hono<AppEnv> {

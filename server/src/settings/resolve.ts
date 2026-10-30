@@ -7,6 +7,7 @@ import {
   type Env,
   type Settings,
 } from './schema.js';
+import { loadStoredSettings } from './stored.js';
 
 function deepFreeze<T>(value: T): Readonly<T> {
   if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
@@ -26,10 +27,7 @@ export async function resolveUserSettings(
   userId: string,
   env: Env,
 ): Promise<Readonly<Settings>> {
-  const rows = await sql`SELECT settings FROM user_settings WHERE user_id = ${userId}`;
-  let stored: unknown = rows[0]?.settings ?? {};
-  if (typeof stored === 'string') stored = JSON.parse(stored);
-  const user = (typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? stored : {}) as Record<string, unknown>;
+  const user = await loadStoredSettings(sql, userId);
   let merged = mergeSettings(buildDefaults(env), user);
   if (isPublicDeployment(env)) merged = reassertPublicDeployment(merged, env);
   return deepFreeze(merged);

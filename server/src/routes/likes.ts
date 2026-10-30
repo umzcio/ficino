@@ -4,7 +4,7 @@ import type { AppEnv } from '../app.js';
 import { requireUser } from '../auth/currentUser.js';
 import { recordAudit } from '../audit.js';
 import { HttpError } from '../http/errors.js';
-import { body, params, query } from '../http/validate.js';
+import { body, params, query, pyInt } from '../http/validate.js';
 
 const createSchema = z.object({
   feed_id: z.string(),
@@ -14,8 +14,8 @@ const createSchema = z.object({
   post_type: z.string().nullish(),
   category: z.string().nullish(),
 });
-const delParams = z.object({ feed_id: z.string(), post_index: z.coerce.number().int() });
-const delQuery = z.object({ message_index: z.coerce.number().int().default(-1) });
+const delParams = z.object({ feed_id: z.string(), post_index: pyInt });
+const delQuery = z.object({ message_index: pyInt.default(-1) });
 
 export function likesRoutes(): Hono<AppEnv> {
   const r = new Hono<AppEnv>();

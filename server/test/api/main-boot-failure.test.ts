@@ -36,7 +36,7 @@ afterEach(() => {
 it('startApi rejects and ends the pool when createApp throws', async () => {
   const scratch = await createScratchDb();
   try {
-    await expect(startApi({ DATABASE_URL: scratch.url, PORT: '0', HOST: '127.0.0.1' })).rejects.toThrow(
+    await expect(startApi({ DATABASE_URL: scratch.url, PORT: '0', API_HOST: '127.0.0.1' })).rejects.toThrow(
       'createApp boom',
     );
     expect(ended).toEqual(['end']);

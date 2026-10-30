@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { HttpError } from '../../src/http/errors.js';
-import { body, params } from '../../src/http/validate.js';
+import { body, params, pyInt } from '../../src/http/validate.js';
 import { client, testApp } from '../helpers/client.js';
-import { resetDb, testSql } from '../helpers/db.js';
+import { resetDb, testSql, USER_A_ID } from '../helpers/db.js';
 
 describe('error contract (C §0)', () => {
   beforeEach(() => resetDb(testSql()));
@@ -77,6 +77,27 @@ describe('error contract (C §0)', () => {
     expect(await r.text()).toBe('Internal Server Error');
   });
 
+  it('22P02 mapping logs a warn with path, code and message', async () => {
+    const { createApp } = await import('../../src/app.js');
+    const { loadConfig } = await import('../../src/config.js');
+    const { default: pino } = await import('pino');
+    const lines: string[] = [];
+    const logger = pino({ level: 'warn' }, { write: (s: string) => void lines.push(s) });
+    const app = createApp({
+      sql: testSql(),
+      config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
+      logger,
+      env: {},
+    });
+    app.get('/__t/uuid', async (c) => {
+      await testSql()`SELECT ${'abc'}::uuid`;
+      return c.json({});
+    });
+    expect((await client(app).get('/__t/uuid')).status).toBe(404);
+    const rec = JSON.parse(lines.at(-1)!);
+    expect(rec).toMatchObject({ level: 40, path: '/__t/uuid', code: '22P02', msg: 'invalid_text_representation mapped to 404' });
+  });
+
   it('PG invalid_text_representation (22P02) → 404 {"detail":"Not Found"}', async () => {
     const app = testApp();
     app.get('/__t/uuid', async (c) => {
@@ -141,5 +162,28 @@ describe('validation helpers (C §0, 422 shape)', () => {
     const r = await c.get('/__t/post/abc');
     expect(r.status).toBe(422);
     expect((await r.json()).detail[0].loc).toEqual(['path', 'post_index']);
+  });
+});
+
+describe('pyInt (Python int() query semantics)', () => {
+  it.each(['', '%20', '0x10', '1e3', '5.0'])('rejects %j with 422', async (v) => {
+    const r = await client(testApp({ user: { id: USER_A_ID, email: 'a@b', display_name: null } })).get(
+      `/users/me/audit-log?limit=${v}`,
+    );
+    expect(r.status).toBe(422);
+  });
+
+  it.each([['5', 5], ['%207%20', 7], ['-1', -1], ['%2B3', 3]])('accepts %j', async (v) => {
+    const r = await client(testApp({ user: { id: USER_A_ID, email: 'a@b', display_name: null } })).get(
+      `/users/me/audit-log?limit=${v}`,
+    );
+    expect(r.status).toBe(200);
+  });
+
+  it('pyInt unit: outputs numbers', () => {
+    expect(pyInt.parse(' 7 ')).toBe(7);
+    expect(pyInt.parse(5)).toBe(5);
+    expect(() => pyInt.parse('5.0')).toThrow();
+    expect(() => pyInt.parse(5.5)).toThrow();
   });
 });

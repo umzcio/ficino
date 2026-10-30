@@ -5,7 +5,7 @@ import { requireUser } from '../auth/currentUser.js';
 import { recordAudit } from '../audit.js';
 import { toPydanticIso } from '../db/time.js';
 import { HttpError } from '../http/errors.js';
-import { body, params, query } from '../http/validate.js';
+import { body, params, query, pyInt } from '../http/validate.js';
 import { LIMITS } from '../shared/constants.js';
 
 const createSchema = z.object({
@@ -14,8 +14,8 @@ const createSchema = z.object({
   message_index: z.number().int().default(-1),
   post_snapshot: z.record(z.string(), z.unknown()),
 });
-const byPostParams = z.object({ feed_id: z.string(), post_index: z.coerce.number().int() });
-const byPostQuery = z.object({ message_index: z.coerce.number().int().default(-1) });
+const byPostParams = z.object({ feed_id: z.string(), post_index: pyInt });
+const byPostQuery = z.object({ message_index: pyInt.default(-1) });
 
 export function bookmarksRoutes(): Hono<AppEnv> {
   const r = new Hono<AppEnv>();

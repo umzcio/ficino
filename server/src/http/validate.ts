@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { validator } from 'hono/validator';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 type Source = 'json' | 'query' | 'param';
 
@@ -24,3 +24,11 @@ function make<T>(source: Source, schema: z.ZodType<T>) {
 export const body = <T>(schema: z.ZodType<T>) => make('json', schema);
 export const query = <T>(schema: z.ZodType<T>) => make('query', schema);
 export const params = <T>(schema: z.ZodType<T>) => make('param', schema);
+
+/**
+ * Python `int` query/path semantics (pydantic lax mode): integers, or strings that are an optionally
+ * signed digit run with surrounding whitespace. `''`, `'0x10'`, `'1e3'` and `'5.0'` are rejected.
+ */
+export const pyInt = z
+  .union([z.number().int(), z.string().regex(/^\s*[+-]?\d+\s*$/)])
+  .transform((v) => Number(v));

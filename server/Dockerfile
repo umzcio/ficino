@@ -16,8 +16,10 @@ COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./
 COPY migrations ./migrations
 ENV NODE_ENV=production
+# Fail closed: a bare `docker run` is production (dev CORS off, SIGNED_URL_KEY required).
+ENV ENVIRONMENT=production
 # Loopback is the default; inside the container we listen on its own interface.
-ENV HOST=0.0.0.0
+ENV API_HOST=0.0.0.0
 USER ficino
 EXPOSE 8000
 HEALTHCHECK CMD wget -qO- http://127.0.0.1:8000/health || exit 1

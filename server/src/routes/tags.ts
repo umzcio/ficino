@@ -16,13 +16,13 @@ export function tagsRoutes(): Hono<AppEnv> {
   r.get('/', async (c) => {
     const { sql } = c.var.deps;
     const rows = await sql`
-      SELECT t.id, t.name, COUNT(pt.paper_id) AS paper_count
+      SELECT t.id, t.name, COUNT(pt.paper_id)::int AS paper_count
       FROM tags t
       LEFT JOIN paper_tags pt ON t.id = pt.tag_id
       WHERE t.user_id = ${c.var.user.id}
       GROUP BY t.id, t.name
       ORDER BY t.name`;
-    return c.json(rows.map((x) => ({ id: String(x.id), name: x.name, paper_count: Number(x.paper_count) })));
+    return c.json(rows.map((x) => ({ id: String(x.id), name: x.name, paper_count: x.paper_count })));
   });
 
   r.post('/', body(tagCreateSchema), async (c) => {

@@ -22,7 +22,7 @@ describe('startApi', () => {
   it('migrates, seeds the stub user, serves over real HTTP and closes cleanly', async () => {
     const scratch = await createScratchDb();
     drop = scratch.drop;
-    api = await startApi({ DATABASE_URL: scratch.url, PORT: '0', HOST: '127.0.0.1', LOG_LEVEL: 'silent' });
+    api = await startApi({ DATABASE_URL: scratch.url, PORT: '0', API_HOST: '127.0.0.1', LOG_LEVEL: 'silent' });
     expect(api.port).toBeGreaterThan(0);
 
     const base = `http://127.0.0.1:${api.port}`;
@@ -45,13 +45,20 @@ describe('startApi', () => {
     api = undefined;
   });
 
+  it('binds 127.0.0.1 when API_HOST is unset, and ignores the generic HOST variable', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    api = await startApi({ DATABASE_URL: scratch.url, PORT: '0', HOST: '0.0.0.0', LOG_LEVEL: 'silent' });
+    expect(api.host).toBe('127.0.0.1');
+  });
+
   it('does not seed the stub user under AUTH_PROVIDER=basic', async () => {
     const scratch = await createScratchDb();
     drop = scratch.drop;
     api = await startApi({
       DATABASE_URL: scratch.url,
       PORT: '0',
-      HOST: '127.0.0.1',
+      API_HOST: '127.0.0.1',
       AUTH_PROVIDER: 'basic',
       LOG_LEVEL: 'silent',
     });

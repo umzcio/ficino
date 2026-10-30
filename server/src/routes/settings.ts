@@ -15,9 +15,10 @@ import {
   reassertPublicDeployment,
   type Settings,
 } from '../settings/schema.js';
+import { resolveUserSettings } from '../settings/resolve.js';
+import { loadStoredSettings } from '../settings/stored.js';
+import type { Sql } from '../db/sql.js';
 import { deletePaperArtifacts } from '../storage/local.js';
-
-const BANNED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** Python int()/float() semantics for a JSON value; throws on failure. */
 export function coercePy(kind: 'int' | 'float', v: unknown): number {
@@ -56,13 +57,6 @@ function redact(d: Settings): Settings {
   return out;
 }
 
-/** Stored rows never legitimately hold these; drop them before any merge. */
-function stripBanned(user: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(user)) if (!BANNED_KEYS.has(k)) out[k] = v;
-  return out;
-}
-
 function isDict(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -73,11 +67,7 @@ export function settingsRoutes(): Hono<AppEnv> {
 
   r.get('/', async (c) => {
     const { sql, env } = c.var.deps;
-    const [row] = await sql`SELECT settings FROM user_settings WHERE user_id = ${c.var.user.id}`;
-    const stored = isDict(row?.settings) ? row!.settings : {};
-    let merged = mergeSettings(buildDefaults(env), stripBanned(stored));
-    if (isPublicDeployment(env)) merged = reassertPublicDeployment(merged, env);
-    return c.json(redact(merged));
+    return c.json(redact(await resolveUserSettings(sql, c.var.user.id, env)));
   });
 
   r.put('/', body(updateBody), async (c) => {
@@ -119,8 +109,7 @@ export function settingsRoutes(): Hono<AppEnv> {
     }
 
     const existing = await sql.begin(async (tx) => {
-      const [row] = await tx`SELECT settings FROM user_settings WHERE user_id = ${c.var.user.id} FOR UPDATE`;
-      const cur: Record<string, unknown> = isDict(row?.settings) ? stripBanned(row!.settings) : {};
+      const cur = await loadStoredSettings(tx as unknown as Sql, c.var.user.id, { lock: true });
       for (const [key, value] of Object.entries(filtered)) {
         const base = cur[key];
         cur[key] = isDict(base) && isDict(value) ? { ...base, ...value } : value;

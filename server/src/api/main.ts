@@ -12,6 +12,7 @@ import { logger } from '../logger.js';
 export interface RunningApi {
   close(): Promise<void>;
   port: number;
+  host: string;
 }
 
 /** Boots the API: config, pool, migrations, stub user (AUTH_PROVIDER=none), then the HTTP listener. */
@@ -27,7 +28,7 @@ export async function startApi(env: Env = process.env): Promise<RunningApi> {
     await sql.end();
     throw e;
   }
-  const hostname = env.HOST || '127.0.0.1';
+  const hostname = env.API_HOST || '127.0.0.1';
   // Plain HTTP/1 server (no createServer/tls options), so the union type narrows safely.
   const server = await new Promise<Server>((resolve, reject) => {
     const s = serve({ fetch: app.fetch, port: config.port, hostname }, () => resolve(s)) as Server;
@@ -36,7 +37,7 @@ export async function startApi(env: Env = process.env): Promise<RunningApi> {
     await sql.end();
     throw e;
   });
-  const port = (server.address() as AddressInfo).port;
+  const { port, address } = server.address() as AddressInfo;
   logger.info({ port, host: hostname }, 'ficino api listening');
 
   let closing: Promise<void> | undefined;
@@ -48,7 +49,7 @@ export async function startApi(env: Env = process.env): Promise<RunningApi> {
       });
       await sql.end();
     })());
-  return { close, port };
+  return { close, port, host: address };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

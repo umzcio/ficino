@@ -44,6 +44,10 @@ export function errorHandler(logger: Logger): ErrorHandler {
       return c.json({ detail: err.message }, err.status as ContentfulStatusCode);
     }
     if (pgCode(err) === PG_INVALID_TEXT_REPRESENTATION) {
+      logger.warn(
+        { path: c.req.path, code: '22P02', msg: (err as Error).message },
+        'invalid_text_representation mapped to 404',
+      );
       return c.json({ detail: 'Not Found' }, 404);
     }
     logger.error({ err, method: c.req.method, path: c.req.path }, 'unhandled_exception');

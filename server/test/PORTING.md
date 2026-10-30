@@ -3,9 +3,9 @@
 One line per Python test in api/tests and shared/tests. When a task ports a test, tick the box and append
 ` — <plan/task>`; when a test is not ported, tick it and append ` — n/a: <reason>`.
 
-- [x] api/tests/test_auth_gates.py::test_list_personas_requires_auth — plan01/T6 (gate via requireUser test route; the /personas and /settings routes themselves land in plan0X)
-- [x] api/tests/test_auth_gates.py::test_ollama_models_requires_auth — plan01/T6 (gate via requireUser test route; the /personas and /settings routes themselves land in plan0X)
-- [x] api/tests/test_auth_gates.py::test_list_personas_still_works_authenticated — plan01/T6 (gate via requireUser test route; the /personas and /settings routes themselves land in plan0X)
+- [x] api/tests/test_auth_gates.py::test_list_personas_requires_auth — plan01/T6 (gate via requireUser test route; /settings landed in plan01/T9; /personas is plan04)
+- [x] api/tests/test_auth_gates.py::test_ollama_models_requires_auth — plan01/T6 (gate via requireUser test route; /settings landed in plan01/T9; /personas is plan04)
+- [x] api/tests/test_auth_gates.py::test_list_personas_still_works_authenticated — plan01/T6 (gate via requireUser test route; /settings landed in plan01/T9; /personas is plan04)
 - [ ] api/tests/test_group_chat_pending_state.py::test_create_group_chat_inserts_generating_placeholder — plan04
 - [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_generating_not_404 — plan04
 - [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_error_not_404 — plan04
