@@ -7,6 +7,7 @@ import type { Logger } from 'pino';
 import type { AuthUser } from './auth/types.js';
 import type { Config } from './config.js';
 import type { Sql } from './db/sql.js';
+import { basicRoutes } from './auth/basicRoutes.js';
 import { csrf } from './http/csrf.js';
 import { errorHandler } from './http/errors.js';
 import { securityHeaders } from './http/securityHeaders.js';
@@ -105,6 +106,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get('/auth/provider', (c) =>
     c.json({ provider: deps.config.authProvider, public_deployment: deps.config.publicDeployment }),
   );
+
+  // /auth/login|register|logout|me exist only under the basic provider; otherwise they 404.
+  if (deps.config.authProvider === 'basic') app.route('/auth', basicRoutes());
 
   return app;
 }

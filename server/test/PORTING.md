@@ -3,9 +3,9 @@
 One line per Python test in api/tests and shared/tests. When a task ports a test, tick the box and append
 ` — <plan/task>`; when a test is not ported, tick it and append ` — n/a: <reason>`.
 
-- [ ] api/tests/test_auth_gates.py::test_list_personas_requires_auth
-- [ ] api/tests/test_auth_gates.py::test_ollama_models_requires_auth
-- [ ] api/tests/test_auth_gates.py::test_list_personas_still_works_authenticated
+- [x] api/tests/test_auth_gates.py::test_list_personas_requires_auth — plan01/T6 (gate via requireUser test route; the /personas and /settings routes themselves land in plan0X)
+- [x] api/tests/test_auth_gates.py::test_ollama_models_requires_auth — plan01/T6 (gate via requireUser test route; the /personas and /settings routes themselves land in plan0X)
+- [x] api/tests/test_auth_gates.py::test_list_personas_still_works_authenticated — plan01/T6 (gate via requireUser test route; the /personas and /settings routes themselves land in plan0X)
 - [ ] api/tests/test_group_chat_pending_state.py::test_create_group_chat_inserts_generating_placeholder
 - [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_generating_not_404
 - [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_error_not_404
@@ -221,8 +221,8 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] shared/tests/test_storage_supabase.py::test_supabase_delete_paper_artifacts_enumerates_figures — plan02
 - [ ] shared/tests/test_storage_supabase.py::test_supabase_podcast_episode_roundtrip_keys — plan02
 - [ ] shared/tests/test_storage_supabase.py::test_supabase_no_longer_has_dead_segment_methods — plan02
-- [ ] api/tests/test_supabase_bootstrap.py::test_first_signin_creates_default_workspace
-- [ ] api/tests/test_supabase_bootstrap.py::test_repeat_signin_does_not_duplicate_workspace
+- [x] api/tests/test_supabase_bootstrap.py::test_first_signin_creates_default_workspace — n/a: supabase removed
+- [x] api/tests/test_supabase_bootstrap.py::test_repeat_signin_does_not_duplicate_workspace — n/a: supabase removed
 - [ ] api/tests/test_workspaces.py::test_list_workspaces_returns_only_owned
 - [ ] api/tests/test_workspaces.py::test_list_workspaces_includes_counts
 - [ ] api/tests/test_workspaces.py::test_create_workspace_persists
