@@ -14,13 +14,13 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_docs_gating.py::test_docs_disabled_on_the_imported_app — plan01/T5 (replaced: no docs served)
 - [x] api/tests/test_docs_gating.py::test_docs_disabled_in_production — plan01/T5 (replaced: no docs served)
 - [x] api/tests/test_docs_gating.py::test_docs_enabled_in_development — plan01/T5 (replaced: no docs served)
-- [ ] api/tests/test_likes.py::test_create_like_persists
-- [ ] api/tests/test_likes.py::test_create_like_is_idempotent
-- [ ] api/tests/test_likes.py::test_delete_like_removes_row
-- [ ] api/tests/test_likes.py::test_delete_like_that_doesnt_exist_returns_404
-- [ ] api/tests/test_likes.py::test_list_likes_returns_posts_and_replies
-- [ ] api/tests/test_likes.py::test_list_likes_does_not_leak_other_users
-- [ ] api/tests/test_likes.py::test_delete_cross_user_like_returns_404
+- [x] api/tests/test_likes.py::test_create_like_persists — plan01/T10
+- [x] api/tests/test_likes.py::test_create_like_is_idempotent — plan01/T10
+- [x] api/tests/test_likes.py::test_delete_like_removes_row — plan01/T10
+- [x] api/tests/test_likes.py::test_delete_like_that_doesnt_exist_returns_404 — plan01/T10
+- [x] api/tests/test_likes.py::test_list_likes_returns_posts_and_replies — plan01/T10
+- [x] api/tests/test_likes.py::test_list_likes_does_not_leak_other_users — plan01/T10
+- [x] api/tests/test_likes.py::test_delete_cross_user_like_returns_404 — plan01/T10
 - [ ] api/tests/test_error_contracts.py::test_timeout_error_maps_to_504 — later router task (needs its router; not a /health, 404 or CSRF case)
 - [ ] api/tests/test_error_contracts.py::test_connect_error_maps_to_503 — later router task (needs its router; not a /health, 404 or CSRF case)
 - [ ] api/tests/test_error_contracts.py::test_value_error_maps_to_400 — later router task (needs its router; not a /health, 404 or CSRF case)
@@ -32,8 +32,8 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_bad_input_maps_to_400 — later router task (needs its router; not a /health, 404 or CSRF case)
 - [ ] api/tests/test_error_contracts.py::test_delete_post_out_of_range_is_404_not_found — later router task (needs its router; not a /health, 404 or CSRF case)
 - [ ] api/tests/test_error_contracts.py::test_regenerate_post_out_of_range_is_404_not_found — later router task (needs its router; not a /health, 404 or CSRF case)
-- [ ] api/tests/test_error_contracts.py::test_dismiss_alert_returns_204_then_404_on_second_dismiss — later router task (needs its router; not a /health, 404 or CSRF case)
-- [ ] api/tests/test_error_contracts.py::test_dismiss_alert_missing_id_is_404 — later router task (needs its router; not a /health, 404 or CSRF case)
+- [x] api/tests/test_error_contracts.py::test_dismiss_alert_returns_204_then_404_on_second_dismiss — plan01/T10
+- [x] api/tests/test_error_contracts.py::test_dismiss_alert_missing_id_is_404 — plan01/T10
 - [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_missing_thread_is_404 — later router task (needs its router; not a /health, 404 or CSRF case)
 - [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_existing_thread_returns_200_and_empty_messages — later router task (needs its router; not a /health, 404 or CSRF case)
 - [ ] api/tests/test_signed_figures.py::test_signed_url_happy_path
@@ -47,8 +47,8 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_rate_limit_config.py::test_rate_limit_persona_dm_per_day_defaults_to_60 — plan01/T7
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
 - [x] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan01/T9
-- [ ] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10 (bookmarks router)
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests
+- [x] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10
+- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — later plans (per-router; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts)
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller
 - [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace
@@ -125,14 +125,14 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_feed_audio_rate_limit.py::test_audio_dispatch_over_limit_429s_without_dispatch
 - [ ] api/tests/test_feed_audio_rate_limit.py::test_generating_ready_early_returns_never_charge_budget
 - [ ] api/tests/test_feed_audio_rate_limit.py::test_podcast_dispatch_shares_the_audio_budget
-- [ ] api/tests/test_bookmarks.py::test_create_bookmark_returns_id_and_persists
-- [ ] api/tests/test_bookmarks.py::test_create_bookmark_duplicate_is_idempotent
-- [ ] api/tests/test_bookmarks.py::test_list_bookmarks_scoped_to_caller
-- [ ] api/tests/test_bookmarks.py::test_delete_bookmark_rejects_cross_user
-- [ ] api/tests/test_bookmarks.py::test_delete_own_bookmark_returns_204
-- [ ] api/tests/test_bookmarks.py::test_post_and_reply_bookmarks_coexist
-- [ ] api/tests/test_bookmarks.py::test_delete_bookmark_by_post_removes_exact_row
-- [ ] api/tests/test_bookmarks.py::test_list_bookmarks_empty_for_new_user
+- [x] api/tests/test_bookmarks.py::test_create_bookmark_returns_id_and_persists — plan01/T10
+- [x] api/tests/test_bookmarks.py::test_create_bookmark_duplicate_is_idempotent — plan01/T10
+- [x] api/tests/test_bookmarks.py::test_list_bookmarks_scoped_to_caller — plan01/T10
+- [x] api/tests/test_bookmarks.py::test_delete_bookmark_rejects_cross_user — plan01/T10
+- [x] api/tests/test_bookmarks.py::test_delete_own_bookmark_returns_204 — plan01/T10
+- [x] api/tests/test_bookmarks.py::test_post_and_reply_bookmarks_coexist — plan01/T10
+- [x] api/tests/test_bookmarks.py::test_delete_bookmark_by_post_removes_exact_row — plan01/T10
+- [x] api/tests/test_bookmarks.py::test_list_bookmarks_empty_for_new_user — plan01/T10
 - [x] shared/tests/test_signed_url.py::test_sign_verify_roundtrip — plan01/T3
 - [x] shared/tests/test_signed_url.py::test_verify_rejects_wrong_resource — plan01/T3
 - [x] shared/tests/test_signed_url.py::test_expired_token_rejected — plan01/T3
@@ -169,24 +169,24 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_sanitize.py::test_does_not_truncate_input_below_limit — plan01/T3
 - [x] api/tests/test_sanitize.py::test_custom_max_len_is_respected — plan01/T3
 - [x] api/tests/test_sanitize.py::test_custom_max_len_not_exceeded_for_small_input — plan01/T3
-- [ ] api/tests/test_annotations.py::test_upsert_annotation_creates_row
-- [ ] api/tests/test_annotations.py::test_upsert_annotation_overwrites_existing_body
-- [ ] api/tests/test_annotations.py::test_upsert_annotation_rejects_empty_body
-- [ ] api/tests/test_annotations.py::test_get_annotation_returns_body
-- [ ] api/tests/test_annotations.py::test_get_missing_annotation_returns_404
-- [ ] api/tests/test_annotations.py::test_delete_annotation_returns_204
-- [ ] api/tests/test_annotations.py::test_delete_missing_annotation_returns_404
-- [ ] api/tests/test_annotations.py::test_list_annotations_scoped_to_caller
-- [ ] api/tests/test_annotations.py::test_get_cross_user_annotation_returns_404
-- [ ] api/tests/test_annotations.py::test_delete_cross_user_annotation_returns_404
+- [x] api/tests/test_annotations.py::test_upsert_annotation_creates_row — plan01/T10
+- [x] api/tests/test_annotations.py::test_upsert_annotation_overwrites_existing_body — plan01/T10
+- [x] api/tests/test_annotations.py::test_upsert_annotation_rejects_empty_body — plan01/T10
+- [x] api/tests/test_annotations.py::test_get_annotation_returns_body — plan01/T10
+- [x] api/tests/test_annotations.py::test_get_missing_annotation_returns_404 — plan01/T10
+- [x] api/tests/test_annotations.py::test_delete_annotation_returns_204 — plan01/T10
+- [x] api/tests/test_annotations.py::test_delete_missing_annotation_returns_404 — plan01/T10
+- [x] api/tests/test_annotations.py::test_list_annotations_scoped_to_caller — plan01/T10
+- [x] api/tests/test_annotations.py::test_get_cross_user_annotation_returns_404 — plan01/T10
+- [x] api/tests/test_annotations.py::test_delete_cross_user_annotation_returns_404 — plan01/T10
 - [x] shared/tests/test_sanitize.py::test_fence_wraps_and_neutralizes_role_markers — plan01/T3
 - [x] shared/tests/test_sanitize.py::test_fence_survives_fence_token_collision — plan01/T3
 - [x] shared/tests/test_sanitize.py::test_truncation_backstop — plan01/T3
 - [x] shared/tests/test_sanitize.py::test_strip_role_markers_returns_plain_text — plan01/T3
 - [ ] api/tests/test_models_convention.py::test_no_router_defines_a_basemodel_locally
-- [ ] api/tests/test_wave3_correctness.py::test_concurrent_create_like_both_2xx_only_one_row
-- [ ] api/tests/test_wave3_correctness.py::test_concurrent_create_bookmark_both_2xx_only_one_row
-- [ ] api/tests/test_wave3_correctness.py::test_create_like_still_returns_created_and_already_liked
+- [x] api/tests/test_wave3_correctness.py::test_concurrent_create_like_both_2xx_only_one_row — plan01/T10
+- [x] api/tests/test_wave3_correctness.py::test_concurrent_create_bookmark_both_2xx_only_one_row — plan01/T10
+- [x] api/tests/test_wave3_correctness.py::test_create_like_still_returns_created_and_already_liked — plan01/T10
 - [x] api/tests/test_wave3_correctness.py::test_activity_sort_key_handles_none_timestamp — plan01/T8 (as an activity endpoint test: NULL timestamp sorts oldest)
 - [x] api/tests/test_wave3_correctness.py::test_cleanup_artifacts_is_a_single_module_level_function — n/a: Python source-inspection of a hoisted closure; TS handlers share deletePaperArtifacts
 - [x] api/tests/test_wave3_correctness.py::test_clear_all_papers_deletes_papers_and_feeds — plan01/T9
