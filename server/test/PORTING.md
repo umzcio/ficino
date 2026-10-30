@@ -70,19 +70,19 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_tags.py::test_assign_tag_rejects_empty_name
 - [ ] api/tests/test_tags.py::test_get_paper_tags_returns_assigned
 - [ ] api/tests/test_tags.py::test_unassign_tag_removes_association
-- [ ] shared/tests/test_storage_local.py::test_pdf_roundtrip
-- [ ] shared/tests/test_storage_local.py::test_unknown_provider_raises
-- [ ] shared/tests/test_storage_local.py::test_local_release_local_is_noop
-- [ ] shared/tests/test_storage_local.py::test_local_delete_pdf_idempotent
-- [ ] shared/tests/test_storage_local.py::test_local_save_figure_rejects_traversal
-- [ ] shared/tests/test_storage_local.py::test_local_delete_paper_artifacts_removes_all
-- [ ] shared/tests/test_storage_local.py::test_local_figure_image_url_is_signed
-- [ ] shared/tests/test_storage_local.py::test_local_storage_takes_injected_dirs_not_settings
+- [ ] shared/tests/test_storage_local.py::test_pdf_roundtrip — plan02
+- [ ] shared/tests/test_storage_local.py::test_unknown_provider_raises — plan02
+- [ ] shared/tests/test_storage_local.py::test_local_release_local_is_noop — plan02
+- [ ] shared/tests/test_storage_local.py::test_local_delete_pdf_idempotent — plan02
+- [ ] shared/tests/test_storage_local.py::test_local_save_figure_rejects_traversal — plan02
+- [ ] shared/tests/test_storage_local.py::test_local_delete_paper_artifacts_removes_all — plan02
+- [ ] shared/tests/test_storage_local.py::test_local_figure_image_url_is_signed — plan02
+- [ ] shared/tests/test_storage_local.py::test_local_storage_takes_injected_dirs_not_settings — plan02
 - [ ] api/tests/test_feed_figure_hydration.py::test_figure_url_resigned_on_feed_get
 - [ ] api/tests/test_feed_figure_hydration.py::test_other_users_figure_not_resigned
 - [ ] api/tests/test_feed_figure_hydration.py::test_storage_error_keeps_persisted_url
 - [ ] api/tests/test_feed_figure_hydration.py::test_no_figure_posts_no_signing
-- [ ] shared/tests/test_constants.py::test_sentinel_ids_are_stable
+- [x] shared/tests/test_constants.py::test_sentinel_ids_are_stable — plan01/T3
 - [ ] shared/tests/test_constants.py::test_chapter_sql_encodes_first_unlocked — plan 05 (CHAPTER_INSERT_SQL moves to the reading-lists slice)
 - [ ] api/tests/test_auth_scoping.py::test_list_papers_returns_only_own_papers
 - [ ] api/tests/test_auth_scoping.py::test_list_messages_papers_scoped
@@ -133,10 +133,10 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_bookmarks.py::test_post_and_reply_bookmarks_coexist
 - [ ] api/tests/test_bookmarks.py::test_delete_bookmark_by_post_removes_exact_row
 - [ ] api/tests/test_bookmarks.py::test_list_bookmarks_empty_for_new_user
-- [ ] shared/tests/test_signed_url.py::test_sign_verify_roundtrip
-- [ ] shared/tests/test_signed_url.py::test_verify_rejects_wrong_resource
-- [ ] shared/tests/test_signed_url.py::test_expired_token_rejected
-- [ ] shared/tests/test_signed_url.py::test_fail_closed_in_production
+- [x] shared/tests/test_signed_url.py::test_sign_verify_roundtrip — plan01/T3
+- [x] shared/tests/test_signed_url.py::test_verify_rejects_wrong_resource — plan01/T3
+- [x] shared/tests/test_signed_url.py::test_expired_token_rejected — plan01/T3
+- [x] shared/tests/test_signed_url.py::test_fail_closed_in_production — plan01/T3
 - [ ] api/tests/test_llm_retry.py::test_ollama_5xx_retries_then_succeeds
 - [ ] api/tests/test_llm_retry.py::test_ollama_5xx_exhausts_retries_and_raises
 - [ ] api/tests/test_llm_retry.py::test_ollama_4xx_is_not_retried
@@ -153,22 +153,22 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_settings_contract.py::test_get_settings_reasserts_env_under_public_deployment
 - [ ] api/tests/test_settings_contract.py::test_settings_router_uses_shared_schema
 - [ ] api/tests/test_summary_redispatch.py::test_error_summary_row_is_redispatched
-- [ ] api/tests/test_sanitize.py::test_empty_input_returns_bare_fence
-- [ ] api/tests/test_sanitize.py::test_none_input_returns_bare_fence
-- [ ] api/tests/test_sanitize.py::test_simple_text_is_wrapped
-- [ ] api/tests/test_sanitize.py::test_strips_system_role_at_line_start
-- [ ] api/tests/test_sanitize.py::test_strips_role_markers_case_insensitive
-- [ ] api/tests/test_sanitize.py::test_strips_role_marker_with_leading_whitespace
-- [ ] api/tests/test_sanitize.py::test_strips_role_marker_with_markdown_bullet
-- [ ] api/tests/test_sanitize.py::test_strips_role_marker_on_second_line
-- [ ] api/tests/test_sanitize.py::test_role_marker_in_middle_of_line_is_left_alone
-- [ ] api/tests/test_sanitize.py::test_role_marker_after_colon_in_sentence_stays
-- [ ] api/tests/test_sanitize.py::test_literal_fence_open_is_neutralized
-- [ ] api/tests/test_sanitize.py::test_literal_fence_close_is_neutralized
-- [ ] api/tests/test_sanitize.py::test_truncates_oversized_input_with_suffix
-- [ ] api/tests/test_sanitize.py::test_does_not_truncate_input_below_limit
-- [ ] api/tests/test_sanitize.py::test_custom_max_len_is_respected
-- [ ] api/tests/test_sanitize.py::test_custom_max_len_not_exceeded_for_small_input
+- [x] api/tests/test_sanitize.py::test_empty_input_returns_bare_fence — plan01/T3
+- [x] api/tests/test_sanitize.py::test_none_input_returns_bare_fence — plan01/T3
+- [x] api/tests/test_sanitize.py::test_simple_text_is_wrapped — plan01/T3
+- [x] api/tests/test_sanitize.py::test_strips_system_role_at_line_start — plan01/T3
+- [x] api/tests/test_sanitize.py::test_strips_role_markers_case_insensitive — plan01/T3
+- [x] api/tests/test_sanitize.py::test_strips_role_marker_with_leading_whitespace — plan01/T3
+- [x] api/tests/test_sanitize.py::test_strips_role_marker_with_markdown_bullet — plan01/T3
+- [x] api/tests/test_sanitize.py::test_strips_role_marker_on_second_line — plan01/T3
+- [x] api/tests/test_sanitize.py::test_role_marker_in_middle_of_line_is_left_alone — plan01/T3
+- [x] api/tests/test_sanitize.py::test_role_marker_after_colon_in_sentence_stays — plan01/T3
+- [x] api/tests/test_sanitize.py::test_literal_fence_open_is_neutralized — plan01/T3
+- [x] api/tests/test_sanitize.py::test_literal_fence_close_is_neutralized — plan01/T3
+- [x] api/tests/test_sanitize.py::test_truncates_oversized_input_with_suffix — plan01/T3
+- [x] api/tests/test_sanitize.py::test_does_not_truncate_input_below_limit — plan01/T3
+- [x] api/tests/test_sanitize.py::test_custom_max_len_is_respected — plan01/T3
+- [x] api/tests/test_sanitize.py::test_custom_max_len_not_exceeded_for_small_input — plan01/T3
 - [ ] api/tests/test_annotations.py::test_upsert_annotation_creates_row
 - [ ] api/tests/test_annotations.py::test_upsert_annotation_overwrites_existing_body
 - [ ] api/tests/test_annotations.py::test_upsert_annotation_rejects_empty_body
@@ -179,10 +179,10 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_annotations.py::test_list_annotations_scoped_to_caller
 - [ ] api/tests/test_annotations.py::test_get_cross_user_annotation_returns_404
 - [ ] api/tests/test_annotations.py::test_delete_cross_user_annotation_returns_404
-- [ ] shared/tests/test_sanitize.py::test_fence_wraps_and_neutralizes_role_markers
-- [ ] shared/tests/test_sanitize.py::test_fence_survives_fence_token_collision
-- [ ] shared/tests/test_sanitize.py::test_truncation_backstop
-- [ ] shared/tests/test_sanitize.py::test_strip_role_markers_returns_plain_text
+- [x] shared/tests/test_sanitize.py::test_fence_wraps_and_neutralizes_role_markers — plan01/T3
+- [x] shared/tests/test_sanitize.py::test_fence_survives_fence_token_collision — plan01/T3
+- [x] shared/tests/test_sanitize.py::test_truncation_backstop — plan01/T3
+- [x] shared/tests/test_sanitize.py::test_strip_role_markers_returns_plain_text — plan01/T3
 - [ ] api/tests/test_models_convention.py::test_no_router_defines_a_basemodel_locally
 - [ ] api/tests/test_wave3_correctness.py::test_concurrent_create_like_both_2xx_only_one_row
 - [ ] api/tests/test_wave3_correctness.py::test_concurrent_create_bookmark_both_2xx_only_one_row
@@ -213,14 +213,14 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_upload_size_precheck.py::test_spoofed_content_length_413s_before_read
 - [ ] api/tests/test_upload_size_precheck.py::test_small_upload_not_rejected_by_precheck
 - [ ] api/tests/test_upload_size_precheck.py::test_post_read_oversize_is_413_not_400
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_requires_url_and_key
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_pdf_uploads_with_expected_key
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_figure_uploads_png
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_figure_rejects_traversal
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_figure_image_url_uses_signed_url
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_delete_paper_artifacts_enumerates_figures
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_podcast_episode_roundtrip_keys
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_no_longer_has_dead_segment_methods
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_requires_url_and_key — plan02
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_pdf_uploads_with_expected_key — plan02
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_figure_uploads_png — plan02
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_figure_rejects_traversal — plan02
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_figure_image_url_uses_signed_url — plan02
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_delete_paper_artifacts_enumerates_figures — plan02
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_podcast_episode_roundtrip_keys — plan02
+- [ ] shared/tests/test_storage_supabase.py::test_supabase_no_longer_has_dead_segment_methods — plan02
 - [ ] api/tests/test_supabase_bootstrap.py::test_first_signin_creates_default_workspace
 - [ ] api/tests/test_supabase_bootstrap.py::test_repeat_signin_does_not_duplicate_workspace
 - [ ] api/tests/test_workspaces.py::test_list_workspaces_returns_only_owned
