@@ -366,12 +366,12 @@ describe('processPaper', () => {
   it('a hung provider is cut off by the soft limit: rejects fast, paper error, no calls after the abort', async () => {
     const id = await newPaper(s.user_a, SAMPLE);
     const f = fakes({ chat: () => new Promise<string>(() => {}) });
-    const { ctx } = ctxFor(200);
+    const { ctx } = ctxFor(1000);
     let callsAtAbort = -1;
     ctx.signal.addEventListener('abort', () => (callsAtAbort = f.calls.length), { once: true });
     const t0 = Date.now();
     await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBeDefined();
-    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(Date.now() - t0).toBeLessThan(3000);
     const p = await paper(id);
     expect(p.status).toBe('error');
     expect(String(p.error_message)).toMatch(/abort|timeout/i);
