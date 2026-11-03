@@ -7,12 +7,20 @@ export const PY_WS =
 /** Regex source for Python's `\w` on str (use with the `u` flag). */
 export const PY_WORD = '[\\p{L}\\p{N}_]';
 
-const STRIP_RE = new RegExp(`^[${PY_WS}]+|[${PY_WS}]+$`, 'g');
+const WS_CHAR_RE = new RegExp(`^[${PY_WS}]$`);
 const SPLIT_RE = new RegExp(`[${PY_WS}]+`);
 
-/** `str.strip()` with no argument. */
+/**
+ * `str.strip()` with no argument. A linear scan from both ends: the regex `[ws]+$` retries from every interior
+ * whitespace run and went quadratic (160k interior spaces took 16.6 s). Every PY_WS character is in the BMP, so
+ * testing single UTF-16 units is exact (a surrogate half never matches).
+ */
 export function pyStrip(s: string): string {
-  return s.replace(STRIP_RE, '');
+  let start = 0;
+  let end = s.length;
+  while (start < end && WS_CHAR_RE.test(s[start]!)) start++;
+  while (end > start && WS_CHAR_RE.test(s[end - 1]!)) end--;
+  return start === 0 && end === s.length ? s : s.slice(start, end);
 }
 
 /** `str.split()` with no argument: split on whitespace runs, drop empties. */

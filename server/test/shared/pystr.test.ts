@@ -31,6 +31,20 @@ describe('pystr', () => {
     expect(pyIsUpper('ÉCOLE')).toBe(true);
   });
   it('pyStrip', () => expect(pyStrip('\x85 x 　')).toBe('x'));
+  it('pyStrip edge cases', () => {
+    expect(pyStrip('')).toBe('');
+    expect(pyStrip(' \t\n\x1c\u3000')).toBe('');
+    expect(pyStrip('x')).toBe('x');
+    expect(pyStrip('\u200b x\u200b ')).toBe('\u200b x\u200b'); // U+200B is not Python whitespace
+    expect(pyStrip(' a \u2028 b\u205f')).toBe('a \u2028 b');
+    expect(pyStrip(' 😀 ')).toBe('😀');
+  });
+  it('pyStrip is linear on interior whitespace runs', () => {
+    const s = `a${' '.repeat(200_000)}b`;
+    const t = performance.now();
+    expect(pyStrip(` ${s}\n`)).toBe(s);
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
   it('regex sources', () => {
     expect(new RegExp(`^[${PY_WS}]$`, 'u').test('　')).toBe(true);
     expect(new RegExp(`^${PY_WORD}$`, 'u').test('é')).toBe(true);
