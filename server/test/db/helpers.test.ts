@@ -1,5 +1,8 @@
+import { readdir } from 'node:fs/promises';
 import { beforeEach, expect, it } from 'vitest';
 import { resetDb, seedUsers, testSql } from '../helpers/db.js';
+
+const MIGRATION_COUNT = (await readdir(new URL('../../migrations/', import.meta.url))).filter((f) => /^\d{4}_.*\.sql$/.test(f)).length;
 
 beforeEach(() => resetDb(testSql()));
 
@@ -20,5 +23,5 @@ it('resetDb empties tables but keeps personas and migrations', async () => {
   const [r] = await sql`
     SELECT (SELECT count(*) FROM users)::int AS u, (SELECT count(*) FROM personas)::int AS pe,
            (SELECT count(*) FROM schema_migrations)::int AS m`;
-  expect(r).toEqual({ u: 0, pe: 7, m: 4 });
+  expect(r).toEqual({ u: 0, pe: 7, m: MIGRATION_COUNT });
 });

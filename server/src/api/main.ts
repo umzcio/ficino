@@ -23,7 +23,6 @@ export async function startApi(env: Env = process.env): Promise<RunningApi> {
   const config = loadConfig(env);
   const sql = createSql(config.databaseUrl, { max: config.dbPoolMax });
   const boss = createBoss(config.databaseUrl, { max: 3, supervise: false, schedule: false });
-  let bossStarted = false;
   let app: ReturnType<typeof createApp>;
   try {
     const signingKey = resolveSigningKey(env);
@@ -32,11 +31,10 @@ export async function startApi(env: Env = process.env): Promise<RunningApi> {
     if (config.authProvider === 'none') await ensureStubUser(sql);
     boss.on('error', (err) => logger.error({ err }, 'pg-boss error'));
     await boss.start();
-    bossStarted = true;
     await ensureQueues(boss, config.jobTimeLimitSec);
     app = createApp({ sql, queue: new JobQueue(boss, sql), config, logger, storage, signingKey, env });
   } catch (e) {
-    if (bossStarted) await boss.stop({ graceful: false, timeout: 5000 }).catch(() => undefined);
+    await boss.stop({ graceful: false, timeout: 5000 }).catch(() => undefined);
     await sql.end();
     throw e;
   }
@@ -60,8 +58,11 @@ export async function startApi(env: Env = process.env): Promise<RunningApi> {
         server.close(() => resolve());
         server.closeIdleConnections();
       });
-      await boss.stop({ graceful: true, timeout: 5000 });
-      await sql.end();
+      try {
+        await boss.stop({ graceful: true, timeout: 5000 });
+      } finally {
+        await sql.end();
+      }
     })());
   return { close, port, host: address };
 }

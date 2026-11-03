@@ -10,21 +10,21 @@ let started: Promise<PgBoss> | undefined;
 /** One pg-boss per process, started on first call (never started by files that don't use the queue). */
 export function testBoss(): Promise<PgBoss> {
   started ??= (async () => {
-    boss = createBoss(process.env.DATABASE_URL!, { max: 3, supervise: false, schedule: false });
-    boss.on('error', () => undefined);
-    await boss.start();
-    await ensureQueues(boss, TEST_JOB_TIME_LIMIT_SEC);
-    return boss;
+    const b = (boss = createBoss(process.env.DATABASE_URL!, { max: 3, supervise: false, schedule: false }));
+    b.on('error', () => undefined);
+    await b.start();
+    await ensureQueues(b, TEST_JOB_TIME_LIMIT_SEC);
+    return b;
   })();
   return started;
 }
 
 export async function stopTestBoss(): Promise<void> {
-  if (!started) return;
+  const b = boss;
   const p = started;
   started = undefined;
   boss = undefined;
-  const b = await p.catch(() => undefined);
+  await p?.catch(() => undefined);
   await b?.stop({ graceful: true, timeout: 5000 });
 }
 

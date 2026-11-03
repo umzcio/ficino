@@ -43,7 +43,7 @@ export type JobState = {
   output: unknown;
 };
 
-const MISSING: JobState = { queue: null, state: 'missing', progress: null, output: null };
+const missing = (): JobState => ({ queue: null, state: 'missing', progress: null, output: null });
 
 /** The slice of PgBoss that JobQueue uses (lets tests supply a lazily started boss). */
 export type BossLike = Pick<PgBoss, 'send' | 'getJobById'>;
@@ -77,11 +77,11 @@ export class JobQueue {
   }
 
   async getJobState(jobId: string): Promise<JobState> {
-    if (!UUID_RE.test(jobId)) return MISSING;
+    if (!UUID_RE.test(jobId)) return missing();
     const [row] = await this.sql`SELECT queue, meta FROM job_progress WHERE job_id = ${jobId}`;
-    if (!row || !isQueueName(row.queue)) return MISSING;
+    if (!row || !isQueueName(row.queue)) return missing();
     const job = await this.boss.getJobById(row.queue, jobId);
-    if (!job) return MISSING;
+    if (!job) return missing();
     return {
       queue: row.queue,
       state: job.state,
