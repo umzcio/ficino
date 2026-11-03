@@ -86,7 +86,7 @@ describe('settings contract (api/tests/test_settings_contract.py, non-HTTP parts
     expect(d).toMatchObject({
       llm_provider: 'ollama', embed_provider: 'ollama', vision_provider: 'ollama', voyage_embed_model: 'voyage-4-large',
       rerank_provider: 'none', rerank_local_model: 'BAAI/bge-reranker-v2-m3', rerank_voyage_model: 'rerank-2-lite',
-      rerank_cohere_model: 'rerank-v3.5', context_provider: 'none', figure_detect_anthropic_model: 'claude-sonnet-4-6',
+      rerank_cohere_model: 'rerank-v3.5', context_provider: 'none', figure_detect_anthropic_model: 'claude-sonnet-5-5',
       openai_embed_model: 'text-embedding-3-small', persona_temperature: 0.8, posts_per_generation: 12,
       auto_generate_on_upload: false, extraction_mode: 'auto', chunk_max_tokens: 800,
       user_display_name: 'You', user_handle: '@you', user_avatar_url: '', theme: 'dark', font_size: 'normal',

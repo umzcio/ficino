@@ -33,7 +33,7 @@ export function buildDefaults(env: Env): Settings {
     // Figure-detection vision provider.
     figure_detect_provider: e('FIGURE_DETECT_PROVIDER', 'ollama'),
     figure_detect_ollama_model: e('FIGURE_DETECT_OLLAMA_MODEL', 'qwen3-vl:32b'),
-    figure_detect_anthropic_model: e('FIGURE_DETECT_ANTHROPIC_MODEL', 'claude-sonnet-4-6'),
+    figure_detect_anthropic_model: e('FIGURE_DETECT_ANTHROPIC_MODEL', 'claude-sonnet-5-5'),
     // OpenAI embedding model, used when embed_provider == "openai".
     openai_embed_model: e('OPENAI_EMBED_MODEL', 'text-embedding-3-small'),
 

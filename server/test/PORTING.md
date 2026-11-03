@@ -279,7 +279,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_stale_papers.py::test_stale_query_counts_null_corpus_feeds — plan02/T4
 - [ ] worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index — plan05
 - [ ] worker/tests/test_wave3_task_fixes.py::test_coerce_messages_drops_non_dict_elements — plan04
-- [ ] worker/tests/test_wave3_task_fixes.py::test_ollama_page_extract_retries_transient_failures — plan02
-- [ ] worker/tests/test_wave3_task_fixes.py::test_claude_page_extract_retries_transient_failures — plan02
-- [ ] worker/tests/test_wave3_task_fixes.py::test_claude_vision_client_pins_sdk_retries_off — plan02
+- [x] worker/tests/test_wave3_task_fixes.py::test_ollama_page_extract_retries_transient_failures — plan02/T11
+- [x] worker/tests/test_wave3_task_fixes.py::test_claude_page_extract_retries_transient_failures — plan02/T11
+- [x] worker/tests/test_wave3_task_fixes.py::test_claude_vision_client_pins_sdk_retries_off — plan02/T11
 - [ ] worker/tests/test_wave3_task_fixes.py::test_fallback_excludes_reply_only_personas — plan03
