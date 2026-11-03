@@ -1,0 +1,172 @@
+import { readFileSync } from 'node:fs';
+import * as mupdf from 'mupdf';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  closePdf,
+  cropPage,
+  extractPagesText,
+  extractTextMarkdown,
+  openPdf,
+  pageCount,
+  PdfOpenError,
+  renderPage,
+  type PdfDoc,
+} from '../../src/ingest/pdf.js';
+
+// Goldens come from worker/lib/pdf_extractor.py run on sample.pdf inside the ficino-worker image
+// (PyMuPDF 1.28.0); see test/fixtures/goldens/gen/README.md.
+const fixture = (name: string): string => new URL(`../fixtures/${name}`, import.meta.url).pathname;
+const SAMPLE = new Uint8Array(readFileSync(fixture('sample.pdf')));
+const GOLDEN_MD = readFileSync(fixture('goldens/sample.pymupdf.md'), 'utf8');
+const GOLDEN_PAGES = JSON.parse(readFileSync(fixture('goldens/sample.pages.json'), 'utf8')) as string[];
+type RasterPage = { width: number; height: number; probes: { x: number; y: number; rgb: number[] }[] };
+const GOLDEN_RASTER = JSON.parse(readFileSync(fixture('goldens/sample.raster.json'), 'utf8')) as RasterPage[];
+
+/** Decode a PNG with mupdf into packed RGB rows. */
+function decode(png: Uint8Array): { w: number; h: number; n: number; px: Uint8ClampedArray } {
+  const pix = new mupdf.Image(png).toPixmap();
+  return { w: pix.getWidth(), h: pix.getHeight(), n: pix.getNumberOfComponents(), px: pix.getPixels() };
+}
+
+describe('pdf extraction (pinned to PyMuPDF goldens)', () => {
+  let doc: PdfDoc;
+  beforeAll(() => {
+    doc = openPdf(SAMPLE);
+  });
+  afterAll(() => closePdf(doc));
+
+  it('counts pages', () => expect(pageCount(doc)).toBe(3));
+
+  it('extractTextMarkdown equals extract_text_pymupdf byte for byte', () => {
+    expect(Buffer.from(extractTextMarkdown(doc), 'utf8').equals(Buffer.from(GOLDEN_MD, 'utf8'))).toBe(true);
+    expect(extractTextMarkdown(doc)).toBe(GOLDEN_MD);
+  });
+
+  it('extractPagesText equals extract_pages_text', () => {
+    expect(extractPagesText(doc)).toEqual(GOLDEN_PAGES);
+  });
+
+  it('renderPage at 150 dpi matches the golden size and probe pixels', () => {
+    expect(GOLDEN_RASTER).toHaveLength(3);
+    GOLDEN_RASTER.forEach((golden, i) => {
+      const out = renderPage(doc, i, 150);
+      expect([out.width, out.height]).toEqual([golden.width, golden.height]);
+      const img = decode(out.png);
+      expect([img.w, img.h, img.n]).toEqual([golden.width, golden.height, 3]);
+      for (const { x, y, rgb } of golden.probes) {
+        const at = (y * img.w + x) * 3;
+        // ±2 per channel: anti-aliasing can differ between the WASM build and PyMuPDF's native build.
+        for (let c = 0; c < 3; c++) expect(Math.abs(img.px[at + c]! - rgb[c]!)).toBeLessThanOrEqual(2);
+      }
+    });
+  });
+
+  it('cropPage renders exactly that region of renderPage', () => {
+    const full = decode(renderPage(doc, 0, 150).png);
+    const crop = cropPage(doc, 0, 150, [10, 20, 110, 70]);
+    expect([crop.width, crop.height]).toEqual([100, 50]);
+    const part = decode(crop.png);
+    expect([part.w, part.h, part.n]).toEqual([100, 50, 3]);
+    for (let y = 0; y < 50; y++) {
+      const want = full.px.subarray(((20 + y) * full.w + 10) * 3, ((20 + y) * full.w + 110) * 3);
+      const got = part.px.subarray(y * 100 * 3, (y + 1) * 100 * 3);
+      expect(Buffer.from(got).equals(Buffer.from(want))).toBe(true);
+    }
+  });
+
+  it('cropPage pixels equal renderPage over a region with chart bars and text', () => {
+    const full = decode(renderPage(doc, 1, 150).png);
+    const box: [number, number, number, number] = [400, 700, 900, 1100];
+    const part = decode(cropPage(doc, 1, 150, box).png);
+    expect([part.w, part.h]).toEqual([500, 400]);
+    for (let y = 0; y < 400; y++) {
+      const want = full.px.subarray(((700 + y) * full.w + 400) * 3, ((700 + y) * full.w + 900) * 3);
+      const got = part.px.subarray(y * 500 * 3, (y + 1) * 500 * 3);
+      expect(Buffer.from(got).equals(Buffer.from(want))).toBe(true);
+    }
+  });
+});
+
+/** A one-page PDF from raw object bodies (object 1 is the catalog). */
+function rawPdf(objs: string[]): Uint8Array {
+  let pdf = '%PDF-1.7\n';
+  const offsets: number[] = [];
+  objs.forEach((body, i) => {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
+  pdf += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new TextEncoder().encode(pdf);
+}
+
+describe('characters outside the BMP', () => {
+  // mupdf.js's StructuredText.walk truncates code points above U+FFFF; pdf.ts recovers them from asText().
+  // F1 maps CID 1 to U+1D465 (MATHEMATICAL ITALIC SMALL X) via ToUnicode; F2 has no ToUnicode at all.
+  // Expected values were checked against PyMuPDF 1.28.0 in the ficino-worker image.
+  const cmap =
+    '/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /X def /CMapType 2 def ' +
+    '1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfchar <0001> <D835DC65> endbfchar ' +
+    'endcmap CMapName currentdict /CMap defineresource pop end end';
+  const content = 'BT /F1 12 Tf 72 700 Td <00010001> Tj ET BT /F2 12 Tf 72 650 Td <00410042> Tj ET';
+  const cidFont = (name: string): string =>
+    `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${name} ` +
+    '/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> ' +
+    `/FontDescriptor << /Type /FontDescriptor /FontName /${name} /Flags 4 /FontBBox [0 0 1000 1000] ` +
+    '/ItalicAngle 0 /Ascent 900 /Descent -100 /CapHeight 700 /StemV 80 >> /DW 1000 >>';
+  const bytes = rawPdf([
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 7 0 R >> >> ' +
+      '/Contents 9 0 R >>',
+    '<< /Type /Font /Subtype /Type0 /BaseFont /MathA /Encoding /Identity-H /DescendantFonts [5 0 R] /ToUnicode 6 0 R >>',
+    cidFont('MathA'),
+    `<< /Length ${cmap.length} >>\nstream\n${cmap}\nendstream`,
+    '<< /Type /Font /Subtype /Type0 /BaseFont /NoMap /Encoding /Identity-H /DescendantFonts [8 0 R] >>',
+    cidFont('NoMap'),
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+  ]);
+
+  it('keeps the full code point in both extractions', () => {
+    const doc = openPdf(bytes);
+    try {
+      expect(extractPagesText(doc)).toEqual(['\u{1d465}\u{1d465}\n^_\n']);
+      expect(extractTextMarkdown(doc)).toBe('\u{1d465}\u{1d465}\n^_');
+    } finally {
+      closePdf(doc);
+    }
+  });
+});
+
+describe('openPdf', () => {
+  it('throws PdfOpenError on %PDF- followed by junk', () => {
+    expect(() => openPdf(new TextEncoder().encode('%PDF-1.7\nthis is not a pdf at all \x00\x01\x02'))).toThrow(
+      PdfOpenError,
+    );
+  });
+
+  it('throws PdfOpenError on an empty buffer', () => {
+    expect(() => openPdf(new Uint8Array())).toThrow(PdfOpenError);
+  });
+
+  it('throws PdfOpenError on an encrypted PDF', () => {
+    const pdf = new mupdf.PDFDocument();
+    pdf.insertPage(-1, pdf.addPage([0, 0, 200, 200], 0, pdf.newDictionary(), ''));
+    const bytes = pdf
+      .saveToBuffer('encrypt=aes-256,user-password=secret,owner-password=owner')
+      .asUint8Array()
+      .slice();
+    // The same bytes open fine once the password is known, so the error really is the password check.
+    const raw = mupdf.Document.openDocument(bytes, 'application/pdf');
+    expect(raw.needsPassword()).toBe(true);
+    expect(raw.authenticatePassword('secret')).toBeGreaterThan(0);
+    expect(() => openPdf(bytes)).toThrow(PdfOpenError);
+  });
+
+  it('throws PdfOpenError on a PDF with no pages', () => {
+    const bytes = new mupdf.PDFDocument().saveToBuffer('').asUint8Array().slice();
+    expect(() => openPdf(bytes)).toThrow(PdfOpenError);
+  });
+});

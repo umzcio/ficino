@@ -1,0 +1,431 @@
+/**
+ * PDF text extraction and page rendering with MuPDF (WASM), ported from worker/lib/pdf_extractor.py.
+ *
+ * The markdown must match PyMuPDF's `extract_text_pymupdf` because chunks and embeddings derive from it, so
+ * this file rebuilds PyMuPDF's own text-page walks (pymupdf/__init__.py in PyMuPDF 1.28.0):
+ * - `page.get_text()` is `JM_print_stext_page_as_text`: every char whose bbox overlaps the page, and a newline
+ *   after each line unless its last char was one.
+ * - `page.get_text("dict")` spans come from `JM_make_spanlist`: runs of chars with the same size, font flags,
+ *   font name, color and bidi level.
+ * Both PyMuPDF text pages run the whole page (contents, annotations and widgets) with TEXTFLAGS_TEXT /
+ * TEXTFLAGS_DICT, so the structured text here is built from the page's display list with the matching options.
+ * Every function is synchronous.
+ */
+import * as mupdf from 'mupdf';
+import { PY_WORD, PY_WS, pyIsUpper, pyLen, pyRound, pySplit, pyStrip } from '../shared/pystr.js';
+
+export class PdfOpenError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'PdfOpenError';
+  }
+}
+
+export type PdfDoc = { readonly doc: mupdf.Document };
+
+/** TEXTFLAGS_TEXT: preserve ligatures and whitespace, clip to the page, CID for unknown unicode. */
+const TEXT_OPTIONS = 'preserve-ligatures,preserve-whitespace,use-cid-for-unknown-unicode';
+/** TEXTFLAGS_DICT: the same plus preserve images (image blocks split text blocks and lines). */
+const DICT_OPTIONS = `${TEXT_OPTIONS},preserve-images`;
+
+export function openPdf(bytes: Uint8Array): PdfDoc {
+  let doc: mupdf.Document;
+  try {
+    doc = mupdf.Document.openDocument(bytes, 'application/pdf');
+  } catch (err) {
+    throw new PdfOpenError(`cannot open PDF: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+  }
+  let reason: string | null = null;
+  try {
+    if (doc.needsPassword()) reason = 'PDF is password protected';
+    else if (doc.countPages() === 0) reason = 'PDF has no pages';
+  } catch (err) {
+    reason = `cannot read PDF: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  if (reason !== null) {
+    doc.destroy();
+    throw new PdfOpenError(reason);
+  }
+  return { doc };
+}
+
+export function closePdf(doc: PdfDoc): void {
+  doc.doc.destroy();
+}
+
+export function pageCount(doc: PdfDoc): number {
+  return doc.doc.countPages();
+}
+
+// --- Structured text --------------------------------------------------------------------------------------
+
+type Rect = [number, number, number, number];
+
+type FontInfo = { name: string; flags: number };
+
+type Char = {
+  c: string;
+  size: number;
+  font: FontInfo;
+  /** RGB of the char's color (alpha is not exposed by the walker). */
+  rgb: number;
+  bidi: number;
+  superscript: boolean;
+  bbox: Rect;
+};
+
+type Line = { bbox: Rect; chars: Char[] };
+type Block = { bbox: Rect; lines: Line[] };
+
+const TEXT_FONT_SUPERSCRIPT = 1;
+const TEXT_FONT_ITALIC = 2;
+const TEXT_FONT_SERIFED = 4;
+const TEXT_FONT_MONOSPACED = 8;
+const TEXT_FONT_BOLD = 16;
+
+/** `fz_is_empty_rect`. */
+const isEmpty = (r: Rect): boolean => r[0] >= r[2] || r[1] >= r[3];
+
+/** `JM_rects_overlap`. */
+const overlaps = (a: Rect, b: Rect): boolean => !(a[0] >= b[2] || a[1] >= b[3] || a[2] <= b[0] || a[3] <= b[1]);
+
+/** `fz_intersect_rect` is empty. */
+const intersectionEmpty = (a: Rect, b: Rect): boolean =>
+  isEmpty([Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]);
+
+/** `JM_font_name`: drop a 6-letter subset prefix ("ABCDEF+Name"). */
+function fontName(name: string): string {
+  return name.indexOf('+') === 6 ? name.slice(7) : name;
+}
+
+/** `JM_char_bbox`: the char quad's bounding rect, made at least `size` tall in vertical mode. */
+function charBBox(quad: mupdf.Quad, wmode: number, size: number): Rect {
+  const xs = [quad[0], quad[2], quad[4], quad[6]];
+  const ys = [quad[1], quad[3], quad[5], quad[7]];
+  const r: Rect = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  if (wmode && r[3] < r[1] + size) r[1] = r[3] - size;
+  return r;
+}
+
+/**
+ * Walk one page's structured text into blocks, lines and chars, with PyMuPDF's per-char font flags.
+ *
+ * mupdf.js's walker builds each char with `String.fromCharCode`, which truncates code points above U+FFFF.
+ * `asText()` writes every char as UTF-8 in the same order (one line per text line, a blank line per block),
+ * so the true code points are taken from it while the two line up. From the first mismatch on, the walker's
+ * chars are kept. Like PyMuPDF's `make_escape`, an orphaned surrogate becomes U+FFFD.
+ */
+function readPage(doc: PdfDoc, index: number, options: string): { bounds: Rect; blocks: Block[] } {
+  const page = doc.doc.loadPage(index);
+  const list = page.toDisplayList(true);
+  const stext = list.toStructuredText(options);
+  try {
+    const bounds = list.getBounds() as Rect;
+    const fonts = new Map<number, FontInfo>();
+    const blocks: Block[] = [];
+    const text = Array.from(stext.asText());
+    let pos = 0;
+    let aligned = true;
+    const expectBreak = (): void => {
+      if (text[pos] === '\n') pos++;
+      else aligned = false;
+    };
+    let line: Line | null = null;
+    let wmode = 0;
+    let horizontal = false;
+    let firstOriginY = 0;
+    stext.walk({
+      beginTextBlock(bbox) {
+        blocks.push({ bbox: bbox as Rect, lines: [] });
+      },
+      beginLine(bbox, lineWmode, dir) {
+        line = { bbox: bbox as Rect, chars: [] };
+        blocks[blocks.length - 1]!.lines.push(line);
+        wmode = lineWmode;
+        horizontal = lineWmode === 0 && dir[0] === 1 && dir[1] === 0;
+      },
+      onChar(c, origin, font, size, quad, color, bidi) {
+        const cur = line!;
+        if (cur.chars.length === 0) firstOriginY = origin[1];
+        let info = fonts.get(font.pointer);
+        if (!info) {
+          info = {
+            name: fontName(font.getName()),
+            flags:
+              (font.isItalic() ? TEXT_FONT_ITALIC : 0) +
+              (font.isSerif() ? TEXT_FONT_SERIFED : 0) +
+              (font.isMono() ? TEXT_FONT_MONOSPACED : 0) +
+              (font.isBold() ? TEXT_FONT_BOLD : 0),
+          };
+          fonts.set(font.pointer, info);
+        }
+        let ch = c;
+        if (aligned) {
+          const real = text[pos];
+          if (real !== undefined && (real.codePointAt(0)! & 0xffff) === c.charCodeAt(0)) {
+            ch = real;
+            pos++;
+          } else aligned = false;
+        }
+        if (/^[\uD800-\uDFFF]$/.test(ch)) ch = String.fromCodePoint(0xfffd);
+        const [r, g, b] = color as number[];
+        cur.chars.push({
+          c: ch,
+          size,
+          font: info,
+          rgb: (Math.round(r! * 255) << 16) | (Math.round(g! * 255) << 8) | Math.round(b! * 255),
+          bidi,
+          superscript: horizontal && origin[1] < firstOriginY - size * 0.1,
+          bbox: charBBox(quad, wmode, size),
+        });
+      },
+      endLine() {
+        if (aligned) expectBreak();
+      },
+      endTextBlock() {
+        if (aligned) expectBreak();
+      },
+    });
+    return { bounds, blocks };
+  } finally {
+    stext.destroy();
+    list.destroy();
+    page.destroy();
+  }
+}
+
+/** `page.get_text()` for each page: `JM_print_stext_page_as_text`. */
+export function extractPagesText(doc: PdfDoc): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < pageCount(doc); i++) {
+    const { bounds, blocks } = readPage(doc, i, TEXT_OPTIONS);
+    let s = '';
+    for (const block of blocks)
+      for (const line of block.lines) {
+        let last = '';
+        for (const ch of line.chars) {
+          if (!overlaps(bounds, ch.bbox)) continue;
+          last = ch.c;
+          s += ch.c;
+        }
+        if (last !== '\n' && last !== '' && last !== '\0') s += '\n';
+      }
+    out.push(s);
+  }
+  return out;
+}
+
+// --- Markdown (extract_text_pymupdf) ----------------------------------------------------------------------
+
+type Span = { text: string; size: number; flags: number; font: string; bbox: Rect };
+
+/** `JM_make_text_block` + `JM_make_spanlist` for the lines of a page, as `get_text("dict")` exposes them. */
+function pageSpanLines(doc: PdfDoc, index: number): Span[][] {
+  const { bounds, blocks } = readPage(doc, index, DICT_OPTIONS);
+  const lines: Span[][] = [];
+  for (const block of blocks) {
+    if (intersectionEmpty(bounds, block.bbox)) continue;
+    for (const line of block.lines) {
+      if (intersectionEmpty(bounds, line.bbox)) continue;
+      const spans: Span[] = [];
+      let span: Span | null = null;
+      let key = { size: -1, flags: -1, font: '', rgb: -1, bidi: 0 };
+      for (const ch of line.chars) {
+        if (!overlaps(bounds, ch.bbox)) continue;
+        const flags = ch.font.flags + (ch.superscript ? TEXT_FONT_SUPERSCRIPT : 0);
+        if (
+          ch.size !== key.size ||
+          flags !== key.flags ||
+          ch.rgb !== key.rgb ||
+          ch.font.name !== key.font ||
+          ch.bidi !== key.bidi
+        ) {
+          if (span) spans.push(span);
+          key = { size: ch.size, flags, font: ch.font.name, rgb: ch.rgb, bidi: ch.bidi };
+          span = { text: '', size: ch.size, flags, font: ch.font.name, bbox: ch.bbox };
+        }
+        span!.text += ch.c;
+        span!.bbox = union(span!.bbox, ch.bbox);
+      }
+      // Only the last span is dropped when its rect is empty (as in JM_make_spanlist).
+      if (span && !isEmpty(span.bbox)) spans.push(span);
+      lines.push(spans);
+    }
+  }
+  return lines;
+}
+
+/** `fz_union_rect`: invalid (inverted) rects are ignored. */
+function union(a: Rect, b: Rect): Rect {
+  const valid = (r: Rect): boolean => r[0] <= r[2] && r[1] <= r[3];
+  if (!valid(b)) return a;
+  if (!valid(a)) return b;
+  return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+}
+
+const BOLD_NAME_PARTS = ['.B', 'Bold', '-Bold', 'bold', '.b', '-Bd', 'Bd'];
+
+/** `_is_bold_span`: the bold flag or a bold-looking font name. */
+function isBoldSpan(span: Span): boolean {
+  if (span.flags & TEXT_FONT_BOLD) return true;
+  return BOLD_NAME_PARTS.some((b) => span.font.includes(b));
+}
+
+/** `_analyze_font_stats`: the char-weighted mode of round(size, 1) over the first 10 pages. */
+function bodySize(pages: Span[][][]): number {
+  const sizeChars = new Map<number, number>();
+  for (const lines of pages)
+    for (const spans of lines)
+      for (const span of spans) {
+        const text = pyStrip(span.text);
+        if (!text) continue;
+        const size = pyRound(span.size, 1);
+        sizeChars.set(size, (sizeChars.get(size) ?? 0) + pyLen(text));
+      }
+  // Counter.most_common(1): the first-inserted key among those with the highest count.
+  let best = 10.0;
+  let bestCount = -1;
+  for (const [size, count] of sizeChars)
+    if (count > bestCount) {
+      best = size;
+      bestCount = count;
+    }
+  return best;
+}
+
+// Python's re: `\s` is str.isspace, `\d` is any Unicode decimal digit, `\w` is PY_WORD, and IGNORECASE also
+// lets "i" match U+0130 and U+0131 (JS's `iu` already covers U+212A for "k" and U+017F for "s").
+const S = `[${PY_WS}]`;
+const HEADING_PATTERNS = new RegExp(
+  ('^(abstract|introduction|background|literature\\s+review|related\\s+work|' +
+    'methods?|methodology|approach|materials?\\s+and\\s+methods?|' +
+    'results?|findings?|analysis|' +
+    'discussion|conclusion|conclusions|summary|' +
+    'limitations?|future\\s+work|implications?|' +
+    'references?|bibliography|appendix|appendices|' +
+    'acknowledgm?ents?|funding|declarations?|' +
+    'supplementary|data\\s+availability|ethics|' +
+    'theoretical\\s+framework|conceptual\\s+framework|' +
+    'research\\s+design|study\\s+design|participants?|' +
+    'data\\s+collection|data\\s+analysis|procedure|' +
+    'key\\s+findings|main\\s+findings|' +
+    'recommendations?|policy\\s+implications?)$'
+  )
+    .replace(/i/g, '[i\\u0130\\u0131]')
+    .replace(/\\s/g, S),
+  'iu',
+);
+const NUMBERED_HEADING = new RegExp(`^\\p{Nd}+\\.?\\p{Nd}*\\.?${S}+${PY_WORD}`, 'u');
+const LEADING_NUMBER = new RegExp(`^\\p{Nd}+\\.?\\p{Nd}*\\.?${S}*`, 'u');
+const PARENTHETICAL = /^\([^\n]*\)$/u;
+const NUMERIC_JUNK = /^[\p{Nd}./:]+$/u;
+
+/** `_is_heading`: 0 (not a heading), 1 (h1) or 2 (h2). */
+function isHeading(text: string, fontSize: number, isBold: boolean, body: number, lineCharCount: number): number {
+  const stripped = pyStrip(text);
+  if (!stripped) return 0;
+
+  const isAllcaps = pyIsUpper(stripped) && pyLen(stripped) > 2;
+  const sizeRatio = body > 0 ? fontSize / body : 1.0;
+  const isLarger = sizeRatio >= 1.1;
+
+  const cleanText = pyStrip(stripped.replace(LEADING_NUMBER, ''));
+  const isKnownHeading = HEADING_PATTERNS.test(cleanText);
+  const isNumbered = NUMBERED_HEADING.test(stripped);
+  const words = pySplit(stripped).length;
+
+  if (sizeRatio >= 1.5) return 1;
+  if (isLarger && isKnownHeading) return 1;
+  if (isLarger && lineCharCount < 80 && words <= 10) {
+    if (isKnownHeading) return 1;
+    if (words >= 2) return sizeRatio >= 1.3 ? 1 : 2;
+  }
+  if (isBold && isKnownHeading) return 1;
+  if (isBold && isNumbered) return sizeRatio >= 1.0 ? 1 : 2;
+  if (isBold && isLarger && lineCharCount < 80) return 1;
+  if (isBold && lineCharCount < 60) {
+    if (PARENTHETICAL.test(stripped)) return 0;
+    if (NUMERIC_JUNK.test(stripped)) return 0;
+    if (pyLen(stripped) < 3) return 0;
+    if (isKnownHeading) return 1;
+    if (words >= 3 && lineCharCount >= 10) return 2;
+  }
+  if (isAllcaps && lineCharCount < 60 && words >= 3) return 2;
+  return 0;
+}
+
+/** `extract_text_pymupdf`: page text with `#`/`##` headings from font size, bold and section names. */
+export function extractTextMarkdown(doc: PdfDoc): string {
+  const n = pageCount(doc);
+  const statPages: Span[][][] = [];
+  for (let i = 0; i < Math.min(10, n); i++) statPages.push(pageSpanLines(doc, i));
+  const body = bodySize(statPages);
+
+  const pages: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const lines = i < statPages.length ? statPages[i]! : pageSpanLines(doc, i);
+    const parts: string[] = [];
+    for (const spans of lines) {
+      let lineText = '';
+      let maxSize = 0.0;
+      let lineBold = false;
+      for (const span of spans) {
+        lineText += span.text;
+        maxSize = Math.max(maxSize, span.size);
+        if (isBoldSpan(span)) lineBold = true;
+      }
+      const text = pyStrip(lineText);
+      if (!text) continue;
+      const level = isHeading(text, maxSize, lineBold, body, pyLen(text));
+      if (level === 1) parts.push(`\n# ${text}\n`);
+      else if (level === 2) parts.push(`\n## ${text}\n`);
+      else parts.push(text);
+    }
+    pages.push(parts.join('\n'));
+  }
+  return pages.join('\n\n');
+}
+
+// --- Rendering --------------------------------------------------------------------------------------------
+
+/** `fz_round_rect` of the page bounds under `matrix`, as PyMuPDF sizes the pixmap. */
+function deviceBBox(page: mupdf.Page, matrix: mupdf.Matrix): Rect {
+  const r = mupdf.Rect.transform(page.getBounds(), matrix);
+  return [Math.floor(r[0] + 0.001), Math.floor(r[1] + 0.001), Math.ceil(r[2] - 0.001), Math.ceil(r[3] - 0.001)];
+}
+
+function draw(doc: PdfDoc, index: number, dpi: number, box: (full: Rect) => Rect) {
+  const page = doc.doc.loadPage(index);
+  const matrix = mupdf.Matrix.scale(dpi / 72, dpi / 72);
+  const bbox = box(deviceBBox(page, matrix));
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, bbox, false);
+  try {
+    pix.clear(255);
+    const dev = new mupdf.DrawDevice(matrix, pix);
+    try {
+      page.run(dev, mupdf.Matrix.identity);
+      dev.close();
+    } finally {
+      dev.destroy();
+    }
+    return { png: pix.asPNG(), width: pix.getWidth(), height: pix.getHeight() };
+  } finally {
+    pix.destroy();
+    page.destroy();
+  }
+}
+
+/** Render a page as RGB (no alpha) with `scale(dpi / 72)`, like `page.get_pixmap(matrix=...)`. */
+export function renderPage(doc: PdfDoc, index: number, dpi: number): { png: Uint8Array; width: number; height: number } {
+  return draw(doc, index, dpi, (full) => full);
+}
+
+/** Render only the device-pixel `box` (x0, y0, x1, y1) of the page as `renderPage` would draw it. */
+export function cropPage(
+  doc: PdfDoc,
+  index: number,
+  dpi: number,
+  box: [number, number, number, number],
+): { png: Uint8Array; width: number; height: number } {
+  return draw(doc, index, dpi, (full) => [full[0] + box[0], full[1] + box[1], full[0] + box[2], full[1] + box[3]]);
+}
