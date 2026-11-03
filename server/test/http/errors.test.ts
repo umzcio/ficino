@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { HttpError } from '../../src/http/errors.js';
 import { body, params, pyInt } from '../../src/http/validate.js';
+import { resolveSigningKey } from '../../src/shared/signedUrl.js';
+import { LocalStorage } from '../../src/storage/local.js';
 import { client, testApp } from '../helpers/client.js';
 import { resetDb, testSql, USER_A_ID } from '../helpers/db.js';
 
@@ -81,12 +83,15 @@ describe('error contract (C §0)', () => {
     const { createApp } = await import('../../src/app.js');
     const { loadConfig } = await import('../../src/config.js');
     const { default: pino } = await import('pino');
+    const key = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
     const lines: string[] = [];
     const logger = pino({ level: 'warn' }, { write: (s: string) => void lines.push(s) });
     const app = createApp({
       sql: testSql(),
       config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
       logger,
+      storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),
+      signingKey: key,
       env: {},
     });
     app.get('/__t/uuid', async (c) => {
@@ -102,12 +107,15 @@ describe('error contract (C §0)', () => {
     const { createApp } = await import('../../src/app.js');
     const { loadConfig } = await import('../../src/config.js');
     const { default: pino } = await import('pino');
+    const key = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
     const lines: string[] = [];
     const logger = pino({ level: 'warn' }, { write: (s: string) => void lines.push(s) });
     const app = createApp({
       sql: testSql(),
       config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
       logger,
+      storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),
+      signingKey: key,
       env: {},
     });
     app.get('/__t/uuid', async (c) => {

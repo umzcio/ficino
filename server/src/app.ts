@@ -20,12 +20,15 @@ import { settingsRoutes } from './routes/settings.js';
 import { citationsRoutes } from './routes/citations.js';
 import { tagsRoutes } from './routes/tags.js';
 import { usersRoutes } from './routes/users.js';
+import type { LocalStorage } from './storage/local.js';
 import { workspacesRoutes } from './routes/workspaces.js';
 
 export type AppDeps = {
   sql: Sql;
   config: Config;
   logger: Logger;
+  storage: LocalStorage;
+  signingKey: Buffer;
   env: Record<string, string | undefined>;
   fetch?: typeof fetch;
   userOverride?: AuthUser;

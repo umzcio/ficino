@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import pino from 'pino';
 import { createApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
+import { resolveSigningKey } from '../../src/shared/signedUrl.js';
+import { LocalStorage } from '../../src/storage/local.js';
 import { coercePy } from '../../src/routes/settings.js';
 import { client, testApp } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID } from '../helpers/db.js';
@@ -180,10 +182,13 @@ describe('PUBLIC_DEPLOYMENT', () => {
 
   it('GET reasserts operator env over a stale row (env check)', async () => {
     await sql`INSERT INTO user_settings (user_id, settings) VALUES (${USER_A_ID}, '{"llm_provider": "ollama"}'::jsonb)`;
+    const key = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
     const pub = createApp({
       sql,
       config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
       logger: pino({ level: 'silent' }),
+      storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),
+      signingKey: key,
       env: { PUBLIC_DEPLOYMENT: 'true', LLM_PROVIDER: 'api' },
       userOverride: userA,
     });

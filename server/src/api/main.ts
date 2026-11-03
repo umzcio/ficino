@@ -8,6 +8,8 @@ import { loadConfig, type Env } from '../config.js';
 import { migrate } from '../db/migrate.js';
 import { createSql } from '../db/sql.js';
 import { logger } from '../logger.js';
+import { resolveSigningKey } from '../shared/signedUrl.js';
+import { LocalStorage } from '../storage/local.js';
 
 export interface RunningApi {
   close(): Promise<void>;
@@ -21,9 +23,11 @@ export async function startApi(env: Env = process.env): Promise<RunningApi> {
   const sql = createSql(config.databaseUrl, { max: config.dbPoolMax });
   let app: ReturnType<typeof createApp>;
   try {
+    const signingKey = resolveSigningKey(env);
+    const storage = new LocalStorage(config, signingKey, logger);
     await migrate(sql);
     if (config.authProvider === 'none') await ensureStubUser(sql);
-    app = createApp({ sql, config, logger, env });
+    app = createApp({ sql, config, logger, storage, signingKey, env });
   } catch (e) {
     await sql.end();
     throw e;

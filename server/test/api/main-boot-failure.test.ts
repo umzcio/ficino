@@ -44,3 +44,15 @@ it('startApi rejects and ends the pool when createApp throws', async () => {
     await scratch.drop();
   }
 });
+
+it('startApi rejects before listening and ends the pool when SIGNED_URL_KEY is missing in production', async () => {
+  const scratch = await createScratchDb();
+  try {
+    await expect(
+      startApi({ ENVIRONMENT: 'production', DATABASE_URL: scratch.url, AUTH_PROVIDER: 'none', PORT: '0', API_HOST: '127.0.0.1' }),
+    ).rejects.toThrow('SIGNED_URL_KEY is required');
+    expect(ended).toEqual(['end']);
+  } finally {
+    await scratch.drop();
+  }
+});

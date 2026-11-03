@@ -70,14 +70,14 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_tags.py::test_assign_tag_rejects_empty_name — plan01/T11
 - [x] api/tests/test_tags.py::test_get_paper_tags_returns_assigned — plan01/T11
 - [x] api/tests/test_tags.py::test_unassign_tag_removes_association — plan01/T11
-- [ ] shared/tests/test_storage_local.py::test_pdf_roundtrip — plan02
-- [ ] shared/tests/test_storage_local.py::test_unknown_provider_raises — plan02
-- [ ] shared/tests/test_storage_local.py::test_local_release_local_is_noop — plan02
-- [ ] shared/tests/test_storage_local.py::test_local_delete_pdf_idempotent — plan02
-- [ ] shared/tests/test_storage_local.py::test_local_save_figure_rejects_traversal — plan02
+- [x] shared/tests/test_storage_local.py::test_pdf_roundtrip — plan02/T2
+- [x] shared/tests/test_storage_local.py::test_unknown_provider_raises — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_local.py::test_local_release_local_is_noop — plan02/T2
+- [x] shared/tests/test_storage_local.py::test_local_delete_pdf_idempotent — plan02/T2
+- [x] shared/tests/test_storage_local.py::test_local_save_figure_rejects_traversal — plan02/T2
 - [x] shared/tests/test_storage_local.py::test_local_delete_paper_artifacts_removes_all — plan01/T9 (delete path only)
-- [ ] shared/tests/test_storage_local.py::test_local_figure_image_url_is_signed — plan02
-- [ ] shared/tests/test_storage_local.py::test_local_storage_takes_injected_dirs_not_settings — plan02
+- [x] shared/tests/test_storage_local.py::test_local_figure_image_url_is_signed — plan02/T2
+- [x] shared/tests/test_storage_local.py::test_local_storage_takes_injected_dirs_not_settings — plan02/T2
 - [ ] api/tests/test_feed_figure_hydration.py::test_figure_url_resigned_on_feed_get — plan03
 - [ ] api/tests/test_feed_figure_hydration.py::test_other_users_figure_not_resigned — plan03
 - [ ] api/tests/test_feed_figure_hydration.py::test_storage_error_keeps_persisted_url — plan03
@@ -213,14 +213,14 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [ ] api/tests/test_upload_size_precheck.py::test_spoofed_content_length_413s_before_read — plan02
 - [ ] api/tests/test_upload_size_precheck.py::test_small_upload_not_rejected_by_precheck — plan02
 - [ ] api/tests/test_upload_size_precheck.py::test_post_read_oversize_is_413_not_400 — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_requires_url_and_key — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_pdf_uploads_with_expected_key — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_figure_uploads_png — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_save_figure_rejects_traversal — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_figure_image_url_uses_signed_url — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_delete_paper_artifacts_enumerates_figures — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_podcast_episode_roundtrip_keys — plan02
-- [ ] shared/tests/test_storage_supabase.py::test_supabase_no_longer_has_dead_segment_methods — plan02
+- [x] shared/tests/test_storage_supabase.py::test_supabase_requires_url_and_key — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_supabase.py::test_supabase_save_pdf_uploads_with_expected_key — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_supabase.py::test_supabase_save_figure_uploads_png — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_supabase.py::test_supabase_save_figure_rejects_traversal — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_supabase.py::test_supabase_figure_image_url_uses_signed_url — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_supabase.py::test_supabase_delete_paper_artifacts_enumerates_figures — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_supabase.py::test_supabase_podcast_episode_roundtrip_keys — n/a: supabase storage removed (spec Decisions: Storage)
+- [x] shared/tests/test_storage_supabase.py::test_supabase_no_longer_has_dead_segment_methods — n/a: supabase storage removed (spec Decisions: Storage)
 - [x] api/tests/test_supabase_bootstrap.py::test_first_signin_creates_default_workspace — n/a: supabase removed
 - [x] api/tests/test_supabase_bootstrap.py::test_repeat_signin_does_not_duplicate_workspace — n/a: supabase removed
 - [x] api/tests/test_workspaces.py::test_list_workspaces_returns_only_owned — plan01/T8

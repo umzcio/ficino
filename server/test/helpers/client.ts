@@ -1,9 +1,25 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { Hono } from 'hono';
 import pino from 'pino';
 import { createApp, type AppEnv } from '../../src/app.js';
 import type { AuthUser } from '../../src/auth/types.js';
 import { loadConfig, type Config } from '../../src/config.js';
+import { resolveSigningKey } from '../../src/shared/signedUrl.js';
+import { LocalStorage } from '../../src/storage/local.js';
 import { testSql } from './db.js';
+
+let storageRoot: string | undefined;
+/** One temp dir per process (test-only artifact, under os.tmpdir()). */
+function testStorageDirs() {
+  storageRoot ??= fs.mkdtempSync(path.join(os.tmpdir(), 'ficino-test-storage-'));
+  return {
+    uploadDir: path.join(storageRoot, 'uploads'),
+    figuresDir: path.join(storageRoot, 'figures'),
+    mediaDir: path.join(storageRoot, 'media'),
+  };
+}
 
 export const CSRF_TEST_TOKEN = 'test-csrf-token-fixture';
 
@@ -13,10 +29,15 @@ export function testApp(opts: { user?: AuthUser; config?: Partial<Config>; fetch
     ...loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
     ...opts.config,
   };
+  const logger = pino({ level: 'silent' });
+  const signingKey = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
+  const storage = new LocalStorage({ ...testStorageDirs(), ...opts.config }, signingKey, logger);
   return createApp({
     sql: testSql(),
     config,
-    logger: pino({ level: 'silent' }),
+    logger,
+    storage,
+    signingKey,
     env: {},
     fetch: opts.fetch,
     userOverride: opts.user,
