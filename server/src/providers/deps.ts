@@ -31,11 +31,32 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * An Anthropic client that uses only the user's key. Left to itself the SDK (0.135.0) reads process.env on every
+ * construction: ANTHROPIC_AUTH_TOKEN (sent as a Bearer header next to the key), ANTHROPIC_BASE_URL,
+ * ANTHROPIC_WEBHOOK_SIGNING_KEY, ANTHROPIC_LOG, ANTHROPIC_OPEN_TELEMETRY*, and ANTHROPIC_CUSTOM_HEADERS (merged into
+ * every request). Each is pinned by an explicit option; the custom headers are read unconditionally into
+ * `_options.defaultHeaders`, and since we pass none, clearing it drops exactly the env ones.
+ */
+function anthropicClient(apiKey: string, opts: { maxRetries?: number; timeoutMs?: number }): AnthropicLike {
+  const client = new Anthropic({
+    apiKey,
+    authToken: null,
+    baseURL: 'https://api.anthropic.com',
+    webhookKey: null,
+    logLevel: 'warn', // the SDK default
+    openTelemetry: false,
+    maxRetries: opts.maxRetries,
+    timeout: opts.timeoutMs,
+  });
+  (client as unknown as { _options: { defaultHeaders?: unknown } })._options.defaultHeaders = undefined;
+  return client as unknown as AnthropicLike;
+}
+
 export function defaultProviderDeps(): ProviderDeps {
   return {
     fetch: (...args) => globalThis.fetch(...args),
-    anthropic: (apiKey, opts) =>
-      new Anthropic({ apiKey, maxRetries: opts.maxRetries, timeout: opts.timeoutMs }) as unknown as AnthropicLike,
+    anthropic: anthropicClient,
     sleep: abortableSleep,
   };
 }

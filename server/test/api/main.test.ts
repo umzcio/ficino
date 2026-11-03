@@ -52,6 +52,23 @@ describe('startApi', () => {
     expect(api.host).toBe('127.0.0.1');
   });
 
+  it('reads the env once at boot: later mutations of the passed object do not reach requests', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    const env: Record<string, string | undefined> = {
+      DATABASE_URL: scratch.url,
+      PORT: '0',
+      API_HOST: '127.0.0.1',
+      LOG_LEVEL: 'silent',
+      LLM_PROVIDER: 'ollama',
+    };
+    api = await startApi(env);
+    env.LLM_PROVIDER = 'claude';
+    const res = await fetch(`http://127.0.0.1:${api.port}/settings`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { llm_provider: string }).llm_provider).toBe('ollama');
+  });
+
   it('does not seed the stub user under AUTH_PROVIDER=basic', async () => {
     const scratch = await createScratchDb();
     drop = scratch.drop;

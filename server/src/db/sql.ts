@@ -12,9 +12,14 @@ const rawTimestamps = {
   },
 };
 
-export function createSql(url: string, opts: { max?: number } = {}): Sql {
+/**
+ * Server NOTICEs (e.g. "relation already exists, skipping" on every boot's migrations) are dropped unless the caller
+ * routes them somewhere; postgres.js would otherwise console.log each one.
+ */
+export function createSql(url: string, opts: { max?: number; onnotice?: (notice: postgres.Notice) => void } = {}): Sql {
   return postgres(url, {
     max: opts.max ?? 10,
+    onnotice: opts.onnotice ?? (() => undefined),
     connection: { TimeZone: 'UTC' },
     types: rawTimestamps,
   });

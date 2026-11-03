@@ -19,9 +19,14 @@ export interface RunningApi {
 }
 
 /** Boots the API: config, pool, migrations, stub user (AUTH_PROVIDER=none), then the HTTP listener. */
-export async function startApi(env: Env = process.env): Promise<RunningApi> {
+export async function startApi(rawEnv: Env = process.env): Promise<RunningApi> {
+  // Read the env once: requests see this frozen copy, never live process.env.
+  const env: Readonly<Env> = Object.freeze({ ...rawEnv });
   const config = loadConfig(env);
-  const sql = createSql(config.databaseUrl, { max: config.dbPoolMax });
+  const sql = createSql(config.databaseUrl, {
+    max: config.dbPoolMax,
+    onnotice: (n) => logger.debug({ notice: n.message }, 'postgres notice'),
+  });
   const boss = createBoss(config.databaseUrl, { max: 3, supervise: false, schedule: false });
   let app: ReturnType<typeof createApp>;
   try {

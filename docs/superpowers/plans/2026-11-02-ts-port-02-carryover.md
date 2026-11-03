@@ -18,6 +18,7 @@ Each ruling says what it costs if it turns out to be wrong. They go beyond what 
 10. **Ollama vision does not retry 4xx.** Python's `except HTTPStatusError` retried 4xx despite its docstring. This follows the shared `isTransient` and the LLM path; retrying a 4xx is waste. Cost if wrong: a lost retry on a flaky 4xx.
 11. **`extractFigures` must not reject until every in-flight page callback has settled**, otherwise `processPaper`'s `closePdf` in `finally` could race a page still using the document (WASM use-after-free). Cost if wrong: a few milliseconds of extra wait on abort.
 12. **postgres.js double-encodes a JSON string passed into jsonb.** Writes go through `sql.json`. The final review audited every jsonb write on the branch (alert metadata, `job_progress.meta`, plan-01 audit and settings). Future jsonb writes must use `sql.json`, not `JSON.stringify`.
+13. **`countTokens` bounds the cost of one pre-tokenized piece.** js-tiktoken's BPE merge is quadratic per piece (16k identical characters took about 13 s, 20k spaces about 21 s). `countTokens` splits the text with cl100k_base's own `pat_str` (from js-tiktoken's rank data) and counts each piece on its own, treating special tokens as plain text. A piece longer than 2000 code points is counted as 2000-code-point sub-pieces, never splitting a surrogate pair. For pieces of 2000 code points or fewer the count equals js-tiktoken's `encode(text, [], []).length`, which the chunker goldens and an equality test assert. The per-piece merge uses a min-heap (lowest rank, leftmost on ties) over the same ranks, because js-tiktoken's own merge still took about 200 ms per 2000-character piece (about 10 s per 100k characters, and about 1.1 ms per character for 4-byte characters). Cost if wrong: slightly different token counts or chunk boundaries for papers with unbroken runs longer than 2000 characters.
 
 ## Carry into plan 03
 
@@ -36,12 +37,14 @@ Each ruling says what it costs if it turns out to be wrong. They go beyond what 
 - `/media` has no `Range` support (Safari seeking and audio scrubbing). Add it.
 - Storage audio and podcast URLs are relative (`/media/...`). The unchanged frontend `ListenView` sets `audio.src` without an API-base prefix, so hydration must emit a URL the frontend can use as-is.
 - A future reprocess endpoint: an empty re-run keeps stale chunks while `chunk_count` is 0 (Python parity).
+- Once audio is written, every feed DELETE path must also call `storage.deleteFeedMedia`: the last-paper feed cleanup in `papers.ts`, the settings `clear-*` routes, and workspace delete.
 
 ## Carry into plan 06 (cutover)
 
 - Delete `server/test/fixtures/goldens/gen/*.py` together with `worker/`.
 - The compose worker service must use `command: ["node","dist/worker/main.js"]`, with the same volumes as the API for uploads, figures and media, the same `SIGNED_URL_KEY`, and no inherited API healthcheck (the image's `HEALTHCHECK` probes port 8000 and would mark the worker unhealthy).
 - The API and worker share `MEDIA_DIR`, `UPLOAD_DIR` and `FIGURES_DIR`; mount one volume per directory.
+- Synchronous extraction has no hard limit. Before the final-review fix, a 0.9 KB PDF with one 10k-space line spent 10 s in `chunkMarkdown`, and 60k spaces did not finish in 300 s. `countTokens` took about 13 s for 16k identical characters and about 21 s for 20k spaces, and `pyStrip` took 16.6 s for 160k interior spaces. After the fix, strip and BPE are linear (the 60k-space PDF chunks in about 0.3 s). MuPDF extraction and chunking still run on the main thread, though, and the job's abort signal cannot interrupt them. Consider running them in a `worker_thread` that is terminated at `JOB_TIME_LIMIT_SEC`.
 
 ## Plan-01 items closed by plan 02
 

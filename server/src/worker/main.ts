@@ -22,7 +22,12 @@ export interface WorkerOverrides {
   handlers?: Partial<Record<QueueName, Handler>>;
   queueOverrides?: Parameters<typeof ensureQueues>[2];
   softLimitMs?: number;
+  /** pg-boss graceful-stop timeout in close() (default 30 s). */
+  stopTimeoutMs?: number;
 }
+
+/** How long close() waits, after pg-boss's own stop timeout, for aborted handlers to finish their DB writes. */
+const DRAIN_MS = 10_000;
 
 const SCHEDULES: Array<{ queue: QueueName; cron: string }> = [
   { queue: 'check_stale_papers', cron: '0 3 * * *' },
@@ -33,8 +38,14 @@ const SCHEDULES: Array<{ queue: QueueName; cron: string }> = [
 export async function startWorker(rawEnv: Env = process.env, overrides: WorkerOverrides = {}): Promise<RunningWorker> {
   const env: Readonly<Env> = Object.freeze({ ...rawEnv });
   const config = loadConfig(env);
-  const sql = createSql(config.databaseUrl, { max: config.workerDbPoolMax });
+  const sql = createSql(config.databaseUrl, {
+    max: config.workerDbPoolMax,
+    onnotice: (n) => logger.debug({ notice: n.message }, 'postgres notice'),
+  });
   let boss: PgBoss | undefined;
+  // Handler runs still settling. pg-boss's stop() returns at its timeout while a handler may still be writing
+  // (e.g. setError after the abort), so close() waits for these before ending the pool.
+  const inFlight = new Set<Promise<void>>();
   try {
     await migrate(sql);
     const signingKey = resolveSigningKey(env);
@@ -65,8 +76,12 @@ export async function startWorker(rawEnv: Env = process.env, overrides: WorkerOv
         async ([job]) => {
           if (!job) return;
           const ctx = makeJobContext(job, sql, logger, softLimitMs);
+          const run = (async () => handler(job.data, ctx, deps))();
+          const settled = run.then(() => undefined, () => undefined);
+          inFlight.add(settled);
+          void settled.then(() => inFlight.delete(settled));
           try {
-            return await handler(job.data, ctx, deps);
+            return await run;
           } catch (err) {
             // Rethrow so pg-boss applies the queue's retry policy.
             logger.error({ err, queue: name, jobId: job.id, retryCount: job.retryCount }, 'job failed');
@@ -91,8 +106,17 @@ export async function startWorker(rawEnv: Env = process.env, overrides: WorkerOv
   const close = () =>
     (closing ??= (async () => {
       try {
-        await b.stop({ graceful: true, timeout: 30000 });
+        await b.stop({ graceful: true, timeout: overrides.stopTimeoutMs ?? 30000 });
       } finally {
+        if (inFlight.size > 0) {
+          let timer: NodeJS.Timeout | undefined;
+          await Promise.race([
+            Promise.all([...inFlight]),
+            new Promise<void>((resolve) => (timer = setTimeout(resolve, DRAIN_MS))),
+          ]);
+          clearTimeout(timer);
+          if (inFlight.size > 0) logger.warn({ running: inFlight.size }, 'ending pool with job handlers still running');
+        }
         await sql.end();
       }
     })());

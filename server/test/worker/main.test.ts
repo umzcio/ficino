@@ -81,4 +81,54 @@ describe('startWorker', () => {
     await w.close();
     worker = undefined;
   });
+
+  it('close() waits for a handler still running after the pg-boss stop timeout before ending the pool', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    const env = await envFor(scratch.url);
+    const probe = createSql(scratch.url, { max: 1 });
+    let started!: () => void;
+    const running = new Promise<void>((r) => (started = r));
+    let stopCalledAt = 0;
+    let writeError: unknown = 'not run';
+    try {
+      worker = await startWorker(env, {
+        stopTimeoutMs: 1000,
+        handlers: {
+          // Ignores the abort signal, like a handler mid-cleanup writing setError after pg-boss gave up on it.
+          check_stale_papers: async (_data, _ctx, deps) => {
+            started();
+            await vi.waitFor(() => expect(stopCalledAt).toBeGreaterThan(0), { timeout: 15000, interval: 20 });
+            while (Date.now() - stopCalledAt < 2000) await new Promise((r) => setTimeout(r, 50));
+            try {
+              await deps.sql`INSERT INTO drain_probe (note) VALUES ('written after stop')`;
+              writeError = null;
+            } catch (e) {
+              writeError = e;
+            }
+            return { status: 'complete' };
+          },
+        },
+      });
+      await probe`CREATE TABLE drain_probe (note text)`;
+      const boss = createBoss(scratch.url, { max: 1, supervise: false, schedule: false });
+      boss.on('error', () => undefined);
+      await boss.start();
+      try {
+        await new JobQueue(boss, probe).send('check_stale_papers', {});
+        await running;
+      } finally {
+        await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
+      }
+
+      const w = worker;
+      stopCalledAt = Date.now();
+      await w.close();
+      worker = undefined;
+      expect(writeError).toBeNull();
+      expect(await probe`SELECT note FROM drain_probe`).toEqual([{ note: 'written after stop' }]);
+    } finally {
+      await probe.end();
+    }
+  }, 30000);
 });
