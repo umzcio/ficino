@@ -247,11 +247,11 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] worker/tests/test_generate_feed_idempotency.py::test_empty_feed_redelivery_does_not_error_or_duplicate — plan03
 - [ ] worker/tests/test_generate_feed_idempotency.py::test_empty_attempt_then_successful_redelivery_recovers_posts — plan03
 - [ ] worker/tests/test_group_chat_pending_state.py::test_generate_corpus_synthesis_marks_error_on_retry_exhaustion — plan04
-- [ ] worker/tests/test_llm_hardening.py::test_ollama_empty_response_raises_runtime_error — plan02
-- [ ] worker/tests/test_llm_hardening.py::test_ollama_whitespace_only_response_raises_runtime_error — plan02
-- [ ] worker/tests/test_llm_hardening.py::test_ollama_nonempty_response_still_returns_content — plan02
-- [ ] worker/tests/test_llm_hardening.py::test_ollama_empty_content_with_thinking_falls_back_not_raises — plan02
-- [ ] worker/tests/test_llm_hardening.py::test_ollama_4xx_is_not_retried — plan02
+- [x] worker/tests/test_llm_hardening.py::test_ollama_empty_response_raises_runtime_error — plan02/T6
+- [x] worker/tests/test_llm_hardening.py::test_ollama_whitespace_only_response_raises_runtime_error — plan02/T6
+- [x] worker/tests/test_llm_hardening.py::test_ollama_nonempty_response_still_returns_content — plan02/T6
+- [x] worker/tests/test_llm_hardening.py::test_ollama_empty_content_with_thinking_falls_back_not_raises — plan02/T6
+- [x] worker/tests/test_llm_hardening.py::test_ollama_4xx_is_not_retried — plan02/T6
 - [ ] worker/tests/test_media_claim_reclaim.py::test_stale_generating_claim_is_reclaimable — plan05
 - [ ] worker/tests/test_media_claim_reclaim.py::test_fresh_generating_claim_is_not_stolen — plan05
 - [ ] worker/tests/test_media_claim_reclaim.py::test_legacy_null_claimed_at_generating_row_is_reclaimable — plan05
@@ -270,10 +270,10 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_rolls_back_on_failure — plan05
 - [ ] worker/tests/test_reading_list_persist.py::test_propose_ordering_persists_in_one_transaction — plan05
 - [ ] worker/tests/test_reading_list_persist.py::test_propose_ordering_persist_failure_propagates_to_retry — plan05
-- [ ] worker/tests/test_settings_env_hygiene.py::test_no_key_leak_between_users — plan02
-- [ ] worker/tests/test_settings_env_hygiene.py::test_operator_baseline_is_restored — plan02
-- [ ] worker/tests/test_settings_env_hygiene.py::test_public_deployment_reassert_wins_over_stale_user_value — plan02
-- [ ] worker/tests/test_settings_env_hygiene.py::test_public_deployment_does_not_launder_previous_users_key — plan02
+- [x] worker/tests/test_settings_env_hygiene.py::test_no_key_leak_between_users — plan02/T6
+- [x] worker/tests/test_settings_env_hygiene.py::test_operator_baseline_is_restored — plan02/T6
+- [x] worker/tests/test_settings_env_hygiene.py::test_public_deployment_reassert_wins_over_stale_user_value — plan02/T6
+- [x] worker/tests/test_settings_env_hygiene.py::test_public_deployment_does_not_launder_previous_users_key — plan02/T6
 - [ ] worker/tests/test_shared_adoption.py::test_chapter_sql_imported_by_both_sites — plan05
 - [ ] worker/tests/test_shared_adoption.py::test_default_for_matches_defaults — plan01
 - [x] worker/tests/test_stale_papers.py::test_stale_query_counts_null_corpus_feeds — plan02/T4
