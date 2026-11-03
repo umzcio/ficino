@@ -41,11 +41,17 @@ export function errorHandler(logger: Logger): ErrorHandler {
           422,
         );
       }
-      return c.json({ detail: err.message }, err.status as ContentfulStatusCode);
+      const res = c.json({ detail: err.message }, err.status as ContentfulStatusCode);
+      // Keep headers the thrower attached (e.g. Retry-After), but not the body's framing headers.
+      err.res?.headers.forEach((value, key) => {
+        if (key === 'content-type' || key === 'content-length') return;
+        res.headers.set(key, value);
+      });
+      return res;
     }
     if (pgCode(err) === PG_INVALID_TEXT_REPRESENTATION) {
       logger.warn(
-        { path: c.req.path, code: '22P02', msg: (err as Error).message },
+        { path: c.req.path, code: '22P02', pg_message: (err as Error).message },
         'invalid_text_representation mapped to 404',
       );
       return c.json({ detail: 'Not Found' }, 404);

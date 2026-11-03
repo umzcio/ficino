@@ -17,6 +17,13 @@ export interface Config {
   signedUrlKey: string;
   searchUseNormalizedPosts: boolean;
   dbPoolMax: number;
+  workerDbPoolMax: number;
+  embedDim: number;
+  jobTimeLimitSec: number;
+  ingestionConcurrency: number;
+  maxVisionPages: number;
+  contextMaxPaperChars: number;
+  contextMaxTokens: number;
   port: number;
   rateLimits: {
     paper_upload: number;
@@ -65,8 +72,24 @@ function poolMax(n: number): number {
   return n;
 }
 
+function embedDim(n: number): number {
+  if (n !== 1024) throw new Error('EMBED_DIM must be 1024 (chunks.embedding is vector(1024))');
+  return n;
+}
+
+function jobTimeLimit(n: number): number {
+  if (n < 120) throw new Error('JOB_TIME_LIMIT_SEC must be at least 120');
+  return n;
+}
+
+function atLeastOne(name: string, n: number): number {
+  if (n < 1) throw new Error(`${name} must be at least 1`);
+  return n;
+}
+
 export function loadConfig(env: Env = process.env): Config {
   const poolVar = env.API_DB_POOL_MAX_SIZE !== undefined ? 'API_DB_POOL_MAX_SIZE' : 'DB_POOL_MAX_SIZE';
+  const workerPoolVar = env.WORKER_DB_POOL_MAX_SIZE !== undefined ? 'WORKER_DB_POOL_MAX_SIZE' : 'DB_POOL_MAX_SIZE';
   return {
     databaseUrl: str(env, 'DATABASE_URL', 'postgresql://ficino:ficino@postgres:5432/ficino'),
     environment: str(env, 'ENVIRONMENT', 'development'),
@@ -87,6 +110,13 @@ export function loadConfig(env: Env = process.env): Config {
     signedUrlKey: str(env, 'SIGNED_URL_KEY', '').trim(),
     searchUseNormalizedPosts: parseBool(env.SEARCH_USE_NORMALIZED_POSTS, true),
     dbPoolMax: poolMax(int(env, poolVar, 20)),
+    workerDbPoolMax: poolMax(int(env, workerPoolVar, 10)),
+    embedDim: embedDim(int(env, 'EMBED_DIM', 1024)),
+    jobTimeLimitSec: jobTimeLimit(int(env, 'JOB_TIME_LIMIT_SEC', 600)),
+    ingestionConcurrency: atLeastOne('WORKER_INGESTION_CONCURRENCY', int(env, 'WORKER_INGESTION_CONCURRENCY', 1)),
+    maxVisionPages: int(env, 'MAX_VISION_PAGES', 100),
+    contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
+    contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),
     port: int(env, 'PORT', 8000),
     rateLimits: {
       paper_upload: int(env, 'RATE_LIMIT_UPLOADS_PER_DAY', 50),

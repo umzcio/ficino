@@ -9,12 +9,18 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "vitest run",
     "dev:api": "tsx watch src/api/main.ts",
-    "migrate": "tsx src/db/migrate-cli.ts"
+    "migrate": "tsx src/db/migrate-cli.ts",
+    "dev:worker": "tsx watch src/worker/main.ts",
+    "worker": "node dist/worker/main.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.135.0",
     "@hono/node-server": "^2.1.5",
     "bcryptjs": "^3.0.3",
     "hono": "^4.13.14",
+    "js-tiktoken": "1.0.21",
+    "mupdf": "1.28.1",
+    "pg-boss": "12.38.0",
     "pino": "^10.4.0",
     "postgres": "^4.0.0",
     "zod": "^4.6.7"

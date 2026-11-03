@@ -98,6 +98,44 @@ describe('error contract (C §0)', () => {
     expect(rec).toMatchObject({ level: 40, path: '/__t/uuid', code: '22P02', msg: 'invalid_text_representation mapped to 404' });
   });
 
+  it('22P02 logs the Postgres error text under pg_message', async () => {
+    const { createApp } = await import('../../src/app.js');
+    const { loadConfig } = await import('../../src/config.js');
+    const { default: pino } = await import('pino');
+    const lines: string[] = [];
+    const logger = pino({ level: 'warn' }, { write: (s: string) => void lines.push(s) });
+    const app = createApp({
+      sql: testSql(),
+      config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
+      logger,
+      env: {},
+    });
+    app.get('/__t/uuid', async (c) => {
+      await testSql()`SELECT ${'abc'}::uuid`;
+      return c.json({});
+    });
+    await client(app).get('/__t/uuid');
+    const rec = JSON.parse(lines.at(-1)!);
+    expect(rec.pg_message).toMatch(/invalid input syntax for type uuid/);
+    expect(rec.msg).toBe('invalid_text_representation mapped to 404');
+  });
+
+  it('HTTPException keeps headers from its res (Retry-After) on the {detail} response', async () => {
+    const { HTTPException } = await import('hono/http-exception');
+    const app = testApp();
+    app.get('/__t/slow', () => {
+      throw new HTTPException(429, {
+        message: 'slow down',
+        res: new Response('x', { status: 429, headers: { 'Retry-After': '7', 'Content-Type': 'text/plain' } }),
+      });
+    });
+    const r = await client(app).get('/__t/slow');
+    expect(r.status).toBe(429);
+    expect(r.headers.get('retry-after')).toBe('7');
+    expect(r.headers.get('content-type')).toMatch(/^application\/json/);
+    expect(await r.json()).toEqual({ detail: 'slow down' });
+  });
+
   it('PG invalid_text_representation (22P02) → 404 {"detail":"Not Found"}', async () => {
     const app = testApp();
     app.get('/__t/uuid', async (c) => {

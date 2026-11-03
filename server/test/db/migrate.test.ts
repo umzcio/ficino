@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { migrate } from '../../src/db/migrate.js';
 import { createSql, type Sql } from '../../src/db/sql.js';
@@ -80,5 +83,40 @@ it('throws immediately on a pool of 1 instead of deadlocking', async () => {
     await expect(migrate(tiny)).rejects.toThrow('at least 2 connections');
   } finally {
     await tiny.end();
+  }
+});
+
+it('concurrent migrate() calls on separate pools: one applies, the other waits and returns []', async () => {
+  const db = await createScratchDb();
+  const a = createSql(db.url, { max: 2 });
+  const b = createSql(db.url, { max: 2 });
+  try {
+    const [ra, rb] = await Promise.all([migrate(a), migrate(b)]);
+    expect([ra, rb].map((r) => r.length).sort()).toEqual([0, 3]);
+    const rows = await a`SELECT version FROM schema_migrations ORDER BY 1`;
+    expect(rows.map((r) => r.version)).toEqual(['0001', '0002', '0003']);
+  } finally {
+    await a.end();
+    await b.end();
+    await db.drop();
+  }
+});
+
+it('a failed unlock does not mask the migration error', async () => {
+  const db = await createScratchDb();
+  const s = createSql(db.url, { max: 2 });
+  const dir = await mkdtemp(join(tmpdir(), 'mig-'));
+  // Kill the session holding the advisory lock (migrate's reserved connection), then fail.
+  await writeFile(
+    join(dir, '0001_boom.sql'),
+    `SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND granted AND pid <> pg_backend_pid();
+     SELECT pg_sleep(0.3);
+     DO $$ BEGIN RAISE EXCEPTION 'migration boom'; END $$;`,
+  );
+  try {
+    await expect(migrate(s, dir)).rejects.toThrow('migration boom');
+  } finally {
+    await s.end({ timeout: 1 }).catch(() => undefined);
+    await db.drop();
   }
 });

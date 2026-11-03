@@ -109,7 +109,7 @@ export function settingsRoutes(): Hono<AppEnv> {
     }
 
     const existing = await sql.begin(async (tx) => {
-      const cur = await loadStoredSettings(tx as unknown as Sql, c.var.user.id, { lock: true });
+      const cur = await loadStoredSettings(tx, c.var.user.id, { lock: true });
       for (const [key, value] of Object.entries(filtered)) {
         const base = cur[key];
         cur[key] = isDict(base) && isDict(value) ? { ...base, ...value } : value;

@@ -1,3 +1,4 @@
+import type postgres from 'postgres';
 import type { Sql } from '../db/sql.js';
 
 const BANNED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -12,7 +13,7 @@ function isDict(v: unknown): v is Record<string, unknown> {
  * Pass a transaction handle as `sql` to read inside it (with `lock` for `FOR UPDATE`).
  */
 export async function loadStoredSettings(
-  sql: Sql,
+  sql: Sql | postgres.TransactionSql,
   userId: string,
   opts: { lock?: boolean } = {},
 ): Promise<Record<string, unknown>> {

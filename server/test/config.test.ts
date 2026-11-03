@@ -38,3 +38,30 @@ it('rejects a DB pool max below 2 (migrate would deadlock)', () => {
   expect(() => loadConfig({ API_DB_POOL_MAX_SIZE: '0' })).toThrow('DB pool max must be at least 2 (got 0)');
   expect(loadConfig({ DB_POOL_MAX_SIZE: '2' }).dbPoolMax).toBe(2);
 });
+
+it('worker defaults', () => {
+  const c = loadConfig({});
+  expect(c.workerDbPoolMax).toBe(10);
+  expect(c.embedDim).toBe(1024);
+  expect(c.jobTimeLimitSec).toBe(600);
+  expect(c.ingestionConcurrency).toBe(1);
+  expect(c.maxVisionPages).toBe(100);
+  expect(c.contextMaxPaperChars).toBe(200000);
+  expect(c.contextMaxTokens).toBe(150);
+});
+it('worker pool prefers WORKER_DB_POOL_MAX_SIZE, falls back to DB_POOL_MAX_SIZE, guards >= 2', () => {
+  expect(loadConfig({ DB_POOL_MAX_SIZE: '7' }).workerDbPoolMax).toBe(7);
+  expect(loadConfig({ DB_POOL_MAX_SIZE: '7', WORKER_DB_POOL_MAX_SIZE: '4' }).workerDbPoolMax).toBe(4);
+  expect(() => loadConfig({ WORKER_DB_POOL_MAX_SIZE: '1' })).toThrow('DB pool max must be at least 2 (got 1)');
+});
+it('EMBED_DIM other than 1024 throws', () => {
+  expect(() => loadConfig({ EMBED_DIM: '768' })).toThrow('EMBED_DIM must be 1024 (chunks.embedding is vector(1024))');
+  expect(loadConfig({ EMBED_DIM: '1024' }).embedDim).toBe(1024);
+});
+it('JOB_TIME_LIMIT_SEC below 120 throws', () => {
+  expect(() => loadConfig({ JOB_TIME_LIMIT_SEC: '60' })).toThrow('JOB_TIME_LIMIT_SEC must be at least 120');
+  expect(loadConfig({ JOB_TIME_LIMIT_SEC: '120' }).jobTimeLimitSec).toBe(120);
+});
+it('ingestion concurrency must be >= 1', () => {
+  expect(() => loadConfig({ WORKER_INGESTION_CONCURRENCY: '0' })).toThrow('WORKER_INGESTION_CONCURRENCY must be at least 1');
+});

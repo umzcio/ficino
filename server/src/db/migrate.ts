@@ -20,6 +20,7 @@ export async function migrate(sql: Sql, dir: string = DEFAULT_DIR): Promise<stri
   // Advisory locks are per-session: hold one reserved connection for the whole run,
   // while each file's transaction uses another pool connection (so max must be >= 2).
   const conn = await sql.reserve();
+  let failure: { err: unknown } | undefined;
   try {
     await conn`SELECT pg_advisory_lock(${LOCK_KEY})`;
     try {
@@ -38,8 +39,17 @@ export async function migrate(sql: Sql, dir: string = DEFAULT_DIR): Promise<stri
         });
         applied.push(version);
       }
+    } catch (err) {
+      failure = { err };
+      throw err;
     } finally {
-      await conn`SELECT pg_advisory_unlock(${LOCK_KEY})`;
+      try {
+        await conn`SELECT pg_advisory_unlock(${LOCK_KEY})`;
+      } catch (unlockErr) {
+        // A dead connection drops the session lock anyway; never mask the migration's own error.
+        if (!failure) throw unlockErr;
+        console.error('migrate: advisory unlock failed after migration error:', unlockErr);
+      }
     }
   } finally {
     conn.release();
