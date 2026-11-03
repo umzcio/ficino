@@ -238,7 +238,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 
 ## worker/tests
 
-- [ ] worker/tests/test_auto_tagging.py::test_auto_tag_db_helpers_are_imported — plan02
+- [x] worker/tests/test_auto_tagging.py::test_auto_tag_db_helpers_are_imported — plan02/T12
 - [ ] worker/tests/test_chapter_post_validation.py::test_reading_list_tasks_imports_validator — plan05
 - [x] worker/tests/test_event_loop.py::test_loop_runner_recovers_from_a_dead_but_unclosed_loop_thread — n/a: no LoopRunner in Node (W §4)
 - [x] worker/tests/test_event_loop.py::test_loop_runner_concurrent_submissions_dont_serialize — n/a: no LoopRunner in Node (W §4)

@@ -225,4 +225,54 @@ describe('extractFigures', () => {
       d.mockRestore();
     }
   });
+
+  it('does not reject until every in-flight page has settled (the caller closes the doc right after)', async () => {
+    const orig = mupdf.Pixmap.prototype.clear;
+    const origDestroy = mupdf.Pixmap.prototype.destroy;
+    const rendered: mupdf.Pixmap[] = [];
+    const freed = new Set<mupdf.Pixmap>();
+    const c = vi.spyOn(mupdf.Pixmap.prototype, 'clear').mockImplementation(function (this: mupdf.Pixmap, v?: number) {
+      rendered.push(this);
+      return orig.call(this, v);
+    });
+    const d = vi.spyOn(mupdf.Pixmap.prototype, 'destroy').mockImplementation(function (this: mupdf.Pixmap) {
+      freed.add(this);
+      return origDestroy.call(this);
+    });
+    try {
+      const ac = new AbortController();
+      const reason = new Error('job cancelled');
+      let page1Cropped = false;
+      const { deps } = detector(() => []);
+      deps.fetch = (async (_u: string | URL | Request, init?: RequestInit) => {
+        const content = JSON.parse(String(init?.body)).messages[1].content as string;
+        if (content.includes('page 2 of')) {
+          ac.abort(reason);
+          throw new DOMException('aborted', 'AbortError');
+        }
+        if (content.includes('page 1 of')) {
+          // A provider that ignores the abort: page 1 goes on to crop from the doc after page 2 rejected.
+          await new Promise((r) => setTimeout(r, 60));
+          return new Response(JSON.stringify({ message: { content: '{"figures": [{"bbox": [0.1, 0.1, 0.5, 0.5]}]}' } }));
+        }
+        return new Response(JSON.stringify({ message: { content: '{"figures": []}' } }));
+      }) as typeof fetch;
+      const asPng = mupdf.Pixmap.prototype.asPNG;
+      const p = vi.spyOn(mupdf.Pixmap.prototype, 'asPNG').mockImplementation(function (this: mupdf.Pixmap) {
+        if (this.getWidth() !== RASTER[0]!.width) page1Cropped = true;
+        return asPng.call(this);
+      });
+      try {
+        await expect(extractFigures(doc, ollama(), deps, ac.signal)).rejects.toBe(reason);
+      } finally {
+        p.mockRestore();
+      }
+      expect(page1Cropped).toBe(true);
+      expect(rendered.length).toBeGreaterThanOrEqual(2);
+      expect(rendered.every((px) => freed.has(px))).toBe(true);
+    } finally {
+      c.mockRestore();
+      d.mockRestore();
+    }
+  });
 });

@@ -12,7 +12,15 @@
  * Every function is synchronous.
  */
 import * as mupdf from 'mupdf';
+import { logger } from '../logger.js';
 import { PY_WORD, PY_WS, pyIsUpper, pyLen, pyRound, pySplit, pyStrip } from '../shared/pystr.js';
+
+// MuPDF engine messages (repairs, font fallbacks) go to the process logger instead of raw stderr. The hook is
+// process-wide and set once here, so it carries no job context (no per-job state, see the globals).
+mupdf.setLog({
+  warning: (message) => logger.warn({ mupdf: message }, 'mupdf_warning'),
+  error: (message) => logger.warn({ mupdf: message }, 'mupdf_error'),
+});
 
 export class PdfOpenError extends Error {
   constructor(message: string, options?: ErrorOptions) {
