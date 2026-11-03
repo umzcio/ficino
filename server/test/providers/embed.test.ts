@@ -69,6 +69,24 @@ describe('embedTexts: ollama /api/embed', () => {
     expect(sleeps).toEqual([2000]);
   });
 
+  it('compensating per-batch count errors (15 then 9 for 16+8) throw', async () => {
+    const { deps } = fakeDeps((c) => json({ embeddings: new Array(c.body.input.length === 16 ? 15 : 9).fill(vec(0)) }));
+    const err = await embedTexts(ollama, deps, texts(24), doc).catch((e) => e);
+    expect(err).toBeInstanceOf(EmbeddingUnavailableError);
+    expect(err.message).toMatch(/ollama returned \d+ embeddings for \d+ inputs/);
+  });
+
+  it('job abort is not retried', async () => {
+    const ac = new AbortController();
+    const { deps, calls, sleeps } = fakeDeps(() => {
+      ac.abort(new Error('job cancelled'));
+      throw ac.signal.reason; // what real fetch does when its signal aborts
+    });
+    await expect(embedTexts(ollama, deps, ['1'], { ...doc, signal: ac.signal })).rejects.toThrow('job cancelled');
+    expect(calls).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+
   it('does not retry a 400', async () => {
     const { deps, calls } = fakeDeps(() => json({ error: 'bad' }, 400));
     await expect(embedTexts(ollama, deps, ['1'], doc)).rejects.toThrow('HTTP 400');
@@ -118,6 +136,17 @@ describe('embedTexts: openai', () => {
   });
 });
 
+describe('embedTexts: openai retry', () => {
+  it('429 then 200 succeeds after one 2000 ms sleep', async () => {
+    const { deps, calls, sleeps } = fakeDeps((c, n) =>
+      n === 0 ? json({}, 429) : json({ data: [{ index: 0, embedding: vec(1) }] }),
+    );
+    expect(await embedTexts(openai, deps, ['1'], doc)).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(sleeps).toEqual([2000]);
+  });
+});
+
 describe('embedTexts: post-checks and unavailable providers', () => {
   it('768-d response throws EmbeddingUnavailableError mentioning the dimension', async () => {
     const { deps } = fakeDeps((c) => json({ embeddings: c.body.input.map(() => vec(0, 768)) }));
@@ -129,7 +158,7 @@ describe('embedTexts: post-checks and unavailable providers', () => {
 
   it('short count throws', async () => {
     const { deps } = fakeDeps(() => json({ embeddings: [vec(0)] }));
-    await expect(embedTexts(ollama, deps, ['a', 'b'], doc)).rejects.toThrow(/length mismatch.*returned 1 vectors for 2/);
+    await expect(embedTexts(ollama, deps, ['a', 'b'], doc)).rejects.toThrow(/ollama returned 1 embeddings for 2 inputs/);
   });
 
   it('unknown provider throws with the Python message', async () => {

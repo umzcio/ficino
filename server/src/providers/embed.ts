@@ -25,6 +25,12 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+function checkBatch(provider: string, vecs: unknown[], batch: unknown[]): void {
+  if (vecs.length !== batch.length) {
+    throw new EmbeddingUnavailableError(`${provider} returned ${vecs.length} embeddings for ${batch.length} inputs`);
+  }
+}
+
 function vectors(body: unknown): number[][] {
   const e = (body as { embeddings?: unknown } | null)?.embeddings;
   return Array.isArray(e) ? (e as number[][]) : [];
@@ -40,8 +46,8 @@ function dataVectors(body: unknown, sortByIndex: boolean): number[][] {
 
 async function embedOllama(p: ProviderConfig, deps: ProviderDeps, texts: string[], o: Opts): Promise<number[][]> {
   const batches = chunk(texts, OLLAMA_BATCH);
-  const results = await mapLimit(batches, OLLAMA_IN_FLIGHT, (batch) =>
-    withRetry(
+  const results = await mapLimit(batches, OLLAMA_IN_FLIGHT, async (batch) => {
+    const vecs = await withRetry(
       async () =>
         vectors(
           await fetchJson(deps, `${p.ollamaBaseUrl}/api/embed`, {
@@ -51,8 +57,10 @@ async function embedOllama(p: ProviderConfig, deps: ProviderDeps, texts: string[
           }),
         ),
       { attempts: 3, delaysMs: [2000, 6000], retryable: (e) => isTransient(e, o.signal), sleep: deps.sleep, signal: o.signal },
-    ),
-  );
+    );
+    checkBatch('ollama', vecs, batch);
+    return vecs;
+  });
   return results.flat();
 }
 
@@ -84,9 +92,7 @@ async function embedVoyage(p: ProviderConfig, deps: ProviderDeps, texts: string[
         signal: o.signal,
       },
     );
-    if (vecs.length !== batch.length) {
-      throw new EmbeddingUnavailableError(`voyage returned ${vecs.length} embeddings for ${batch.length} inputs`);
-    }
+    checkBatch('voyage', vecs, batch);
     out.push(...vecs);
     if (i < batches.length - 1) await deps.sleep(500, o.signal);
   }
@@ -97,14 +103,28 @@ async function embedOpenai(p: ProviderConfig, deps: ProviderDeps, texts: string[
   const out: number[][] = [];
   const batches = chunk(texts, OPENAI_BATCH);
   for (const [i, batch] of batches.entries()) {
-    const body = await fetchJson(deps, 'https://api.openai.com/v1/embeddings', {
-      headers: { authorization: `Bearer ${p.embed.openaiKey}` },
-      // dimensions is required: text-embedding-3-small defaults to 1536-d, which fails the dim check.
-      body: { model: p.embed.openaiModel, input: batch, dimensions: p.embed.dim },
-      timeoutMs: TIMEOUT_MS,
-      signal: o.signal,
-    });
-    out.push(...dataVectors(body, true));
+    const vecs = await withRetry(
+      async () =>
+        dataVectors(
+          await fetchJson(deps, 'https://api.openai.com/v1/embeddings', {
+            headers: { authorization: `Bearer ${p.embed.openaiKey}` },
+            // dimensions is required: text-embedding-3-small defaults to 1536-d, which fails the dim check.
+            body: { model: p.embed.openaiModel, input: batch, dimensions: p.embed.dim },
+            timeoutMs: TIMEOUT_MS,
+            signal: o.signal,
+          }),
+          true,
+        ),
+      {
+        attempts: 3,
+        delaysMs: [2000, 6000],
+        retryable: (e) => isTransient(e, o.signal) || (e instanceof HttpStatusError && e.status === 429),
+        sleep: deps.sleep,
+        signal: o.signal,
+      },
+    );
+    checkBatch('openai', vecs, batch);
+    out.push(...vecs);
     if (i < batches.length - 1) await deps.sleep(1000, o.signal);
   }
   return out;
