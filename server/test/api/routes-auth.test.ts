@@ -20,7 +20,7 @@ const UUID = '123e4567-e89b-42d3-a456-426614174000';
 
 /** `:id` -> a UUID, `:n{[0-9]+}` etc. -> 0. Names that hold integers get 0, the rest a UUID. */
 function fill(path: string): string {
-  return path.replace(/:([A-Za-z_]+)(\{[^}]*\})?/g, (_m, name: string) =>
+  return path.replace(/\*/g, 'feeds/x').replace(/:([A-Za-z_]+)(\{[^}]*\})?/g, (_m, name: string) =>
     /(^|_)(index|page|n|seq|position|limit|offset|number)$|_index$|_number$/.test(name) ? '0' : UUID,
   );
 }

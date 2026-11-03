@@ -36,13 +36,13 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_error_contracts.py::test_dismiss_alert_missing_id_is_404 — plan01/T10
 - [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_missing_thread_is_404 — plan04
 - [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_existing_thread_returns_200_and_empty_messages — plan04
-- [ ] api/tests/test_signed_figures.py::test_signed_url_happy_path — plan02
-- [ ] api/tests/test_signed_figures.py::test_missing_token_rejected — plan02
-- [ ] api/tests/test_signed_figures.py::test_tampered_token_rejected — plan02
-- [ ] api/tests/test_signed_figures.py::test_expired_token_rejected — plan02
-- [ ] api/tests/test_signed_figures.py::test_token_bound_to_figure_id — plan02
-- [ ] api/tests/test_signed_figures.py::test_cross_user_rejected_even_with_valid_token — plan02
-- [ ] api/tests/test_signed_figures.py::test_figures_list_includes_signed_token — plan02
+- [x] api/tests/test_signed_figures.py::test_signed_url_happy_path — plan02/T5
+- [x] api/tests/test_signed_figures.py::test_missing_token_rejected — plan02/T5
+- [x] api/tests/test_signed_figures.py::test_tampered_token_rejected — plan02/T5
+- [x] api/tests/test_signed_figures.py::test_expired_token_rejected — plan02/T5
+- [x] api/tests/test_signed_figures.py::test_token_bound_to_figure_id — plan02/T5
+- [x] api/tests/test_signed_figures.py::test_cross_user_rejected_even_with_valid_token — plan02/T5
+- [x] api/tests/test_signed_figures.py::test_figures_list_includes_signed_token — plan02/T5
 - [x] api/tests/test_rate_limit_config.py::test_rate_limit_replies_per_day_defaults_to_60 — plan01/T7
 - [x] api/tests/test_rate_limit_config.py::test_rate_limit_persona_dm_per_day_defaults_to_60 — plan01/T7
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
@@ -84,14 +84,14 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] api/tests/test_feed_figure_hydration.py::test_no_figure_posts_no_signing — plan03
 - [x] shared/tests/test_constants.py::test_sentinel_ids_are_stable — plan01/T3
 - [ ] shared/tests/test_constants.py::test_chapter_sql_encodes_first_unlocked — plan 05 (CHAPTER_INSERT_SQL moves to the reading-lists slice)
-- [ ] api/tests/test_auth_scoping.py::test_list_papers_returns_only_own_papers — plan02
+- [x] api/tests/test_auth_scoping.py::test_list_papers_returns_only_own_papers — plan02/T5
 - [ ] api/tests/test_auth_scoping.py::test_list_messages_papers_scoped — plan04
 - [ ] api/tests/test_auth_scoping.py::test_list_messages_groups_scoped — plan04
 - [ ] api/tests/test_auth_scoping.py::test_list_replies_conversations_scoped — plan04
 - [ ] api/tests/test_auth_scoping.py::test_tldrs_endpoint_scoped — plan04
 - [ ] api/tests/test_auth_scoping.py::test_get_feed_rejects_cross_user_read — plan03
-- [ ] api/tests/test_auth_scoping.py::test_get_paper_rejects_cross_user_read — plan02
-- [ ] api/tests/test_auth_scoping.py::test_get_paper_figures_rejects_cross_user_read — plan02
+- [x] api/tests/test_auth_scoping.py::test_get_paper_rejects_cross_user_read — plan02/T5
+- [x] api/tests/test_auth_scoping.py::test_get_paper_figures_rejects_cross_user_read — plan02/T5
 - [ ] api/tests/test_auth_scoping.py::test_get_messages_paper_rejects_cross_user_read — plan04
 - [ ] api/tests/test_auth_scoping.py::test_get_replies_by_feed_scoped — plan04
 - [ ] api/tests/test_auth_scoping.py::test_get_replied_posts_scoped — plan04
@@ -109,7 +109,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] api/tests/test_feed_posts_search.py::test_search_use_normalized_posts_defaults_true — plan03
 - [ ] api/tests/test_feed_posts_search.py::test_search_respects_legacy_flag_toggle — plan03
 - [x] api/tests/test_idor_followups.py::test_assign_tag_rejects_cross_user_paper — plan01/T11
-- [ ] api/tests/test_idor_followups.py::test_upload_paper_rejects_cross_user_workspace — plan02
+- [x] api/tests/test_idor_followups.py::test_upload_paper_rejects_cross_user_workspace — plan02/T5
 - [ ] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_paper_ids — plan05
 - [ ] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_corpus_id — plan05
 - [ ] api/tests/test_idor_followups.py::test_apply_ordering_rejects_foreign_paper_injection — plan05
@@ -144,7 +144,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] api/tests/test_llm_retry.py::test_ollama_empty_content_still_raises_after_success_status — plan04
 - [ ] api/tests/test_hydration_offloop.py::test_feed_audio_url_hydrated_off_loop — plan03
 - [ ] api/tests/test_hydration_offloop.py::test_feed_podcast_episode_url_hydrated_off_loop — plan03
-- [ ] api/tests/test_hydration_offloop.py::test_figures_image_url_hydrated_off_loop — plan02
+- [x] api/tests/test_hydration_offloop.py::test_figures_image_url_hydrated_off_loop — plan02/T5
 - [x] api/tests/test_settings_contract.py::test_get_settings_returns_defaults_and_ui_keys — plan01/T9
 - [x] api/tests/test_settings_contract.py::test_put_drops_non_allowlisted_keys — plan01/T9
 - [x] api/tests/test_settings_contract.py::test_secrets_are_redacted — plan01/T9
@@ -210,9 +210,9 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] shared/tests/test_settings_schema.py::test_secret_keys_subset_of_defaults — plan01/T4
 - [x] shared/tests/test_settings_schema.py::test_merge_is_dict_aware — plan01/T4
 - [x] shared/tests/test_settings_schema.py::test_reassert_reads_baseline_not_live_env — plan01/T4 (ported as env-injection test; baseline snapshot itself n/a: env snapshot not ported (immutable env))
-- [ ] api/tests/test_upload_size_precheck.py::test_spoofed_content_length_413s_before_read — plan02
-- [ ] api/tests/test_upload_size_precheck.py::test_small_upload_not_rejected_by_precheck — plan02
-- [ ] api/tests/test_upload_size_precheck.py::test_post_read_oversize_is_413_not_400 — plan02
+- [x] api/tests/test_upload_size_precheck.py::test_spoofed_content_length_413s_before_read — plan02/T5
+- [x] api/tests/test_upload_size_precheck.py::test_small_upload_not_rejected_by_precheck — plan02/T5
+- [x] api/tests/test_upload_size_precheck.py::test_post_read_oversize_is_413_not_400 — plan02/T5
 - [x] shared/tests/test_storage_supabase.py::test_supabase_requires_url_and_key — n/a: supabase storage removed (spec Decisions: Storage)
 - [x] shared/tests/test_storage_supabase.py::test_supabase_save_pdf_uploads_with_expected_key — n/a: supabase storage removed (spec Decisions: Storage)
 - [x] shared/tests/test_storage_supabase.py::test_supabase_save_figure_uploads_png — n/a: supabase storage removed (spec Decisions: Storage)
@@ -262,9 +262,9 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] worker/tests/test_persona_helpers.py::test_build_post_sources_falls_back_to_paper_filename — plan03
 - [ ] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_is_opt_out — plan03
 - [ ] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_handles_missing_settings — plan03
-- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_scopes_by_corpus — plan03
-- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan03
-- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_scopes_by_corpus — plan04
+- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan04
+- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan04
 - [ ] worker/tests/test_podcast_settings.py::test_podcast_task_applies_owner_settings — plan05
 - [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_commits_all_statements — plan05
 - [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_rolls_back_on_failure — plan05

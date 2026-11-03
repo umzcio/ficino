@@ -13,7 +13,7 @@ import { testQueue } from './queue.js';
 
 let storageRoot: string | undefined;
 /** One temp dir per process (test-only artifact, under os.tmpdir()). */
-function testStorageDirs() {
+export function testStorageDirs() {
   storageRoot ??= fs.mkdtempSync(path.join(os.tmpdir(), 'ficino-test-storage-'));
   return {
     uploadDir: path.join(storageRoot, 'uploads'),
@@ -28,6 +28,7 @@ export const CSRF_TEST_TOKEN = 'test-csrf-token-fixture';
 export function testApp(opts: { user?: AuthUser; config?: Partial<Config>; fetch?: typeof fetch } = {}): Hono<AppEnv> {
   const config: Config = {
     ...loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
+    ...testStorageDirs(),
     ...opts.config,
   };
   const logger = pino({ level: 'silent' });
