@@ -1,6 +1,6 @@
 # Python test porting ledger
 
-One line per Python test in api/tests and shared/tests. When a task ports a test, tick the box and append
+One line per Python test in api/tests, shared/tests and worker/tests. When a task ports a test, tick the box and append
 ` — <plan/task>`; when a test is not ported, tick it and append ` — n/a: <reason>`.
 
 - [x] api/tests/test_auth_gates.py::test_list_personas_requires_auth — plan01/T6 (gate via requireUser test route; /settings landed in plan01/T9; /personas is plan04)
@@ -235,3 +235,51 @@ One line per Python test in api/tests and shared/tests. When a task ports a test
 - [x] api/tests/test_workspaces.py::test_workspace_activity_returns_papers_and_feeds — plan01/T8
 - [x] api/tests/test_workspaces.py::test_workspace_activity_cross_user_returns_404 — plan01/T8
 - [x] api/tests/test_workspaces.py::test_delete_nonexistent_workspace_returns_404_not_400 — plan01/T8 (contract: 204, asserted exactly)
+
+## worker/tests
+
+- [ ] worker/tests/test_auto_tagging.py::test_auto_tag_db_helpers_are_imported — plan02
+- [ ] worker/tests/test_chapter_post_validation.py::test_reading_list_tasks_imports_validator — plan05
+- [x] worker/tests/test_event_loop.py::test_loop_runner_recovers_from_a_dead_but_unclosed_loop_thread — n/a: no LoopRunner in Node (W §4)
+- [x] worker/tests/test_event_loop.py::test_loop_runner_concurrent_submissions_dont_serialize — n/a: no LoopRunner in Node (W §4)
+- [ ] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_redelivery_is_idempotent — plan03
+- [ ] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_new_dispatch_gets_new_feed_id — plan03
+- [ ] worker/tests/test_generate_feed_idempotency.py::test_empty_feed_redelivery_does_not_error_or_duplicate — plan03
+- [ ] worker/tests/test_generate_feed_idempotency.py::test_empty_attempt_then_successful_redelivery_recovers_posts — plan03
+- [ ] worker/tests/test_group_chat_pending_state.py::test_generate_corpus_synthesis_marks_error_on_retry_exhaustion — plan04
+- [ ] worker/tests/test_llm_hardening.py::test_ollama_empty_response_raises_runtime_error — plan02
+- [ ] worker/tests/test_llm_hardening.py::test_ollama_whitespace_only_response_raises_runtime_error — plan02
+- [ ] worker/tests/test_llm_hardening.py::test_ollama_nonempty_response_still_returns_content — plan02
+- [ ] worker/tests/test_llm_hardening.py::test_ollama_empty_content_with_thinking_falls_back_not_raises — plan02
+- [ ] worker/tests/test_llm_hardening.py::test_ollama_4xx_is_not_retried — plan02
+- [ ] worker/tests/test_media_claim_reclaim.py::test_stale_generating_claim_is_reclaimable — plan05
+- [ ] worker/tests/test_media_claim_reclaim.py::test_fresh_generating_claim_is_not_stolen — plan05
+- [ ] worker/tests/test_media_claim_reclaim.py::test_legacy_null_claimed_at_generating_row_is_reclaimable — plan05
+- [ ] worker/tests/test_media_claim_reclaim.py::test_reclaim_minutes_default_is_20 — plan05
+- [ ] worker/tests/test_media_claim_reclaim.py::test_raised_celery_time_limit_widens_reclaim_window — plan05
+- [ ] worker/tests/test_persona_helpers.py::test_build_post_sources_key_shape_and_truncation — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_build_post_sources_respects_top_n — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_build_post_sources_falls_back_to_paper_filename — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_is_opt_out — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_handles_missing_settings — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_scopes_by_corpus — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan03
+- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan03
+- [ ] worker/tests/test_podcast_settings.py::test_podcast_task_applies_owner_settings — plan05
+- [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_commits_all_statements — plan05
+- [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_rolls_back_on_failure — plan05
+- [ ] worker/tests/test_reading_list_persist.py::test_propose_ordering_persists_in_one_transaction — plan05
+- [ ] worker/tests/test_reading_list_persist.py::test_propose_ordering_persist_failure_propagates_to_retry — plan05
+- [ ] worker/tests/test_settings_env_hygiene.py::test_no_key_leak_between_users — plan02
+- [ ] worker/tests/test_settings_env_hygiene.py::test_operator_baseline_is_restored — plan02
+- [ ] worker/tests/test_settings_env_hygiene.py::test_public_deployment_reassert_wins_over_stale_user_value — plan02
+- [ ] worker/tests/test_settings_env_hygiene.py::test_public_deployment_does_not_launder_previous_users_key — plan02
+- [ ] worker/tests/test_shared_adoption.py::test_chapter_sql_imported_by_both_sites — plan05
+- [ ] worker/tests/test_shared_adoption.py::test_default_for_matches_defaults — plan01
+- [x] worker/tests/test_stale_papers.py::test_stale_query_counts_null_corpus_feeds — plan02/T4
+- [ ] worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index — plan05
+- [ ] worker/tests/test_wave3_task_fixes.py::test_coerce_messages_drops_non_dict_elements — plan04
+- [ ] worker/tests/test_wave3_task_fixes.py::test_ollama_page_extract_retries_transient_failures — plan02
+- [ ] worker/tests/test_wave3_task_fixes.py::test_claude_page_extract_retries_transient_failures — plan02
+- [ ] worker/tests/test_wave3_task_fixes.py::test_claude_vision_client_pins_sdk_retries_off — plan02
+- [ ] worker/tests/test_wave3_task_fixes.py::test_fallback_excludes_reply_only_personas — plan03
