@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import * as mupdf from 'mupdf';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { extractFigures } from '../../src/ingest/figures.js';
 import { closePdf, openPdf, type PdfDoc } from '../../src/ingest/pdf.js';
@@ -9,7 +10,10 @@ import type { ProviderDeps } from '../../src/providers/deps.js';
 const config = loadConfig({ OLLAMA_BASE_URL: 'http://fake-ollama:11434' });
 const fx = (n: string) => new URL(`../fixtures/${n}`, import.meta.url).pathname;
 const SAMPLE = new Uint8Array(readFileSync(fx('sample.pdf')));
-const RASTER = JSON.parse(readFileSync(fx('goldens/sample.raster.json'), 'utf8')) as Array<{ width: number; height: number }>;
+const RASTER = JSON.parse(readFileSync(fx('goldens/sample.raster.json'), 'utf8')) as Array<{
+  width: number;
+  height: number;
+}>;
 let doc: PdfDoc;
 beforeAll(() => {
   doc = openPdf(SAMPLE);
@@ -51,7 +55,21 @@ function pngSize(png: Uint8Array): { w: number; h: number } {
 
 describe('extractFigures', () => {
   it('crops a padded bbox from page 2 with the exact trunc geometry', async () => {
-    const { deps } = detector((page) => (page === 2 ? [{ bbox: [0.1, 0.5, 0.6, 0.8], type: 'chart_line', caption: 'Fig. 1', figure_number: '1', data_claim: 'd', referenced_paragraph: 'r', confidence: 0.8 }] : []));
+    const { deps } = detector((page) =>
+      page === 2
+        ? [
+            {
+              bbox: [0.1, 0.5, 0.6, 0.8],
+              type: 'chart_line',
+              caption: 'Fig. 1',
+              figure_number: '1',
+              data_claim: 'd',
+              referenced_paragraph: 'r',
+              confidence: 0.8,
+            },
+          ]
+        : [],
+    );
     const out = await extractFigures(doc, ollama(), deps);
     expect(out).toHaveLength(1);
     const f = out[0]!;
@@ -60,9 +78,19 @@ describe('extractFigures', () => {
     const w = Math.trunc(0.64 * W) - Math.trunc(0.06 * W);
     const h = Math.trunc(0.84 * H) - Math.trunc(0.46 * H);
     expect(f).toMatchObject({
-      page: 2, filename: 'fig_p2_0.png', extraction_type: 'vlm_detected', width: w, height: h, figure_index: 0,
-      figure_type: 'chart_line', caption: 'Fig. 1', figure_number: '1', data_claim: 'd', referenced_paragraph: 'r',
-      bbox: { page: 2, x0: 0.1, y0: 0.5, x1: 0.6, y1: 0.8 }, detector_confidence: 0.8,
+      page: 2,
+      filename: 'fig_p2_0.png',
+      extraction_type: 'vlm_detected',
+      width: w,
+      height: h,
+      figure_index: 0,
+      figure_type: 'chart_line',
+      caption: 'Fig. 1',
+      figure_number: '1',
+      data_claim: 'd',
+      referenced_paragraph: 'r',
+      bbox: { page: 2, x0: 0.1, y0: 0.5, x1: 0.6, y1: 0.8 },
+      detector_confidence: 0.8,
     });
     expect(pngSize(f.image_bytes)).toEqual({ w, h });
   });
@@ -76,7 +104,9 @@ describe('extractFigures', () => {
 
   it('caps at 50 figures; indices run 0..49 in page order', async () => {
     const per = [20, 20, 20];
-    const { deps, pages, maxInFlight } = detector((page) => Array.from({ length: per[page - 1]! }, () => ({ bbox: [0.1, 0.1, 0.5, 0.5] })));
+    const { deps, pages, maxInFlight } = detector((page) =>
+      Array.from({ length: per[page - 1]! }, () => ({ bbox: [0.1, 0.1, 0.5, 0.5] })),
+    );
     const out = await extractFigures(doc, ollama(), deps);
     expect(pages.sort()).toEqual([1, 2, 3]);
     expect(maxInFlight()).toBeLessThanOrEqual(4);
@@ -115,5 +145,84 @@ describe('extractFigures', () => {
     ac.abort(new Error('cancelled'));
     const { deps } = detector(() => []);
     await expect(extractFigures(doc, ollama(), deps, ac.signal)).rejects.toBeDefined();
+  });
+
+  it('renders each page once however many detections it has, and frees every render', async () => {
+    const orig = mupdf.Pixmap.prototype.clear;
+    const origDestroy = mupdf.Pixmap.prototype.destroy;
+    const rendered: mupdf.Pixmap[] = [];
+    const freed = new Set<mupdf.Pixmap>();
+    const c = vi.spyOn(mupdf.Pixmap.prototype, 'clear').mockImplementation(function (this: mupdf.Pixmap, v?: number) {
+      rendered.push(this);
+      return orig.call(this, v);
+    });
+    const d = vi.spyOn(mupdf.Pixmap.prototype, 'destroy').mockImplementation(function (this: mupdf.Pixmap) {
+      freed.add(this);
+      return origDestroy.call(this);
+    });
+    try {
+      const { deps } = detector((page) =>
+        Array.from({ length: page === 2 ? 5 : 3 }, (_, k) => ({ bbox: [0.1 + k * 0.01, 0.1, 0.5, 0.5] })),
+      );
+      const out = await extractFigures(doc, ollama(), deps);
+      expect(out).toHaveLength(11);
+      expect(rendered).toHaveLength(3); // the old per-detection cropPage rendered 3 + 11 times
+      expect(rendered.every((px) => freed.has(px))).toBe(true);
+    } finally {
+      c.mockRestore();
+      d.mockRestore();
+    }
+  });
+
+  it('crops at most 50 detections from a page that returns 80', async () => {
+    const { deps } = detector((page) =>
+      page === 1 ? Array.from({ length: 80 }, () => ({ bbox: [0.1, 0.1, 0.5, 0.5] })) : [],
+    );
+    let crops = 0;
+    const orig = mupdf.Pixmap.prototype.asPNG;
+    const spy = vi.spyOn(mupdf.Pixmap.prototype, 'asPNG').mockImplementation(function (this: mupdf.Pixmap) {
+      if (this.getWidth() !== RASTER[0]!.width) crops++;
+      return orig.call(this);
+    });
+    try {
+      const out = await extractFigures(doc, ollama(), deps);
+      expect(out).toHaveLength(50);
+      expect(crops).toBe(50);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a mid-flight abort rejects with the reason and frees every opened page render', async () => {
+    const orig = mupdf.Pixmap.prototype.clear;
+    const origDestroy = mupdf.Pixmap.prototype.destroy;
+    const rendered: mupdf.Pixmap[] = [];
+    const freed = new Set<mupdf.Pixmap>();
+    const c = vi.spyOn(mupdf.Pixmap.prototype, 'clear').mockImplementation(function (this: mupdf.Pixmap, v?: number) {
+      rendered.push(this);
+      return orig.call(this, v);
+    });
+    const d = vi.spyOn(mupdf.Pixmap.prototype, 'destroy').mockImplementation(function (this: mupdf.Pixmap) {
+      freed.add(this);
+      return origDestroy.call(this);
+    });
+    try {
+      const ac = new AbortController();
+      const reason = new Error('job cancelled');
+      const { deps } = detector(() => []);
+      deps.fetch = (async (_u: string | URL | Request, init?: RequestInit) => {
+        if (JSON.parse(String(init?.body)).messages[1].content.includes('page 2 of')) {
+          ac.abort(reason);
+          throw new DOMException('aborted', 'AbortError');
+        }
+        return new Response(JSON.stringify({ message: { content: '{"figures": []}' } }));
+      }) as typeof fetch;
+      await expect(extractFigures(doc, ollama(), deps, ac.signal)).rejects.toBe(reason);
+      expect(rendered.length).toBeGreaterThanOrEqual(2);
+      expect(rendered.every((px) => freed.has(px))).toBe(true);
+    } finally {
+      c.mockRestore();
+      d.mockRestore();
+    }
   });
 });

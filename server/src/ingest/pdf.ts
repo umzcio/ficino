@@ -473,36 +473,41 @@ export function renderPage(doc: PdfDoc, index: number, dpi: number): { png: Uint
   });
 }
 
+/** A page rendered once: its PNG for a detector, plus crops copied from that same pixmap. */
+export interface RenderedPage {
+  readonly png: Uint8Array;
+  readonly width: number;
+  readonly height: number;
+  crop(box: [number, number, number, number]): { png: Uint8Array; width: number; height: number };
+  /** Frees the pixmap. Idempotent; `crop` throws afterwards. */
+  dispose(): void;
+}
+
 /**
- * The device-pixel `box` (x0, y0, x1, y1) of `renderPage`'s output. Like the Python worker, which crops the
- * full render with PIL, it renders the whole page and copies the box out, so the pixels equal that
- * sub-rectangle by construction (MuPDF's image drawing depends on the clip, so drawing only the box would
- * not). The box must be whole pixels inside the page with x1 > x0 and y1 > y0.
+ * Render a page once (the `renderPage` path) and keep the pixmap so any number of boxes can be cropped
+ * from it, as the Python worker crops every box from the one raster the VLM saw. The caller must `dispose()`.
  */
-export function cropPage(
-  doc: PdfDoc,
-  index: number,
-  dpi: number,
-  box: [number, number, number, number],
-): { png: Uint8Array; width: number; height: number } {
-  const [x0, y0, x1, y1] = box;
-  return withPage(doc, index, (page) => {
-    const matrix = scaleFor(dpi);
-    const full = deviceBBox(page, matrix);
-    const pageW = full[2] - full[0];
-    const pageH = full[3] - full[1];
-    if (
-      !box.every(Number.isInteger) ||
-      x0 < 0 ||
-      y0 < 0 ||
-      x1 <= x0 ||
-      y1 <= y0 ||
-      x1 > pageW ||
-      y1 > pageH
-    )
-      throw new RangeError(`crop box [${box.join(', ')}] is not inside the ${pageW}x${pageH} page`);
-    const src = renderPixmap(page, matrix);
-    try {
+export function openRenderedPage(doc: PdfDoc, index: number, dpi: number): RenderedPage {
+  const src = withPage(doc, index, (page) => renderPixmap(page, scaleFor(dpi)));
+  let png: Uint8Array;
+  try {
+    png = src.asPNG();
+  } catch (err) {
+    src.destroy();
+    throw err;
+  }
+  const pageW = src.getWidth();
+  const pageH = src.getHeight();
+  let disposed = false;
+  return {
+    png,
+    width: pageW,
+    height: pageH,
+    crop(box) {
+      if (disposed) throw new Error('rendered page already disposed');
+      const [x0, y0, x1, y1] = box;
+      if (!box.every(Number.isInteger) || x0 < 0 || y0 < 0 || x1 <= x0 || y1 <= y0 || x1 > pageW || y1 > pageH)
+        throw new RangeError(`crop box [${box.join(', ')}] is not inside the ${pageW}x${pageH} page`);
       const w = x1 - x0;
       const h = y1 - y0;
       const out = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, w, h], false);
@@ -520,8 +525,32 @@ export function cropPage(
       } finally {
         out.destroy();
       }
-    } finally {
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
       src.destroy();
-    }
-  });
+    },
+  };
+}
+
+/**
+ * The device-pixel `box` (x0, y0, x1, y1) of `renderPage`'s output. Like the Python worker, which crops the
+ * full render with PIL, it renders the whole page and copies the box out, so the pixels equal that
+ * sub-rectangle by construction (MuPDF's image drawing depends on the clip, so drawing only the box would
+ * not). The box must be whole pixels inside the page with x1 > x0 and y1 > y0. For several boxes on one
+ * page use `openRenderedPage`.
+ */
+export function cropPage(
+  doc: PdfDoc,
+  index: number,
+  dpi: number,
+  box: [number, number, number, number],
+): { png: Uint8Array; width: number; height: number } {
+  const page = openRenderedPage(doc, index, dpi);
+  try {
+    return page.crop(box);
+  } finally {
+    page.dispose();
+  }
 }
