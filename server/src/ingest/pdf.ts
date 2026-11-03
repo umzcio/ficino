@@ -113,41 +113,61 @@ function charBBox(quad: mupdf.Quad, wmode: number, size: number): Rect {
  * mupdf.js's walker builds each char with `String.fromCharCode`, which truncates code points above U+FFFF.
  * `asText()` writes every char as UTF-8 in the same order (one line per text line, a blank line per block),
  * so the true code points are taken from it while the two line up. From the first mismatch on, the walker's
- * chars are kept. Like PyMuPDF's `make_escape`, an orphaned surrogate becomes U+FFFD.
+ * chars are kept and `aligned` is false: any later astral char on the page is then a truncated BMP unit.
+ * (The one known trigger is a lone surrogate, which `asText()` writes as three U+FFFD.) Like PyMuPDF's
+ * `make_escape`, an orphaned surrogate becomes U+FFFD.
  */
-function readPage(doc: PdfDoc, index: number, options: string): { bounds: Rect; blocks: Block[] } {
+function readPage(
+  doc: PdfDoc,
+  index: number,
+  options: string,
+): { bounds: Rect; blocks: Block[]; aligned: boolean } {
   const page = doc.doc.loadPage(index);
-  const list = page.toDisplayList(true);
-  const stext = list.toStructuredText(options);
   try {
-    const bounds = list.getBounds() as Rect;
-    const fonts = new Map<number, FontInfo>();
-    const blocks: Block[] = [];
-    const text = Array.from(stext.asText());
-    let pos = 0;
-    let aligned = true;
-    const expectBreak = (): void => {
-      if (text[pos] === '\n') pos++;
-      else aligned = false;
-    };
-    let line: Line | null = null;
-    let wmode = 0;
-    let horizontal = false;
-    let firstOriginY = 0;
-    stext.walk({
-      beginTextBlock(bbox) {
-        blocks.push({ bbox: bbox as Rect, lines: [] });
-      },
-      beginLine(bbox, lineWmode, dir) {
-        line = { bbox: bbox as Rect, chars: [] };
-        blocks[blocks.length - 1]!.lines.push(line);
-        wmode = lineWmode;
-        horizontal = lineWmode === 0 && dir[0] === 1 && dir[1] === 0;
-      },
-      onChar(c, origin, font, size, quad, color, bidi) {
-        const cur = line!;
-        if (cur.chars.length === 0) firstOriginY = origin[1];
-        let info = fonts.get(font.pointer);
+    const list = page.toDisplayList(true);
+    try {
+      const stext = list.toStructuredText(options);
+      try {
+        return walkPage(stext, list.getBounds() as Rect);
+      } finally {
+        stext.destroy();
+      }
+    } finally {
+      list.destroy();
+    }
+  } finally {
+    page.destroy();
+  }
+}
+
+function walkPage(stext: mupdf.StructuredText, bounds: Rect): { bounds: Rect; blocks: Block[]; aligned: boolean } {
+  const fonts = new Map<number, FontInfo>();
+  const blocks: Block[] = [];
+  const text = Array.from(stext.asText());
+  let pos = 0;
+  let aligned = true;
+  const expectBreak = (): void => {
+    if (text[pos] === '\n') pos++;
+    else aligned = false;
+  };
+  let line: Line | null = null;
+  let wmode = 0;
+  let horizontal = false;
+  let firstOriginY = 0;
+  stext.walk({
+    beginTextBlock(bbox) {
+      blocks.push({ bbox: bbox as Rect, lines: [] });
+    },
+    beginLine(bbox, lineWmode, dir) {
+      line = { bbox: bbox as Rect, chars: [] };
+      blocks[blocks.length - 1]!.lines.push(line);
+      wmode = lineWmode;
+      horizontal = lineWmode === 0 && dir[0] === 1 && dir[1] === 0;
+    },
+    onChar(c, origin, font, size, quad, color, bidi) {
+      // The walker wraps each char's font in a new Font; read it once per font, then free the wrapper.
+      let info = fonts.get(font.pointer);
+      try {
         if (!info) {
           info = {
             name: fontName(font.getName()),
@@ -159,46 +179,59 @@ function readPage(doc: PdfDoc, index: number, options: string): { bounds: Rect; 
           };
           fonts.set(font.pointer, info);
         }
-        let ch = c;
-        if (aligned) {
-          const real = text[pos];
-          if (real !== undefined && (real.codePointAt(0)! & 0xffff) === c.charCodeAt(0)) {
-            ch = real;
-            pos++;
-          } else aligned = false;
-        }
-        if (/^[\uD800-\uDFFF]$/.test(ch)) ch = String.fromCodePoint(0xfffd);
-        const [r, g, b] = color as number[];
-        cur.chars.push({
-          c: ch,
-          size,
-          font: info,
-          rgb: (Math.round(r! * 255) << 16) | (Math.round(g! * 255) << 8) | Math.round(b! * 255),
-          bidi,
-          superscript: horizontal && origin[1] < firstOriginY - size * 0.1,
-          bbox: charBBox(quad, wmode, size),
-        });
-      },
-      endLine() {
-        if (aligned) expectBreak();
-      },
-      endTextBlock() {
-        if (aligned) expectBreak();
-      },
-    });
-    return { bounds, blocks };
-  } finally {
-    stext.destroy();
-    list.destroy();
-    page.destroy();
-  }
+      } finally {
+        font.destroy();
+      }
+      const cur = line!;
+      if (cur.chars.length === 0) firstOriginY = origin[1];
+      let ch = c;
+      if (aligned) {
+        const real = text[pos];
+        if (real !== undefined && (real.codePointAt(0)! & 0xffff) === c.charCodeAt(0)) {
+          ch = real;
+          pos++;
+        } else aligned = false;
+      }
+      if (/^[\uD800-\uDFFF]$/.test(ch)) ch = String.fromCodePoint(0xfffd);
+      const [r, g, b] = color as number[];
+      cur.chars.push({
+        c: ch,
+        size,
+        font: info,
+        rgb: (Math.round(r! * 255) << 16) | (Math.round(g! * 255) << 8) | Math.round(b! * 255),
+        bidi,
+        superscript: horizontal && origin[1] < firstOriginY - size * 0.1,
+        bbox: charBBox(quad, wmode, size),
+      });
+    },
+    endLine() {
+      if (aligned) expectBreak();
+    },
+    endTextBlock() {
+      if (aligned) expectBreak();
+    },
+  });
+  return { bounds, blocks, aligned };
+}
+
+/** Optional sink for extraction warnings (a pino logger fits). */
+export interface PdfWarnLogger {
+  warn(obj: Record<string, unknown>, msg: string): void;
+}
+
+/** One warning per call listing the pages (0-based) whose astral chars could not be recovered. */
+function warnMisaligned(log: PdfWarnLogger | undefined, pages: number[]): void {
+  if (log && pages.length > 0)
+    log.warn({ pages }, 'pdf text walk and asText() disagree; chars above U+FFFF on these pages may be truncated');
 }
 
 /** `page.get_text()` for each page: `JM_print_stext_page_as_text`. */
-export function extractPagesText(doc: PdfDoc): string[] {
+export function extractPagesText(doc: PdfDoc, log?: PdfWarnLogger): string[] {
   const out: string[] = [];
+  const misaligned: number[] = [];
   for (let i = 0; i < pageCount(doc); i++) {
-    const { bounds, blocks } = readPage(doc, i, TEXT_OPTIONS);
+    const { bounds, blocks, aligned } = readPage(doc, i, TEXT_OPTIONS);
+    if (!aligned) misaligned.push(i);
     let s = '';
     for (const block of blocks)
       for (const line of block.lines) {
@@ -212,6 +245,7 @@ export function extractPagesText(doc: PdfDoc): string[] {
       }
     out.push(s);
   }
+  warnMisaligned(log, misaligned);
   return out;
 }
 
@@ -220,8 +254,9 @@ export function extractPagesText(doc: PdfDoc): string[] {
 type Span = { text: string; size: number; flags: number; font: string; bbox: Rect };
 
 /** `JM_make_text_block` + `JM_make_spanlist` for the lines of a page, as `get_text("dict")` exposes them. */
-function pageSpanLines(doc: PdfDoc, index: number): Span[][] {
-  const { bounds, blocks } = readPage(doc, index, DICT_OPTIONS);
+function pageSpanLines(doc: PdfDoc, index: number, misaligned: number[]): Span[][] {
+  const { bounds, blocks, aligned } = readPage(doc, index, DICT_OPTIONS);
+  if (!aligned) misaligned.push(index);
   const lines: Span[][] = [];
   for (const block of blocks) {
     if (intersectionEmpty(bounds, block.bbox)) continue;
@@ -355,15 +390,16 @@ function isHeading(text: string, fontSize: number, isBold: boolean, body: number
 }
 
 /** `extract_text_pymupdf`: page text with `#`/`##` headings from font size, bold and section names. */
-export function extractTextMarkdown(doc: PdfDoc): string {
+export function extractTextMarkdown(doc: PdfDoc, log?: PdfWarnLogger): string {
   const n = pageCount(doc);
+  const misaligned: number[] = [];
   const statPages: Span[][][] = [];
-  for (let i = 0; i < Math.min(10, n); i++) statPages.push(pageSpanLines(doc, i));
+  for (let i = 0; i < Math.min(10, n); i++) statPages.push(pageSpanLines(doc, i, misaligned));
   const body = bodySize(statPages);
 
   const pages: string[] = [];
   for (let i = 0; i < n; i++) {
-    const lines = i < statPages.length ? statPages[i]! : pageSpanLines(doc, i);
+    const lines = i < statPages.length ? statPages[i]! : pageSpanLines(doc, i, misaligned);
     const parts: string[] = [];
     for (const spans of lines) {
       let lineText = '';
@@ -383,6 +419,7 @@ export function extractTextMarkdown(doc: PdfDoc): string {
     }
     pages.push(parts.join('\n'));
   }
+  warnMisaligned(log, misaligned);
   return pages.join('\n\n');
 }
 
@@ -394,11 +431,9 @@ function deviceBBox(page: mupdf.Page, matrix: mupdf.Matrix): Rect {
   return [Math.floor(r[0] + 0.001), Math.floor(r[1] + 0.001), Math.ceil(r[2] - 0.001), Math.ceil(r[3] - 0.001)];
 }
 
-function draw(doc: PdfDoc, index: number, dpi: number, box: (full: Rect) => Rect) {
-  const page = doc.doc.loadPage(index);
-  const matrix = mupdf.Matrix.scale(dpi / 72, dpi / 72);
-  const bbox = box(deviceBBox(page, matrix));
-  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, bbox, false);
+/** Draw the whole page like PyMuPDF's `JM_pixmap_from_display_list`. The caller destroys the pixmap. */
+function renderPixmap(page: mupdf.Page, matrix: mupdf.Matrix): mupdf.Pixmap {
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, deviceBBox(page, matrix), false);
   try {
     pix.clear(255);
     const dev = new mupdf.DrawDevice(matrix, pix);
@@ -408,24 +443,85 @@ function draw(doc: PdfDoc, index: number, dpi: number, box: (full: Rect) => Rect
     } finally {
       dev.destroy();
     }
-    return { png: pix.asPNG(), width: pix.getWidth(), height: pix.getHeight() };
-  } finally {
+    return pix;
+  } catch (err) {
     pix.destroy();
+    throw err;
+  }
+}
+
+function withPage<T>(doc: PdfDoc, index: number, fn: (page: mupdf.Page) => T): T {
+  const page = doc.doc.loadPage(index);
+  try {
+    return fn(page);
+  } finally {
     page.destroy();
   }
 }
 
+const scaleFor = (dpi: number): mupdf.Matrix => mupdf.Matrix.scale(dpi / 72, dpi / 72);
+
 /** Render a page as RGB (no alpha) with `scale(dpi / 72)`, like `page.get_pixmap(matrix=...)`. */
 export function renderPage(doc: PdfDoc, index: number, dpi: number): { png: Uint8Array; width: number; height: number } {
-  return draw(doc, index, dpi, (full) => full);
+  return withPage(doc, index, (page) => {
+    const pix = renderPixmap(page, scaleFor(dpi));
+    try {
+      return { png: pix.asPNG(), width: pix.getWidth(), height: pix.getHeight() };
+    } finally {
+      pix.destroy();
+    }
+  });
 }
 
-/** Render only the device-pixel `box` (x0, y0, x1, y1) of the page as `renderPage` would draw it. */
+/**
+ * The device-pixel `box` (x0, y0, x1, y1) of `renderPage`'s output. Like the Python worker, which crops the
+ * full render with PIL, it renders the whole page and copies the box out, so the pixels equal that
+ * sub-rectangle by construction (MuPDF's image drawing depends on the clip, so drawing only the box would
+ * not). The box must be whole pixels inside the page with x1 > x0 and y1 > y0.
+ */
 export function cropPage(
   doc: PdfDoc,
   index: number,
   dpi: number,
   box: [number, number, number, number],
 ): { png: Uint8Array; width: number; height: number } {
-  return draw(doc, index, dpi, (full) => [full[0] + box[0], full[1] + box[1], full[0] + box[2], full[1] + box[3]]);
+  const [x0, y0, x1, y1] = box;
+  return withPage(doc, index, (page) => {
+    const matrix = scaleFor(dpi);
+    const full = deviceBBox(page, matrix);
+    const pageW = full[2] - full[0];
+    const pageH = full[3] - full[1];
+    if (
+      !box.every(Number.isInteger) ||
+      x0 < 0 ||
+      y0 < 0 ||
+      x1 <= x0 ||
+      y1 <= y0 ||
+      x1 > pageW ||
+      y1 > pageH
+    )
+      throw new RangeError(`crop box [${box.join(', ')}] is not inside the ${pageW}x${pageH} page`);
+    const src = renderPixmap(page, matrix);
+    try {
+      const w = x1 - x0;
+      const h = y1 - y0;
+      const out = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, w, h], false);
+      try {
+        // Take both heap views after the last allocation (WASM memory growth would detach them).
+        const from = src.getPixels();
+        const to = out.getPixels();
+        const srcStride = src.getStride();
+        const outStride = out.getStride();
+        for (let y = 0; y < h; y++) {
+          const at = (y0 + y) * srcStride + x0 * 3;
+          to.set(from.subarray(at, at + w * 3), y * outStride);
+        }
+        return { png: out.asPNG(), width: w, height: h };
+      } finally {
+        out.destroy();
+      }
+    } finally {
+      src.destroy();
+    }
+  });
 }

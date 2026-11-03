@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import * as mupdf from 'mupdf';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   closePdf,
   cropPage,
@@ -22,10 +22,31 @@ const GOLDEN_PAGES = JSON.parse(readFileSync(fixture('goldens/sample.pages.json'
 type RasterPage = { width: number; height: number; probes: { x: number; y: number; rgb: number[] }[] };
 const GOLDEN_RASTER = JSON.parse(readFileSync(fixture('goldens/sample.raster.json'), 'utf8')) as RasterPage[];
 
-/** Decode a PNG with mupdf into packed RGB rows. */
+/** Decode a PNG with mupdf into packed RGB rows (copied out of the WASM heap). */
 function decode(png: Uint8Array): { w: number; h: number; n: number; px: Uint8ClampedArray } {
-  const pix = new mupdf.Image(png).toPixmap();
-  return { w: pix.getWidth(), h: pix.getHeight(), n: pix.getNumberOfComponents(), px: pix.getPixels() };
+  const image = new mupdf.Image(png);
+  try {
+    const pix = image.toPixmap();
+    try {
+      expect(pix.getStride()).toBe(pix.getWidth() * pix.getNumberOfComponents());
+      return { w: pix.getWidth(), h: pix.getHeight(), n: pix.getNumberOfComponents(), px: pix.getPixels().slice() };
+    } finally {
+      pix.destroy();
+    }
+  } finally {
+    image.destroy();
+  }
+}
+
+/** Assert `part` is exactly the `box` sub-rectangle of `full`. */
+function expectSubRect(full: ReturnType<typeof decode>, part: ReturnType<typeof decode>, box: number[]): void {
+  const [x0, y0, x1, y1] = box as [number, number, number, number];
+  expect([part.w, part.h, part.n]).toEqual([x1 - x0, y1 - y0, 3]);
+  for (let y = 0; y < part.h; y++) {
+    const want = full.px.subarray(((y0 + y) * full.w + x0) * 3, ((y0 + y) * full.w + x1) * 3);
+    const got = part.px.subarray(y * part.w * 3, (y + 1) * part.w * 3);
+    expect(Buffer.from(got).equals(Buffer.from(want))).toBe(true);
+  }
 }
 
 describe('pdf extraction (pinned to PyMuPDF goldens)', () => {
@@ -65,25 +86,25 @@ describe('pdf extraction (pinned to PyMuPDF goldens)', () => {
     const full = decode(renderPage(doc, 0, 150).png);
     const crop = cropPage(doc, 0, 150, [10, 20, 110, 70]);
     expect([crop.width, crop.height]).toEqual([100, 50]);
-    const part = decode(crop.png);
-    expect([part.w, part.h, part.n]).toEqual([100, 50, 3]);
-    for (let y = 0; y < 50; y++) {
-      const want = full.px.subarray(((20 + y) * full.w + 10) * 3, ((20 + y) * full.w + 110) * 3);
-      const got = part.px.subarray(y * 100 * 3, (y + 1) * 100 * 3);
-      expect(Buffer.from(got).equals(Buffer.from(want))).toBe(true);
-    }
+    expectSubRect(full, decode(crop.png), [10, 20, 110, 70]);
   });
 
   it('cropPage pixels equal renderPage over a region with chart bars and text', () => {
     const full = decode(renderPage(doc, 1, 150).png);
-    const box: [number, number, number, number] = [400, 700, 900, 1100];
-    const part = decode(cropPage(doc, 1, 150, box).png);
-    expect([part.w, part.h]).toEqual([500, 400]);
-    for (let y = 0; y < 400; y++) {
-      const want = full.px.subarray(((700 + y) * full.w + 400) * 3, ((700 + y) * full.w + 900) * 3);
-      const got = part.px.subarray(y * 500 * 3, (y + 1) * 500 * 3);
-      expect(Buffer.from(got).equals(Buffer.from(want))).toBe(true);
-    }
+    expectSubRect(full, decode(cropPage(doc, 1, 150, [400, 700, 900, 1100]).png), [400, 700, 900, 1100]);
+  });
+
+  it('cropPage rejects a box that is empty, fractional or outside the page', () => {
+    for (const box of [
+      [10, 10, 10, 20],
+      [10, 20, 5, 30],
+      [-1, 0, 10, 10],
+      [0, 0, 1276, 10],
+      [0, 0, 10, 1651],
+      [0.5, 0, 10, 10],
+    ] as [number, number, number, number][])
+      expect(() => cropPage(doc, 0, 150, box)).toThrow(RangeError);
+    expect(cropPage(doc, 0, 150, [0, 0, 1275, 1650]).width).toBe(1275);
   });
 });
 
@@ -138,6 +159,114 @@ describe('characters outside the BMP', () => {
       closePdf(doc);
     }
   });
+
+  it('warns when the walk and asText() drift apart, and keeps the walker chars from there on', () => {
+    // A ToUnicode entry that is a lone surrogate: asText() writes it as three U+FFFD, the walker as one unit,
+    // so alignment is lost. The astral char on the next line then comes back truncated to U+D465, where
+    // PyMuPDF 1.28.0 gives "A\ufffdA\n\U0001d465A\n". The warning is how callers learn about it.
+    const loneCmap = cmap.replace(
+      '1 beginbfchar <0001> <D835DC65> endbfchar',
+      '3 beginbfchar <0001> <D835> <0002> <D835DC65> <0003> <0041> endbfchar',
+    );
+    const loneContent = 'BT /F1 12 Tf 72 700 Td <000300010003> Tj ET BT /F1 12 Tf 72 650 Td <00020003> Tj ET';
+    const lone = rawPdf([
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>',
+      '<< /Type /Font /Subtype /Type0 /BaseFont /MathA /Encoding /Identity-H /DescendantFonts [5 0 R] /ToUnicode 6 0 R >>',
+      cidFont('MathA'),
+      `<< /Length ${loneCmap.length} >>\nstream\n${loneCmap}\nendstream`,
+      `<< /Length ${loneContent.length} >>\nstream\n${loneContent}\nendstream`,
+    ]);
+    const doc = openPdf(lone);
+    try {
+      const log = { warn: vi.fn() };
+      expect(extractPagesText(doc, log)).toEqual(['A\ufffdA\n\ud465A\n']);
+      expect(log.warn).toHaveBeenCalledTimes(1);
+      expect(log.warn.mock.calls[0]![0]).toEqual({ pages: [0] });
+      log.warn.mockClear();
+      expect(extractTextMarkdown(doc, log)).toBe('A\ufffdA\n\ud465A');
+      expect(log.warn).toHaveBeenCalledTimes(1);
+      expect(log.warn.mock.calls[0]![0]).toEqual({ pages: [0] });
+    } finally {
+      closePdf(doc);
+    }
+  });
+
+  it('does not warn when every page lines up', () => {
+    const doc = openPdf(bytes);
+    try {
+      const log = { warn: vi.fn() };
+      extractPagesText(doc, log);
+      extractTextMarkdown(doc, log);
+      expect(log.warn).not.toHaveBeenCalled();
+    } finally {
+      closePdf(doc);
+    }
+  });
+});
+
+describe('cropPage with raster images', () => {
+  // MuPDF draws images differently under a smaller clip, so cropPage must cut from the full render.
+  // Page 1 has a small image scaled up (non-integer scale) and a large one sheared; both hold noise.
+  const noise = (w: number, h: number, seed: number): mupdf.Image => {
+    const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, w, h], false);
+    try {
+      const px = pix.getPixels();
+      let s = seed;
+      for (let i = 0; i < px.length; i++) {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        px[i] = s >> 16;
+      }
+      return new mupdf.Image(pix);
+    } finally {
+      pix.destroy();
+    }
+  };
+  let bytes: Uint8Array;
+  beforeAll(() => {
+    const pdf = new mupdf.PDFDocument();
+    const small = noise(37, 23, 12345);
+    const large = noise(600, 440, 777);
+    const res = pdf.newDictionary();
+    const xobjects = pdf.newDictionary();
+    xobjects.put('Im0', pdf.addImage(small));
+    xobjects.put('Im1', pdf.addImage(large));
+    res.put('XObject', xobjects);
+    const content =
+      'q 301.3 0 0 187.7 50.2 400.4 cm /Im0 Do Q q 1 0 0.2 1 0 0 cm 400.7 0 0 290.3 100.1 60.6 cm /Im1 Do Q';
+    pdf.insertPage(-1, pdf.addPage([0, 0, 612, 792], 0, res, content));
+    const buf = pdf.saveToBuffer('');
+    bytes = buf.asUint8Array().slice();
+    buf.destroy();
+    small.destroy();
+    large.destroy();
+    pdf.destroy();
+  });
+
+  it.each([150, 96])('crops equal the full render at %d dpi', (dpi) => {
+    const doc = openPdf(bytes);
+    try {
+      const full = decode(renderPage(doc, 0, dpi).png);
+      // Boxes cutting through the scaled image, the sheared image, both, and the image edges.
+      const s = dpi / 72;
+      const boxes = [
+        [50.2, 404.4, 351.5, 592.1],
+        [60, 410, 200, 500],
+        [100, 60, 600, 360],
+        [150, 100, 220, 170],
+        [40, 200, 612, 600],
+      ].map((b) => [
+        Math.floor(b[0]! * s),
+        Math.floor((792 - b[3]!) * s),
+        Math.ceil(b[2]! * s),
+        Math.ceil((792 - b[1]!) * s),
+      ]);
+      for (const box of boxes) expectSubRect(full, decode(cropPage(doc, 0, dpi, box as never).png), box);
+    } finally {
+      closePdf(doc);
+    }
+  });
 });
 
 describe('openPdf', () => {
@@ -154,19 +283,27 @@ describe('openPdf', () => {
   it('throws PdfOpenError on an encrypted PDF', () => {
     const pdf = new mupdf.PDFDocument();
     pdf.insertPage(-1, pdf.addPage([0, 0, 200, 200], 0, pdf.newDictionary(), ''));
-    const bytes = pdf
-      .saveToBuffer('encrypt=aes-256,user-password=secret,owner-password=owner')
-      .asUint8Array()
-      .slice();
+    const buf = pdf.saveToBuffer('encrypt=aes-256,user-password=secret,owner-password=owner');
+    const bytes = buf.asUint8Array().slice();
+    buf.destroy();
+    pdf.destroy();
     // The same bytes open fine once the password is known, so the error really is the password check.
     const raw = mupdf.Document.openDocument(bytes, 'application/pdf');
-    expect(raw.needsPassword()).toBe(true);
-    expect(raw.authenticatePassword('secret')).toBeGreaterThan(0);
+    try {
+      expect(raw.needsPassword()).toBe(true);
+      expect(raw.authenticatePassword('secret')).toBeGreaterThan(0);
+    } finally {
+      raw.destroy();
+    }
     expect(() => openPdf(bytes)).toThrow(PdfOpenError);
   });
 
   it('throws PdfOpenError on a PDF with no pages', () => {
-    const bytes = new mupdf.PDFDocument().saveToBuffer('').asUint8Array().slice();
+    const pdf = new mupdf.PDFDocument();
+    const buf = pdf.saveToBuffer('');
+    const bytes = buf.asUint8Array().slice();
+    buf.destroy();
+    pdf.destroy();
     expect(() => openPdf(bytes)).toThrow(PdfOpenError);
   });
 });

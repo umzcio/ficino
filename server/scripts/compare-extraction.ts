@@ -17,15 +17,18 @@ if (!dir || !out) {
   process.exit(2);
 }
 mkdirSync(out, { recursive: true });
+const log = {
+  warn: (obj: Record<string, unknown>, msg: string) => console.log(`  warning: ${msg} ${JSON.stringify(obj)}`),
+};
 for (const file of readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.pdf')).sort()) {
   const name = basename(file, '.pdf');
   const started = performance.now();
   try {
     const doc = openPdf(new Uint8Array(readFileSync(join(dir, file))));
     try {
-      const md = extractTextMarkdown(doc);
+      const md = extractTextMarkdown(doc, log);
       writeFileSync(join(out, `${name}.ts.md`), md);
-      writeFileSync(join(out, `${name}.ts.pages.json`), `${JSON.stringify(extractPagesText(doc), null, 2)}\n`);
+      writeFileSync(join(out, `${name}.ts.pages.json`), `${JSON.stringify(extractPagesText(doc, log), null, 2)}\n`);
       const ms = Math.round(performance.now() - started);
       console.log(`${name}: ${md.split('\n').length} lines (${ms} ms)`);
     } finally {
