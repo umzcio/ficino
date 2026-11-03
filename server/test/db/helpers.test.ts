@@ -20,5 +20,5 @@ it('resetDb empties tables but keeps personas and migrations', async () => {
   const [r] = await sql`
     SELECT (SELECT count(*) FROM users)::int AS u, (SELECT count(*) FROM personas)::int AS pe,
            (SELECT count(*) FROM schema_migrations)::int AS m`;
-  expect(r).toEqual({ u: 0, pe: 7, m: 3 });
+  expect(r).toEqual({ u: 0, pe: 7, m: 4 });
 });

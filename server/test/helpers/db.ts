@@ -48,10 +48,15 @@ export async function resetDb(sql: Sql): Promise<void> {
   const rows = await sql`
     SELECT tablename FROM pg_tables
     WHERE schemaname = 'public' AND tablename NOT IN ('personas', 'schema_migrations')`;
-  if (rows.length === 0) return;
-  const list = rows.map((r) => `"${String(r.tablename).replace(/"/g, '""')}"`).join(', ');
-  // Identifiers come from the catalog, not user input; TRUNCATE can't take parameters.
-  await sql.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
+  if (rows.length > 0) {
+    const list = rows.map((r) => `"${String(r.tablename).replace(/"/g, '""')}"`).join(', ');
+    // Identifiers come from the catalog, not user input; TRUNCATE can't take parameters.
+    await sql.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
+  }
+  // pg-boss jobs and schedules go; queues stay.
+  const [boss] = await sql`SELECT to_regclass('pgboss.job') AS j, to_regclass('pgboss.schedule') AS s`;
+  if (boss!.j) await sql.unsafe('DELETE FROM pgboss.job');
+  if (boss!.s) await sql.unsafe('DELETE FROM pgboss.schedule');
 }
 
 /** Mirrors the seeded_users fixture in api/tests/conftest.py: two users, each with a workspace, feed and paper. */

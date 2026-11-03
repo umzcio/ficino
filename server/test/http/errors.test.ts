@@ -6,6 +6,7 @@ import { resolveSigningKey } from '../../src/shared/signedUrl.js';
 import { LocalStorage } from '../../src/storage/local.js';
 import { client, testApp } from '../helpers/client.js';
 import { resetDb, testSql, USER_A_ID } from '../helpers/db.js';
+import { testQueue } from '../helpers/queue.js';
 
 describe('error contract (C §0)', () => {
   beforeEach(() => resetDb(testSql()));
@@ -88,6 +89,7 @@ describe('error contract (C §0)', () => {
     const logger = pino({ level: 'warn' }, { write: (s: string) => void lines.push(s) });
     const app = createApp({
       sql: testSql(),
+      queue: testQueue(),
       config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
       logger,
       storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),
@@ -112,6 +114,7 @@ describe('error contract (C §0)', () => {
     const logger = pino({ level: 'warn' }, { write: (s: string) => void lines.push(s) });
     const app = createApp({
       sql: testSql(),
+      queue: testQueue(),
       config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
       logger,
       storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),

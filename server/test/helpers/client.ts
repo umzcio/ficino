@@ -9,6 +9,7 @@ import { loadConfig, type Config } from '../../src/config.js';
 import { resolveSigningKey } from '../../src/shared/signedUrl.js';
 import { LocalStorage } from '../../src/storage/local.js';
 import { testSql } from './db.js';
+import { testQueue } from './queue.js';
 
 let storageRoot: string | undefined;
 /** One temp dir per process (test-only artifact, under os.tmpdir()). */
@@ -34,6 +35,7 @@ export function testApp(opts: { user?: AuthUser; config?: Partial<Config>; fetch
   const storage = new LocalStorage({ ...testStorageDirs(), ...opts.config }, signingKey, logger);
   return createApp({
     sql: testSql(),
+    queue: testQueue(),
     config,
     logger,
     storage,

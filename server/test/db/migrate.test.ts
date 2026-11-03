@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -6,9 +6,15 @@ import { migrate } from '../../src/db/migrate.js';
 import { createSql, type Sql } from '../../src/db/sql.js';
 import { createScratchDb } from '../helpers/db.js';
 
+const MIGRATIONS_DIR = new URL('../../migrations/', import.meta.url);
+const VERSIONS = (await readdir(MIGRATIONS_DIR))
+  .filter((f) => /^\d{4}_.*\.sql$/.test(f))
+  .map((f) => f.slice(0, 4))
+  .sort();
+
 const TABLES = [
   'alerts', 'annotations', 'audit_log', 'bookmarks', 'chunks', 'corpora', 'corpus_syntheses',
-  'feed_posts', 'feeds', 'figures', 'paper_summaries', 'paper_tags', 'papers', 'persona_dms',
+  'feed_posts', 'feeds', 'figures', 'job_progress', 'paper_summaries', 'paper_tags', 'papers', 'persona_dms',
   'personas', 'post_replies', 'rate_limits', 'reading_list_chapters', 'reading_lists', 'sessions', 'tags', 'user_likes',
   'user_posts', 'user_settings', 'users',
 ];
@@ -30,12 +36,12 @@ afterAll(async () => {
   await scratch?.drop();
 });
 
-it('applies 0001-0003 once, then nothing', () => {
-  expect(first).toEqual(['0001', '0002', '0003']);
+it('applies every migration once, then nothing', () => {
+  expect(first).toEqual(VERSIONS);
   expect(second).toEqual([]);
 });
 
-it('creates the 25 public tables (23 baseline + sessions + rate_limits)', async () => {
+it('creates the 26 public tables (23 baseline + sessions + rate_limits + job_progress)', async () => {
   const rows = await sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations' ORDER BY 1`;
   expect(rows.map((r) => r.tablename)).toEqual(TABLES);
 });
@@ -92,9 +98,9 @@ it('concurrent migrate() calls on separate pools: one applies, the other waits a
   const b = createSql(db.url, { max: 2 });
   try {
     const [ra, rb] = await Promise.all([migrate(a), migrate(b)]);
-    expect([ra, rb].map((r) => r.length).sort()).toEqual([0, 3]);
+    expect([ra, rb].map((r) => r.length).sort()).toEqual([0, VERSIONS.length]);
     const rows = await a`SELECT version FROM schema_migrations ORDER BY 1`;
-    expect(rows.map((r) => r.version)).toEqual(['0001', '0002', '0003']);
+    expect(rows.map((r) => r.version)).toEqual(VERSIONS);
   } finally {
     await a.end();
     await b.end();

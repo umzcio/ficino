@@ -20,11 +20,13 @@ import { settingsRoutes } from './routes/settings.js';
 import { citationsRoutes } from './routes/citations.js';
 import { tagsRoutes } from './routes/tags.js';
 import { usersRoutes } from './routes/users.js';
+import type { JobQueue } from './jobs/queue.js';
 import type { LocalStorage } from './storage/local.js';
 import { workspacesRoutes } from './routes/workspaces.js';
 
 export type AppDeps = {
   sql: Sql;
+  queue: JobQueue;
   config: Config;
   logger: Logger;
   storage: LocalStorage;

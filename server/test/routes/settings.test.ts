@@ -10,6 +10,7 @@ import { LocalStorage } from '../../src/storage/local.js';
 import { coercePy } from '../../src/routes/settings.js';
 import { client, testApp } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID } from '../helpers/db.js';
+import { testQueue } from '../helpers/queue.js';
 
 const sql = testSql();
 let seeded: Awaited<ReturnType<typeof seedUsers>>;
@@ -185,6 +186,7 @@ describe('PUBLIC_DEPLOYMENT', () => {
     const key = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
     const pub = createApp({
       sql,
+      queue: testQueue(),
       config: loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
       logger: pino({ level: 'silent' }),
       storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),
