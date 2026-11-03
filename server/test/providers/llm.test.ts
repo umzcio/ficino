@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generateText } from '../../src/providers/llm.js';
 import { providerConfig } from '../../src/providers/config.js';
 import { loadConfig } from '../../src/config.js';
@@ -89,12 +89,18 @@ describe('generateText: ollama (port of test_llm_hardening.py)', () => {
     const { deps } = fakeDeps([t, json({ message: { content: 'ok' } })]);
     expect(await generateText(ollama, deps, req)).toBe('ok');
   });
-  it('an already-aborted job signal throws immediately without retry', async () => {
+  it('an already-aborted job signal rejects with its reason, no call, no retry', async () => {
     const ac = new AbortController();
     ac.abort(new Error('job cancelled'));
-    const { deps, calls, sleeps } = fakeDeps([new DOMException('aborted', 'AbortError')]);
-    await expect(generateText(ollama, deps, { ...req, signal: ac.signal })).rejects.toThrow();
-    expect(calls.length).toBeLessThanOrEqual(1);
+    const { deps, calls, sleeps } = fakeDeps([json({ message: { content: 'x' } })]);
+    await expect(generateText(ollama, deps, { ...req, signal: ac.signal })).rejects.toBe(ac.signal.reason);
+    expect(calls).toHaveLength(0);
+    expect(sleeps).toEqual([]);
+  });
+  it('a 200 with a malformed body fails once, without retry', async () => {
+    const { deps, calls, sleeps } = fakeDeps([json({}), json({ message: { content: 'ok' } })]);
+    await expect(generateText(ollama, deps, req)).rejects.toThrow();
+    expect(calls).toHaveLength(1);
     expect(sleeps).toEqual([]);
   });
   it('a job abort during a request is not retried', async () => {
@@ -123,10 +129,16 @@ describe('generateText: ollama (port of test_llm_hardening.py)', () => {
     await expect(generateText(ollama, deps, { ...req, signal: ac.signal })).rejects.toBe(reason);
     expect(calls).toHaveLength(1);
   });
-  it('passes a signal that includes a 300s timeout', async () => {
-    const { deps, calls } = fakeDeps([json({ message: { content: 'ok' } })]);
-    await generateText(ollama, deps, req);
-    expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
+  it('uses a 300000 ms per-request timeout', async () => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const { deps, calls } = fakeDeps([json({ message: { content: 'ok' } })]);
+      await generateText(ollama, deps, req);
+      expect(spy).toHaveBeenCalledWith(300_000);
+      expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
@@ -148,6 +160,7 @@ describe('generateText: anthropic and routing', () => {
     const ac = new AbortController();
     expect(await generateText(api('sk-1'), deps, { ...req, signal: ac.signal })).toBe('hello');
     expect(seen[0]!.key).toBe('sk-1');
+    expect(seen[0]!.opts).not.toHaveProperty('maxRetries'); // SDK default retries
     expect(seen[0]!.params).toEqual({
       model: 'claude-x',
       max_tokens: 1024,

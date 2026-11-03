@@ -3,12 +3,11 @@ import type { Sql } from '../db/sql.js';
 import {
   buildDefaults,
   isPublicDeployment,
-  mergeSettings,
-  reassertPublicDeployment,
   SETTINGS_TO_ENV,
   type Env,
   type Settings,
 } from '../settings/schema.js';
+import { deepFreeze, resolveSettings } from '../settings/resolve.js';
 import { loadStoredSettings } from '../settings/stored.js';
 
 export type ProviderConfig = {
@@ -35,14 +34,6 @@ export type ProviderConfig = {
   };
   rerank: { provider: string; voyageModel: string; voyageKey: string; cohereModel: string; cohereKey: string };
 };
-
-function deepFreeze<T>(value: T): Readonly<T> {
-  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const v of Object.values(value)) deepFreeze(v);
-  }
-  return value;
-}
 
 /**
  * Port of get_active() over a per-job stored row: the stored value when truthy, otherwise the
@@ -126,7 +117,5 @@ export async function loadJobSettings(
   config: Config,
 ): Promise<{ settings: Readonly<Settings>; providers: ProviderConfig }> {
   const stored = await loadStoredSettings(sql, userId);
-  let merged = mergeSettings(buildDefaults(env), stored);
-  if (isPublicDeployment(env)) merged = reassertPublicDeployment(merged, env);
-  return { settings: deepFreeze(merged), providers: providerConfig(stored, env, config) };
+  return { settings: resolveSettings(stored, env), providers: providerConfig(stored, env, config) };
 }

@@ -1,5 +1,6 @@
 import type { ProviderConfig } from './config.js';
 import type { ProviderDeps } from './deps.js';
+import { pyStrip } from '../shared/pystr.js';
 import { fetchJson, isTransient, withRetry } from './http.js';
 
 export type GenerateRequest = {
@@ -31,7 +32,7 @@ async function generateOllama(p: ProviderConfig, deps: ProviderDeps, req: Genera
       const msg = data.message;
       let content = msg.content ?? '';
       if (!content && msg.thinking) content = msg.thinking;
-      if (!content || !content.trim()) throw new Error('LLM returned empty response');
+      if (!content || !pyStrip(content)) throw new Error('LLM returned empty response');
       return content;
     },
     {

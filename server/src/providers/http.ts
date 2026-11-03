@@ -10,14 +10,22 @@ export class HttpStatusError extends Error {
   }
 }
 
+/** `deps.fetch` itself rejected (connection refused, DNS, reset): the only retryable non-HTTP failure. */
+export class NetworkError extends Error {
+  constructor(cause: unknown) {
+    super(`network error: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.name = 'NetworkError';
+  }
+}
+
 /**
- * True for a network failure (fetch rejects with TypeError), a per-request timeout or a 5xx.
+ * True for a NetworkError (fetch itself rejected), a per-request timeout or a 5xx.
  * False for a 4xx and for the caller's own abort: pass the job `signal` so a cancellation is never retried.
  */
 export function isTransient(e: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) return false;
   if (e instanceof HttpStatusError) return e.status >= 500;
-  if (e instanceof TypeError) return true;
+  if (e instanceof NetworkError) return true;
   if (typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'TimeoutError') return true;
   return false;
 }
@@ -58,12 +66,19 @@ export async function fetchJson(
   const timeout = AbortSignal.timeout(init.timeoutMs);
   const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   const hasBody = init.body !== undefined;
-  const res = await deps.fetch(url, {
-    method: init.method ?? (hasBody ? 'POST' : 'GET'),
-    headers: { ...(hasBody ? { 'content-type': 'application/json' } : {}), ...init.headers },
-    body: hasBody ? JSON.stringify(init.body) : undefined,
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await deps.fetch(url, {
+      method: init.method ?? (hasBody ? 'POST' : 'GET'),
+      headers: { ...(hasBody ? { 'content-type': 'application/json' } : {}), ...init.headers },
+      body: hasBody ? JSON.stringify(init.body) : undefined,
+      signal,
+    });
+  } catch (e) {
+    // Timeouts and the caller's abort keep their own identity; anything else is a network failure.
+    if (init.signal?.aborted || timeout.aborted || signal.aborted) throw e;
+    throw new NetworkError(e);
+  }
   if (!res.ok) throw new HttpStatusError(res.status, await res.text().catch(() => ''));
   return res.json();
 }

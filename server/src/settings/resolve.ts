@@ -9,12 +9,19 @@ import {
 } from './schema.js';
 import { loadStoredSettings } from './stored.js';
 
-function deepFreeze<T>(value: T): Readonly<T> {
+export function deepFreeze<T>(value: T): Readonly<T> {
   if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
     Object.freeze(value);
     for (const v of Object.values(value)) deepFreeze(v);
   }
   return value;
+}
+
+/** Pure core: defaults(env) + stored row, reasserted under PUBLIC_DEPLOYMENT, deep-frozen. */
+export function resolveSettings(stored: Record<string, unknown>, env: Env): Readonly<Settings> {
+  let merged = mergeSettings(buildDefaults(env), stored);
+  if (isPublicDeployment(env)) merged = reassertPublicDeployment(merged, env);
+  return deepFreeze(merged);
 }
 
 /**
@@ -28,7 +35,5 @@ export async function resolveUserSettings(
   env: Env,
 ): Promise<Readonly<Settings>> {
   const user = await loadStoredSettings(sql, userId);
-  let merged = mergeSettings(buildDefaults(env), user);
-  if (isPublicDeployment(env)) merged = reassertPublicDeployment(merged, env);
-  return deepFreeze(merged);
+  return resolveSettings(user, env);
 }
