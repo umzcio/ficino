@@ -1,0 +1,424 @@
+[
+  {
+    "name": "sample 800",
+    "chunks": [
+      {
+        "section": "quiet attention in small reading groups",
+        "content": "A. Writer and B. Author",
+        "chunk_index": 0,
+        "token_count": 7
+      },
+      {
+        "section": "abstract",
+        "content": "Reading groups are a common way for small teams to keep up with a field, yet little is\nknown about how attention moves around the table during a session. This study followed\nnine informal groups over one term and recorded who spoke, who took notes, and which\npassages drew repeated comment. We found that attention clusters around a few dense\nparagraphs, that quiet members often return to those paragraphs later in writing, and\nthat a short written prompt before the meeting spreads discussion more evenly. These\nresults suggest simple, low-cost changes for anyone who runs a reading group.",
+        "chunk_index": 1,
+        "token_count": 117
+      },
+      {
+        "section": "1. introduction",
+        "content": "Most advice about reading groups is anecdotal. Organizers swap tips about snacks,\ntiming, and how to choose a paper, but few have looked closely at what actually happens\nonce the discussion starts. Does everyone engage with the same parts of a text? Do the\nloudest voices set the agenda, or do the quieter members steer the conversation in ways\nthat are easy to miss? We wanted to answer these questions with careful observation\nrather than surveys, because people tend to remember a lively meeting as more balanced\nthan it really was.\nOur approach was deliberately modest. We did not record audio or video, and we did not\nask anyone to change how they ran their meetings. Instead, a single observer sat in on\neach session with a seating chart and a simple coding sheet. Every time a member spoke,\nthe observer noted the time, the speaker, and the page or paragraph under discussion.\nAfter each meeting, members were invited to send a short note about anything they wished\nthey had said. Those notes turned out to be the most revealing part of the data.",
+        "chunk_index": 2,
+        "token_count": 218
+      },
+      {
+        "section": "field notes summary",
+        "content": "A recurring phrase in the notes was a quiet apology for not speaking up. One member\nwrote that the group had moved on before she found the words, and that the paragraph\nstayed with her all week.\nCafé naïve — 東京 ñ",
+        "chunk_index": 3,
+        "token_count": 55
+      },
+      {
+        "section": "2.1 methods and materials",
+        "content": "Nine groups took part, with between four and eleven members each. Six groups met weekly\nand three met every other week. Sessions lasted between forty and ninety minutes. In\ntotal we observed seventy-two sessions and coded just over four thousand speaking turns.\nTwo coders worked through a shared subset of twelve sessions to check agreement, and\nthey matched on the paragraph being discussed in nearly nine out of ten turns. Where\nthey disagreed, the cause was usually a speaker who jumped between two nearby sections\nin a single remark.\nHalfway through the term, four of the groups agreed to try a small change. Before each\nmeeting, members wrote two or three sentences naming the passage they found most\npuzzling. The organizer read these aloud at the start of the session. The other five\ngroups carried on as before and served as a comparison.\n(see below)\nGroup A\nGroup B\nGroup C\nGroup D\nFigure 1: Mean scores by group.\nFigure 1 shows the mean balance score for each group at the end of term. Groups A and B\nused the written prompt; groups C and D did not.",
+        "chunk_index": 4,
+        "token_count": 230
+      },
+      {
+        "section": "3 results",
+        "content": "Attention was far from even. In a typical session, roughly a fifth of the paragraphs in\nthe assigned reading drew more than half of all comments. These were rarely the opening\nor closing sections; more often they were dense passages that introduced a new method or\na surprising claim. Members who spoke least during the meeting were the most likely to\nsend a follow-up note, and their notes pointed to the same dense paragraphs about two\nthirds of the time. In other words, quiet members were paying attention to the right\nplaces but were not getting a chance to say so.\nThe written prompt helped. In groups that used it, the share of turns taken by the two\nmost active members fell from about one half to about one third, and the number of\nmembers who spoke at least once rose in almost every session. The comparison groups\nshowed no such change. The effect appeared within two weeks and held steady for the rest\nof the term.\nThese findings come with limits. The groups were all volunteers, the observer could not\nbe blind to which groups used the prompt, and one term is a short window. Still, the\npattern was consistent across groups of very different sizes, and the change asked of\norganizers was tiny. A few minutes of writing before the meeting cost nothing and gave\nquieter members a way into the conversation.",
+        "chunk_index": 5,
+        "token_count": 276
+      }
+    ]
+  },
+  {
+    "name": "sample 100",
+    "chunks": [
+      {
+        "section": "quiet attention in small reading groups",
+        "content": "A. Writer and B. Author",
+        "chunk_index": 0,
+        "token_count": 7
+      },
+      {
+        "section": "abstract",
+        "content": "Reading groups are a common way for small teams to keep up with a field, yet little is\nknown about how attention moves around the table during a session. This study followed\nnine informal groups over one term and recorded who spoke, who took notes, and which\npassages drew repeated comment. We found that attention clusters around a few dense\nparagraphs, that quiet members often return to those paragraphs later in writing, and\nthat a short written prompt before the meeting spreads discussion more evenly.",
+        "chunk_index": 1,
+        "token_count": 100
+      },
+      {
+        "section": "abstract",
+        "content": "These\nresults suggest simple, low-cost changes for anyone who runs a reading group.",
+        "chunk_index": 2,
+        "token_count": 17
+      },
+      {
+        "section": "1. introduction",
+        "content": "Most advice about reading groups is anecdotal. Organizers swap tips about snacks,\ntiming, and how to choose a paper, but few have looked closely at what actually happens\nonce the discussion starts. Does everyone engage with the same parts of a text? Do the\nloudest voices set the agenda, or do the quieter members steer the conversation in ways\nthat are easy to miss?",
+        "chunk_index": 3,
+        "token_count": 79
+      },
+      {
+        "section": "1. introduction",
+        "content": "We wanted to answer these questions with careful observation\nrather than surveys, because people tend to remember a lively meeting as more balanced\nthan it really was. Our approach was deliberately modest. We did not record audio or video, and we did not\nask anyone to change how they ran their meetings. Instead, a single observer sat in on\neach session with a seating chart and a simple coding sheet.",
+        "chunk_index": 4,
+        "token_count": 81
+      },
+      {
+        "section": "1. introduction",
+        "content": "Every time a member spoke,\nthe observer noted the time, the speaker, and the page or paragraph under discussion. After each meeting, members were invited to send a short note about anything they wished\nthey had said. Those notes turned out to be the most revealing part of the data.",
+        "chunk_index": 5,
+        "token_count": 58
+      },
+      {
+        "section": "field notes summary",
+        "content": "A recurring phrase in the notes was a quiet apology for not speaking up. One member\nwrote that the group had moved on before she found the words, and that the paragraph\nstayed with her all week.\nCafé naïve — 東京 ñ",
+        "chunk_index": 6,
+        "token_count": 55
+      },
+      {
+        "section": "2.1 methods and materials",
+        "content": "Nine groups took part, with between four and eleven members each. Six groups met weekly\nand three met every other week. Sessions lasted between forty and ninety minutes. In\ntotal we observed seventy-two sessions and coded just over four thousand speaking turns. Two coders worked through a shared subset of twelve sessions to check agreement, and\nthey matched on the paragraph being discussed in nearly nine out of ten turns.",
+        "chunk_index": 7,
+        "token_count": 82
+      },
+      {
+        "section": "2.1 methods and materials",
+        "content": "Where\nthey disagreed, the cause was usually a speaker who jumped between two nearby sections\nin a single remark. Halfway through the term, four of the groups agreed to try a small change. Before each\nmeeting, members wrote two or three sentences naming the passage they found most\npuzzling. The organizer read these aloud at the start of the session. The other five\ngroups carried on as before and served as a comparison.",
+        "chunk_index": 8,
+        "token_count": 89
+      },
+      {
+        "section": "2.1 methods and materials",
+        "content": "(see below)\nGroup A\nGroup B\nGroup C\nGroup D\nFigure 1: Mean scores by group. Figure 1 shows the mean balance score for each group at the end of term. Groups A and B\nused the written prompt; groups C and D did not.",
+        "chunk_index": 9,
+        "token_count": 59
+      },
+      {
+        "section": "3 results",
+        "content": "Attention was far from even. In a typical session, roughly a fifth of the paragraphs in\nthe assigned reading drew more than half of all comments. These were rarely the opening\nor closing sections; more often they were dense passages that introduced a new method or\na surprising claim. Members who spoke least during the meeting were the most likely to\nsend a follow-up note, and their notes pointed to the same dense paragraphs about two\nthirds of the time.",
+        "chunk_index": 10,
+        "token_count": 94
+      },
+      {
+        "section": "3 results",
+        "content": "In other words, quiet members were paying attention to the right\nplaces but were not getting a chance to say so. The written prompt helped. In groups that used it, the share of turns taken by the two\nmost active members fell from about one half to about one third, and the number of\nmembers who spoke at least once rose in almost every session. The comparison groups\nshowed no such change.",
+        "chunk_index": 11,
+        "token_count": 84
+      },
+      {
+        "section": "3 results",
+        "content": "The effect appeared within two weeks and held steady for the rest\nof the term. These findings come with limits. The groups were all volunteers, the observer could not\nbe blind to which groups used the prompt, and one term is a short window. Still, the\npattern was consistent across groups of very different sizes, and the change asked of\norganizers was tiny. A few minutes of writing before the meeting cost nothing and gave\nquieter members a way into the conversation.",
+        "chunk_index": 12,
+        "token_count": 98
+      }
+    ]
+  },
+  {
+    "name": "few sections",
+    "chunks": [
+      {
+        "section": "title",
+        "content": "Some intro text here.\n\nMore text.",
+        "chunk_index": 0,
+        "token_count": 8
+      }
+    ]
+  },
+  {
+    "name": "methods and materials",
+    "chunks": [
+      {
+        "section": "methods",
+        "content": "We did things.",
+        "chunk_index": 0,
+        "token_count": 4
+      },
+      {
+        "section": "3 results",
+        "content": "We found things.",
+        "chunk_index": 1,
+        "token_count": 4
+      },
+      {
+        "section": "abstract",
+        "content": "Short abstract.",
+        "chunk_index": 2,
+        "token_count": 3
+      }
+    ]
+  },
+  {
+    "name": "single long paragraph",
+    "chunks": [
+      {
+        "section": "results",
+        "content": "Sentence number 0 explains that the measured effect was robust across samples. Sentence number 1 explains that the measured effect was robust across samples. Sentence number 2 explains that the measured effect was robust across samples. Sentence number 3 explains that the measured effect was robust across samples. Sentence number 4 explains that the measured effect was robust across samples. Sentence number 5 explains that the measured effect was robust across samples. Sentence number 6 explains that the measured effect was robust across samples.",
+        "chunk_index": 0,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 7 explains that the measured effect was robust across samples. Sentence number 8 explains that the measured effect was robust across samples. Sentence number 9 explains that the measured effect was robust across samples. Sentence number 10 explains that the measured effect was robust across samples. Sentence number 11 explains that the measured effect was robust across samples. Sentence number 12 explains that the measured effect was robust across samples. Sentence number 13 explains that the measured effect was robust across samples.",
+        "chunk_index": 1,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 14 explains that the measured effect was robust across samples. Sentence number 15 explains that the measured effect was robust across samples. Sentence number 16 explains that the measured effect was robust across samples. Sentence number 17 explains that the measured effect was robust across samples. Sentence number 18 explains that the measured effect was robust across samples. Sentence number 19 explains that the measured effect was robust across samples. Sentence number 20 explains that the measured effect was robust across samples.",
+        "chunk_index": 2,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 21 explains that the measured effect was robust across samples. Sentence number 22 explains that the measured effect was robust across samples. Sentence number 23 explains that the measured effect was robust across samples. Sentence number 24 explains that the measured effect was robust across samples. Sentence number 25 explains that the measured effect was robust across samples. Sentence number 26 explains that the measured effect was robust across samples. Sentence number 27 explains that the measured effect was robust across samples.",
+        "chunk_index": 3,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 28 explains that the measured effect was robust across samples. Sentence number 29 explains that the measured effect was robust across samples. Sentence number 30 explains that the measured effect was robust across samples. Sentence number 31 explains that the measured effect was robust across samples. Sentence number 32 explains that the measured effect was robust across samples. Sentence number 33 explains that the measured effect was robust across samples. Sentence number 34 explains that the measured effect was robust across samples.",
+        "chunk_index": 4,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 35 explains that the measured effect was robust across samples. Sentence number 36 explains that the measured effect was robust across samples. Sentence number 37 explains that the measured effect was robust across samples. Sentence number 38 explains that the measured effect was robust across samples. Sentence number 39 explains that the measured effect was robust across samples. Sentence number 40 explains that the measured effect was robust across samples. Sentence number 41 explains that the measured effect was robust across samples.",
+        "chunk_index": 5,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 42 explains that the measured effect was robust across samples. Sentence number 43 explains that the measured effect was robust across samples. Sentence number 44 explains that the measured effect was robust across samples. Sentence number 45 explains that the measured effect was robust across samples. Sentence number 46 explains that the measured effect was robust across samples. Sentence number 47 explains that the measured effect was robust across samples. Sentence number 48 explains that the measured effect was robust across samples.",
+        "chunk_index": 6,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 49 explains that the measured effect was robust across samples. Sentence number 50 explains that the measured effect was robust across samples. Sentence number 51 explains that the measured effect was robust across samples. Sentence number 52 explains that the measured effect was robust across samples. Sentence number 53 explains that the measured effect was robust across samples. Sentence number 54 explains that the measured effect was robust across samples. Sentence number 55 explains that the measured effect was robust across samples.",
+        "chunk_index": 7,
+        "token_count": 98
+      },
+      {
+        "section": "results",
+        "content": "Sentence number 56 explains that the measured effect was robust across samples. Sentence number 57 explains that the measured effect was robust across samples. Sentence number 58 explains that the measured effect was robust across samples. Sentence number 59 explains that the measured effect was robust across samples.",
+        "chunk_index": 8,
+        "token_count": 56
+      }
+    ]
+  },
+  {
+    "name": "single long sentence",
+    "chunks": [
+      {
+        "section": "discussion",
+        "content": "This very long sentence keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation keeps going with many words and no terminal punctuation until it ends.",
+        "chunk_index": 0,
+        "token_count": 368
+      }
+    ]
+  },
+  {
+    "name": "cjk no spaces",
+    "chunks": [
+      {
+        "section": "概要",
+        "content": "这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。这是一个没有空格的中文句子用于测试分词器的行为。",
+        "chunk_index": 0,
+        "token_count": 690
+      },
+      {
+        "section": "conclusion",
+        "content": "結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。結論です。",
+        "chunk_index": 1,
+        "token_count": 280
+      }
+    ]
+  },
+  {
+    "name": "emoji",
+    "chunks": [
+      {
+        "section": "introduction",
+        "content": "😀🎉 Emoji paragraph 👩‍👩‍👧‍👦 text. 🚀",
+        "chunk_index": 0,
+        "token_count": 29
+      },
+      {
+        "section": "methods",
+        "content": "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂 end.",
+        "chunk_index": 1,
+        "token_count": 242
+      }
+    ]
+  },
+  {
+    "name": "many newlines",
+    "chunks": [
+      {
+        "section": "abstract",
+        "content": "A\n\nB\n\nC\n\nD",
+        "chunk_index": 0,
+        "token_count": 7
+      },
+      {
+        "section": "results",
+        "content": "E\n\nF",
+        "chunk_index": 1,
+        "token_count": 3
+      }
+    ]
+  },
+  {
+    "name": "empty",
+    "chunks": []
+  },
+  {
+    "name": "headings only",
+    "chunks": [
+      {
+        "section": "untitled",
+        "content": "# One\n## Two\n### Three",
+        "chunk_index": 0,
+        "token_count": 8
+      }
+    ]
+  },
+  {
+    "name": "mixed hashes",
+    "chunks": [
+      {
+        "section": "introduction",
+        "content": "text a",
+        "chunk_index": 0,
+        "token_count": 2
+      },
+      {
+        "section": "related work",
+        "content": "text b",
+        "chunk_index": 1,
+        "token_count": 2
+      },
+      {
+        "section": "experimental setup",
+        "content": "text c\n#### Deep\ntext d",
+        "chunk_index": 2,
+        "token_count": 8
+      },
+      {
+        "section": "appendix",
+        "content": "app",
+        "chunk_index": 3,
+        "token_count": 1
+      }
+    ]
+  },
+  {
+    "name": "no headings",
+    "chunks": [
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 0,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 1,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 2,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 3,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 4,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 5,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 6,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 7,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 8,
+        "token_count": 18
+      },
+      {
+        "section": "untitled",
+        "content": "Just prose without any headings. Just prose without any headings. Just prose without any headings.",
+        "chunk_index": 9,
+        "token_count": 18
+      }
+    ]
+  },
+  {
+    "name": "unicode ws and CRLF",
+    "chunks": [
+      {
+        "section": "summary",
+        "content": "Line one. Line two.\n\nPara three.",
+        "chunk_index": 0,
+        "token_count": 10
+      }
+    ]
+  },
+  {
+    "name": "uppercase and spaced headings",
+    "chunks": [
+      {
+        "section": "abstract",
+        "content": "x",
+        "chunk_index": 0,
+        "token_count": 1
+      },
+      {
+        "section": "literature   review",
+        "content": "y",
+        "chunk_index": 1,
+        "token_count": 1
+      },
+      {
+        "section": "i̇stanbul findings",
+        "content": "z",
+        "chunk_index": 2,
+        "token_count": 1
+      }
+    ]
+  }
+]

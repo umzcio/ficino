@@ -1,0 +1,112 @@
+[
+  {
+    "text": "The study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent raters. Results indicate that careful reading strategies improve comprehension, although the effect varies by domain. The study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent raters. Results indicate that careful reading strategies improve comprehension, although the effect varies by domain. The study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent raters. Results indicate that careful reading strategies improve comprehension, although the effect varies by domain. ",
+    "ok": true,
+    "reason": "ok"
+  },
+  {
+    "text": "",
+    "ok": false,
+    "reason": "empty_extraction"
+  },
+  {
+    "text": "   \n\t ",
+    "ok": false,
+    "reason": "empty_extraction"
+  },
+  {
+    "text": "too short to matter",
+    "ok": false,
+    "reason": "too_short (19 chars)"
+  },
+  {
+    "text": "The study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent r",
+    "ok": false,
+    "reason": "too_short (199 chars)"
+  },
+  {
+    "text": "§¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ §¶†‡•◊∑∏√∞≈≠±×÷ ",
+    "ok": false,
+    "reason": "high_symbol_density (93.9%)"
+  },
+  {
+    "text": "��������������� The study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent raters. Results indicate that careful reading strategies improve comprehension, although the effect varies by domain. ",
+    "ok": false,
+    "reason": "encoding_artifacts (15 found)"
+  },
+  {
+    "text": "���������� The study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent raters. Results indicate that careful reading strategies improve comprehension, although the effect varies by domain. ",
+    "ok": true,
+    "reason": "ok"
+  },
+  {
+    "text": "\u0001\u0002\u0003\u000b\f\u000e\u001f\u0001\u0002\u0003\u000b\f\u000e\u001f\u0001\u0002\u0003\u000b\f\u000e\u001fThe study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent raters. Results indicate that careful reading strategies improve comprehension, although the effect varies by domain. ",
+    "ok": false,
+    "reason": "encoding_artifacts (21 found)"
+  },
+  {
+    "text": "Это тестовый текст на русском языке для проверки качества извлечения. Это тестовый текст на русском языке для проверки качества извлечения. Это тестовый текст на русском языке для проверки качества извлечения. Это тестовый текст на русском языке для проверки качества извлечения. Это тестовый текст на русском языке для проверки качества извлечения. Это тестовый текст на русском языке для проверки качества извлечения. Это тестовый текст на русском языке для проверки качества извлечения. Это тестовый текст на русском языке для проверки качества извлечения. ",
+    "ok": true,
+    "reason": "ok"
+  },
+  {
+    "text": "Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. Let α, β, γ, δ ∈ Θ and σ² = Σ(xᵢ − μ)² / (n − 1) where ∇f(θ) → ∂L/∂θ. ",
+    "ok": false,
+    "reason": "abnormal_word_length (avg 2.3)"
+  },
+  {
+    "text": "这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。这是一个用于测试提取质量的中文文本，没有空格分隔单词。",
+    "ok": false,
+    "reason": "abnormal_word_length (avg 540.0)"
+  },
+  {
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ok": false,
+    "reason": "abnormal_word_length (avg 400.0)"
+  },
+  {
+    "text": "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ",
+    "ok": false,
+    "reason": "abnormal_word_length (avg 2.0)"
+  },
+  {
+    "text": "x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x ",
+    "ok": false,
+    "reason": "abnormal_word_length (avg 1.0)"
+  },
+  {
+    "text": "supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious supercalifragilisticexpialidocioussupercalifragilisticexpialidocioussupercalifragilisticexpialidocious ",
+    "ok": false,
+    "reason": "abnormal_word_length (avg 102.0)"
+  },
+  {
+    "text": "abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz wxyz ",
+    "ok": false,
+    "reason": "repetitive_content (trigram ratio 0.014)"
+  },
+  {
+    "text": "😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 😀 The study examines how students allocate attention across multiple sources while reading academic papers. Participants completed a series of tasks, and their responses were coded by two independent raters. Results indicate that careful reading strategies improve comprehension, although the effect varies by domain. ",
+    "ok": false,
+    "reason": "high_symbol_density (21.6%)"
+  },
+  {
+    "text": "The  quick brown　fox jumps over the lazy dog near the riverbank today. The  quick brown　fox jumps over the lazy dog near the riverbank today. The  quick brown　fox jumps over the lazy dog near the riverbank today. The  quick brown　fox jumps over the lazy dog near the riverbank today. The  quick brown　fox jumps over the lazy dog near the riverbank today. The  quick brown　fox jumps over the lazy dog near the riverbank today. ",
+    "ok": true,
+    "reason": "ok"
+  },
+  {
+    "text": "Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ Mostly fine text with some symbols ★☆♥♦ ",
+    "ok": true,
+    "reason": "ok"
+  },
+  {
+    "text": "{[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[({[(ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ",
+    "ok": false,
+    "reason": "repetitive_content (trigram ratio 0.024)"
+  },
+  {
+    "text": "\n# Quiet Attention in Small Reading Groups\n\nA. Writer and B. Author\n\n# Abstract\n\nReading groups are a common way for small teams to keep up with a field, yet little is\nknown about how attention moves around the table during a session. This study followed\nnine informal groups over one term and recorded who spoke, who took notes, and which\npassages drew repeated comment. We found that attention clusters around a few dense\nparagraphs, that quiet members often return to those paragraphs later in writing, and\nthat a short written prompt before the meeting spreads discussion more evenly. These\nresults suggest simple, low-cost changes for anyone who runs a reading group.\n\n# 1. Introduction\n\nMost advice about reading groups is anecdotal. Organizers swap tips about snacks,\ntiming, and how to choose a paper, but few have looked closely at what actually happens\nonce the discussion starts. Does everyone engage with the same parts of a text? Do the\nloudest voices set the agenda, or do the quieter members steer the conversation in ways\nthat are easy to miss? We wanted to answer these questions with careful observation\nrather than surveys, because people tend to remember a lively meeting as more balanced\nthan it really was.\nOur approach was deliberately modest. We did not record audio or video, and we did not\nask anyone to change how they ran their meetings. Instead, a single observer sat in on\neach session with a seating chart and a simple coding sheet. Every time a member spoke,\nthe observer noted the time, the speaker, and the page or paragraph under discussion.\nAfter each meeting, members were invited to send a short note about anything they wished\nthey had said. Those notes turned out to be the most revealing part of the data.\n\n## FIELD NOTES SUMMARY\n\nA recurring phrase in the notes was a quiet apology for not speaking up. One member\nwrote that the group had moved on before she found the words, and that the paragraph\nstayed with her all week.\nCafé naïve — 東京 ñ\n\n\n## 2.1 Methods and Materials\n\nNine groups took part, with between four and eleven members each. Six groups met weekly\nand three met every other week. Sessions lasted between forty and ninety minutes. In\ntotal we observed seventy-two sessions and coded just over four thousand speaking turns.\nTwo coders worked through a shared subset of twelve sessions to check agreement, and\nthey matched on the paragraph being discussed in nearly nine out of ten turns. Where\nthey disagreed, the cause was usually a speaker who jumped between two nearby sections\nin a single remark.\nHalfway through the term, four of the groups agreed to try a small change. Before each\nmeeting, members wrote two or three sentences naming the passage they found most\npuzzling. The organizer read these aloud at the start of the session. The other five\ngroups carried on as before and served as a comparison.\n(see below)\nGroup A\nGroup B\nGroup C\nGroup D\nFigure 1: Mean scores by group.\nFigure 1 shows the mean balance score for each group at the end of term. Groups A and B\nused the written prompt; groups C and D did not.\n\n\n# 3 Results\n\nAttention was far from even. In a typical session, roughly a fifth of the paragraphs in\nthe assigned reading drew more than half of all comments. These were rarely the opening\nor closing sections; more often they were dense passages that introduced a new method or\na surprising claim. Members who spoke least during the meeting were the most likely to\nsend a follow-up note, and their notes pointed to the same dense paragraphs about two\nthirds of the time. In other words, quiet members were paying attention to the right\nplaces but were not getting a chance to say so.\nThe written prompt helped. In groups that used it, the share of turns taken by the two\nmost active members fell from about one half to about one third, and the number of\nmembers who spoke at least once rose in almost every session. The comparison groups\nshowed no such change. The effect appeared within two weeks and held steady for the rest\nof the term.\nThese findings come with limits. The groups were all volunteers, the observer could not\nbe blind to which groups used the prompt, and one term is a short window. Still, the\npattern was consistent across groups of very different sizes, and the change asked of\norganizers was tiny. A few minutes of writing before the meeting cost nothing and gave\nquieter members a way into the conversation.\n\n# References\n\nAlder, R. and Moss, T. (2019). Notes from the margin: informal study circles. Journal of\nEveryday Learning, 4(2), 11-29.\nBrook, L. (2021). Turn-taking in small groups. Small Group Studies Quarterly, 9(1),\n40-58.\nFenwick, P., Hale, S. and Ortiz, M. (2023). Low-cost interventions for balanced\ndiscussion. Teaching Notes, 15, 1-12.",
+    "ok": true,
+    "reason": "ok"
+  }
+]

@@ -44,3 +44,22 @@ for f in "$C"/py/*.pymupdf.md; do n=$(basename "$f" .pymupdf.md); diff -q "$f" "
 ```
 
 These scripts are deleted at the cutover together with `worker/`.
+
+## Chunker and quality-check goldens
+
+`chunker.py` runs `worker/lib/chunker.py` over `chunker-inputs.json` (`[{name, markdown, max_tokens}]`, built from
+`sample.pymupdf.md` plus edge cases) and writes `chunker.json` (`[{name, chunks}]`). `quality.py` builds its own
+texts, runs `worker/lib/quality_check.py` and writes `quality.json` (`[{text, ok, reason}]`). Both write to a file,
+because structlog logs to stdout. A case on which Python raises (a special-token string) is skipped, not recorded.
+tiktoken needs the `cl100k_base` file: the cache dir below already holds it; for a fresh cache drop `--network none` once.
+
+```bash
+run() { docker run --rm --user 10001 --network none \
+  -e TIKTOKEN_CACHE_DIR=/cache -v <scratch>/tiktoken-cache:/cache \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker ficino-worker python -I "$@"; }
+run /fx/goldens/gen/chunker.py /fx/goldens/chunker-inputs.json /fx/goldens/chunker.json
+run /fx/goldens/gen/quality.py /fx/goldens/sample.pymupdf.md /fx/goldens/quality.json
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
