@@ -62,7 +62,12 @@ export function papersRoutes(): Hono<AppEnv> {
       const { sql, config, logger, storage, queue } = c.var.deps;
       const user = c.var.user;
 
-      const form = await c.req.parseBody();
+      let form: Awaited<ReturnType<typeof c.req.parseBody>>;
+      try {
+        form = await c.req.parseBody();
+      } catch {
+        throw new HttpError(400, 'There was an error parsing the body');
+      }
       const file = form['file'];
       if (!(file instanceof File)) {
         return c.json({ detail: [{ type: 'missing', loc: ['body', 'file'], msg: 'Field required', input: null }] }, 422);
@@ -78,7 +83,7 @@ export function papersRoutes(): Hono<AppEnv> {
         throw new HttpError(400, 'File is not a valid PDF (magic bytes missing)');
       }
 
-      const corpusId = c.req.query('workspace_id') ?? DEFAULT_WORKSPACE_ID;
+      const corpusId = c.req.query('workspace_id') || DEFAULT_WORKSPACE_ID;
       const [ws] = await sql`SELECT id FROM corpora WHERE id = ${corpusId} AND user_id = ${user.id}`;
       if (!ws) throw new HttpError(404, 'Workspace not found');
 
@@ -191,17 +196,17 @@ export function papersRoutes(): Hono<AppEnv> {
     const { sql, storage } = c.var.deps;
     const paperId = c.req.param('paper_id');
     const rows = await sql`
-      SELECT f.id, f.page_number, f.image_path, f.extraction_type,
+      SELECT f.id, f.paper_id, f.page_number, f.image_path, f.extraction_type,
              f.description, f.claim_summary, f.figure_index
       FROM figures f
       JOIN papers p ON f.paper_id = p.id AND p.user_id = ${c.var.user.id}
       WHERE f.paper_id = ${paperId} ORDER BY f.figure_index`;
-    // Ids come from the DB, so they are UUIDs and signing cannot throw 'invalid id'.
+    // Sign with the DB's canonical ids: the route param may be a hyphenless/braced form Postgres accepts.
     return c.json(
       rows.map((row) => ({
         id: String(row.id),
         page_number: row.page_number,
-        image_url: storage.figureImageUrl(paperId, String(row.id)),
+        image_url: storage.figureImageUrl(String(row.paper_id), String(row.id)),
         extraction_type: row.extraction_type,
         description: row.description,
         claim_summary: row.claim_summary,

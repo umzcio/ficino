@@ -54,6 +54,15 @@ describe('GET /figures/:paper_id/:figure_id', () => {
     expect((await as(USER_A_ID).get(url('x'.repeat(201)))).status).toBe(422);
   });
 
+  it('verifies the token before the DB lookup: bad token is 403 for a foreign or nonexistent figure', async () => {
+    const bad = signResource(key, randomUUID());
+    for (const fid of [figureId, randomUUID()]) {
+      const r = await as(USER_B_ID).get(url(bad, fid));
+      expect(r.status).toBe(403);
+      expect(await r.json()).toEqual({ detail: 'Invalid or expired figure token' });
+    }
+  });
+
   it('test_tampered_token_rejected', async () => {
     const t = signResource(key, figureId);
     const bad = t.slice(0, -2) + (t.endsWith('AA') ? 'BB' : 'AA');

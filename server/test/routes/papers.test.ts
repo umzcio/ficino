@@ -7,6 +7,7 @@ import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID, type Seeded } from '
 import { testQueue } from '../helpers/queue.js';
 import { resolveSigningKey, verifyToken } from '../../src/shared/signedUrl.js';
 import pino from 'pino';
+import { DEFAULT_WORKSPACE_ID, STUB_USER_ID } from '../../src/shared/constants.js';
 import { createApp, type AppDeps } from '../../src/app.js';
 import { loadConfig, type Config } from '../../src/config.js';
 import { LocalStorage } from '../../src/storage/local.js';
@@ -79,6 +80,16 @@ describe('papers: list / get', () => {
 });
 
 describe('papers: figures list', () => {
+  it('accepts the hyphenless paper id form and signs with canonical ids', async () => {
+    const id = randomUUID();
+    await sql`INSERT INTO figures (id, paper_id, page_number, image_path, extraction_type, description, claim_summary, figure_index)
+              VALUES (${id}, ${seeded.paper_a}, 1, '/x/f.png', 'image', 'd', 'c', 0)`;
+    const r = await client(as(USER_A_ID)).get(`/papers/${seeded.paper_a.replace(/-/g, '')}/figures`);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body[0].image_url.startsWith(`/figures/${seeded.paper_a}/${id}?token=`)).toBe(true);
+  });
+
   it('test_get_paper_figures_rejects_cross_user_read (empty list, no 404)', async () => {
     const r = await client(as(USER_B_ID)).get(`/papers/${seeded.paper_a}/figures`);
     expect(r.status).toBe(200);
@@ -108,6 +119,26 @@ describe('papers: figures list', () => {
 });
 
 describe('papers: upload', () => {
+  it('malformed multipart is 400 There was an error parsing the body', async () => {
+    const r = await as(USER_A_ID).request('/papers', {
+      method: 'POST',
+      body: '--xx\r\nContent-Disposition: form-data; name="file"; filename="a.pdf"\r\n\r\nno terminator',
+      headers: csrfHeaders({ 'content-type': 'multipart/form-data; boundary=xx' }),
+    });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ detail: 'There was an error parsing the body' });
+  });
+
+  it('empty workspace_id falls back to the default workspace (auth none, stub user)', async () => {
+    await sql`INSERT INTO users (id, email) VALUES (${STUB_USER_ID}, 'stub@ficino.dev') ON CONFLICT (id) DO NOTHING`;
+    await sql`INSERT INTO corpora (id, user_id, name) VALUES (${DEFAULT_WORKSPACE_ID}, ${STUB_USER_ID}, 'Default')`;
+    const app = testApp({ config: { authProvider: 'none' } });
+    const r = await upload(app, { query: '?workspace_id=' });
+    expect(r.status).toBe(201);
+    const [row] = await sql`SELECT corpus_id FROM papers WHERE id = ${(await r.json()).id}`;
+    expect(row!.corpus_id).toBe(DEFAULT_WORKSPACE_ID);
+  });
+
   it('test_upload_paper_rejects_cross_user_workspace', async () => {
     const r = await upload(as(USER_B_ID), { query: `?workspace_id=${seeded.workspace_a}` });
     expect(r.status).toBe(404);

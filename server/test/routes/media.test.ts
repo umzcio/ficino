@@ -48,15 +48,16 @@ describe('GET /media/*', () => {
     expect((await as(USER_A_ID).get(`/media/${key}`)).status).toBe(422);
   });
 
-  it('traversal and malformed keys are 404 even with a valid token', async () => {
+  it('malformed and encoded-traversal keys are 404 Media not found even with a valid token', async () => {
+    // Literal `..` is collapsed by URL parsing before routing, so only encoded forms reach the route.
     for (const key of [
-      `feeds/${seeded.feed_a}/audio/../../../../etc/passwd`,
       `feeds/${seeded.feed_a}/audio/..%2F..%2Fpost_1.mp3`,
       `feeds/not-a-uuid/audio/post_1.mp3`,
       `feeds/${seeded.feed_a}/audio/post_1.wav`,
     ]) {
       const r = await as(USER_A_ID).get(`/media/${key}?token=${signResource(signingKey, `media:${key}`)}`);
       expect(r.status, key).toBe(404);
+      expect(await r.json(), key).toEqual({ detail: 'Media not found' });
     }
   });
 
