@@ -14,6 +14,8 @@ RUN addgroup -g 10001 ficino && adduser -D -u 10001 -G ficino ficino \
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./
+# mupdf loads its .wasm at runtime; fail the build if pruning ever drops it.
+RUN test -f node_modules/mupdf/dist/mupdf-wasm.wasm
 COPY migrations ./migrations
 ENV NODE_ENV=production
 # Fail closed: a bare `docker run` is production (dev CORS off, SIGNED_URL_KEY required).
@@ -23,4 +25,5 @@ ENV API_HOST=0.0.0.0
 USER ficino
 EXPOSE 8000
 HEALTHCHECK CMD wget -qO- http://127.0.0.1:8000/health || exit 1
+# The API is the default. The worker runs from the same image: override with `node dist/worker/main.js`.
 CMD ["node","dist/api/main.js"]

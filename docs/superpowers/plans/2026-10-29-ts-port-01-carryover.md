@@ -21,16 +21,18 @@ These are the controller's rulings, each with its cost if wrong. They go beyond 
 
 ## Carry into plan 02
 
-- **`errors.ts` 22P02 log.** The `msg:` key is overridden by pino's message argument, so the database error text is lost. Rename it to `pg_message` and assert it in a test.
-- **Cron pruning.** Prune expired `rate_limits` and `sessions` rows on the cron.
-- **`AppDeps` instead of singletons.** Extend `AppDeps` with storage, queue, and a signing key resolved once at boot, so production fails closed without `SIGNED_URL_KEY`. Don't add module-level singletons.
-- **Test harness.** It must also reset the pg-boss schema.
-- **Router mounting.** Never mount a router at `/` with `use('*', requireUser)`, because that would gate `/health` and `/auth/login`.
-- **Concurrent-migrator test.** The worker also migrates at boot, so add a test with two concurrent migrators. Also make the advisory-unlock error stop masking the original error.
-- **Pool connection type.** Consider one `env`→`config` source for the worker. `loadStoredSettings` takes a `tx` cast; tighten that type.
-- **`HTTPException` headers.** The `HTTPException` branch drops custom response headers. This matters for uploads and 413s.
-- **Python defaults to revisit.** The `figure_detect_anthropic_model` default is still `claude-sonnet-4-6`. Ask whether to bump it.
-- **New int params.** New int-valued route params must use `pyInt` and must match the param-fill regex in `test/api/routes-auth.test.ts`.
+Items marked **DONE** were closed by plan 02 (see `2026-11-02-ts-port-02-carryover.md`).
+
+- **DONE. `errors.ts` 22P02 log.** The `msg:` key is overridden by pino's message argument, so the database error text is lost. Rename it to `pg_message` and assert it in a test.
+- **DONE. Cron pruning.** Prune expired `rate_limits` and `sessions` rows on the cron.
+- **DONE. `AppDeps` instead of singletons.** Extend `AppDeps` with storage, queue, and a signing key resolved once at boot, so production fails closed without `SIGNED_URL_KEY`. Don't add module-level singletons.
+- **DONE. Test harness.** It must also reset the pg-boss schema.
+- **Router mounting.** Never mount a router at `/` with `use('*', requireUser)`, because that would gate `/health` and `/auth/login`. (Standing rule.)
+- **DONE. Concurrent-migrator test.** The worker also migrates at boot, so add a test with two concurrent migrators. Also make the advisory-unlock error stop masking the original error.
+- **DONE. Pool connection type.** Consider one `env`→`config` source for the worker. `loadStoredSettings` takes a `tx` cast; tighten that type.
+- **DONE. `HTTPException` headers.** The `HTTPException` branch drops custom response headers. This matters for uploads and 413s.
+- **DONE. Python defaults to revisit.** The `figure_detect_anthropic_model` default is bumped to `claude-sonnet-5-5`.
+- **New int params.** New int-valued route params must use `pyInt` and must match the param-fill regex in `test/api/routes-auth.test.ts`. (Standing rule.)
 
 ## Carry into plan 04
 
