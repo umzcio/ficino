@@ -93,3 +93,17 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+`post_parse.py` runs `_parse_post_json` and `validate_post_shape` over fixed inputs and writes `post-parse.json`
+(`[{fn, input, output | raises}]`). `test/feed/llmPost.test.ts` pins `src/feed/llmPost.ts` to it. No case uses NaN/Infinity,
+which Python's `json.loads` accepts and `JSON.parse` rejects.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/post_parse.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
