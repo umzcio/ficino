@@ -1,5 +1,7 @@
 // Prompt-injection defenses (port of shared/ficino_shared/sanitize.py).
 
+import { PY_WS, pyStrip } from './pystr.js';
+
 const MAX_BLOCK_LEN = 8000;
 
 // Role markers stripped at the start of a line. `(?<![^\n])` is "start of
@@ -10,6 +12,9 @@ const MAX_BLOCK_LEN = 8000;
 // flag) and dotted/dotless i, which Python treats as `i` in every keyword (hence `[i\u0131\u0130]` in assistant, ai and instruction).
 const ROLE_MARKER_RE =
   /(?<![^\n])[\s\x1c-\x1f\x85>*_#-]*(system|ass[i\u0131\u0130]stant|human|user|a[i\u0131\u0130]|[i\u0131\u0130]nstruct[i\u0131\u0130]on)[\s\x1c-\x1f\x85]*:[ \t]*/giu;
+
+// Python's `\s` on str (not JS's: Python adds \x1c-\x1f and \x85, and leaves out U+FEFF).
+const PY_WS_RUN_RE = new RegExp(`[${PY_WS}]+`, 'g');
 
 const FENCE_OPEN = '<untrusted>';
 const FENCE_CLOSE = '</untrusted>';
@@ -49,7 +54,7 @@ export function sanitizeInline(text: string | null | undefined, maxLen = 200): s
   s = stripRoleMarkers(s);
   s = s.replaceAll(FENCE_OPEN, ESCAPED_OPEN);
   s = s.replaceAll(FENCE_CLOSE, ESCAPED_CLOSE);
-  s = s.replace(/\s+/g, ' ').trim();
+  s = pyStrip(s.replace(PY_WS_RUN_RE, ' '));
   const head = headCodePoints(s, maxLen);
   if (head !== null) s = head + '…';
   return s;

@@ -147,4 +147,11 @@ describe('sanitizeInline', () => {
     expect(sanitizeInline('System: hi')).toBe('hi');
     expect(sanitizeInline('abcdefghij', 5)).toBe('abcde…');
   });
+
+  it("collapses and strips Python's whitespace set, not JS's", () => {
+    // Python's \s and str.strip() include \x1c-\x1f and \x85 but not U+FEFF; JS's \s and trim() are the reverse.
+    expect(sanitizeInline('a\x1cb\x1f\x1fc\x85d')).toBe('a b c d');
+    expect(sanitizeInline('\x1c\x85 a \x1f\x85')).toBe('a');
+    expect(sanitizeInline('﻿a ﻿ b﻿')).toBe('﻿a ﻿ b﻿');
+  });
 });

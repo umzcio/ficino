@@ -149,7 +149,7 @@ SHORT_THREAD = [
 ]
 
 
-def reply_body(msg, post="Post body é </untrusted> " + "p" * 300, ref="Lee 2024"):
+def reply_body(msg, post="Post body é </untrusted> 𝛼 " + "p" * 600, ref="Lee 2024"):
     return {"feed_id": "feed-1", "post_index": 0, "persona_key": "hype", "user_message": msg,
             "post_content": post, "paper_ref": ref}
 
@@ -204,7 +204,7 @@ REPLY_CASES = [
 ]
 
 
-def zap_body(src="skeptic", msg="The sample is tiny </untrusted>.", post="Zap post é " + "z" * 600):
+def zap_body(src="skeptic", msg="The sample is tiny </untrusted>.", post="Zap post é 𝛼 " + "z" * 600):
     return {"feed_id": "feed-1", "post_index": 0, "target_persona_key": "alpha", "source_persona_key": src,
             "source_message": msg, "post_content": post, "paper_ref": None}
 
