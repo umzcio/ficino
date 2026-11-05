@@ -109,3 +109,24 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Conversation goldens
+
+`conversation_prompts.py` runs in the `ficino-api` image. It imports `routers.personas` and `routers.replies` and calls
+the real `send_persona_dm`, `create_reply` and `zap_response` coroutines (`_rl=None`) against a `FakeDb` that answers
+by SQL substring from each case's canned rows. It patches `generate_response` in both modules and
+`_llm_call_with_fresh_conn` to record `{system, messages, max_tokens, temperature}` and return `R<n>`,
+`_load_conversation_and_sources` and `_load_reply_context_chunks` to return the case's thread, sources and chunks, and
+`random.random` to return the case's value (counting calls). It writes `conversation-prompts.json`
+(`[{name, kind, input, calls, rng_calls, response}]`, `response` without `id`). `test/conversations/prompts.test.ts`
+pins `src/conversations/prompts.ts` to it.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/api:/src/api:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/api \
+  -e PYTHONPATH=/src/api:/src/shared \
+  ficino-api python -I /fx/goldens/gen/conversation_prompts.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
