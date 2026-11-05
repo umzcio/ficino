@@ -10,6 +10,7 @@ import { checkContradictions, checkPostFeed, checkStalePapers } from '../tasks/a
 import { generateFeed } from '../tasks/feed.js';
 import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
+import { computePreferences } from '../tasks/preferences.js';
 import { regeneratePost } from '../tasks/regenerate.js';
 import type { Rng } from '../shared/random.js';
 
@@ -36,4 +37,5 @@ export const HANDLERS: Partial<Record<QueueName, Handler>> = {
   check_post_feed: (data, ctx, deps) => checkPostFeed(data, ctx, deps),
   check_stale_papers: (_data, _ctx, deps) => checkStalePapers(deps.sql),
   prune_expired: (_data, _ctx, deps) => pruneExpired(deps.sql),
+  compute_preferences: (data, ctx, deps) => computePreferences(data, ctx, deps),
 };
