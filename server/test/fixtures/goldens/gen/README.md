@@ -151,3 +151,30 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Archivist goldens
+
+`archivist_tasks.py` runs in the `ficino-worker` image. It imports `tasks.archivist_tasks` and writes
+`archivist-tasks.json` with four sections:
+
+- `constants`: `_ARCHIVIST_SYSTEM_FALLBACK` and `_ARCHIVIST_CONTEXT_SUFFIX`, byte for byte.
+- `citations`: `_known_citations` (sorted `[last, year]` pairs) and `_validate_citations` over fixed texts and chunk sets.
+- `format`: Python's own `template.format(chunks=value)` over edge-case templates (`result`, or `raises` as
+  `"<Type>: <str(exc)>"`).
+- `tasks`: the real `respond_to_user_post.run(...)` and `respond_to_user_post_followup.run(...)` per case. `fetchrow` and
+  `execute` answer from the case and record every call (JSON args decoded). `retrieval.retrieve_chunks` returns the
+  case's chunks. `persona_lib.get_personas` returns the case's persona dict, while `build_post_sources` stays real.
+  `claude_client.generate_text_sync` records `(system, user, kwargs)` and returns the case's raw text.
+  `apply_provider_settings` returns `{"persona_temperature": 0.6}`, and each task's `retry` returns `exc`.
+
+`test/conversations/archivist.test.ts` pins `src/conversations/archivist.ts` to it.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/archivist_tasks.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.

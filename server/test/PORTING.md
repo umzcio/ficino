@@ -262,9 +262,9 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_persona_helpers.py::test_build_post_sources_falls_back_to_paper_filename — plan03/T2
 - [x] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_is_opt_out — plan03/T2
 - [x] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_handles_missing_settings — plan03/T2
-- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_scopes_by_corpus — plan04
-- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan04
-- [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan04
+- [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_scopes_by_corpus — plan04/T9
+- [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan04/T9
+- [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan04/T9
 - [ ] worker/tests/test_podcast_settings.py::test_podcast_task_applies_owner_settings — plan05
 - [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_commits_all_statements — plan05
 - [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_rolls_back_on_failure — plan05

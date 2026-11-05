@@ -7,6 +7,7 @@ import type { QueueName } from '../jobs/registry.js';
 import type { ProviderDeps } from '../providers/deps.js';
 import type { LocalStorage } from '../storage/local.js';
 import { checkContradictions, checkPostFeed, checkStalePapers } from '../tasks/alerts.js';
+import { respondToUserPost, respondToUserPostFollowup } from '../tasks/archivist.js';
 import { generateFeed } from '../tasks/feed.js';
 import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
@@ -41,4 +42,6 @@ export const HANDLERS: Partial<Record<QueueName, Handler>> = {
   compute_preferences: (data, ctx, deps) => computePreferences(data, ctx, deps),
   generate_paper_summary: (data, ctx, deps) => generatePaperSummary(data, ctx, deps),
   generate_corpus_synthesis: (data, ctx, deps) => generateCorpusSynthesis(data, ctx, deps),
+  respond_to_user_post: (data, ctx, deps) => respondToUserPost(data, ctx, deps),
+  respond_to_user_post_followup: (data, ctx, deps) => respondToUserPostFollowup(data, ctx, deps),
 };
