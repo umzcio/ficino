@@ -11,6 +11,7 @@ import { loadConfig, type Config } from '../../src/config.js';
 import { resolveSigningKey } from '../../src/shared/signedUrl.js';
 import { LocalStorage } from '../../src/storage/local.js';
 import { testSql } from './db.js';
+import type { JobQueue } from '../../src/jobs/queue.js';
 import { testQueue } from './queue.js';
 
 let storageRoot: string | undefined;
@@ -34,6 +35,7 @@ export function testApp(
     fetch?: typeof fetch;
     providers?: ProviderDeps;
     rng?: Rng;
+    queue?: JobQueue;
   } = {},
 ): Hono<AppEnv> {
   const config: Config = {
@@ -46,7 +48,7 @@ export function testApp(
   const storage = new LocalStorage({ ...testStorageDirs(), ...opts.config }, signingKey, logger);
   return createApp({
     sql: testSql(),
-    queue: testQueue(),
+    queue: opts.queue ?? testQueue(),
     config,
     logger,
     storage,

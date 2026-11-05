@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../app.js';
 import { requireUser } from '../auth/currentUser.js';
+import type { JobState } from '../jobs/queue.js';
 import { toPydanticIso } from '../db/time.js';
 import { isStuckJobState, summaryStatusFromJob } from '../feed/status.js';
 import { HttpError } from '../http/errors.js';
@@ -91,21 +92,26 @@ export function messagesRoutes(): Hono<AppEnv> {
     }
 
     // A worker can die without writing back a terminal status. If the row says 'generating' but the
-    // job is failed, cancelled or unknown (or its state cannot be read), re-dispatch.
+    // job is failed, cancelled, completed or unknown (or its state cannot be read), re-dispatch.
     if (summary && (summary.status || 'complete') === 'generating' && summary.task_id) {
       const oldTaskId = summary.task_id as string;
+      let taskState = 'unknown';
+      let readError: unknown;
       try {
-        const s = await queue.getJobState(oldTaskId);
-        if (isStuckJobState(s.state)) {
-          logger.warn(
-            { paper_id: paperId, old_task_id: oldTaskId, task_state: s.state },
-            'paper_summary_stuck_generating',
-          );
-          summary = undefined;
-        }
-      } catch {
+        taskState = (await queue.getJobState(oldTaskId)).state;
+      } catch (e) {
+        readError = e;
+      }
+      // `completed` is stranded too: the worker commits status='complete', task_id=NULL before its handler
+      // returns, so a generating row on its own completed job lost the dispatch/upsert race.
+      if (readError !== undefined || isStuckJobState(taskState as JobState['state']) || taskState === 'completed') {
         logger.warn(
-          { paper_id: paperId, old_task_id: oldTaskId, task_state: 'unknown' },
+          {
+            paper_id: paperId,
+            old_task_id: oldTaskId,
+            task_state: taskState,
+            ...(readError !== undefined && { err: readError instanceof Error ? readError.message : String(readError) }),
+          },
           'paper_summary_stuck_generating',
         );
         summary = undefined;

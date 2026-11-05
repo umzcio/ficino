@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { client, testApp } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID, type Seeded } from '../helpers/db.js';
-import { testBoss } from '../helpers/queue.js';
+import type { JobQueue } from '../../src/jobs/queue.js';
+import { testBoss, testQueue } from '../helpers/queue.js';
 
 const sql = testSql();
 let seeded: Seeded;
@@ -79,6 +80,32 @@ describe('GET /messages/papers/:paper_id', () => {
     expect(j.task_id).not.toBe('celery-abc');
     expect(j.task_id).toMatch(/^[0-9a-f-]{36}$/);
     expect((await summaryRow(seeded.paper_a))!.task_id).toBe(j.task_id);
+  });
+
+  it('re-dispatches a generating row stranded on its own completed job', async () => {
+    const first = await (await as().get(`/messages/papers/${seeded.paper_a}`)).json();
+    await activate(first.task_id);
+    await (await testBoss()).complete('generate_paper_summary', first.task_id);
+    const again = await (await as().get(`/messages/papers/${seeded.paper_a}`)).json();
+    expect(again.status).toBe('generating');
+    expect(again.task_id).not.toBe(first.task_id);
+    expect((await sql`SELECT count(*)::int AS n FROM job_progress`)[0]!.n).toBe(2);
+    expect((await summaryRow(seeded.paper_a))!.task_id).toBe(again.task_id);
+  });
+
+  it('re-dispatches when getJobState throws', async () => {
+    await sql`INSERT INTO paper_summaries (paper_id, messages, status, task_id)
+              VALUES (${seeded.paper_a}, '[]', 'generating', ${randomUUID()})`;
+    const real = testQueue();
+    const queue = Object.create(real) as JobQueue;
+    queue.getJobState = async () => {
+      throw new Error('db down');
+    };
+    const app = client(testApp({ user: user(USER_A_ID), queue }));
+    const j = await (await app.get(`/messages/papers/${seeded.paper_a}`)).json();
+    expect(j.status).toBe('generating');
+    expect((await summaryRow(seeded.paper_a))!.task_id).toBe(j.task_id);
+    expect((await progressRow(j.task_id))!.queue).toBe('generate_paper_summary');
   });
 
   it('an error row is re-dispatched', async () => {
