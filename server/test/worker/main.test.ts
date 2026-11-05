@@ -8,6 +8,7 @@ vi.hoisted(() => {
 });
 
 import { startApi, type RunningApi } from '../../src/api/main.js';
+import type { JobContext } from '../../src/jobs/context.js';
 import { createBoss, JobQueue } from '../../src/jobs/queue.js';
 import { createSql } from '../../src/db/sql.js';
 import { startWorker, type RunningWorker } from '../../src/worker/main.js';
@@ -128,6 +129,40 @@ describe('startWorker', () => {
       expect(writeError).toBeNull();
       expect(await probe`SELECT note FROM drain_probe`).toEqual([{ note: 'written after stop' }]);
     } finally {
+      await probe.end();
+    }
+  }, 30000);
+  it('passes each queue its retry limit (policy or override), so the last retry sees isFinalAttempt', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    const env = await envFor(scratch.url);
+    const seen: Array<{ queue: string; retryCount: number; retryLimit: number; final: boolean }> = [];
+    const record = (queue: string) => async (_data: unknown, ctx: JobContext) => {
+      seen.push({ queue, retryCount: ctx.retryCount, retryLimit: ctx.retryLimit, final: ctx.isFinalAttempt });
+      throw new Error('boom');
+    };
+    worker = await startWorker(env, {
+      queueOverrides: { generate_paper_summary: { retryLimit: 1, retryDelay: 0 } },
+      handlers: { generate_paper_summary: record('summary'), check_post_feed: record('post_feed') },
+    });
+    const probe = createSql(scratch.url, { max: 1 });
+    const boss = createBoss(scratch.url, { max: 1, supervise: false, schedule: false });
+    boss.on('error', () => undefined);
+    try {
+      await boss.start();
+      const queue = new JobQueue(boss, probe);
+      await queue.send('generate_paper_summary', { paper_id: 'p' });
+      await queue.send('check_post_feed', {});
+      await vi.waitFor(() => expect(seen).toHaveLength(3), { timeout: 20000, interval: 200 });
+      expect(seen.filter((x) => x.queue === 'summary')).toEqual([
+        { queue: 'summary', retryCount: 0, retryLimit: 1, final: false },
+        { queue: 'summary', retryCount: 1, retryLimit: 1, final: true },
+      ]);
+      expect(seen.filter((x) => x.queue === 'post_feed')).toEqual([
+        { queue: 'post_feed', retryCount: 0, retryLimit: 0, final: true },
+      ]);
+    } finally {
+      await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
       await probe.end();
     }
   }, 30000);

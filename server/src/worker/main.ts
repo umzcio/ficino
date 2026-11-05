@@ -74,12 +74,13 @@ export async function startWorker(rawEnv: Env = process.env, overrides: WorkerOv
     for (const name of Object.keys(handlers)) {
       const handler = handlers[name as QueueName];
       if (!handler || !isQueueName(name)) continue;
+      const retryLimit = overrides.queueOverrides?.[name]?.retryLimit ?? QUEUES[name].retryLimit;
       await boss.work(
         name,
         { localConcurrency: name === 'process_paper' ? config.ingestionConcurrency : 1, batchSize: 1 },
         async ([job]) => {
           if (!job) return;
-          const ctx = makeJobContext(job, sql, logger, softLimitMs);
+          const ctx = makeJobContext(job, sql, logger, softLimitMs, retryLimit);
           const run = (async () => handler(job.data, ctx, deps))();
           const settled = run.then(() => undefined, () => undefined);
           inFlight.add(settled);

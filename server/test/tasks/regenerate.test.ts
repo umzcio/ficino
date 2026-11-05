@@ -75,6 +75,7 @@ async function regen(data: Parameters<typeof regeneratePost>[0], providers = fak
     sql,
     logger,
     600_000,
+    0,
   );
   const deps: WorkerDeps = {
     sql,

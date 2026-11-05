@@ -24,7 +24,7 @@ async function work(
 ) {
   const boss = await testBoss();
   const id = await boss.work(name, { pollingIntervalSeconds: 0.5 }, async ([job]) =>
-    handler(makeJobContext(job!, sql, logger, 60_000)),
+    handler(makeJobContext(job!, sql, logger, 60_000, 0)),
   );
   workers.push({ name, id });
 }

@@ -4,6 +4,10 @@ import type { Sql } from '../db/sql.js';
 export type JobContext = {
   jobId: string;
   retryCount: number;
+  /** The queue's retry limit (policy plus overrides); pg-boss jobs fetched without metadata don't carry it. */
+  retryLimit: number;
+  /** True when a throw from this run will not be retried. */
+  isFinalAttempt: boolean;
   signal: AbortSignal;
   logger: Logger;
   progress(meta: Record<string, unknown>): Promise<void>;
@@ -15,10 +19,13 @@ export function makeJobContext(
   sql: Sql,
   logger: Logger,
   softLimitMs: number,
+  retryLimit: number,
 ): JobContext {
   return {
     jobId: job.id,
     retryCount: job.retryCount,
+    retryLimit,
+    isFinalAttempt: job.retryCount >= retryLimit,
     signal: AbortSignal.any([job.signal, AbortSignal.timeout(softLimitMs)]),
     logger,
     async progress(meta) {

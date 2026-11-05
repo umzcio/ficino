@@ -130,3 +130,24 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Summary and synthesis goldens
+
+`summary_tasks.py` runs in the `ficino-worker` image. It imports `tasks.summary_tasks` and calls the real
+`generate_paper_summary.run(paper_id)` and `generate_corpus_synthesis.run(...)` per case, with `fetchrow`, `fetch` and
+`execute` answered from the case's canned rows (every `execute` recorded), `apply_provider_settings` a no-op,
+`claude_client.generate_text_sync` recording `(system, prompt, kwargs)` and returning the case's raw text, each task's
+`update_state` a no-op and its `retry` returning `exc` (so `raise self.retry(exc=exc)` re-raises without a broker). It
+writes `summary-tasks.json` (`[{name, task, rows, raw, call, stored_messages, result}]`, plus `args` for synthesis;
+`stored_messages` is `json.loads` of the upsert's messages argument, `result` is `{raises}` when the task raised).
+`test/conversations/summaryParse.test.ts` pins `src/conversations/summaryParse.ts` to it.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/summary_tasks.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.

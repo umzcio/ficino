@@ -28,6 +28,7 @@ function harness() {
     sql,
     logger,
     600_000,
+    0,
   );
   const deps: WorkerDeps = {
     sql,

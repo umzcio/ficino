@@ -123,6 +123,7 @@ function start(data: Parameters<typeof generateFeed>[0], o: RunOpts = {}) {
     sql,
     logger,
     600_000,
+    2,
   );
   const ctx: JobContext = {
     ...base,

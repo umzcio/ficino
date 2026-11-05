@@ -123,6 +123,7 @@ function harness(providers = fakeProviders()) {
     sql,
     logger,
     600_000,
+    0,
   );
   const deps: WorkerDeps = {
     sql,

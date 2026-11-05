@@ -93,6 +93,7 @@ function ctxFor(softLimitMs = 600_000) {
     sql,
     logger,
     softLimitMs,
+    2,
   );
   return { ctx, ac };
 }

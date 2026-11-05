@@ -12,6 +12,7 @@ import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
 import { computePreferences } from '../tasks/preferences.js';
 import { regeneratePost } from '../tasks/regenerate.js';
+import { generateCorpusSynthesis, generatePaperSummary } from '../tasks/summary.js';
 import type { Rng } from '../shared/random.js';
 
 export type WorkerDeps = {
@@ -38,4 +39,6 @@ export const HANDLERS: Partial<Record<QueueName, Handler>> = {
   check_stale_papers: (_data, _ctx, deps) => checkStalePapers(deps.sql),
   prune_expired: (_data, _ctx, deps) => pruneExpired(deps.sql),
   compute_preferences: (data, ctx, deps) => computePreferences(data, ctx, deps),
+  generate_paper_summary: (data, ctx, deps) => generatePaperSummary(data, ctx, deps),
+  generate_corpus_synthesis: (data, ctx, deps) => generateCorpusSynthesis(data, ctx, deps),
 };
