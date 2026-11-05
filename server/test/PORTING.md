@@ -100,14 +100,14 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_auth_scoping.py::test_get_workspace_activity_rejects_cross_user — plan01/T8
 - [ ] api/tests/test_auth_scoping.py::test_delete_post_rejects_cross_user — plan04
 - [ ] api/tests/test_auth_scoping.py::test_regenerate_post_rejects_cross_user — plan04
-- [ ] api/tests/test_auth_scoping.py::test_search_scoped_to_own_corpus — plan03
-- [ ] api/tests/test_feed_posts_search.py::test_search_posts_finds_own_content — plan03
-- [ ] api/tests/test_feed_posts_search.py::test_search_posts_excludes_other_users — plan03
-- [ ] api/tests/test_feed_posts_search.py::test_search_posts_skips_soft_deleted — plan03
-- [ ] api/tests/test_feed_posts_search.py::test_search_posts_empty_query_returns_empty — plan03
-- [ ] api/tests/test_feed_posts_search.py::test_search_posts_result_shape — plan03
-- [ ] api/tests/test_feed_posts_search.py::test_search_use_normalized_posts_defaults_true — plan03
-- [ ] api/tests/test_feed_posts_search.py::test_search_respects_legacy_flag_toggle — plan03
+- [x] api/tests/test_auth_scoping.py::test_search_scoped_to_own_corpus — plan03/T14
+- [x] api/tests/test_feed_posts_search.py::test_search_posts_finds_own_content — plan03/T14
+- [x] api/tests/test_feed_posts_search.py::test_search_posts_excludes_other_users — plan03/T14
+- [x] api/tests/test_feed_posts_search.py::test_search_posts_skips_soft_deleted — plan03/T14
+- [x] api/tests/test_feed_posts_search.py::test_search_posts_empty_query_returns_empty — plan03/T14
+- [x] api/tests/test_feed_posts_search.py::test_search_posts_result_shape — plan03/T14
+- [x] api/tests/test_feed_posts_search.py::test_search_use_normalized_posts_defaults_true — plan03/T14
+- [x] api/tests/test_feed_posts_search.py::test_search_respects_legacy_flag_toggle — plan03/T14
 - [x] api/tests/test_idor_followups.py::test_assign_tag_rejects_cross_user_paper — plan01/T11
 - [x] api/tests/test_idor_followups.py::test_upload_paper_rejects_cross_user_workspace — plan02/T5
 - [ ] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_paper_ids — plan05

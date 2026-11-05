@@ -49,6 +49,25 @@ Provider choices (`EMBED_PROVIDER`, `LLM_PROVIDER`, `FIGURE_DETECT_PROVIDER`, `V
 API keys, `OLLAMA_BASE_URL`) are per-user settings with these environment variables as defaults. The default
 figure-detect Anthropic model is `claude-sonnet-5-5`. Set `FIGURE_DETECT_PROVIDER=none` to skip figure extraction.
 
+### Environment variables added by plan 03
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `RETRIEVAL_VECTOR_WEIGHT` | 0.7 | Weight of the vector score in hybrid retrieval (clamped to 0..1; unparsable values warn and use the default) |
+| `RETRIEVAL_KEYWORD_WEIGHT` | 0.3 | Weight of the keyword (tsvector) score (clamped to 0..1) |
+| `RETRIEVAL_MAX_VECTOR_DISTANCE` | 0.8 | Vector candidates farther than this cosine distance are dropped (clamped to 0..1) |
+| `RETRIEVAL_CANDIDATE_POOL` | 100 | Candidates fetched per leg before fusion |
+| `RETRIEVAL_RERANK_MULTIPLIER` | 5 | Candidates sent to the reranker, as a multiple of the number wanted |
+| `SEARCH_USE_NORMALIZED_POSTS` | true | `/search` reads posts from `feed_posts`; false falls back to the legacy scan of the last 20 feeds |
+
+Retrieval only considers chunks whose `metadata->>'embed_model'` equals the configured embedding model, so changing
+the embedding model hides old chunks until they are re-embedded.
+
+The worker now runs five more queues (all one job at a time per process): `generate_feed` (2 retries, 30 s delay),
+`regenerate_post`, `check_contradictions`, `check_post_feed` and `compute_preferences` (no retries; the last
+three are fanned out by `generate_feed` and a failed send never fails the feed). The remaining queues in
+`src/jobs/registry.ts` still have no handler until plans 04 and 05.
+
 `/media/...` is new in the TS server: it serves feed audio and podcast files from `MEDIA_DIR` behind the same signed-URL
 check as figures. It has no `Range` support yet.
 
