@@ -1,8 +1,20 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { hostname } from 'node:os';
 import type { TestProject } from 'vitest/node';
 import { migrate } from '../src/db/migrate.js';
 import { createSql } from '../src/db/sql.js';
+import {
+  LABEL,
+  OWNER_HOST_LABEL,
+  OWNER_PID_LABEL,
+  OWNER_PIDNS_LABEL,
+  ownerLabelArgs,
+  parseDockerTime,
+  processAlive,
+  selfPidNs,
+  shouldSweep,
+} from './helpers/sweep.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -12,33 +24,29 @@ declare module 'vitest' {
 
 const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf8' }).trim();
 
-const LABEL = 'ficino-ts-test';
-const OWNER_LABEL = 'ficino-ts-test.owner-pid';
-
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM means the pid exists but belongs to another user.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 // A run killed before its teardown leaves its container behind (--rm only fires when the
-// container stops). Each container records the vitest pid that owns it; remove the ones
-// whose owner is gone, and leave containers of runs still in progress alone.
+// container stops). Each container records the vitest pid that owns it, plus that pid's PID
+// namespace and hostname; test/helpers/sweep.ts decides which ones are stale. Containers of
+// runs still in progress are left alone.
 function sweepStaleContainers() {
-  const rows = docker(
-    'ps', '-a', '--filter', `label=${LABEL}`,
-    '--format', `{{.Names}}\t{{.Label "${OWNER_LABEL}"}}`,
-  );
-  for (const row of rows.split('\n').filter(Boolean)) {
-    const [name, owner] = row.split('\t');
-    const pid = Number(owner);
-    if (Number.isInteger(pid) && pid > 0 && processAlive(pid)) continue;
+  const names = docker('ps', '-a', '--filter', `label=${LABEL}`, '--format', '{{.Names}}').split('\n').filter(Boolean);
+  const ctx = { selfNs: selfPidNs(), selfHost: hostname(), now: Date.now(), isAlive: processAlive };
+  const label = (key: string) => `{{index .Config.Labels "${key}"}}`;
+  for (const name of names) {
+    let fields: string[];
     try {
-      docker('rm', '-f', '-v', name!);
+      fields = docker(
+        'inspect', '--format',
+        `{{.Created}}\t${label(OWNER_PID_LABEL)}\t${label(OWNER_PIDNS_LABEL)}\t${label(OWNER_HOST_LABEL)}`,
+        name,
+      ).split('\t');
+    } catch {
+      continue; // Removed since the listing.
+    }
+    const [created = '', ownerPid = '', ownerNs = '', ownerHost = ''] = fields;
+    if (!shouldSweep({ ownerPid, ownerNs, ownerHost, createdAt: parseDockerTime(created) }, ctx)) continue;
+    try {
+      docker('rm', '-f', '-v', name);
     } catch {
       // Another run's sweep got there first.
     }
@@ -51,7 +59,7 @@ export default async function setup(project: TestProject) {
   const name = `ficino-ts-test-${randomBytes(4).toString('hex')}`;
   docker(
     'run', '-d', '--rm', '--name', name,
-    '--label', LABEL, '--label', `${OWNER_LABEL}=${process.pid}`,
+    ...ownerLabelArgs(),
     '-e', 'POSTGRES_USER=ficino', '-e', 'POSTGRES_PASSWORD=ficino', '-e', 'POSTGRES_DB=ficino',
     '-p', '127.0.0.1::5432',
     'pgvector/pgvector:pg18',
