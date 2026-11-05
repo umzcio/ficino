@@ -14,6 +14,7 @@ import { securityHeaders } from './http/securityHeaders.js';
 import { alertsRoutes } from './routes/alerts.js';
 import { annotationsRoutes } from './routes/annotations.js';
 import { bookmarksRoutes } from './routes/bookmarks.js';
+import { feedRoutes } from './routes/feed.js';
 import { figuresRoutes } from './routes/figures.js';
 import { mediaRoutes } from './routes/media.js';
 import { papersRoutes } from './routes/papers.js';
@@ -133,6 +134,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.route('/alerts', alertsRoutes());
   app.route('/annotations', annotationsRoutes());
   app.route('/bookmarks', bookmarksRoutes());
+  app.route('/feed', feedRoutes());
   app.route('/figures', figuresRoutes());
   app.route('/likes', likesRoutes());
   app.route('/media', mediaRoutes());
