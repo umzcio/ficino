@@ -2,6 +2,24 @@ import type { JobState } from '../jobs/queue.js';
 
 const isDict = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** The message of a failed job's output, else its string form. */
+export function jobErrorMessage(output: unknown): string {
+  const msg = isDict(output) ? output.message : undefined;
+  return typeof msg === 'string' ? msg : String(output ?? '');
+}
+
+/** C §5.3: the summary status poll. Only completed and failed are terminal; everything else is generating. */
+export function summaryStatusFromJob(paperId: string, s: JobState): Record<string, unknown> {
+  if (s.state === 'completed') return { status: 'complete', paper_id: paperId };
+  if (s.state === 'failed') return { status: 'error', error: jobErrorMessage(s.output) };
+  return { status: 'generating' };
+}
+
+/** A job that will never finish: a row still saying `generating` for it is stranded. */
+export function isStuckJobState(state: JobState['state']): boolean {
+  return state === 'failed' || state === 'cancelled' || state === 'missing';
+}
+
 /** C §5.2: the Celery state machine of get_feed_status, translated to pg-boss job states. */
 export function feedStatusFromJob(taskId: string, s: JobState): Record<string, unknown> {
   switch (s.state) {
@@ -25,8 +43,7 @@ export function feedStatusFromJob(taskId: string, s: JobState): Record<string, u
       };
     }
     case 'failed': {
-      const msg = isDict(s.output) ? s.output.message : undefined;
-      return { status: 'error', task_id: taskId, error: typeof msg === 'string' ? msg : String(s.output ?? '') };
+      return { status: 'error', task_id: taskId, error: jobErrorMessage(s.output) };
     }
     case 'cancelled':
       return { status: 'revoked', task_id: taskId };

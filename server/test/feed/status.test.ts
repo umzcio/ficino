@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { feedStatusFromJob } from '../../src/feed/status.js';
+import { feedStatusFromJob, isStuckJobState, summaryStatusFromJob } from '../../src/feed/status.js';
 import type { JobState } from '../../src/jobs/queue.js';
 
 const T = 'task-1';
@@ -49,5 +49,26 @@ describe('feedStatusFromJob', () => {
   });
   it('cancelled -> revoked', () => {
     expect(feedStatusFromJob(T, st('cancelled'))).toEqual({ status: 'revoked', task_id: T });
+  });
+});
+
+describe('summaryStatusFromJob', () => {
+  const P = 'paper-1';
+  const states = ['created', 'retry', 'active', 'completed', 'cancelled', 'failed', 'missing'] as const;
+  it.each(states)('%s', (s) => {
+    const out = summaryStatusFromJob(P, st(s, null, s === 'failed' ? { message: 'boom' } : null));
+    if (s === 'completed') expect(out).toEqual({ status: 'complete', paper_id: P });
+    else if (s === 'failed') expect(out).toEqual({ status: 'error', error: 'boom' });
+    else expect(out).toEqual({ status: 'generating' });
+  });
+  it('failed with a non-object output stringifies it', () => {
+    expect(summaryStatusFromJob(P, st('failed', null, 'x'))).toEqual({ status: 'error', error: 'x' });
+  });
+});
+
+describe('isStuckJobState', () => {
+  it('is true for exactly failed, cancelled and missing', () => {
+    const all = ['created', 'retry', 'active', 'completed', 'cancelled', 'failed', 'missing'] as const;
+    expect(all.filter((s) => isStuckJobState(s))).toEqual(['cancelled', 'failed', 'missing']);
   });
 });
