@@ -30,8 +30,8 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] api/tests/test_error_contracts.py::test_event_name_is_independent_of_mapping — plan04
 - [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_timeout_maps_to_504 — plan04
 - [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_bad_input_maps_to_400 — plan04
-- [ ] api/tests/test_error_contracts.py::test_delete_post_out_of_range_is_404_not_found — plan04
-- [ ] api/tests/test_error_contracts.py::test_regenerate_post_out_of_range_is_404_not_found — plan04
+- [x] api/tests/test_error_contracts.py::test_delete_post_out_of_range_is_404_not_found — plan03/T13
+- [x] api/tests/test_error_contracts.py::test_regenerate_post_out_of_range_is_404_not_found — plan03/T13
 - [x] api/tests/test_error_contracts.py::test_dismiss_alert_returns_204_then_404_on_second_dismiss — plan01/T10
 - [x] api/tests/test_error_contracts.py::test_dismiss_alert_missing_id_is_404 — plan01/T10
 - [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_missing_thread_is_404 — plan04
@@ -48,7 +48,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
 - [x] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan01/T9
 - [x] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — plan02, plan03, plan04, plan05 (remaining per-router halves; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts)
+- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — plan02, plan03, plan04, plan05 (remaining per-router halves; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts) ; feed half (feed.post.delete / feed.post.regenerate audit rows) covered by plan03/T13 (feed-read.test.ts)
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller — plan05
 - [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user — plan05
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace — plan05
@@ -78,10 +78,10 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] shared/tests/test_storage_local.py::test_local_delete_paper_artifacts_removes_all — plan01/T9 (delete path only)
 - [x] shared/tests/test_storage_local.py::test_local_figure_image_url_is_signed — plan02/T2
 - [x] shared/tests/test_storage_local.py::test_local_storage_takes_injected_dirs_not_settings — plan02/T2
-- [ ] api/tests/test_feed_figure_hydration.py::test_figure_url_resigned_on_feed_get — plan03
-- [ ] api/tests/test_feed_figure_hydration.py::test_other_users_figure_not_resigned — plan03
-- [ ] api/tests/test_feed_figure_hydration.py::test_storage_error_keeps_persisted_url — plan03
-- [ ] api/tests/test_feed_figure_hydration.py::test_no_figure_posts_no_signing — plan03
+- [x] api/tests/test_feed_figure_hydration.py::test_figure_url_resigned_on_feed_get — plan03/T13
+- [x] api/tests/test_feed_figure_hydration.py::test_other_users_figure_not_resigned — plan03/T13
+- [x] api/tests/test_feed_figure_hydration.py::test_storage_error_keeps_persisted_url — plan03/T13
+- [x] api/tests/test_feed_figure_hydration.py::test_no_figure_posts_no_signing — plan03/T13
 - [x] shared/tests/test_constants.py::test_sentinel_ids_are_stable — plan01/T3
 - [ ] shared/tests/test_constants.py::test_chapter_sql_encodes_first_unlocked — plan 05 (CHAPTER_INSERT_SQL moves to the reading-lists slice)
 - [x] api/tests/test_auth_scoping.py::test_list_papers_returns_only_own_papers — plan02/T5
@@ -89,7 +89,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] api/tests/test_auth_scoping.py::test_list_messages_groups_scoped — plan04
 - [ ] api/tests/test_auth_scoping.py::test_list_replies_conversations_scoped — plan04
 - [ ] api/tests/test_auth_scoping.py::test_tldrs_endpoint_scoped — plan04
-- [ ] api/tests/test_auth_scoping.py::test_get_feed_rejects_cross_user_read — plan03
+- [x] api/tests/test_auth_scoping.py::test_get_feed_rejects_cross_user_read — plan03/T13
 - [x] api/tests/test_auth_scoping.py::test_get_paper_rejects_cross_user_read — plan02/T5
 - [x] api/tests/test_auth_scoping.py::test_get_paper_figures_rejects_cross_user_read — plan02/T5
 - [ ] api/tests/test_auth_scoping.py::test_get_messages_paper_rejects_cross_user_read — plan04
@@ -142,8 +142,8 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] api/tests/test_llm_retry.py::test_ollama_4xx_is_not_retried — plan04
 - [ ] api/tests/test_llm_retry.py::test_ollama_connect_error_retries_then_succeeds — plan04
 - [ ] api/tests/test_llm_retry.py::test_ollama_empty_content_still_raises_after_success_status — plan04
-- [ ] api/tests/test_hydration_offloop.py::test_feed_audio_url_hydrated_off_loop — plan03
-- [ ] api/tests/test_hydration_offloop.py::test_feed_podcast_episode_url_hydrated_off_loop — plan03
+- [x] api/tests/test_hydration_offloop.py::test_feed_audio_url_hydrated_off_loop — plan03/T13
+- [x] api/tests/test_hydration_offloop.py::test_feed_podcast_episode_url_hydrated_off_loop — plan03/T13
 - [x] api/tests/test_hydration_offloop.py::test_figures_image_url_hydrated_off_loop — plan02/T5
 - [x] api/tests/test_settings_contract.py::test_get_settings_returns_defaults_and_ui_keys — plan01/T9
 - [x] api/tests/test_settings_contract.py::test_put_drops_non_allowlisted_keys — plan01/T9
