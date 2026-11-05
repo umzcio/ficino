@@ -63,3 +63,19 @@ run /fx/goldens/gen/quality.py /fx/goldens/sample.pymupdf.md /fx/goldens/quality
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Feed goldens
+
+`feed_pure.py` imports `worker/lib/persona.py` (with `get_personas` patched, so no database) and writes
+`feed-pure.json` (`short_cite`, `sources`, `category`, `blend`, `enabled` cases with the Python result as `expected`)
+and `system-preamble.txt` (`SYSTEM_PREAMBLE`, byte for byte). `test/feed/personas.test.ts` pins `src/feed/personas.ts` to them.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/feed_pure.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.

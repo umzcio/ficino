@@ -257,11 +257,11 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] worker/tests/test_media_claim_reclaim.py::test_legacy_null_claimed_at_generating_row_is_reclaimable — plan05
 - [ ] worker/tests/test_media_claim_reclaim.py::test_reclaim_minutes_default_is_20 — plan05
 - [ ] worker/tests/test_media_claim_reclaim.py::test_raised_celery_time_limit_widens_reclaim_window — plan05
-- [ ] worker/tests/test_persona_helpers.py::test_build_post_sources_key_shape_and_truncation — plan03
-- [ ] worker/tests/test_persona_helpers.py::test_build_post_sources_respects_top_n — plan03
-- [ ] worker/tests/test_persona_helpers.py::test_build_post_sources_falls_back_to_paper_filename — plan03
-- [ ] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_is_opt_out — plan03
-- [ ] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_handles_missing_settings — plan03
+- [x] worker/tests/test_persona_helpers.py::test_build_post_sources_key_shape_and_truncation — plan03/T2
+- [x] worker/tests/test_persona_helpers.py::test_build_post_sources_respects_top_n — plan03/T2
+- [x] worker/tests/test_persona_helpers.py::test_build_post_sources_falls_back_to_paper_filename — plan03/T2
+- [x] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_is_opt_out — plan03/T2
+- [x] worker/tests/test_persona_helpers.py::test_resolve_enabled_personas_handles_missing_settings — plan03/T2
 - [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_scopes_by_corpus — plan04
 - [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan04
 - [ ] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan04
@@ -282,4 +282,4 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_wave3_task_fixes.py::test_ollama_page_extract_retries_transient_failures — plan02/T11
 - [x] worker/tests/test_wave3_task_fixes.py::test_claude_page_extract_retries_transient_failures — plan02/T11
 - [x] worker/tests/test_wave3_task_fixes.py::test_claude_vision_client_pins_sdk_retries_off — plan02/T11
-- [ ] worker/tests/test_wave3_task_fixes.py::test_fallback_excludes_reply_only_personas — plan03
+- [x] worker/tests/test_wave3_task_fixes.py::test_fallback_excludes_reply_only_personas — plan03/T2

@@ -1,0 +1,648 @@
+{
+ "preference_blend": 0.4,
+ "personas": [
+  "skeptic",
+  "methodologist",
+  "practitioner",
+  "hype",
+  "gradstudent",
+  "archivist",
+  "amplifier"
+ ],
+ "short_cite": [
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [],
+    "paper_title": "Empty Authors",
+    "paper_year": 2020
+   },
+   "expected": "Empty Authors (2020)"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "Unknown"
+    ],
+    "paper_title": "Unknown Author Paper",
+    "paper_year": 2021
+   },
+   "expected": "Unknown Author Paper (2021)"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "Unknown Authors"
+    ],
+    "paper_title": "Unknown Authors Paper",
+    "paper_year": null
+   },
+   "expected": "Unknown Authors Paper"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "Jane Smith"
+    ],
+    "paper_title": "T",
+    "paper_year": 2024
+   },
+   "expected": "Smith 2024"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "Jane Smith"
+    ],
+    "paper_title": "T",
+    "paper_year": null
+   },
+   "expected": "Smith"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "Jane Smith",
+     "Bob Jones"
+    ],
+    "paper_title": "T",
+    "paper_year": 2023
+   },
+   "expected": "Smith et al. 2023"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "Jane Smith",
+     "Bob Jones"
+    ],
+    "paper_title": "T",
+    "paper_year": null
+   },
+   "expected": "Smith et al."
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [],
+    "paper_title": null,
+    "paper_filename": "paper.pdf",
+    "paper_year": 2019
+   },
+   "expected": "paper.pdf (2019)"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [],
+    "paper_title": null,
+    "paper_filename": "paper.pdf",
+    "paper_year": null
+   },
+   "expected": "paper.pdf"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "José Müller-Łukasiewicz"
+    ],
+    "paper_title": "T",
+    "paper_year": 2022
+   },
+   "expected": "Müller-Łukasiewicz 2022"
+  },
+  {
+   "chunk": {
+    "id": "c1",
+    "paper_id": "p1",
+    "section": "Methods",
+    "content": "text",
+    "score": 0.5,
+    "paper_authors": [
+     "Ann  de   la Cruz"
+    ],
+    "paper_title": "T",
+    "paper_year": 2018
+   },
+   "expected": "Cruz 2018"
+  }
+ ],
+ "sources": [
+  {
+   "chunks": [
+    {
+     "id": "c1",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀😀😀😀 tail",
+     "score": 0.12345,
+     "paper_title": "Long"
+    },
+    {
+     "id": "c2",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "text",
+     "score": 0.9995,
+     "paper_title": null,
+     "paper_filename": "fallback.pdf"
+    },
+    {
+     "id": "c3",
+     "paper_id": "p1",
+     "section": null,
+     "content": "text",
+     "score": 0.0005,
+     "paper_title": "Third"
+    },
+    {
+     "id": "c4",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "text",
+     "score": 1,
+     "paper_title": "Fourth"
+    },
+    {
+     "id": "c5",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "text",
+     "score": 0.2857142,
+     "paper_title": "Fifth"
+    },
+    {
+     "id": "c6",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "text",
+     "score": 0.5,
+     "paper_title": "Sixth"
+    },
+    {
+     "id": "c7",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "text",
+     "score": 0.5,
+     "paper_title": "Seventh"
+    }
+   ],
+   "top_n": 5,
+   "expected": [
+    {
+     "chunk_id": "c1",
+     "paper_id": "p1",
+     "paper_title": "Long",
+     "section": "Methods",
+     "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀😀",
+     "score": 0.123
+    },
+    {
+     "chunk_id": "c2",
+     "paper_id": "p1",
+     "paper_title": "fallback.pdf",
+     "section": "Methods",
+     "content": "text",
+     "score": 1.0
+    },
+    {
+     "chunk_id": "c3",
+     "paper_id": "p1",
+     "paper_title": "Third",
+     "section": null,
+     "content": "text",
+     "score": 0.001
+    },
+    {
+     "chunk_id": "c4",
+     "paper_id": "p1",
+     "paper_title": "Fourth",
+     "section": "Methods",
+     "content": "text",
+     "score": 1.0
+    },
+    {
+     "chunk_id": "c5",
+     "paper_id": "p1",
+     "paper_title": "Fifth",
+     "section": "Methods",
+     "content": "text",
+     "score": 0.286
+    }
+   ]
+  },
+  {
+   "chunks": [
+    {
+     "id": "c1",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀😀😀😀 tail",
+     "score": 0.12345,
+     "paper_title": "Long"
+    },
+    {
+     "id": "c2",
+     "paper_id": "p1",
+     "section": "Methods",
+     "content": "text",
+     "score": 0.9995,
+     "paper_title": null,
+     "paper_filename": "fallback.pdf"
+    }
+   ],
+   "top_n": 5,
+   "expected": [
+    {
+     "chunk_id": "c1",
+     "paper_id": "p1",
+     "paper_title": "Long",
+     "section": "Methods",
+     "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀😀",
+     "score": 0.123
+    },
+    {
+     "chunk_id": "c2",
+     "paper_id": "p1",
+     "paper_title": "fallback.pdf",
+     "section": "Methods",
+     "content": "text",
+     "score": 1.0
+    }
+   ]
+  }
+ ],
+ "category": [
+  {
+   "persona": "skeptic",
+   "post_type": "post",
+   "expected": "methods"
+  },
+  {
+   "persona": "skeptic",
+   "post_type": "thread",
+   "expected": "methods"
+  },
+  {
+   "persona": "skeptic",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "skeptic",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "skeptic",
+   "post_type": "figure",
+   "expected": "methods"
+  },
+  {
+   "persona": "methodologist",
+   "post_type": "post",
+   "expected": "methods"
+  },
+  {
+   "persona": "methodologist",
+   "post_type": "thread",
+   "expected": "methods"
+  },
+  {
+   "persona": "methodologist",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "methodologist",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "methodologist",
+   "post_type": "figure",
+   "expected": "methods"
+  },
+  {
+   "persona": "practitioner",
+   "post_type": "post",
+   "expected": "findings"
+  },
+  {
+   "persona": "practitioner",
+   "post_type": "thread",
+   "expected": "findings"
+  },
+  {
+   "persona": "practitioner",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "practitioner",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "practitioner",
+   "post_type": "figure",
+   "expected": "findings"
+  },
+  {
+   "persona": "hype",
+   "post_type": "post",
+   "expected": "findings"
+  },
+  {
+   "persona": "hype",
+   "post_type": "thread",
+   "expected": "findings"
+  },
+  {
+   "persona": "hype",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "hype",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "hype",
+   "post_type": "figure",
+   "expected": "findings"
+  },
+  {
+   "persona": "gradstudent",
+   "post_type": "post",
+   "expected": "debates"
+  },
+  {
+   "persona": "gradstudent",
+   "post_type": "thread",
+   "expected": "debates"
+  },
+  {
+   "persona": "gradstudent",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "gradstudent",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "gradstudent",
+   "post_type": "figure",
+   "expected": "findings"
+  },
+  {
+   "persona": "archivist",
+   "post_type": "post",
+   "expected": "findings"
+  },
+  {
+   "persona": "archivist",
+   "post_type": "thread",
+   "expected": "findings"
+  },
+  {
+   "persona": "archivist",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "archivist",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "archivist",
+   "post_type": "figure",
+   "expected": "findings"
+  },
+  {
+   "persona": "amplifier",
+   "post_type": "post",
+   "expected": "findings"
+  },
+  {
+   "persona": "amplifier",
+   "post_type": "thread",
+   "expected": "findings"
+  },
+  {
+   "persona": "amplifier",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "amplifier",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "amplifier",
+   "post_type": "figure",
+   "expected": "findings"
+  },
+  {
+   "persona": "nobody",
+   "post_type": "post",
+   "expected": "findings"
+  },
+  {
+   "persona": "nobody",
+   "post_type": "thread",
+   "expected": "findings"
+  },
+  {
+   "persona": "nobody",
+   "post_type": "quote",
+   "expected": "debates"
+  },
+  {
+   "persona": "nobody",
+   "post_type": "reply",
+   "expected": "debates"
+  },
+  {
+   "persona": "nobody",
+   "post_type": "figure",
+   "expected": "findings"
+  }
+ ],
+ "blend": [
+  {
+   "manual": {
+    "post": 0.35,
+    "thread": 0.1,
+    "quote": 0.2,
+    "reply": 0.25,
+    "figure": 0.1
+   },
+   "learned": {
+    "post": 0.1,
+    "thread": 0.1,
+    "quote": 0.1,
+    "reply": 0.1,
+    "figure": 0.6
+   },
+   "blend": 0.4,
+   "expected": {
+    "reply": 0.19,
+    "thread": 0.1,
+    "figure": 0.3,
+    "quote": 0.16,
+    "post": 0.25
+   }
+  },
+  {
+   "manual": {
+    "a": 0.5,
+    "b": 0.5
+   },
+   "learned": {
+    "b": 0.2,
+    "c": 0.8,
+    "d": 0.0
+   },
+   "blend": 0.4,
+   "expected": {
+    "d": 0.0,
+    "b": 0.38,
+    "c": 0.32,
+    "a": 0.3
+   }
+  },
+  {
+   "manual": {
+    "skeptic": 0.2,
+    "methodologist": 0.2,
+    "practitioner": 0.2,
+    "hype": 0.2,
+    "gradstudent": 0.2
+   },
+   "learned": {
+    "skeptic": 0.7,
+    "hype": 0.3,
+    "ghost": 0.5
+   },
+   "blend": 0.4,
+   "expected": {
+    "practitioner": 0.1,
+    "hype": 0.2,
+    "methodologist": 0.1,
+    "ghost": 0.1667,
+    "gradstudent": 0.1,
+    "skeptic": 0.3333
+   }
+  }
+ ],
+ "enabled": [
+  {
+   "settings": {},
+   "expected": [
+    "amplifier",
+    "gradstudent",
+    "hype",
+    "methodologist",
+    "practitioner",
+    "skeptic"
+   ]
+  },
+  {
+   "settings": {
+    "personas_enabled": null
+   },
+   "expected": [
+    "amplifier",
+    "gradstudent",
+    "hype",
+    "methodologist",
+    "practitioner",
+    "skeptic"
+   ]
+  },
+  {
+   "settings": {
+    "personas_enabled": {
+     "hype": false
+    }
+   },
+   "expected": [
+    "amplifier",
+    "gradstudent",
+    "methodologist",
+    "practitioner",
+    "skeptic"
+   ]
+  },
+  {
+   "settings": {
+    "personas_enabled": {
+     "hype": true,
+     "skeptic": false,
+     "archivist": true
+    }
+   },
+   "expected": [
+    "amplifier",
+    "gradstudent",
+    "hype",
+    "methodologist",
+    "practitioner"
+   ]
+  }
+ ]
+}
