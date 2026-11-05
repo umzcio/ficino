@@ -39,7 +39,7 @@ async function setSettings(userId: string, settings: Record<string, unknown>) {
 }
 
 type RunOpts = {
-  chat?: (info: ChatInfo) => string;
+  chat?: (info: ChatInfo) => string | Promise<string>;
   jobId?: string;
   isFinalAttempt?: boolean;
 };
@@ -227,6 +227,45 @@ describe('generate_paper_summary', () => {
       const { row } = await failing(true);
       expect(row).toMatchObject({ status: 'error', task_id: null });
     });
+
+    // Deliberate change 7: the final-attempt error mark only touches this job's own (or an unowned) generating row.
+    // J1 passes the guard while it owns the row; `during` runs inside J1's LLM call, before J1 fails for good.
+    async function finalFailureAfter(during: () => Promise<unknown>) {
+      const j1 = randomUUID();
+      await sql`INSERT INTO paper_summaries (paper_id, status, task_id) VALUES (${s.paper_a}, 'generating', ${j1})`;
+      const h = harness({
+        jobId: j1,
+        isFinalAttempt: true,
+        chat: async () => {
+          await during();
+          return '';
+        },
+      });
+      await expect(generatePaperSummary({ paper_id: s.paper_a }, h.ctx, h.deps)).rejects.toThrow(
+        'LLM returned empty response',
+      );
+      return summaryRow(s.paper_a);
+    }
+
+    it('a final failure of J1 leaves a row that J2 took over generating under J2', async () => {
+      const j2 = randomUUID();
+      const row = await finalFailureAfter(() => sql`UPDATE paper_summaries SET task_id = ${j2} WHERE paper_id = ${s.paper_a}`);
+      expect(row).toMatchObject({ status: 'generating', task_id: j2 });
+    });
+
+    it('a final failure of J1 leaves a row that J2 completed complete', async () => {
+      const row = await finalFailureAfter(
+        () => sql`UPDATE paper_summaries SET status = 'complete', task_id = NULL WHERE paper_id = ${s.paper_a}`,
+      );
+      expect(row).toMatchObject({ status: 'complete', task_id: null });
+    });
+
+    it('the final attempt marks an unowned generating row error', async () => {
+      await sql`INSERT INTO paper_summaries (paper_id, status, task_id) VALUES (${s.paper_a}, 'generating', NULL)`;
+      const h = harness({ isFinalAttempt: true, chat: () => '' });
+      await expect(generatePaperSummary({ paper_id: s.paper_a }, h.ctx, h.deps)).rejects.toThrow();
+      expect(await summaryRow(s.paper_a)).toMatchObject({ status: 'error', task_id: null });
+    });
   });
 
   it('provider isolation: the LLM call carries the paper owner model', async () => {
@@ -336,12 +375,48 @@ describe('generate_corpus_synthesis', () => {
       expect(await synthRow(id)).toMatchObject({ status: 'generating', task_id: jobId });
     });
 
-    it('an LLM failure on the final attempt marks the row error', async () => {
+    // Deliberate change 7, as for the paper summary.
+    it('a final failure of J1 leaves a row that J2 owns generating under J2', async () => {
       const id = randomUUID();
+      const j2 = randomUUID();
       await sql`
         INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, status, task_id)
-        VALUES (${id}, ${s.user_a}, 'P', ${[s.paper_a]}::uuid[], 'generating', 'j')`;
+        VALUES (${id}, ${s.user_a}, 'P', ${[s.paper_a]}::uuid[], 'generating', ${j2})`;
       const h = harness({ isFinalAttempt: true, chat: () => '' });
+      await expect(
+        generateCorpusSynthesis({ synthesis_id: id, paper_ids: [s.paper_a], name: 'P', user_id: s.user_a }, h.ctx, h.deps),
+      ).rejects.toThrow('LLM returned empty response');
+      expect(h.jobId).not.toBe(j2);
+      expect(await synthRow(id)).toMatchObject({ status: 'generating', task_id: j2 });
+    });
+
+    it('a final failure leaves a row completed during its LLM call complete', async () => {
+      const id = randomUUID();
+      const jobId = randomUUID();
+      await sql`
+        INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, status, task_id)
+        VALUES (${id}, ${s.user_a}, 'P', ${[s.paper_a]}::uuid[], 'generating', ${jobId})`;
+      const h = harness({
+        jobId,
+        isFinalAttempt: true,
+        chat: async () => {
+          await sql`UPDATE corpus_syntheses SET status = 'complete', task_id = NULL WHERE id = ${id}`;
+          return '';
+        },
+      });
+      await expect(
+        generateCorpusSynthesis({ synthesis_id: id, paper_ids: [s.paper_a], name: 'P', user_id: s.user_a }, h.ctx, h.deps),
+      ).rejects.toThrow('LLM returned empty response');
+      expect(await synthRow(id)).toMatchObject({ status: 'complete', task_id: null });
+    });
+
+    it('an LLM failure on the final attempt marks the row error', async () => {
+      const id = randomUUID();
+      const jobId = randomUUID();
+      await sql`
+        INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, status, task_id)
+        VALUES (${id}, ${s.user_a}, 'P', ${[s.paper_a]}::uuid[], 'generating', ${jobId})`;
+      const h = harness({ jobId, isFinalAttempt: true, chat: () => '' });
       await expect(
         generateCorpusSynthesis({ synthesis_id: id, paper_ids: [s.paper_a], name: 'P', user_id: s.user_a }, h.ctx, h.deps),
       ).rejects.toThrow('LLM returned empty response');

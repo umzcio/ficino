@@ -107,8 +107,12 @@ export async function generatePaperSummary(
     log.error({ error: errMessage(e) }, 'paper_summary_failed');
     if (ctx.isFinalAttempt) {
       // Retries exhausted: mark the placeholder so the GET handler re-dispatches instead of spinning forever.
+      // Only this job's own (or an unowned) generating row: a newer job that took the row over keeps it, and a
+      // row that job already completed stays complete (deliberate change 7; Python marked the row unconditionally).
       try {
-        await sql`UPDATE paper_summaries SET status = 'error', task_id = NULL WHERE paper_id = ${paperId}`;
+        await sql`
+          UPDATE paper_summaries SET status = 'error', task_id = NULL
+          WHERE paper_id = ${paperId} AND status = 'generating' AND (task_id = ${ctx.jobId} OR task_id IS NULL)`;
       } catch (updateErr) {
         log.error({ error: errMessage(updateErr) }, 'paper_summary_error_mark_failed');
       }
@@ -189,8 +193,11 @@ export async function generateCorpusSynthesis(
   } catch (e) {
     log.error({ error: errMessage(e) }, 'corpus_synthesis_failed');
     if (ctx.isFinalAttempt) {
+      // Same scoping as the paper summary (deliberate change 7).
       try {
-        await sql`UPDATE corpus_syntheses SET status = 'error', task_id = NULL WHERE id = ${synthesisId}`;
+        await sql`
+          UPDATE corpus_syntheses SET status = 'error', task_id = NULL
+          WHERE id = ${synthesisId} AND status = 'generating' AND (task_id = ${ctx.jobId} OR task_id IS NULL)`;
       } catch (updateErr) {
         log.error({ error: errMessage(updateErr) }, 'corpus_synthesis_error_mark_failed');
       }
