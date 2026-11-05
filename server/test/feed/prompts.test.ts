@@ -4,7 +4,7 @@ import { buildPostPrompt, fetchChunksByIds } from '../../src/feed/prompts.js';
 import type { Chunk, Persona, Personas } from '../../src/feed/types.js';
 import { resetDb, seedUsers, testSql } from '../helpers/db.js';
 
-type Case = { name: string; args: Record<string, any>; prompt: string };
+type Case = { name: string; args: Record<string, any>; prompt?: string; error?: string; fetch_ids: string[] | null };
 const cases = JSON.parse(
   readFileSync(new URL('../fixtures/goldens/persona-prompts.json', import.meta.url), 'utf8'),
 ) as Case[];
@@ -16,7 +16,8 @@ describe('buildPostPrompt goldens', () => {
   for (const c of cases) {
     it(`matches Python for ${c.name}`, async () => {
       const a = c.args;
-      const prompt = await buildPostPrompt({
+      const seen: string[][] = [];
+      const run = buildPostPrompt({
         rng: () => 0,
         sql: testSql(),
         personas: personasOf(a.personas),
@@ -27,9 +28,14 @@ describe('buildPostPrompt goldens', () => {
         existingPosts: a.existing_posts,
         figure: a.figure,
         priorPostsSummary: a.prior_posts_summary,
-        fetchAnchors: async () => a.anchors as Chunk[],
+        fetchAnchors: async (ids) => {
+          seen.push(ids);
+          return a.anchors as Chunk[];
+        },
       });
-      expect(prompt).toBe(c.prompt);
+      if (c.error !== undefined) await expect(run).rejects.toThrow(c.error);
+      else expect(await run).toBe(c.prompt);
+      expect(seen).toEqual(c.fetch_ids === null ? [] : [c.fetch_ids]);
     });
   }
 });
@@ -45,7 +51,7 @@ describe('buildPostPrompt errors', () => {
   });
 
   it('rejects an unknown persona', async () => {
-    await expect(buildPostPrompt({ ...common, personaKey: 'nobody', postType: 'post' })).rejects.toThrow();
+    await expect(buildPostPrompt({ ...common, personaKey: 'nobody', postType: 'post' })).rejects.toThrow("KeyError: 'nobody'");
   });
 });
 

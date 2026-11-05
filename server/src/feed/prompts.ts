@@ -7,15 +7,19 @@ import { buildShortCite } from './personas.js';
 import type { Chunk, Contradiction, FeedFigure, Personas, Post } from './types.js';
 
 /** Python `a or b` for the paper_title / paper_filename fallback (empty string falls through). */
-const titleOf = (c: Chunk): string | null => c.paper_title || c.paper_filename;
+const titleOf = (c: Chunk): string | null =>
+  c.paper_title || (c.paper_filename === undefined ? 'Unknown' : c.paper_filename);
+
+/** `chunk.get("section", "unknown")`: a missing key defaults, a null value does not. */
+const sectionOf = (c: Chunk): string | null => (c.section === undefined ? 'unknown' : c.section);
 
 /** `_format_chunks_for_prompt`. Chunk text is untrusted PDF content: fenced, and header fields are sanitized. */
 function formatChunksForPrompt(chunks: Chunk[]): string {
   const parts = chunks.map((chunk, i) => {
     const paperRef = sanitizeInline(titleOf(chunk));
     const cite = sanitizeInline(buildShortCite(chunk));
-    const section = sanitizeInline(chunk.section);
-    const fenced = fenceUntrusted(chunk.content);
+    const section = sanitizeInline(sectionOf(chunk));
+    const fenced = fenceUntrusted(pyStr(chunk.content));
     return `[Source ${i + 1}: ${paperRef} (cite as: ${cite}) — Section: ${section}]\n${fenced}\n`;
   });
   return parts.join('\n---\n');
@@ -32,8 +36,8 @@ function formatContradictions(contradictions: Partial<Contradiction>[]): string 
     const paperA = sanitizeInline(c.paper_a === undefined ? '?' : c.paper_a);
     const paperB = sanitizeInline(c.paper_b === undefined ? '?' : c.paper_b);
     const relationship = sanitizeInline(c.relationship === undefined ? 'unknown' : c.relationship, 40);
-    const fencedA = fenceUntrusted(pySlice(pyStr(c.content_a ?? ''), 0, 150));
-    const fencedB = fenceUntrusted(pySlice(pyStr(c.content_b ?? ''), 0, 150));
+    const fencedA = fenceUntrusted(pySlice(pyStr(c.content_a === undefined ? '' : c.content_a), 0, 150));
+    const fencedB = fenceUntrusted(pySlice(pyStr(c.content_b === undefined ? '' : c.content_b), 0, 150));
     parts.push(
       `- Chunk from ${paperA}:\n` +
         `  ${fencedA}\n` +
@@ -58,8 +62,8 @@ function formatParentAnchorChunks(anchorChunks: Chunk[]): string {
   const parts = [header];
   anchorChunks.forEach((chunk, i) => {
     const paperRef = sanitizeInline(titleOf(chunk));
-    const section = sanitizeInline(chunk.section);
-    const fenced = fenceUntrusted(chunk.content ?? '');
+    const section = sanitizeInline(sectionOf(chunk));
+    const fenced = fenceUntrusted(pyStr(chunk.content === undefined ? '' : chunk.content));
     parts.push(`[Parent Source ${i + 1}: ${paperRef} — Section: ${section}]\n${fenced}`);
   });
   return parts.join('\n\n');
@@ -263,7 +267,7 @@ JSON format:
       const refParagraphText = fenceUntrusted(pyStr(figure.referenced_paragraph || ''));
       const fallbackDesc = fenceUntrusted(pyStr(figure.description || ''));
       const figPaper = sanitizeInline(figure.paper_ref === undefined ? 'Unknown' : figure.paper_ref);
-      const figPage = sanitizeInline(figure.page_number === undefined ? '?' : (pyStr(figure.page_number)), 16);
+      const figPage = sanitizeInline(figure.page_number === undefined ? '?' : figure.page_number === null ? null : pyStr(figure.page_number), 16);
       const figNumber = sanitizeInline(figure.figure_number || '', 40);
       const figType = sanitizeInline(figure.figure_type || 'figure', 40);
       const figLabel = figNumber ? `Fig. ${figNumber}` : `Fig. ${(figure.figure_index || 0) + 1}`;
