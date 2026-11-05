@@ -6,7 +6,7 @@ import type { JobQueue } from '../jobs/queue.js';
 import type { QueueName } from '../jobs/registry.js';
 import type { ProviderDeps } from '../providers/deps.js';
 import type { LocalStorage } from '../storage/local.js';
-import { checkStalePapers } from '../tasks/alerts.js';
+import { checkContradictions, checkPostFeed, checkStalePapers } from '../tasks/alerts.js';
 import { generateFeed } from '../tasks/feed.js';
 import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
@@ -32,6 +32,8 @@ export const HANDLERS: Partial<Record<QueueName, Handler>> = {
   process_paper: (data, ctx, deps) => processPaper(data, ctx, deps),
   generate_feed: (data, ctx, deps) => generateFeed(data, ctx, deps),
   regenerate_post: (data, ctx, deps) => regeneratePost(data, ctx, deps),
+  check_contradictions: (data, ctx, deps) => checkContradictions(data, ctx, deps),
+  check_post_feed: (data, ctx, deps) => checkPostFeed(data, ctx, deps),
   check_stale_papers: (_data, _ctx, deps) => checkStalePapers(deps.sql),
   prune_expired: (_data, _ctx, deps) => pruneExpired(deps.sql),
 };
