@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Hono } from 'hono';
 import pino from 'pino';
+import type { ProviderDeps } from '../../src/providers/deps.js';
+import type { Rng } from '../../src/shared/random.js';
 import { createApp, type AppEnv } from '../../src/app.js';
 import type { AuthUser } from '../../src/auth/types.js';
 import { loadConfig, type Config } from '../../src/config.js';
@@ -25,7 +27,15 @@ export function testStorageDirs() {
 export const CSRF_TEST_TOKEN = 'test-csrf-token-fixture';
 
 /** App over the test database with a silent logger. Defaults to ENVIRONMENT=development (loadConfig's default). */
-export function testApp(opts: { user?: AuthUser; config?: Partial<Config>; fetch?: typeof fetch } = {}): Hono<AppEnv> {
+export function testApp(
+  opts: {
+    user?: AuthUser;
+    config?: Partial<Config>;
+    fetch?: typeof fetch;
+    providers?: ProviderDeps;
+    rng?: Rng;
+  } = {},
+): Hono<AppEnv> {
   const config: Config = {
     ...loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' }),
     ...testStorageDirs(),
@@ -44,6 +54,8 @@ export function testApp(opts: { user?: AuthUser; config?: Partial<Config>; fetch
     env: {},
     fetch: opts.fetch,
     userOverride: opts.user,
+    providers: opts.providers,
+    rng: opts.rng,
   });
 }
 

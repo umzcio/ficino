@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { pathToFileURL } from 'node:url';
+import { defaultProviderDeps, type ProviderDeps } from '../providers/deps.js';
 import { createApp } from '../app.js';
 import { ensureStubUser } from '../auth/bootstrap.js';
 import { loadConfig, type Env } from '../config.js';
@@ -19,7 +20,10 @@ export interface RunningApi {
 }
 
 /** Boots the API: config, pool, migrations, stub user (AUTH_PROVIDER=none), then the HTTP listener. */
-export async function startApi(rawEnv: Env = process.env): Promise<RunningApi> {
+export async function startApi(
+  rawEnv: Env = process.env,
+  overrides: { providers?: Partial<ProviderDeps>; closeGraceMs?: number } = {},
+): Promise<RunningApi> {
   // Read the env once: requests see this frozen copy, never live process.env.
   const env: Readonly<Env> = Object.freeze({ ...rawEnv });
   const config = loadConfig(env);
@@ -37,7 +41,16 @@ export async function startApi(rawEnv: Env = process.env): Promise<RunningApi> {
     boss.on('error', (err) => logger.error({ err }, 'pg-boss error'));
     await boss.start();
     await ensureQueues(boss, config.jobTimeLimitSec);
-    app = createApp({ sql, queue: new JobQueue(boss, sql), config, logger, storage, signingKey, env });
+    app = createApp({
+      sql,
+      queue: new JobQueue(boss, sql),
+      config,
+      logger,
+      storage,
+      signingKey,
+      env,
+      providers: { ...defaultProviderDeps(), ...overrides.providers },
+    });
   } catch (e) {
     await boss.stop({ graceful: false, timeout: 5000 }).catch(() => undefined);
     await sql.end();
@@ -59,10 +72,16 @@ export async function startApi(rawEnv: Env = process.env): Promise<RunningApi> {
   let closing: Promise<void> | undefined;
   const close = () =>
     (closing ??= (async () => {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeIdleConnections();
-      });
+      // A hung request (a 120 s LLM call) must not stall shutdown: after the grace, drop every connection.
+      const force = setTimeout(() => server.closeAllConnections(), overrides.closeGraceMs ?? 10_000);
+      try {
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+          server.closeIdleConnections();
+        });
+      } finally {
+        clearTimeout(force);
+      }
       try {
         await boss.stop({ graceful: true, timeout: 5000 });
       } finally {

@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { validator } from 'hono/validator';
 import { z } from 'zod';
+import { pyLen } from '../shared/pystr.js';
 
 type Source = 'json' | 'query' | 'param';
 
@@ -57,3 +58,7 @@ export const pyBool = z.union([z.boolean(), z.string()]).transform((v, ctx) => {
   ctx.addIssue({ code: 'custom', message: 'Input should be a valid boolean, unable to interpret input' });
   return z.NEVER;
 });
+
+/** Pydantic `max_length` on a str: counts code points, not UTF-16 units. */
+export const pyMaxLen = (n: number) =>
+  z.string().refine((s) => pyLen(s) <= n, { message: `String should have at most ${n} characters` });

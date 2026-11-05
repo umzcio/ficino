@@ -8,9 +8,32 @@ export type FakeCall = {
 };
 
 /** What a chat call is for, read from its system prompt. */
-export type ChatPurpose = 'metadata' | 'context' | 'vision' | 'persona' | 'classify' | 'other';
+export type ChatPurpose =
+  | 'metadata'
+  | 'context'
+  | 'vision'
+  | 'persona'
+  | 'classify'
+  | 'summary'
+  | 'synthesis'
+  | 'archivist'
+  | 'dm'
+  | 'reply'
+  | 'mention'
+  | 'interjection'
+  | 'zap'
+  | 'other';
 
-export type ChatInfo = { purpose: ChatPurpose; system: string; user: string; via: 'ollama' | 'anthropic' };
+export type ChatInfo = {
+  purpose: ChatPurpose;
+  system: string;
+  user: string;
+  /** The non-system messages, in order. */
+  messages: Array<{ role: string; content: string }>;
+  maxTokens: number;
+  temperature: number;
+  via: 'ollama' | 'anthropic';
+};
 
 export type FakeProviderOpts = {
   /** Reply text for every non-detector chat (metadata, context, vision). May return a never-settling promise. */
@@ -25,7 +48,20 @@ export type FakeProviderOpts = {
 
 const DETECT_SYSTEM = 'You identify the scientific figures';
 
+// Substrings of the Python system prompts (copied verbatim); checked before `persona`.
+const PURPOSE_MARKERS: Array<[ChatPurpose, string]> = [
+  ['summary', 'You are a research paper summarizer'],
+  ['synthesis', 'You are an academic synthesis engine'],
+  ['archivist', 'FORMATTING: Use real line breaks.'],
+  ['dm', 'You are having a direct conversation with a user about their research corpus.'],
+  ['reply', 'You are replying to a user in a conversation about an academic paper.'],
+  ['mention', 'You were tagged in a conversation thread by a user.'],
+  ['interjection', 'You are jumping into an existing conversation thread'],
+  ['zap', 'You were called in to respond to a specific point made by'],
+];
+
 function purposeOf(system: string): ChatPurpose {
+  for (const [purpose, marker] of PURPOSE_MARKERS) if (system.includes(marker)) return purpose;
   if (system.startsWith('You are a precise metadata extractor')) return 'metadata';
   if (system.startsWith('You situate a short excerpt')) return 'context';
   if (system.startsWith('You are an academic paper text extractor')) return 'vision';
@@ -77,6 +113,13 @@ const defaultChat = (_body: unknown, info: ChatInfo): string => {
   if (info.purpose === 'context') return 'A situating sentence.';
   if (info.purpose === 'persona') return '{"post_type": "post", "content": "A grounded take."}';
   if (info.purpose === 'classify') return 'extends';
+  if (info.purpose === 'summary' || info.purpose === 'synthesis')
+    return JSON.stringify([
+      { persona: 'a', content: 'First take.' },
+      { persona: 'b', content: 'Second take.' },
+    ]);
+  if (['archivist', 'dm', 'reply', 'mention', 'interjection', 'zap'].includes(info.purpose))
+    return 'A considered reply.';
   return 'Page text.';
 };
 
@@ -125,7 +168,20 @@ export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps
       const user = messages.find((m) => m.role === 'user')?.content ?? '';
       const content = system.startsWith(DETECT_SYSTEM)
         ? detectReply(user)
-        : await abortable(Promise.resolve(chat(body, { purpose: purposeOf(system), system, user, via: 'ollama' })), signal);
+        : await abortable(
+            Promise.resolve(
+              chat(body, {
+                purpose: purposeOf(system),
+                system,
+                user,
+                messages: messages.filter((m) => m.role !== 'system'),
+                maxTokens: Number((body.options as { num_predict?: number } | undefined)?.num_predict),
+                temperature: Number((body.options as { temperature?: number } | undefined)?.temperature),
+                via: 'ollama',
+              }),
+            ),
+            signal,
+          );
       return Response.json({ message: { role: 'assistant', content } });
     }
     return new Response('not found', { status: 404 });
@@ -149,7 +205,17 @@ export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps
         const text = system.startsWith(DETECT_SYSTEM)
           ? detectReply(user)
           : await abortable(
-              Promise.resolve(chat(params, { purpose: purposeOf(system), system, user, via: 'anthropic' })),
+              Promise.resolve(
+                chat(params, {
+                  purpose: purposeOf(system),
+                  system,
+                  user,
+                  messages: params.messages as Array<{ role: string; content: string }>,
+                  maxTokens: Number(params.max_tokens),
+                  temperature: Number(params.temperature),
+                  via: 'anthropic',
+                }),
+              ),
               o?.signal,
             );
         return { content: [{ type: 'text', text }] };

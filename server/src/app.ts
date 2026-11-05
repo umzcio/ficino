@@ -26,6 +26,8 @@ import { citationsRoutes } from './routes/citations.js';
 import { tagsRoutes } from './routes/tags.js';
 import { usersRoutes } from './routes/users.js';
 import type { JobQueue } from './jobs/queue.js';
+import { defaultProviderDeps, type ProviderDeps } from './providers/deps.js';
+import type { Rng } from './shared/random.js';
 import type { LocalStorage } from './storage/local.js';
 import { workspacesRoutes } from './routes/workspaces.js';
 
@@ -39,9 +41,13 @@ export type AppDeps = {
   env: Record<string, string | undefined>;
   fetch?: typeof fetch;
   userOverride?: AuthUser;
+  providers?: ProviderDeps;
+  rng?: Rng;
 };
 
-export type AppEnv = { Variables: { user: AuthUser; deps: AppDeps } };
+export type ResolvedAppDeps = AppDeps & { providers: ProviderDeps; rng: Rng };
+
+export type AppEnv = { Variables: { user: AuthUser; deps: ResolvedAppDeps } };
 
 const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8000'];
 
@@ -89,7 +95,12 @@ function makeAllowedMethods(app: Hono<AppEnv>) {
   };
 }
 
-export function createApp(deps: AppDeps): Hono<AppEnv> {
+export function createApp(rawDeps: AppDeps): Hono<AppEnv> {
+  const deps: ResolvedAppDeps = {
+    ...rawDeps,
+    providers: rawDeps.providers ?? defaultProviderDeps(),
+    rng: rawDeps.rng ?? Math.random,
+  };
   if (deps.userOverride && !['development', 'test'].includes(deps.config.environment)) {
     throw new Error('userOverride is only allowed in tests');
   }

@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
@@ -85,5 +86,24 @@ describe('startApi', () => {
     } finally {
       await probe.end();
     }
+  });
+
+  it('close() force-closes a hung connection after closeGraceMs', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    api = await startApi(
+      { DATABASE_URL: scratch.url, PORT: '0', API_HOST: '127.0.0.1', LOG_LEVEL: 'silent' },
+      { closeGraceMs: 200 },
+    );
+    const sock = net.connect(api.port, '127.0.0.1');
+    sock.on('error', () => undefined);
+    await new Promise<void>((r) => sock.once('connect', () => r()));
+    sock.write('GET /health HTTP/1.1\r\nHost: x\r\n'); // no final CRLF: the request stays active
+    await new Promise((r) => setTimeout(r, 100));
+    const t0 = Date.now();
+    await api.close();
+    api = undefined;
+    sock.destroy();
+    expect(Date.now() - t0).toBeLessThan(2000);
   });
 });

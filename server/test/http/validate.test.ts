@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pyBool, pyUuid } from '../../src/http/validate.js';
+import { pyBool, pyMaxLen, pyUuid } from '../../src/http/validate.js';
 
 const U = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 describe('pyUuid', () => {
@@ -19,4 +19,13 @@ describe('pyBool', () => {
     expect(pyBool.parse(true)).toBe(true);
   });
   it.each(['', 'maybe'])('rejects %j', (v) => expect(pyBool.safeParse(v).success).toBe(false));
+});
+
+describe('pyMaxLen', () => {
+  it('counts code points, not UTF-16 units', () => {
+    expect(pyMaxLen(3).safeParse('😀😀😀').success).toBe(true);
+    const r = pyMaxLen(3).safeParse('abcd');
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0].message).toBe('String should have at most 3 characters');
+  });
 });
