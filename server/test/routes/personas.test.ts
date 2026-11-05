@@ -244,6 +244,16 @@ describe('DELETE /personas/:key/dm/:message_index', () => {
     await seedDm();
     expect((await as(USER_B_ID).delete('/personas/skeptic/dm/0')).status).toBe(404);
   });
+
+  it('test_delete_persona_dm_message_atomic: index 0 of one turn twice; the stored row is empty, then 404', async () => {
+    await seedDm(1);
+    const r1 = await as().delete('/personas/skeptic/dm/0');
+    expect([r1.status, (await r1.json()).messages]).toEqual([200, []]);
+    const [row] = await sql`SELECT messages FROM persona_dms WHERE user_id = ${USER_A_ID} AND persona_key = 'skeptic'`;
+    expect(row!.messages).toEqual([]);
+    const r2 = await as().delete('/personas/skeptic/dm/0');
+    expect([r2.status, (await r2.json()).detail]).toEqual([404, 'Message index out of range']);
+  });
 });
 
 describe('DELETE /personas/:key/dm', () => {

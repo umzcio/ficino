@@ -65,11 +65,39 @@ the embedding model hides old chunks until they are re-embedded.
 
 The worker now runs five more queues (all one job at a time per process): `generate_feed` (2 retries, 30 s delay),
 `regenerate_post`, `check_contradictions`, `check_post_feed` and `compute_preferences` (no retries; the last
-three are fanned out by `generate_feed` and a failed send never fails the feed). The remaining queues in
-`src/jobs/registry.ts` still have no handler until plans 04 and 05.
+three are fanned out by `generate_feed` and a failed send never fails the feed). Plan 04 (below) adds four more.
 
 `/media/...` is new in the TS server: it serves feed audio and podcast files from `MEDIA_DIR` behind the same signed-URL
 check as figures. It has no `Range` support yet.
+
+### Conversations (plan 04)
+
+Plan 04 adds the routers for every conversation surface. Each is behind `requireUser`, and every read or write of user
+data is scoped to the caller. The one exception is the summary status poll, which reads only the job state, as in Python.
+
+| Router | Routes | Notes |
+| --- | --- | --- |
+| `/personas` | `GET /`, `GET /:key/stats`, `GET /:key/replies`, `GET`/`POST`/`DELETE /:key/dm`, `DELETE /:key/dm/:message_index` | The DM is a synchronous LLM call (`persona_dm` bucket) |
+| `/replies` | `GET /conversations`, `GET /replied-posts/:feed_id`, `GET /:feed_id/:post_index`, `POST /`, `POST /zap`, `DELETE /:feed_id/:post_index/message/:message_index` | `POST /` runs the main reply, up to 3 @mentions and the organic interjection in parallel; `/` and `/zap` share the `reply` bucket |
+| `/messages` | `GET /papers`, `GET /papers/tldrs`, `GET /papers/:paper_id`, `GET /papers/:paper_id/status/:task_id`, `GET /groups`, `POST /groups`, `GET /groups/:synthesis_id` | The first view of a paper dispatches its summary and charges `summary`; cached reads are free. An `error` row, or a `generating` row whose job is failed, cancelled, completed or missing, is re-dispatched |
+| `/user-posts` | `GET /`, `GET /:post_id`, `GET /:post_id/status`, `POST /`, `POST /:post_id/replies`, `DELETE /:post_id` | The Archivist answers in the worker (`user_post` bucket). A failed dispatch marks the post `error` and returns 503 |
+
+Synchronous LLM calls (DMs, replies, zaps) resolve the caller's provider settings per request, as the worker does. A
+provider failure is graded: unreachable or timed out is 503, an upstream 4xx is 502, an upstream 5xx is 503, a malformed
+provider body is 400, and anything else is 500. A failed main call writes nothing.
+
+The worker runs four more queues, one job at a time per process:
+
+| Queue | Retries | What it does |
+| --- | --- | --- |
+| `generate_paper_summary` | 2, 30 s delay | Writes `paper_summaries`; the final failed attempt marks the row `error` |
+| `generate_corpus_synthesis` | 2, 30 s delay | Completes the `corpus_syntheses` placeholder; the final failed attempt marks it `error` |
+| `respond_to_user_post` | 2, 180 s delay | Retrieves over the post's corpus and stores the Archivist reply and its sources |
+| `respond_to_user_post_followup` | 2, 180 s delay | Answers the trailing user turn and appends the reply |
+
+`propose_ordering`, `generate_chapter`, `generate_audio_for_feed` and `generate_podcast_for_feed` still have no handler
+until plan 05. `scripts/ollama-conversations-smoke.ts` is a manual run of the summary, a DM, a reply, a zap and an
+Archivist post against a real local Ollama (see its header); it is not part of CI.
 
 ## Tests
 

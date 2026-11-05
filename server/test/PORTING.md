@@ -6,11 +6,11 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_auth_gates.py::test_list_personas_requires_auth — plan01/T6 (gate via requireUser test route; /settings landed in plan01/T9; /personas is plan04)
 - [x] api/tests/test_auth_gates.py::test_ollama_models_requires_auth — plan01/T6 (gate via requireUser test route; /settings landed in plan01/T9; /personas is plan04)
 - [x] api/tests/test_auth_gates.py::test_list_personas_still_works_authenticated — plan01/T6 (gate via requireUser test route; /settings landed in plan01/T9; /personas is plan04)
-- [ ] api/tests/test_group_chat_pending_state.py::test_create_group_chat_inserts_generating_placeholder — plan04
-- [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_generating_not_404 — plan04
-- [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_error_not_404 — plan04
-- [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_complete_row_reports_complete_status — plan04
-- [ ] api/tests/test_group_chat_pending_state.py::test_get_group_chat_missing_row_still_404s — plan04
+- [x] api/tests/test_group_chat_pending_state.py::test_create_group_chat_inserts_generating_placeholder — plan04/T8 (messages.test.ts: POST 202 inserts a generating placeholder; GET returns it with the task_id)
+- [x] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_generating_not_404 — plan04/T8 (messages.test.ts: POST 202 inserts a generating placeholder; GET returns it with the task_id)
+- [x] api/tests/test_group_chat_pending_state.py::test_get_group_chat_returns_error_not_404 — plan04/T8 (messages.test.ts: GET: error row is error without task_id; complete row is complete without task_id)
+- [x] api/tests/test_group_chat_pending_state.py::test_get_group_chat_complete_row_reports_complete_status — plan04/T8 (messages.test.ts: GET: error row is error without task_id; complete row is complete without task_id)
+- [x] api/tests/test_group_chat_pending_state.py::test_get_group_chat_missing_row_still_404s — plan04/T8 (messages.test.ts: GET 404s on unknown, malformed and other users ids)
 - [x] api/tests/test_docs_gating.py::test_docs_disabled_on_the_imported_app — plan01/T5 (replaced: no docs served)
 - [x] api/tests/test_docs_gating.py::test_docs_disabled_in_production — plan01/T5 (replaced: no docs served)
 - [x] api/tests/test_docs_gating.py::test_docs_enabled_in_development — plan01/T5 (replaced: no docs served)
@@ -21,21 +21,21 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_likes.py::test_list_likes_returns_posts_and_replies — plan01/T10
 - [x] api/tests/test_likes.py::test_list_likes_does_not_leak_other_users — plan01/T10
 - [x] api/tests/test_likes.py::test_delete_cross_user_like_returns_404 — plan01/T10
-- [ ] api/tests/test_error_contracts.py::test_timeout_error_maps_to_504 — plan04
-- [ ] api/tests/test_error_contracts.py::test_connect_error_maps_to_503 — plan04
-- [ ] api/tests/test_error_contracts.py::test_value_error_maps_to_400 — plan04
-- [ ] api/tests/test_error_contracts.py::test_generic_exception_maps_to_500 — plan04
-- [ ] api/tests/test_error_contracts.py::test_upstream_4xx_http_status_error_maps_to_502 — plan04
-- [ ] api/tests/test_error_contracts.py::test_upstream_5xx_http_status_error_maps_to_503 — plan04
-- [ ] api/tests/test_error_contracts.py::test_event_name_is_independent_of_mapping — plan04
-- [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_timeout_maps_to_504 — plan04
-- [ ] api/tests/test_error_contracts.py::test_create_reply_main_persona_bad_input_maps_to_400 — plan04
+- [x] api/tests/test_error_contracts.py::test_timeout_error_maps_to_504 — plan04/T1 (conversations/llm.test.ts: LlmDeadlineError -> 504; LlmDeadlineError stands in for asyncio.TimeoutError, which nothing raises: deliberate change 2)
+- [x] api/tests/test_error_contracts.py::test_connect_error_maps_to_503 — plan04/T1 (conversations/llm.test.ts: NetworkError -> 503 unreachable)
+- [x] api/tests/test_error_contracts.py::test_value_error_maps_to_400 — plan04/T1 (conversations/llm.test.ts: TypeError and SyntaxError -> 400)
+- [x] api/tests/test_error_contracts.py::test_generic_exception_maps_to_500 — plan04/T1 (conversations/llm.test.ts: anything else -> 500, logged at error with error_type)
+- [x] api/tests/test_error_contracts.py::test_upstream_4xx_http_status_error_maps_to_502 — plan04/T1 (conversations/llm.test.ts: upstream 4xx -> 502)
+- [x] api/tests/test_error_contracts.py::test_upstream_5xx_http_status_error_maps_to_503 — plan04/T1 (conversations/llm.test.ts: upstream 5xx -> 503)
+- [x] api/tests/test_error_contracts.py::test_event_name_is_independent_of_mapping — plan04/T1 (conversations/llm.test.ts: the same error grades the same under two event names)
+- [x] api/tests/test_error_contracts.py::test_create_reply_main_persona_timeout_maps_to_504 — plan04/T6, replaced by deliberate change 2 (replies-post.test.ts: a TimeoutError from the provider is 503). Python's 504 had no source, since nothing wrapped the call in wait_for; the 504 mapping itself is kept for LlmDeadlineError (conversations/llm.test.ts)
+- [x] api/tests/test_error_contracts.py::test_create_reply_main_persona_bad_input_maps_to_400 — plan04/T6 (replies-post.test.ts: a 200 whose body is not JSON is 400 Invalid input)
 - [x] api/tests/test_error_contracts.py::test_delete_post_out_of_range_is_404_not_found — plan03/T13
 - [x] api/tests/test_error_contracts.py::test_regenerate_post_out_of_range_is_404_not_found — plan03/T13
 - [x] api/tests/test_error_contracts.py::test_dismiss_alert_returns_204_then_404_on_second_dismiss — plan01/T10
 - [x] api/tests/test_error_contracts.py::test_dismiss_alert_missing_id_is_404 — plan01/T10
-- [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_missing_thread_is_404 — plan04
-- [ ] api/tests/test_error_contracts.py::test_clear_persona_dm_existing_thread_returns_200_and_empty_messages — plan04
+- [x] api/tests/test_error_contracts.py::test_clear_persona_dm_missing_thread_is_404 — plan04/T4 (personas.test.ts: clears (200), audits, then 404)
+- [x] api/tests/test_error_contracts.py::test_clear_persona_dm_existing_thread_returns_200_and_empty_messages — plan04/T4 (personas.test.ts: clears (200), audits, then 404)
 - [x] api/tests/test_signed_figures.py::test_signed_url_happy_path — plan02/T5
 - [x] api/tests/test_signed_figures.py::test_missing_token_rejected — plan02/T5
 - [x] api/tests/test_signed_figures.py::test_tampered_token_rejected — plan02/T5
@@ -48,7 +48,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
 - [x] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan01/T9
 - [x] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — plan02, plan03, plan04, plan05 (remaining per-router halves; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts) ; feed half (feed.post.delete / feed.post.regenerate audit rows) covered by plan03/T13 (feed-read.test.ts)
+- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — plan02, plan03, plan04, plan05 (remaining per-router halves; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts) ; feed half (feed.post.delete / feed.post.regenerate audit rows) covered by plan03/T13 (feed-read.test.ts) ; plan04 half (persona_dm.delete_message / persona_dm.clear, reply.delete_message, user_post.delete audit rows) covered by plan04/T4 (personas.test.ts), plan04/T5 (replies-read.test.ts) and plan04/T10 (user-posts.test.ts); still open for plan05
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller — plan05
 - [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user — plan05
 - [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace — plan05
@@ -85,21 +85,21 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] shared/tests/test_constants.py::test_sentinel_ids_are_stable — plan01/T3
 - [ ] shared/tests/test_constants.py::test_chapter_sql_encodes_first_unlocked — plan 05 (CHAPTER_INSERT_SQL moves to the reading-lists slice)
 - [x] api/tests/test_auth_scoping.py::test_list_papers_returns_only_own_papers — plan02/T5
-- [ ] api/tests/test_auth_scoping.py::test_list_messages_papers_scoped — plan04
-- [ ] api/tests/test_auth_scoping.py::test_list_messages_groups_scoped — plan04
-- [ ] api/tests/test_auth_scoping.py::test_list_replies_conversations_scoped — plan04
-- [ ] api/tests/test_auth_scoping.py::test_tldrs_endpoint_scoped — plan04
+- [x] api/tests/test_auth_scoping.py::test_list_messages_papers_scoped — plan04/T8 (messages.test.ts: GET /messages/papers is scoped to the caller)
+- [x] api/tests/test_auth_scoping.py::test_list_messages_groups_scoped — plan04/T8 (messages.test.ts: GET /groups lists only the callers, with counts and preview)
+- [x] api/tests/test_auth_scoping.py::test_list_replies_conversations_scoped — plan04/T5 (replies-read.test.ts: GET /replies/conversations scopes to the caller)
+- [x] api/tests/test_auth_scoping.py::test_tldrs_endpoint_scoped — plan04/T8 (messages.test.ts: maps paper id to a 200 code point tldr, only for the caller and complete summaries)
 - [x] api/tests/test_auth_scoping.py::test_get_feed_rejects_cross_user_read — plan03/T13
 - [x] api/tests/test_auth_scoping.py::test_get_paper_rejects_cross_user_read — plan02/T5
 - [x] api/tests/test_auth_scoping.py::test_get_paper_figures_rejects_cross_user_read — plan02/T5
-- [ ] api/tests/test_auth_scoping.py::test_get_messages_paper_rejects_cross_user_read — plan04
-- [ ] api/tests/test_auth_scoping.py::test_get_replies_by_feed_scoped — plan04
-- [ ] api/tests/test_auth_scoping.py::test_get_replied_posts_scoped — plan04
+- [x] api/tests/test_auth_scoping.py::test_get_messages_paper_rejects_cross_user_read — plan04/T8 (messages.test.ts: 404 for another users, unprocessed, unknown and malformed ids)
+- [x] api/tests/test_auth_scoping.py::test_get_replies_by_feed_scoped — plan04/T5 (replies-read.test.ts: returns the thread, and the empty shape for none or another user)
+- [x] api/tests/test_auth_scoping.py::test_get_replied_posts_scoped — plan04/T5 (replies-read.test.ts: returns indices for own feed, [] for another user's or a malformed id)
 - [x] api/tests/test_auth_scoping.py::test_get_tags_for_paper_scoped — plan01/T11
-- [ ] api/tests/test_auth_scoping.py::test_get_user_post_status_scoped — plan04
+- [x] api/tests/test_auth_scoping.py::test_get_user_post_status_scoped — plan04/T10 (user-posts.test.ts: another user's post is 404)
 - [x] api/tests/test_auth_scoping.py::test_get_workspace_activity_rejects_cross_user — plan01/T8
-- [ ] api/tests/test_auth_scoping.py::test_delete_post_rejects_cross_user — plan04
-- [ ] api/tests/test_auth_scoping.py::test_regenerate_post_rejects_cross_user — plan04
+- [x] api/tests/test_auth_scoping.py::test_delete_post_rejects_cross_user — plan03/T13 (feed-read.test.ts: DELETE /feed/:id/posts/:index, another user's feed is 404 Feed not found); a /feed route, ticked in plan 04
+- [x] api/tests/test_auth_scoping.py::test_regenerate_post_rejects_cross_user — plan03/T13 (feed-read.test.ts: test_regenerate_post_out_of_range_is_404_not_found, whose user B request is 404 Feed not found); a /feed route, ticked in plan 04
 - [x] api/tests/test_auth_scoping.py::test_search_scoped_to_own_corpus — plan03/T14
 - [x] api/tests/test_feed_posts_search.py::test_search_posts_finds_own_content — plan03/T14
 - [x] api/tests/test_feed_posts_search.py::test_search_posts_excludes_other_users — plan03/T14
@@ -137,11 +137,11 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] shared/tests/test_signed_url.py::test_verify_rejects_wrong_resource — plan01/T3
 - [x] shared/tests/test_signed_url.py::test_expired_token_rejected — plan01/T3
 - [x] shared/tests/test_signed_url.py::test_fail_closed_in_production — plan01/T3
-- [ ] api/tests/test_llm_retry.py::test_ollama_5xx_retries_then_succeeds — plan04
-- [ ] api/tests/test_llm_retry.py::test_ollama_5xx_exhausts_retries_and_raises — plan04
-- [ ] api/tests/test_llm_retry.py::test_ollama_4xx_is_not_retried — plan04
-- [ ] api/tests/test_llm_retry.py::test_ollama_connect_error_retries_then_succeeds — plan04
-- [ ] api/tests/test_llm_retry.py::test_ollama_empty_content_still_raises_after_success_status — plan04
+- [x] api/tests/test_llm_retry.py::test_ollama_5xx_retries_then_succeeds — plan04/T1 (providers/chat.test.ts: two 503s then a 200 returns the content and sleeps 2s, 6s)
+- [x] api/tests/test_llm_retry.py::test_ollama_5xx_exhausts_retries_and_raises — plan04/T1 (providers/chat.test.ts: three 503s throw the HttpStatusError)
+- [x] api/tests/test_llm_retry.py::test_ollama_4xx_is_not_retried — plan04/T1 (providers/chat.test.ts: a 404 is not retried)
+- [x] api/tests/test_llm_retry.py::test_ollama_connect_error_retries_then_succeeds — plan04/T1 (providers/chat.test.ts: a rejected fetch is retried once)
+- [x] api/tests/test_llm_retry.py::test_ollama_empty_content_still_raises_after_success_status — plan04/T1 (providers/chat.test.ts: whitespace content raises)
 - [x] api/tests/test_hydration_offloop.py::test_feed_audio_url_hydrated_off_loop — plan03/T13
 - [x] api/tests/test_hydration_offloop.py::test_feed_podcast_episode_url_hydrated_off_loop — plan03/T13
 - [x] api/tests/test_hydration_offloop.py::test_figures_image_url_hydrated_off_loop — plan02/T5
@@ -152,7 +152,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_settings_contract.py::test_cohere_key_is_settable_and_redacted — plan01/T9
 - [x] api/tests/test_settings_contract.py::test_get_settings_reasserts_env_under_public_deployment — plan01/T4
 - [x] api/tests/test_settings_contract.py::test_settings_router_uses_shared_schema — n/a: Python router/module identity; TS has one schema module
-- [ ] api/tests/test_summary_redispatch.py::test_error_summary_row_is_redispatched — plan04
+- [x] api/tests/test_summary_redispatch.py::test_error_summary_row_is_redispatched — plan04/T8 (messages.test.ts: an error row is re-dispatched)
 - [x] api/tests/test_sanitize.py::test_empty_input_returns_bare_fence — plan01/T3
 - [x] api/tests/test_sanitize.py::test_none_input_returns_bare_fence — plan01/T3
 - [x] api/tests/test_sanitize.py::test_simple_text_is_wrapped — plan01/T3
@@ -190,12 +190,12 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_wave3_correctness.py::test_activity_sort_key_handles_none_timestamp — plan01/T8 (as an activity endpoint test: NULL timestamp sorts oldest)
 - [x] api/tests/test_wave3_correctness.py::test_cleanup_artifacts_is_a_single_module_level_function — n/a: Python source-inspection of a hoisted closure; TS handlers share deletePaperArtifacts
 - [x] api/tests/test_wave3_correctness.py::test_clear_all_papers_deletes_papers_and_feeds — plan01/T9
-- [ ] api/tests/test_wave3_correctness.py::test_create_user_post_dispatch_failure_marks_error_not_pending — plan04
-- [ ] api/tests/test_wave3_correctness.py::test_reply_to_user_post_concurrent_double_fire_only_one_wins — plan04
-- [ ] api/tests/test_wave3_correctness.py::test_delete_persona_dm_message_atomic — plan04
-- [ ] api/tests/test_wave3_correctness.py::test_delete_persona_dm_message_uses_atomic_jsonb_operator_not_read_modify_write — plan04
-- [ ] api/tests/test_wave3_correctness.py::test_cached_paper_summary_reads_never_charge_rate_limit — plan04
-- [ ] api/tests/test_wave3_correctness.py::test_paper_summary_dispatch_path_charges_rate_limit — plan04
+- [x] api/tests/test_wave3_correctness.py::test_create_user_post_dispatch_failure_marks_error_not_pending — plan04/T10 (user-posts.test.ts: dispatch failure: 503 and the row is error)
+- [x] api/tests/test_wave3_correctness.py::test_reply_to_user_post_concurrent_double_fire_only_one_wins — plan04/T10 (user-posts.test.ts: concurrent follow-ups: exactly one wins, one user turn appended)
+- [x] api/tests/test_wave3_correctness.py::test_delete_persona_dm_message_atomic — plan04/T11 (personas.test.ts: test_delete_persona_dm_message_atomic)
+- [x] api/tests/test_wave3_correctness.py::test_delete_persona_dm_message_uses_atomic_jsonb_operator_not_read_modify_write — n/a: Python source inspection; the TS handler is one `UPDATE ... messages - idx::int`, and the behavior is pinned by test_delete_persona_dm_message_atomic (plan04/T11)
+- [x] api/tests/test_wave3_correctness.py::test_cached_paper_summary_reads_never_charge_rate_limit — plan04/T8 (messages.test.ts: a complete row read 3 times under summary:1 is never 429; the second dispatch is)
+- [x] api/tests/test_wave3_correctness.py::test_paper_summary_dispatch_path_charges_rate_limit — plan04/T8 (messages.test.ts: a complete row read 3 times under summary:1 is never 429; the second dispatch is)
 - [x] api/tests/test_wave3_correctness.py::test_apa_format_exactly_20_authors_lists_all_20 — plan01/T11
 - [x] api/tests/test_wave3_correctness.py::test_apa_format_21_authors_first_19_then_ellipsis_then_true_last — plan01/T11
 - [ ] api/tests/test_wave3_correctness.py::test_reorder_reading_list_rejects_duplicate_paper_ids — plan05
@@ -246,7 +246,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_new_dispatch_gets_new_feed_id — plan03/T8
 - [x] worker/tests/test_generate_feed_idempotency.py::test_empty_feed_redelivery_does_not_error_or_duplicate — plan03/T8
 - [x] worker/tests/test_generate_feed_idempotency.py::test_empty_attempt_then_successful_redelivery_recovers_posts — plan03/T8
-- [ ] worker/tests/test_group_chat_pending_state.py::test_generate_corpus_synthesis_marks_error_on_retry_exhaustion — plan04
+- [x] worker/tests/test_group_chat_pending_state.py::test_generate_corpus_synthesis_marks_error_on_retry_exhaustion — plan04/T7 (tasks/summary.test.ts: final failure (test_generate_corpus_synthesis_marks_error_on_retry_exhaustion))
 - [x] worker/tests/test_llm_hardening.py::test_ollama_empty_response_raises_runtime_error — plan02/T6
 - [x] worker/tests/test_llm_hardening.py::test_ollama_whitespace_only_response_raises_runtime_error — plan02/T6
 - [x] worker/tests/test_llm_hardening.py::test_ollama_nonempty_response_still_returns_content — plan02/T6
@@ -278,7 +278,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] worker/tests/test_shared_adoption.py::test_default_for_matches_defaults — plan01
 - [x] worker/tests/test_stale_papers.py::test_stale_query_counts_null_corpus_feeds — plan02/T4
 - [ ] worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index — plan05
-- [ ] worker/tests/test_wave3_task_fixes.py::test_coerce_messages_drops_non_dict_elements — plan04
+- [x] worker/tests/test_wave3_task_fixes.py::test_coerce_messages_drops_non_dict_elements — plan04/T7 (conversations/summaryParse.test.ts: drops non-dict elements)
 - [x] worker/tests/test_wave3_task_fixes.py::test_ollama_page_extract_retries_transient_failures — plan02/T11
 - [x] worker/tests/test_wave3_task_fixes.py::test_claude_page_extract_retries_transient_failures — plan02/T11
 - [x] worker/tests/test_wave3_task_fixes.py::test_claude_vision_client_pins_sdk_retries_off — plan02/T11
