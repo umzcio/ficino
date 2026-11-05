@@ -84,6 +84,9 @@ describe('loadReplyContextChunks', () => {
   it('escapes LIKE metacharacters in paper_ref', async () => {
     const lit = await addPaper(USER_A_ID, s.workspace_a, 'Big 50%_off Sale');
     await addChunk(lit, USER_A_ID, 0, 'zzz');
+    // Decoy: an unescaped %50%_off% pattern would match this title too.
+    const decoy = await addPaper(USER_A_ID, s.workspace_a, 'Over 50 abc off');
+    await addChunk(decoy, USER_A_ID, 0, 'decoy');
     const out = await loadReplyContextChunks(sql, {
       ...base,
       userId: USER_A_ID,
@@ -92,14 +95,46 @@ describe('loadReplyContextChunks', () => {
       paperRef: '50%_off',
     });
     expect(out.map((c) => c.paper_id)).toEqual([lit]);
-    const none = await loadReplyContextChunks(sql, {
+  });
+
+  it('does not leak user B\'s chunks through drift, legacy or paper_ref', async () => {
+    const bChunk = await addChunk(pb, USER_B_ID, 0, 'uniquebeta tokens here');
+    await addPaper(USER_B_ID, s.workspace_b, 'Zebra Quantum Treatise');
+    const drift = await loadReplyContextChunks(sql, {
+      ...base,
+      userId: USER_A_ID,
+      postSources: [{ paper_id: pb }],
+      userMessage: 'uniquebeta tokens',
+    });
+    expect(drift).toEqual([]);
+    const legacy = await loadReplyContextChunks(sql, {
+      ...base,
+      userId: USER_A_ID,
+      postSources: [{ paper_id: pb }],
+      userMessage: 'qqqqzzzz',
+    });
+    expect(legacy.map((c) => c.id)).not.toContain(bChunk);
+    expect(legacy).toEqual([]);
+    const ref = await loadReplyContextChunks(sql, {
       ...base,
       userId: USER_A_ID,
       postSources: [],
-      userMessage: 'nomatchword',
-      paperRef: '50xxoff',
+      userMessage: 'uniquebeta',
+      paperRef: 'Zebra Quantum',
     });
-    expect(none).toEqual([]);
+    expect(ref).toEqual([]);
+  });
+
+  it('paper_ref picks the caller\'s paper even when another user\'s same-title paper is newer', async () => {
+    const mine = await addPaper(USER_A_ID, s.workspace_a, 'Shared Title Paper');
+    const mc = await addChunk(mine, USER_A_ID, 0, 'mine');
+    await sql`UPDATE papers SET uploaded_at = now() - interval '1 day' WHERE id = ${mine}`;
+    const theirs = await addPaper(USER_B_ID, s.workspace_b, 'Shared Title Paper');
+    await addChunk(theirs, USER_B_ID, 0, 'theirs');
+    const out = await loadReplyContextChunks(sql, {
+      ...base, userId: USER_A_ID, postSources: [], userMessage: 'qqqqzzzz', paperRef: 'Shared Title',
+    });
+    expect(out.map((c) => c.id)).toEqual([mc]);
   });
 
   it('falls back to the first 5 chunks by chunk_index when drift finds nothing', async () => {
