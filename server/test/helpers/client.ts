@@ -10,6 +10,7 @@ import type { AuthUser } from '../../src/auth/types.js';
 import { loadConfig, type Config } from '../../src/config.js';
 import { resolveSigningKey } from '../../src/shared/signedUrl.js';
 import { LocalStorage } from '../../src/storage/local.js';
+import type { Sql } from '../../src/db/sql.js';
 import { testSql } from './db.js';
 import type { JobQueue } from '../../src/jobs/queue.js';
 import { testQueue } from './queue.js';
@@ -36,6 +37,7 @@ export function testApp(
     providers?: ProviderDeps;
     rng?: Rng;
     queue?: JobQueue;
+    sql?: Sql;
   } = {},
 ): Hono<AppEnv> {
   const config: Config = {
@@ -47,7 +49,7 @@ export function testApp(
   const signingKey = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
   const storage = new LocalStorage({ ...testStorageDirs(), ...opts.config }, signingKey, logger);
   return createApp({
-    sql: testSql(),
+    sql: opts.sql ?? testSql(),
     queue: opts.queue ?? testQueue(),
     config,
     logger,

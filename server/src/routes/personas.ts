@@ -149,13 +149,15 @@ export function personasRoutes(): Hono<AppEnv> {
     const [updated] = await sql`
       UPDATE persona_dms SET messages = messages - ${idx}::int, updated_at = NOW()
       WHERE user_id = ${userId} AND persona_key = ${personaKey} RETURNING messages`;
+    // A clear that lands between the SELECT and the UPDATE leaves no row to update.
+    if (!updated) throw new HttpError(404, 'No DM thread with this persona');
     logger.info({ persona: personaKey, index: idx }, 'persona_dm_message_deleted');
     await recordAudit(c, {
       action: 'persona_dm.delete_message',
       resourceType: 'persona_dm',
       metadata: { persona_key: personaKey, message_index: idx },
     });
-    return c.json({ messages: updated!.messages });
+    return c.json({ messages: updated.messages });
   });
 
   r.delete('/:persona_key/dm', async (c) => {

@@ -256,6 +256,28 @@ describe('DELETE /personas/:key/dm/:message_index', () => {
   });
 });
 
+it('DELETE /personas/:key/dm/:message_index: a clear between the SELECT and the UPDATE is 404, not 500', async () => {
+  await sql`INSERT INTO persona_dms (user_id, persona_key, messages)
+            VALUES (${USER_A_ID}, 'skeptic', ${sql.json([turn('user', 'm0')] as never)})`;
+  // The route's sql, except that the thread is cleared just before the delete-message UPDATE runs.
+  let raced = 0;
+  const racing = new Proxy(sql, {
+    apply(target, thisArg, args: [TemplateStringsArray, ...unknown[]]) {
+      if (Array.isArray(args[0]) && args[0].join('?').includes('UPDATE persona_dms SET messages = messages -')) {
+        raced++;
+        return sql`DELETE FROM persona_dms WHERE user_id = ${USER_A_ID} AND persona_key = 'skeptic'`.then(() =>
+          Reflect.apply(target, thisArg, args),
+        );
+      }
+      return Reflect.apply(target, thisArg, args);
+    },
+  });
+  const r = await client(testApp({ user: user(USER_A_ID), config: OLLAMA, sql: racing })).delete('/personas/skeptic/dm/0');
+  expect(raced).toBe(1);
+  expect([r.status, (await r.json()).detail]).toEqual([404, 'No DM thread with this persona']);
+  expect(await sql`SELECT 1 FROM audit_log WHERE action = 'persona_dm.delete_message'`).toHaveLength(0);
+});
+
 describe('DELETE /personas/:key/dm', () => {
   it('clears (200), audits, then 404', async () => {
     await sql`INSERT INTO persona_dms (user_id, persona_key, messages) VALUES (${USER_A_ID}, 'skeptic', '[]'::jsonb)`;
