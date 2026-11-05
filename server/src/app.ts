@@ -21,6 +21,7 @@ import { papersRoutes } from './routes/papers.js';
 import { personasRoutes } from './routes/personas.js';
 import { messagesRoutes } from './routes/messages.js';
 import { repliesRoutes } from './routes/replies.js';
+import { userPostsRoutes } from './routes/userPosts.js';
 import { likesRoutes } from './routes/likes.js';
 import { healthRoutes } from './routes/health.js';
 import { searchRoutes } from './routes/search.js';
@@ -161,6 +162,7 @@ export function createApp(rawDeps: AppDeps): Hono<AppEnv> {
   app.route('/search', searchRoutes());
   app.route('/settings', settingsRoutes());
   app.route('/tags', tagsRoutes());
+  app.route('/user-posts', userPostsRoutes());
   app.route('/users', usersRoutes());
   app.route('/workspaces', workspacesRoutes());
 
