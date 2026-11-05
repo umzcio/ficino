@@ -15,6 +15,8 @@ import {
   detectContradictions,
   generateFeed,
   getPaperIdsForCorpus,
+  loadFigures,
+  loadOwnedFigure,
   tabOverrides,
   writeFeedPostsIndex,
 } from '../../src/tasks/feed.js';
@@ -288,10 +290,23 @@ describe('generate_feed append mode', () => {
     expect([byTask(fresh.jobId), byTask(x.jobId), byTask(y.jobId)]).toEqual([2, 2, 2]);
   });
 
-  it("another user's feed id appends nothing to it", async () => {
+  it("deliberate change 7: another user's feed id fails before any LLM or embed call, touching nothing", async () => {
     await setSettings(s.user_a, simple(1));
-    await run({ user_id: s.user_a, append_to_feed_id: s.feed_b });
-    expect((await feedRow(s.feed_b))!.posts).toEqual([]);
+    const victimPosts = [{ id: 1, persona: 'hype', post_type: 'post', content: 'victim post', category: 'findings' }];
+    await sql`UPDATE feeds SET posts = ${sql.json(victimPosts)}, post_count = 1 WHERE id = ${s.feed_b}`;
+    await writeFeedPostsIndex(sql, s.feed_b, victimPosts, 0, s.user_b);
+    const indexBefore = await sql`SELECT * FROM feed_posts WHERE feed_id = ${s.feed_b} ORDER BY post_index`;
+
+    const f = fakeProviders();
+    const r = start({ user_id: s.user_a, append_to_feed_id: s.feed_b }, { providers: f.deps });
+    await expect(r.promise).rejects.toThrow(`Feed ${s.feed_b} not found`);
+    expect(f.calls).toHaveLength(0);
+    expect(r.metas).toEqual([]);
+    const row = (await feedRow(s.feed_b))!;
+    expect(row.posts).toEqual(victimPosts);
+    expect(row.post_count).toBe(1);
+    expect(await sql`SELECT * FROM feed_posts WHERE feed_id = ${s.feed_b} ORDER BY post_index`).toEqual(indexBefore);
+    expect(await sql`SELECT 1 FROM pgboss.job WHERE name IN ('check_post_feed', 'compute_preferences')`).toHaveLength(0);
   });
 });
 
@@ -401,6 +416,99 @@ describe('generate_feed pipeline', () => {
   });
 });
 
+// ---- re-retrieve with exclusion ---------------------------------------------------------------------------
+
+describe('generate_feed re-retrieve with exclusion', () => {
+  // simple(3): one persona with 3 slots over its top-10, so each slot's window is 3 chunks. Slot 1 has no used
+  // chunks (no re-retrieve); slots 2 and 3 have fewer than 5 fresh chunks and a non-empty budget.
+  const afterExclusion = (lines: Line[]) => logged(lines, 'persona_chunks_after_exclusion');
+  const excludedRetrievals = (lines: Line[]) =>
+    logged(lines, 'retrieval_start').filter((l) => (l.excluded as number) > 0);
+  const sourceIds = (p: Post) => (p.sources as Array<{ chunk_id: string }>).map((x) => x.chunk_id);
+
+  it('fires when under 5 fresh chunks remain: the retrieval excludes used ids and its result replaces the window', async () => {
+    await setSettings(s.user_a, simple(3));
+    const { result, lines } = await run({ user_id: s.user_a });
+    const logs = afterExclusion(lines);
+    expect(logs.map((l) => l.re_retrieved)).toEqual([false, true, true]);
+    expect(logs[1]).toMatchObject({ pre_exclusion_count: 3, excluded_count: 3, available_count: 10 });
+    // The re-retrieval calls carried the used chunk ids: 3 after post 1, 8 after post 2 (3 + 5 sources).
+    expect(excludedRetrievals(lines).map((l) => l.excluded)).toEqual([3, 8]);
+    const posts = (await feedRow(result.feed_id))!.posts;
+    expect(posts.map((p) => sourceIds(p).length)).toEqual([3, 5, 5]);
+    const all = posts.flatMap(sourceIds);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('keeps the original window when the fresh result is smaller', async () => {
+    await setSettings(s.user_a, simple(3));
+    let first = true;
+    const f = fakeProviders({
+      chat: async (_b, info) => {
+        if (info.purpose !== 'persona') return 'extends';
+        // After the first post, the user's chunks vanish: every re-retrieval comes back empty.
+        if (first) await sql`DELETE FROM chunks WHERE user_id = ${s.user_a}`;
+        first = false;
+        return '{"post_type": "post", "content": "A grounded take."}';
+      },
+    });
+    const { result, lines } = await run({ user_id: s.user_a }, { providers: f.deps });
+    const logs = afterExclusion(lines);
+    expect(logs.map((l) => l.re_retrieved)).toEqual([false, false, false]);
+    expect(logs.map((l) => l.available_count)).toEqual([3, 3, 3]);
+    expect(excludedRetrievals(lines)).toHaveLength(2); // it did try
+    const posts = (await feedRow(result.feed_id))!.posts;
+    expect(posts.map((p) => sourceIds(p).length)).toEqual([3, 3, 3]);
+    const all = posts.flatMap(sourceIds);
+    expect(new Set(all).size).toBe(9);
+  });
+
+  it('a failed re-retrieval is logged as re_retrieve_failed and the slot keeps its window', async () => {
+    await setSettings(s.user_a, simple(3));
+    // Embed calls: 1 = the batch (fails, so each retrieval embeds its own query), 2 = the initial retrieval (ok),
+    // 3+ = the re-retrievals (fail).
+    let embeds = 0;
+    const base = fakeProviders();
+    const providers: ProviderDeps = {
+      ...base.deps,
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith('/api/embed') && ++embeds !== 2) return new Response('boom', { status: 400 });
+        return base.deps.fetch(input, init);
+      }) as typeof fetch,
+    };
+    const { result, lines } = await run({ user_id: s.user_a }, { providers });
+    const failed = logged(lines, 're_retrieve_failed');
+    expect(failed).toHaveLength(2);
+    expect(failed[0]).toMatchObject({ persona: 'skeptic' });
+    expect(afterExclusion(lines).map((l) => [l.re_retrieved, l.available_count])).toEqual([
+      [false, 3],
+      [false, 3],
+      [false, 3],
+    ]);
+    expect(result.post_count).toBe(3);
+  });
+});
+
+describe('generate_feed prompt failures', () => {
+  it('a throw inside buildPostPrompt fails the job (it sits outside the per-slot try)', async () => {
+    // A quote's parent is grounded on a chunk id that is not a UUID, so loading its anchors throws.
+    const bogus = [{ id: 1, time: '2m', persona: 'hype', post_type: 'post', content: 'old', sources: [{ chunk_id: 'nope' }] }];
+    await sql`UPDATE feeds SET posts = ${sql.json(bogus)}, post_count = 1 WHERE id = ${s.feed_a}`;
+    await setSettings(s.user_a, simple(2, { post_type_weights: weights({ quote: 1 }) }));
+    let n = 0;
+    const f = fakeProviders({
+      // The opener's reply is dropped, so the quote slot can only pick the bogus parent.
+      chat: (_b, info) => (info.purpose === 'persona' ? (n++ === 0 ? '[1]' : '{"content": "q"}') : 'extends'),
+    });
+    const r = start({ user_id: s.user_a, append_to_feed_id: s.feed_a }, { providers: f.deps });
+    await expect(r.promise).rejects.toThrow();
+    expect(n).toBe(1); // the quote slot never reached the LLM
+    expect(logged(r.lines, 'post_generation_failed')).toHaveLength(1); // the opener only
+    expect(logged(r.lines, 'feed_generation_failed')).toHaveLength(1);
+    expect((await feedRow(s.feed_a))!.posts).toEqual(bogus);
+  });
+});
+
 // ---- scoping ---------------------------------------------------------------------------------------------
 
 describe('getPaperIdsForCorpus', () => {
@@ -447,6 +555,33 @@ async function addFigure(paperId: string, figureType: string | null, idx = 0) {
             'Share of turns by speaker.', '3', 'Turns cluster.', 'legacy description')`;
   return id;
 }
+
+describe('figure loaders', () => {
+  it('loadFigures maps every figure of the papers; loadOwnedFigure is scoped to the owner', async () => {
+    const fig = await addFigure(w.a1, 'chart_bar');
+    await addFigure(w.b1, 'diagram');
+    const figs = await loadFigures(sql, storage, [w.a1, w.a2]);
+    expect(figs).toHaveLength(1);
+    expect(figs[0]).toMatchObject({
+      id: fig,
+      paper_id: w.a1,
+      page_number: 2,
+      description: 'legacy description',
+      claim_summary: '',
+      figure_index: 0,
+      paper_ref: 'Alpha One',
+      figure_type: 'chart_bar',
+      caption: 'Share of turns by speaker.',
+      figure_number: '3',
+      data_claim: 'Turns cluster.',
+      referenced_paragraph: '',
+      detector_confidence: null,
+    });
+    expect(figs[0]!.image_url).toMatch(new RegExp(`^/figures/${w.a1}/${fig}\\?token=`));
+    expect(await loadOwnedFigure(sql, storage, fig, s.user_a)).toEqual(figs[0]);
+    expect(await loadOwnedFigure(sql, storage, fig, s.user_b)).toBeNull();
+  });
+});
 
 describe('generate_feed figure slots', () => {
   it('a typed figure of an allowed type lands on the post with url, id and caption', async () => {
@@ -654,8 +789,10 @@ describe('generate_feed persistence and fan-out', () => {
     } as unknown as JobQueue;
     const { result, lines } = await run({ user_id: s.user_a }, { queue });
     expect(result.status).toBe('complete');
-    expect(logged(lines, 'post_feed_alert_dispatch_failed')).toHaveLength(1);
-    expect(logged(lines, 'preference_recompute_dispatch_failed')).toHaveLength(1);
+    for (const msg of ['post_feed_alert_dispatch_failed', 'preference_recompute_dispatch_failed']) {
+      expect(logged(lines, msg)).toHaveLength(1);
+      expect(logged(lines, msg)[0]).toMatchObject({ error_type: 'Error', error: 'queue down' });
+    }
   });
 
   it('no papers in scope: empty feed, no fan-out', async () => {

@@ -37,6 +37,7 @@ import { STUB_USER_ID } from '../shared/constants.js';
 import { pySlice, pyStr } from '../shared/pystr.js';
 import { choice, sample, type Rng } from '../shared/random.js';
 import { uuid5 } from '../shared/uuid5.js';
+import type { LocalStorage } from '../storage/local.js';
 import type { WorkerDeps } from '../worker/handlers.js';
 
 /** Persisted figure URLs are a short-lived fallback; the api re-signs on every feed read. */
@@ -229,23 +230,27 @@ type FigureRow = {
   paper_title: string | null;
 };
 
-async function loadFigures(deps: WorkerDeps, paperIds: string[]): Promise<FeedFigure[]> {
-  const rows = await deps.sql<FigureRow[]>`
-    SELECT f.id, f.paper_id, f.page_number, f.image_path,
-           f.description, f.claim_summary, f.figure_index,
-           f.figure_type, f.caption, f.figure_number,
-           f.data_claim, f.referenced_paragraph,
-           f.detector_confidence,
-           p.user_id AS paper_user_id,
-           p.filename AS paper_filename, p.title AS paper_title
-    FROM figures f JOIN papers p ON f.paper_id = p.id
-    WHERE f.paper_id = ANY(${paperIds}::uuid[])`;
-  // A figure without a type (pre-typed-extraction row) is never routed to a persona.
-  return rows.map((r) => ({
+/** The storage seam the figure loaders need. */
+export type FigureUrlSigner = Pick<LocalStorage, 'figureImageUrl'>;
+
+/** The figure SELECT generate_feed runs (persona_tasks.py:445-457), without its WHERE. */
+const figureSelect = (sql: Sql) => sql`
+  SELECT f.id, f.paper_id, f.page_number, f.image_path,
+         f.description, f.claim_summary, f.figure_index,
+         f.figure_type, f.caption, f.figure_number,
+         f.data_claim, f.referenced_paragraph,
+         f.detector_confidence,
+         p.user_id AS paper_user_id,
+         p.filename AS paper_filename, p.title AS paper_title
+  FROM figures f JOIN papers p ON f.paper_id = p.id`;
+
+/** The FeedFigure dict (persona_tasks.py:458-486); `image_url` is signed for FIGURE_URL_TTL_SECONDS. */
+function toFeedFigure(storage: FigureUrlSigner, r: FigureRow): FeedFigure {
+  return {
     id: String(r.id),
     paper_id: String(r.paper_id),
     page_number: r.page_number,
-    image_url: deps.storage.figureImageUrl(String(r.paper_id), String(r.id), FIGURE_URL_TTL_SECONDS),
+    image_url: storage.figureImageUrl(String(r.paper_id), String(r.id), FIGURE_URL_TTL_SECONDS),
     description: r.description || '',
     claim_summary: r.claim_summary || '',
     figure_index: r.figure_index,
@@ -256,7 +261,27 @@ async function loadFigures(deps: WorkerDeps, paperIds: string[]): Promise<FeedFi
     data_claim: r.data_claim || '',
     referenced_paragraph: r.referenced_paragraph || '',
     detector_confidence: r.detector_confidence,
-  }));
+  };
+}
+
+/**
+ * Every figure of the in-scope papers. A figure without a type (pre-typed-extraction row) is kept here but is never
+ * routed to a persona (pickFigure).
+ */
+export async function loadFigures(sql: Sql, storage: FigureUrlSigner, paperIds: string[]): Promise<FeedFigure[]> {
+  const rows = await sql<FigureRow[]>`${figureSelect(sql)} WHERE f.paper_id = ANY(${paperIds}::uuid[])`;
+  return rows.map((r) => toFeedFigure(storage, r));
+}
+
+/** One figure by id, only when its paper belongs to `ownerId` (for regenerate_post's figure posts); else null. */
+export async function loadOwnedFigure(
+  sql: Sql,
+  storage: FigureUrlSigner,
+  figureId: string,
+  ownerId: string,
+): Promise<FeedFigure | null> {
+  const [row] = await sql<FigureRow[]>`${figureSelect(sql)} WHERE f.id = ${figureId} AND p.user_id = ${ownerId}`;
+  return row ? toFeedFigure(storage, row) : null;
 }
 
 /**
@@ -282,7 +307,9 @@ export async function generateFeed(
   if (appendTo) {
     feedId = appendTo;
     const [row] = await sql`SELECT posts FROM feeds WHERE id = ${feedId} AND user_id = ${owner}`;
-    if (row && truthy(row.posts)) {
+    // Deliberate change 7 from Python: a feed the owner doesn't have fails here, before any LLM spend.
+    if (!row) throw new Error(`Feed ${feedId} not found`);
+    if (truthy(row.posts)) {
       existingPosts = (typeof row.posts === 'string' ? JSON.parse(row.posts) : row.posts) as Post[];
     }
     if (existingPosts.some((p) => isDict(p) && p._task_id === ctx.jobId)) {
@@ -409,7 +436,7 @@ export async function generateFeed(
       }
     }
 
-    const figures = await loadFigures(deps, paperIds);
+    const figures = await loadFigures(sql, deps.storage, paperIds);
     log.info({ count: figures.length, typed: figures.filter((f) => f.figure_type).length }, 'figures_available');
 
     // --- Step 3: contradictions ---
@@ -598,25 +625,25 @@ export async function generateFeed(
       await writeFeedPostsIndex(sql, feedId, posts, appendTo ? existingPosts.length : 0, owner);
     } catch (e) {
       log.warn(
-        { feed_id: feedId, error_type: errType(e), error: pySlice(errMessage(e), 0, 200) },
+        { error_type: errType(e), error: pySlice(errMessage(e), 0, 200) },
         'feed_posts_index_sync_failed',
       );
     }
     log.info(
-      { feed_id: feedId, posts: posts.length, papers: paperIds.length, duration_ms: durationMs },
+      { posts: posts.length, papers: paperIds.length, duration_ms: durationMs },
       'feed_generation_complete',
     );
 
     // --- Fan-out (never fails the job) ---
     try {
       await deps.queue.send('check_post_feed', { feed_id: feedId });
-    } catch {
-      log.warn('post_feed_alert_dispatch_failed');
+    } catch (e) {
+      log.warn({ error_type: errType(e), error: pySlice(errMessage(e), 0, 200) }, 'post_feed_alert_dispatch_failed');
     }
     try {
       await deps.queue.send('compute_preferences', { user_id: owner });
-    } catch {
-      log.warn('preference_recompute_dispatch_failed');
+    } catch (e) {
+      log.warn({ error_type: errType(e), error: pySlice(errMessage(e), 0, 200) }, 'preference_recompute_dispatch_failed');
     }
 
     return {
