@@ -44,6 +44,8 @@ Each ruling says what it costs if it turns out to be wrong. They go beyond what 
 - Delete `server/test/fixtures/goldens/gen/*.py` together with `worker/`.
 - The compose worker service must use `command: ["node","dist/worker/main.js"]`, with the same volumes as the API for uploads, figures and media, the same `SIGNED_URL_KEY`, and no inherited API healthcheck (the image's `HEALTHCHECK` probes port 8000 and would mark the worker unhealthy).
 - The API and worker share `MEDIA_DIR`, `UPLOAD_DIR` and `FIGURES_DIR`; mount one volume per directory.
+- The compose worker service needs `stop_grace_period: 40s` or more. `close()` gives pg-boss a 30 s graceful stop and then
+  waits up to 10 s for aborted handlers to finish their DB writes; Docker's default 10 s grace kills the worker mid-write.
 - Synchronous extraction has no hard limit. Before the final-review fix, a 0.9 KB PDF with one 10k-space line spent 10 s in `chunkMarkdown`, and 60k spaces did not finish in 300 s. `countTokens` took about 13 s for 16k identical characters and about 21 s for 20k spaces, and `pyStrip` took 16.6 s for 160k interior spaces. After the fix, strip and BPE are linear (the 60k-space PDF chunks in about 0.3 s). MuPDF extraction and chunking still run on the main thread, though, and the job's abort signal cannot interrupt them. Consider running them in a `worker_thread` that is terminated at `JOB_TIME_LIMIT_SEC`.
 
 ## Plan-01 items closed by plan 02
@@ -66,3 +68,6 @@ Small test-tightening and parity notes; none blocks anything.
 - Task 10: no tests for the `maxPaperChars` cap or astral code-point caps; the metadata abort test only proves the pre-aborted path; `pyStr` and lower-casing diverge on pathological LLM output and JSON NaN; `PaperMetadata.authors` null is unreachable.
 - Task 11: `pyFloat` and `JSON.parse` reject nan and inf that Python accepts; `pyStr` differs from Python `str()` for lists, dicts and large floats; the base64 helper is duplicated in `vision.ts` and `figureDetect.ts`; the `figure_extracted` log drops confidence; the fix diff contains unrelated prettier changes to test fixtures.
 - Task 12: `figures.ts` may report a timeout instead of the original non-abort error when both happen; no test for a paper row deleted mid-job. The abort test's timing margin was widened in Task 13.
+- js-tiktoken's cl100k `pat_str` splits a few rare inputs differently from Python tiktoken (for example U+FEFF followed by
+  `'re`). This predates plan 02 and only moves chunk boundaries; the chunker goldens and about 9,700 differential checks
+  agree. Revisit only if a re-ingest shows chunk drift on a real paper.
