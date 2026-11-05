@@ -108,7 +108,7 @@ export async function generatePersonaPost(
   return parsed as Post;
 }
 
-export type Contradiction = 'supports' | 'contradicts' | 'extends';
+export type ContradictionLabel = 'supports' | 'contradicts' | 'extends';
 
 export async function classifyContradiction(
   p: ProviderConfig,
@@ -116,7 +116,8 @@ export async function classifyContradiction(
   a: string,
   b: string,
   signal?: AbortSignal,
-): Promise<Contradiction> {
+  logger?: Logger,
+): Promise<ContradictionLabel> {
   const prompt = `Compare these two passages from academic papers and classify their relationship.
 
 PASSAGE A:
@@ -141,6 +142,7 @@ Respond with exactly one word: supports, contradicts, or extends
   for (const word of ['supports', 'contradicts', 'extends'] as const) {
     if (result.includes(word)) return word;
   }
+  logger?.warn({ result }, 'contradiction_classify_unexpected');
   return 'extends';
 }
 
@@ -152,7 +154,7 @@ export async function classifyContradictionsBatch(
 ): Promise<string[]> {
   return mapLimit(pairs, opts.concurrency ?? 5, async ([a, b]) => {
     try {
-      return await classifyContradiction(p, deps, a, b, opts.signal);
+      return await classifyContradiction(p, deps, a, b, opts.signal, opts.logger);
     } catch (e) {
       opts.logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'contradiction_classify_failed');
       return 'error';

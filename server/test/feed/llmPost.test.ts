@@ -136,3 +136,32 @@ describe('classifyContradictionsBatch', () => {
     expect(log.warn.mock.calls.some((c: any[]) => JSON.stringify(c).includes('contradiction_classify_failed'))).toBe(true);
   });
 });
+
+describe('signal and unexpected-reply logging', () => {
+  it('passes the signal to generateText from both entry points', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const { deps } = fakeProviders({ chat: () => '{"content":"x"}' });
+    const wrapped = {
+      ...deps,
+      fetch: ((u: any, init?: RequestInit) => {
+        seen.push(init?.signal);
+        return (deps as any).fetch(u, init);
+      }) as typeof fetch,
+    };
+    const ac = new AbortController();
+    await generatePersonaPost(p, wrapped, { system: 's', user: 'u', temperature: 0.8, signal: ac.signal });
+    await classifyContradiction(p, wrapped, 'a', 'b', ac.signal);
+    expect(seen).toHaveLength(2);
+    for (const s of seen) {
+      expect(s).toBeDefined();
+      ac.abort();
+      expect(s!.aborted).toBe(true);
+    }
+  });
+  it('logs contradiction_classify_unexpected on the fallback', async () => {
+    const { deps } = fakeProviders({ chat: () => 'meh.' });
+    const log = logger();
+    expect(await classifyContradiction(p, deps, 'a', 'b', undefined, log)).toBe('extends');
+    expect(log.warn).toHaveBeenCalledWith({ result: 'meh' }, 'contradiction_classify_unexpected');
+  });
+});
