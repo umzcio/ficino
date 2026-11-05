@@ -27,6 +27,7 @@ import { STUB_USER_ID } from '../src/shared/constants.js';
 import { resolveSigningKey } from '../src/shared/signedUrl.js';
 import { LocalStorage } from '../src/storage/local.js';
 import { startWorker } from '../src/worker/main.js';
+import { ownerLabelArgs } from '../test/helpers/sweep.js';
 
 const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf8' }).trim();
 const say = (...a: unknown[]) => console.log('SMOKE', ...a);
@@ -41,7 +42,8 @@ async function main() {
   const tags = await fetch(`${ollama}/api/tags`).then((r) => r.json() as Promise<{ models: Array<{ name: string }> }>);
   say('ollama models', tags.models.map((m) => m.name).filter((n) => /qwen3\.8:27b|qwen3-embedding/.test(n)));
 
-  docker('run', '-d', '--rm', '--name', name, '-e', 'POSTGRES_USER=ficino', '-e', 'POSTGRES_PASSWORD=ficino',
+  // The sweep labels: a killed smoke run's container is removed by the next test run's globalSetup.
+  docker('run', '-d', '--rm', '--name', name, ...ownerLabelArgs(), '-e', 'POSTGRES_USER=ficino', '-e', 'POSTGRES_PASSWORD=ficino',
     '-e', 'POSTGRES_DB=ficino', '-p', '127.0.0.1::5432', 'pgvector/pgvector:pg18');
   const mapping = docker('port', name, '5432/tcp').split('\n')[0]!;
   const url = `postgres://ficino:ficino@127.0.0.1:${mapping.slice(mapping.lastIndexOf(':') + 1)}/ficino`;
