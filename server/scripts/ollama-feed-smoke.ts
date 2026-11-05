@@ -5,10 +5,10 @@
  *
  * What it does: starts a throwaway pgvector container published on 127.0.0.1 only (random port, removed on exit),
  * migrates it, boots the real worker and the API in this process (no listener: requests go through app.request),
- * uploads test/fixtures/sample.pdf, waits for ingestion, runs generate_feed with num_posts 4 and prints the counts,
+ * uploads test/fixtures/sample.pdf, waits for ingestion, sets posts_per_generation to 4 and runs generate_feed and prints the counts,
  * the dropped slots and the wall-clock time. It opens no port.
  *
- * Usage (from server/): LOG_LEVEL=info npx tsx scripts/ollama-feed-smoke.ts > <scratch>/smoke.log
+ * Usage (from server/): LOG_LEVEL=info npx tsx scripts/ollama-feed-smoke.ts > "$SCRATCH/smoke.log"  (SCRATCH: any directory outside the repo)
  * Lines starting with "SMOKE" are the summary; the pino JSON lines around them carry the per-slot drop reasons.
  */
 import { execFileSync } from 'node:child_process';
@@ -23,6 +23,7 @@ import { migrate } from '../src/db/migrate.js';
 import { createSql } from '../src/db/sql.js';
 import { createBoss, ensureQueues, JobQueue } from '../src/jobs/queue.js';
 import { logger } from '../src/logger.js';
+import { STUB_USER_ID } from '../src/shared/constants.js';
 import { resolveSigningKey } from '../src/shared/signedUrl.js';
 import { LocalStorage } from '../src/storage/local.js';
 import { startWorker } from '../src/worker/main.js';
@@ -99,22 +100,28 @@ async function main() {
     await sleep(1000);
   }
 
+  // posts_per_generation overrides the request's num_posts (as in Python), so set the plan size where it is read.
+  const PLANNED = 4;
+  await sql`
+    INSERT INTO user_settings (user_id, settings) VALUES (${STUB_USER_ID}, ${sql.json({ posts_per_generation: PLANNED })})
+    ON CONFLICT (user_id) DO UPDATE SET settings = user_settings.settings || EXCLUDED.settings`;
+
   t0 = performance.now();
   const gen = await app.request('/feed/generate', {
-    method: 'POST', headers: { ...csrf, 'content-type': 'application/json' }, body: JSON.stringify({ num_posts: 4 }),
+    method: 'POST', headers: { ...csrf, 'content-type': 'application/json' }, body: JSON.stringify({ num_posts: PLANNED }),
   });
   const { task_id } = await gen.json();
   let st: Record<string, any> = {};
   for (;;) {
     st = await (await app.request(`/feed/status/${task_id}`)).json();
-    if (st.status === 'complete' || st.status === 'failed') break;
+    if (st.status === 'complete' || st.status === 'error' || st.status === 'revoked') break;
     await sleep(1000);
   }
   const secs = ((performance.now() - t0) / 1000).toFixed(1);
   say('generate_feed', st.status, `${secs}s`, JSON.stringify(st));
   if (st.feed_id) {
     const feed = await (await app.request(`/feed/${st.feed_id}`)).json();
-    const planned = 4;
+    const planned = PLANNED;
     say('slots planned', planned, 'posts produced', feed.posts.length, 'dropped', planned - feed.posts.length);
     for (const p of feed.posts) say('post', p.persona, p.post_type, `sources=${p.sources?.length ?? 0}`, JSON.stringify(String(p.content).slice(0, 120)));
   }

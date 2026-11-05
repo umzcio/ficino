@@ -84,10 +84,11 @@ async function hydrateFigureUrls(
 ): Promise<void> {
   const indices = posts.map((p, i) => (p && typeof p === 'object' && p.figure_id ? i : -1)).filter((i) => i >= 0);
   if (indices.length === 0) return;
-  const ids = indices.map((i) => String(posts[i]!.figure_id));
-  let rows: Row[];
+  // A non-UUID id would fail the ::uuid[] cast for every post, so only well-formed ids are queried; the rest keep their persisted URL.
+  const ids = indices.map((i) => String(posts[i]!.figure_id)).filter((id) => UUID_RE.test(id));
+  let rows: Row[] = [];
   try {
-    rows = await sql`
+    if (ids.length > 0) rows = await sql`
       SELECT f.id, f.paper_id, f.image_path
       FROM figures f
       JOIN papers p ON f.paper_id = p.id AND p.user_id = ${userId}

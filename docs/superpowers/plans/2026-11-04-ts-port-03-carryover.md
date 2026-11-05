@@ -1,6 +1,6 @@
 # TS Port 03: decisions and carry-forward
 
-Plan 03 (retrieval, the persona feed generator, the alert and preference jobs, the `/feed` routes and `/search`) is complete on `ts-port/03-feed`. The full suite, the typecheck and the build pass. `test/worker/feed-e2e.test.ts` runs the whole path in one process (upload, ingest, generate, read, search, regenerate, fan-out jobs) against fake providers. `scripts/ollama-feed-smoke.ts` is a manual run against a real local Ollama; it is not part of CI.
+Plan 03 (retrieval, the persona feed generator, the alert and preference jobs, the `/feed` routes and `/search`) is complete on `ts-port/03-feed`. The full suite, the typecheck and the build pass. `test/worker/feed-e2e.test.ts` runs the whole path in one process (upload, ingest, generate, read, search, regenerate, fan-out jobs) against fake providers. `scripts/ollama-feed-smoke.ts` is a manual run against a real local Ollama; it is not part of CI. Its original run planned 12 slots (the user's `posts_per_generation` of 12 overrides the request's `num_posts`, as in Python) and produced 2 posts on a 6-chunk paper; the other 10 were dropped with `slot_skipped_no_fresh_chunks`. The script now sets `posts_per_generation` to 4 first and reports that planned count.
 
 ## Deliberate changes from Python
 
@@ -24,6 +24,8 @@ They go beyond what the plan specified, so treat them as reviewable.
 4. **A non-UUID `append_to_feed_id` or `feed_id` is a 404 `Feed not found`** where Python returned a 500, following the plan-01 22P02 mapping. Cost if wrong: none.
 5. **The plan's `::numeric` rationale in the hybrid retrieval SQL was wrong** (on pg18, `real * numeric` gives double). The requirement still holds because untyped postgres.js binds resolve `real * real`. No code consequence.
 6. **`/search` rank and `generated_at` follow Python's wire shapes**: `rank` is `pyRound(x, 4)`, `generated_at` goes through `toPydanticIso` (a `Z` suffix), and the legacy scan has no `rank` key. Whitespace-only `q` returns three empty arrays and no `query` key. Cost if wrong: none; these are the contract.
+8. **An embed-model mismatch that excludes every in-scope chunk fails `generate_feed`.** It throws `No chunks embedded with <expectedModel>: <n> chunks in scope use a different embedding model. Re-process your papers or switch the embedding model back.` before the persona query embed and any LLM spend, and `/feed/status` shows it as `error`. A partly mismatched corpus still completes with the `embed_model_mismatch` warning only. Final: Ruling: when countEmbedModelMismatch excludes every in-scope chunk, generate_feed throws a clear error (names the expected model and the excluded count, says to re-process papers or switch the embedding model back) before persona retrieval/LLM spend — "quietly empty" is the anti-goal's sibling; the frontend shows `error` from /feed/status — cost: pg-boss retries it twice (~1 min) before the error shows; a partially-mismatched corpus still completes with the warning only
+9. **Re-embed on an embed-setting change (or a re-embed action) is carried to plan 06** alongside the restore re-embed. Final: Ruling: re-embed-on-embed-setting-change (or a re-embed action) carried to plan 06 alongside the restore re-embed — no re-embed path exists yet — cost: until then a user who switches embed provider must switch back or re-upload
 
 ## Carry into plan 04
 
@@ -40,8 +42,10 @@ They go beyond what the plan specified, so treat them as reviewable.
 
 ## Carry into plan 06 (cutover)
 
+- Re-embed on an embed-setting change (or a re-embed action), alongside the restore re-embed (ruling 9). Until then a provider switch needs a switch back or a re-upload.
 - The restore re-embed must write `metadata.embed_model`, or restored chunks stay invisible to retrieval (deliberate change 2).
 - Rows in `chunks` written by the Python worker carry no `embed_model` unless the Python side also sets it. Check this before switching traffic, or run a one-off backfill of `metadata.embed_model`.
+- A soft-limit abort of `generate_feed` discards the posts already generated, and pg-boss retries from scratch. Persisting the partial slice, or skipping the retry on abort, is worth considering.
 - The plan 02 cutover items still apply (delete the golden generators with `worker/`, worker compose command, shared volumes, `stop_grace_period`).
 
 ## Deferred minors
@@ -61,4 +65,4 @@ Small test-tightening and parity notes; none blocks anything.
 - Task 11: a comment on the Map-to-Record conversion overstates key preservation; the exactly-5 threshold, the null `user_id` fallback and a cross-feed annotation are untested; import order in `handlers.ts`.
 - Task 12: a failed job whose output has no string `message` reports `[object Object]` (plan-mandated `String(output)`); the "other users' papers" test does not isolate the `user_id` filter.
 - Task 13: a null `post_count` compares as 0 (check whether the column is nullable); `feedFromRow` is exported but only used in its file; a figure-query failure keeps the persisted URLs where Python returns a 500.
-- Task 14: `/search` error `type` strings for a missing `q` are zod's (`too_small`) rather than pydantic's (`string_too_short`); the frontend does not read them. The smoke script prints the number of dropped slots but takes the per-slot reasons from the pino log, not from its own output.
+- Task 14: the private home-directory path in the smoke script and `goldens/gen/README.md` is fixed (neutral `$SCRATCH` placeholders), and so is the hard-coded planned count in the smoke script (it now sets `posts_per_generation` and reports it). Still open: legacy search sends null content as `''` where Python sends `None`; the scoped-corpus search test asserts only 200, so the paper `user_id` filter is not isolated; there is no backslash-escape test; `/search` error `type` strings for a missing `q` are zod's (`too_small`) rather than pydantic's (`string_too_short`), which the frontend does not read; the smoke script takes per-slot drop reasons from the pino log, not from its own output.

@@ -71,6 +71,20 @@ describe('GET /feed/:id hydration', () => {
     expect((await r.json()).posts[0].figure_url).toBe(STALE);
   });
 
+  it('a non-uuid figure_id on one post does not stop valid figures re-signing', async () => {
+    const fig = await insertFigure(seeded.paper_a, 'usera/fig.png');
+    await setPosts(seeded.feed_a, [
+      { post_type: 'figure', figure_id: 'not-a-uuid', figure_url: STALE },
+      { post_type: 'figure', figure_id: fig, figure_url: STALE },
+    ]);
+    vi.spyOn(LocalStorage.prototype, 'figureImageUrl').mockReturnValue('https://signed.example/fresh');
+    const r = await as().get(`/feed/${seeded.feed_a}`);
+    expect(r.status).toBe(200);
+    const posts = (await r.json()).posts;
+    expect(posts[0].figure_url).toBe(STALE);
+    expect(posts[1].figure_url).toBe('https://signed.example/fresh');
+  });
+
   it('test_no_figure_posts_no_signing', async () => {
     await setPosts(seeded.feed_a, [{ post_type: 'post', content: 'plain' }]);
     const spy = vi.spyOn(LocalStorage.prototype, 'figureImageUrl').mockImplementation(() => {

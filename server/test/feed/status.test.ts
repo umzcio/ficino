@@ -35,6 +35,13 @@ describe('feedStatusFromJob', () => {
       status: 'error', task_id: T, error: 'boom',
     });
   });
+  it('the all-chunks-excluded embed mismatch message reaches error verbatim', () => {
+    const message =
+      'No chunks embedded with ollama:qwen3-embedding:latest@1024: 40 chunks in scope use a different embedding model. Re-process your papers or switch the embedding model back.';
+    expect(feedStatusFromJob(T, st('failed', null, { name: 'Error', message }))).toEqual({
+      status: 'error', task_id: T, error: message,
+    });
+  });
   it('failed with a non-string message or non-object output falls back to String()', () => {
     expect(feedStatusFromJob(T, st('failed', null, 'plain')).error).toBe('plain');
     expect(feedStatusFromJob(T, st('failed', null, null)).error).toBe('');

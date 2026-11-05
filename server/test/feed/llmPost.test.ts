@@ -135,6 +135,20 @@ describe('classifyContradictionsBatch', () => {
     expect(max).toBeGreaterThan(1);
     expect(log.warn.mock.calls.some((c: any[]) => JSON.stringify(c).includes('contradiction_classify_failed'))).toBe(true);
   });
+
+  it('rethrows when the signal is aborted instead of reporting error pairs', async () => {
+    const ac = new AbortController();
+    const { deps: fake } = fakeProviders({
+      chat: () => {
+        ac.abort();
+        return new Promise<string>(() => {});
+      },
+    });
+    const deps = { ...fake, sleep: async () => {} };
+    await expect(
+      classifyContradictionsBatch(p, deps, [['a', 'b'], ['c', 'd']], { signal: ac.signal, logger: logger() }),
+    ).rejects.toThrow();
+  });
 });
 
 describe('signal and unexpected-reply logging', () => {

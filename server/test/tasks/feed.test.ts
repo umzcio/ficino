@@ -102,7 +102,8 @@ function promptOf(c: FakeCall): { system: string; user: string } {
     user: b.messages.find((m) => m.role === 'user')?.content ?? '',
   };
 }
-const isChat = (c: FakeCall) => c.kind !== 'ollama-embed';
+const isEmbed = (c: FakeCall) => c.kind.endsWith('-embed');
+const isChat = (c: FakeCall) => !isEmbed(c);
 const isPersonaCall = (c: FakeCall) => isChat(c) && promptOf(c).system.startsWith('You are one of five AI personas');
 
 type RunOpts = {
@@ -353,9 +354,20 @@ describe('generate_feed pipeline', () => {
     expect(logged(lines, 'post_generation_failed')).toHaveLength(4);
   });
 
-  it('Review Focus 1: concurrent feeds for two users never cross keys or papers', async () => {
-    await setSettings(s.user_a, { ...simple(3), llm_provider: 'api', anthropic_api_key: 'sk-a' });
+  it('Review Focus 1: concurrent feeds for two users never cross keys, embed providers or papers', async () => {
+    await setSettings(s.user_a, {
+      ...simple(3),
+      llm_provider: 'api',
+      anthropic_api_key: 'sk-a',
+      embed_provider: 'openai',
+      openai_api_key: 'ek-a',
+    });
     await setSettings(s.user_b, { ...simple(3), llm_provider: 'ollama' });
+    // Each user's chunks carry that user's embed model, so retrieval only works if the right provider embeds the query.
+    const modelA = embedModelId(providerConfig({ embed_provider: 'openai', openai_api_key: 'ek-a' }, {}, config));
+    await sql`DELETE FROM chunks WHERE user_id = ${s.user_a}`;
+    await addChunks(w.a1, s.user_a, 'Alpha One', CHUNKS_PER_PAPER, modelA);
+    await addChunks(w.a2, s.user_a, 'Alpha Two', CHUNKS_PER_PAPER, modelA);
     const f = fakeProviders({ delayMs: 3 });
     const [a, b] = await Promise.all([
       run({ user_id: s.user_a }, { providers: f.deps }),
@@ -366,6 +378,14 @@ describe('generate_feed pipeline', () => {
     expect(anthropic.length).toBeGreaterThan(0);
     expect(ollamaChat.length).toBeGreaterThan(0);
     expect(anthropic.every((c) => c.apiKey === 'sk-a')).toBe(true);
+    // Embeds: every one is either A's (OpenAI with A's key) or B's (Ollama); none crosses over.
+    const openaiEmbeds = f.calls.filter((c) => c.kind === 'openai-embed');
+    const ollamaEmbeds = f.calls.filter((c) => c.kind === 'ollama-embed');
+    expect(openaiEmbeds.length).toBeGreaterThan(0);
+    expect(ollamaEmbeds.length).toBeGreaterThan(0);
+    expect(f.calls.filter(isEmbed)).toHaveLength(openaiEmbeds.length + ollamaEmbeds.length);
+    expect(openaiEmbeds.every((c) => c.apiKey === 'ek-a')).toBe(true);
+    expect(ollamaEmbeds.every((c) => c.model === 'qwen3-embedding:latest')).toBe(true);
     // A's calls (Anthropic) only ever see A's papers, B's (Ollama) only B's.
     expect(anthropic.every((c) => !promptOf(c).user.includes('Beta'))).toBe(true);
     expect(anthropic.some((c) => promptOf(c).user.includes('Alpha'))).toBe(true);
@@ -391,6 +411,16 @@ describe('generate_feed pipeline', () => {
     const warn = logged(lines, 'embed_model_mismatch');
     expect(warn).toHaveLength(1);
     expect(warn[0]).toMatchObject({ expected: MODEL, excluded_chunks: 7 });
+  });
+
+  it('every in-scope chunk on another embed model: throws the clear error before any persona or LLM call', async () => {
+    await setSettings(s.user_a, simple(4));
+    await sql`UPDATE chunks SET metadata = ${sql.json({ embed_model: 'voyage:voyage-4-large@1024' })} WHERE user_id = ${s.user_a}`;
+    const f = fakeProviders();
+    await expect(run({ user_id: s.user_a }, { providers: f.deps })).rejects.toThrow(
+      `No chunks embedded with ${MODEL}: ${CHUNKS_PER_PAPER * 2} chunks in scope use a different embedding model. Re-process your papers or switch the embedding model back.`,
+    );
+    expect(f.calls).toHaveLength(0);
   });
 
   it('no mismatch warning when every in-scope chunk matches the model', async () => {

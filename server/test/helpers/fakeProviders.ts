@@ -1,7 +1,7 @@
 import type { AnthropicLike, ProviderDeps } from '../../src/providers/deps.js';
 
 export type FakeCall = {
-  kind: 'ollama-chat' | 'ollama-embed' | 'anthropic';
+  kind: 'ollama-chat' | 'ollama-embed' | 'openai-embed' | 'voyage-embed' | 'anthropic';
   apiKey?: string;
   model?: string;
   body: unknown;
@@ -103,6 +103,19 @@ export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps
       const dim = opts.dim ?? Number(body.dimensions ?? 1024);
       const input = body.input as string[];
       return Response.json({ embeddings: input.map((t) => fakeVector(t, dim)) });
+    }
+    const hosted = url.includes('api.openai.com/v1/embeddings')
+      ? 'openai-embed'
+      : url.includes('api.voyageai.com/v1/embeddings')
+        ? 'voyage-embed'
+        : null;
+    if (hosted) {
+      const auth = new Headers(init?.headers).get('authorization') ?? '';
+      calls.push({ kind: hosted, apiKey: auth.replace(/^Bearer /, ''), model: String(body.model), body });
+      await delay(signal);
+      const dim = opts.dim ?? Number(body.dimensions ?? body.output_dimension ?? 1024);
+      const input = body.input as string[];
+      return Response.json({ data: input.map((t, index) => ({ index, embedding: fakeVector(t, dim) })) });
     }
     if (url.endsWith('/api/chat')) {
       calls.push({ kind: 'ollama-chat', model: String(body.model), body });

@@ -33,7 +33,8 @@ script adds those entries to `sys.path` itself.
 Write both outputs outside the repo, because uploaded papers are private and this repo is public:
 
 ```bash
-C=<scratch>/extract-compare   # PDFs in $C/in; $C/py must be writable by uid 10001
+SCRATCH=...   # any directory outside the repo
+C=$SCRATCH/extract-compare   # PDFs in $C/in; $C/py must be writable by uid 10001
 docker run --rm --user 10001 --network none \
   -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
   -v "$PWD/server/test/fixtures:/fx:ro" -v "$C/in:/in:ro" -v "$C/py:/out" -w /src/worker \
@@ -54,8 +55,9 @@ because structlog logs to stdout. A case on which Python raises (a special-token
 tiktoken needs the `cl100k_base` file: the cache dir below already holds it; for a fresh cache drop `--network none` once.
 
 ```bash
+SCRATCH=...   # any directory outside the repo
 run() { docker run --rm --user 10001 --network none \
-  -e TIKTOKEN_CACHE_DIR=/cache -v <scratch>/tiktoken-cache:/cache \
+  -e TIKTOKEN_CACHE_DIR=/cache -v $SCRATCH/tiktoken-cache:/cache \
   -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
   -v "$PWD/server/test/fixtures:/fx" -w /src/worker ficino-worker python -I "$@"; }
 run /fx/goldens/gen/chunker.py /fx/goldens/chunker-inputs.json /fx/goldens/chunker.json

@@ -156,6 +156,8 @@ export async function classifyContradictionsBatch(
     try {
       return await classifyContradiction(p, deps, a, b, opts.signal, opts.logger);
     } catch (e) {
+      // An abort must fail the job, not read as one more bad pair.
+      if (opts.signal?.aborted) throw e;
       opts.logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'contradiction_classify_failed');
       return 'error';
     }

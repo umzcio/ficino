@@ -188,3 +188,10 @@ export async function countEmbedModelMismatch(sql: Sql, paperIds: string[], mode
     WHERE paper_id = ANY(${paperIds}::uuid[]) AND metadata->>'embed_model' IS DISTINCT FROM ${model}`;
   return row!.n;
 }
+
+/** All chunks in scope, so a caller can tell a fully excluded corpus from a partly excluded one. */
+export async function countScopeChunks(sql: Sql, paperIds: string[]): Promise<number> {
+  const [row] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM chunks WHERE paper_id = ANY(${paperIds}::uuid[])`;
+  return row!.n;
+}

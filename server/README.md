@@ -55,7 +55,7 @@ figure-detect Anthropic model is `claude-sonnet-5-5`. Set `FIGURE_DETECT_PROVIDE
 | --- | --- | --- |
 | `RETRIEVAL_VECTOR_WEIGHT` | 0.7 | Weight of the vector score in hybrid retrieval (clamped to 0..1; unparsable values warn and use the default) |
 | `RETRIEVAL_KEYWORD_WEIGHT` | 0.3 | Weight of the keyword (tsvector) score (clamped to 0..1) |
-| `RETRIEVAL_MAX_VECTOR_DISTANCE` | 0.8 | Vector candidates farther than this cosine distance are dropped (clamped to 0..1) |
+| `RETRIEVAL_MAX_VECTOR_DISTANCE` | 0.8 | Only sets the `match_type` label: a text-matching candidate nearer than this cosine distance is `hybrid`, otherwise `keyword`. It never drops a candidate (clamped to 0..1) |
 | `RETRIEVAL_CANDIDATE_POOL` | 100 | Candidates fetched per leg before fusion |
 | `RETRIEVAL_RERANK_MULTIPLIER` | 5 | Candidates sent to the reranker, as a multiple of the number wanted |
 | `SEARCH_USE_NORMALIZED_POSTS` | true | `/search` reads posts from `feed_posts`; false falls back to the legacy scan of the last 20 feeds |
