@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { providerConfig } from '../../src/providers/config.js';
+import { embedModelId } from '../../src/providers/embed.js';
+import { loadConfig } from '../../src/config.js';
 import { uuid5 } from '../../src/shared/uuid5.js';
 import { HANDLERS } from '../../src/worker/handlers.js';
 import { startWorker, type RunningWorker } from '../../src/worker/main.js';
 import { client, testApp, testStorageDirs } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, type Seeded } from '../helpers/db.js';
+import { fakeProviders, fakeVector } from '../helpers/fakeProviders.js';
 import { testBoss } from '../helpers/queue.js';
 
 const sql = testSql();
@@ -120,32 +124,60 @@ describe('feed status end to end through the real worker', () => {
     worker = undefined;
   });
 
-  it('retry then complete with the same derived feed_id and exactly one feed row', async () => {
+  it('retry then complete: same derived feed_id, one feed row, posts and feed_posts written once, no second LLM spend', async () => {
     const dirs = testStorageDirs();
-    worker = await startWorker(
-      {
-        DATABASE_URL: process.env.DATABASE_URL,
-        AUTH_PROVIDER: 'none',
-        ENVIRONMENT: 'development',
-        LOG_LEVEL: 'silent',
-        UPLOAD_DIR: dirs.uploadDir,
-        FIGURES_DIR: dirs.figuresDir,
-        MEDIA_DIR: dirs.mediaDir,
-      },
-      {
-        queueOverrides: { generate_feed: { retryDelay: 1 } },
-        handlers: {
-          generate_feed: async (data, ctx, deps) => {
-            const out = await HANDLERS.generate_feed!(data, ctx, deps); // inserts the feed
-            if (ctx.retryCount === 0) throw new Error('boom after insert');
-            return out;
-          },
+    const env = {
+      DATABASE_URL: process.env.DATABASE_URL,
+      AUTH_PROVIDER: 'none',
+      ENVIRONMENT: 'development',
+      LOG_LEVEL: 'silent',
+      OLLAMA_BASE_URL: 'http://fake-ollama:11434',
+      UPLOAD_DIR: dirs.uploadDir,
+      FIGURES_DIR: dirs.figuresDir,
+      MEDIA_DIR: dirs.mediaDir,
+    };
+    // Complete paper (seeded) with chunks tagged with the embed model the worker will expect.
+    const model = embedModelId(providerConfig({}, {}, loadConfig(env)));
+    const contents = Array.from({ length: 20 }, (_, i) => `Alpha evidence ${i}: the effect held.`);
+    const vecs = contents.map((t) => `[${fakeVector(t, 1024).join(',')}]`);
+    await sql`
+      INSERT INTO chunks (paper_id, user_id, section, content, chunk_index, token_count, embedding, metadata)
+      SELECT ${seeded.paper_a}::uuid, ${USER_A_ID}::uuid, 'results', t.c, (t.i - 1)::int, 12, t.v::vector,
+             ${sql.json({ embed_model: model })}
+      FROM unnest(${contents}::text[], ${vecs}::text[]) WITH ORDINALITY AS t(c, v, i)`;
+    const keys = (await sql`SELECT key FROM personas`).map((r) => String(r.key));
+    const settings = {
+      personas_enabled: Object.fromEntries(keys.map((k) => [k, k === 'skeptic'])),
+      post_type_weights: { post: 1, thread: 0, quote: 0, reply: 0, figure: 0 },
+      posts_per_generation: 3,
+    };
+    await sql`
+      INSERT INTO user_settings (user_id, settings) VALUES (${USER_A_ID}, ${sql.json(settings as never)})
+      ON CONFLICT (user_id) DO UPDATE SET settings = EXCLUDED.settings`;
+
+    const f = fakeProviders();
+    const attempts: number[] = [];
+    let callsAfterFirst = -1;
+    const isPersona = (c: (typeof f.calls)[number]) =>
+      c.kind !== 'ollama-embed' &&
+      JSON.stringify(c.body).includes('You are one of five AI personas');
+    worker = await startWorker(env, {
+      providers: f.deps,
+      queueOverrides: { generate_feed: { retryDelay: 1 } },
+      handlers: {
+        generate_feed: async (data, ctx, deps) => {
+          attempts.push(ctx.retryCount);
+          const out = await HANDLERS.generate_feed!(data, ctx, deps); // writes the feed and its posts
+          if (ctx.retryCount === 0) {
+            callsAfterFirst = f.calls.filter(isPersona).length;
+            throw new Error('boom after insert');
+          }
+          return out;
         },
       },
-    );
+    });
     const c = as();
-    // A tag filter matching nothing: the job takes the empty-feed path (no providers needed) but still INSERTs.
-    const r = await c.post('/feed/generate', { tag_filter: ['no-such-tag'] });
+    const r = await c.post('/feed/generate', {});
     expect(r.status).toBe(202);
     const { task_id } = await r.json();
 
@@ -160,10 +192,23 @@ describe('feed status end to end through the real worker', () => {
       { timeout: 30000, interval: 50 },
     );
     expect(seen).toContain('retry');
+    expect(attempts).toEqual([0, 1]);
     const feedId = uuid5(`ficino:feed:${task_id}`);
-    expect(last).toMatchObject({ task_id, feed_id: feedId, post_count: 0 });
-    const rows = await sql`SELECT id FROM feeds WHERE user_id = ${USER_A_ID} AND id = ${feedId}`;
-    expect(rows.length).toBe(1);
-    expect((await sql`SELECT id FROM feeds WHERE user_id = ${USER_A_ID}`).length).toBe(2); // seeded feed_a + this one
+    expect(last).toMatchObject({ task_id, feed_id: feedId });
+
+    const rows = await sql`
+      SELECT post_count, jsonb_array_length(posts) AS n, posts FROM feeds WHERE id = ${feedId}`;
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.post_count).toBeGreaterThan(0);
+    expect(row.n).toBe(row.post_count);
+    expect(last.post_count).toBe(row.post_count);
+    const ids = (row.posts as Array<{ id: string }>).map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const [{ n: indexed }] = await sql`SELECT COUNT(*)::int AS n FROM feed_posts WHERE feed_id = ${feedId}`;
+    expect(indexed).toBe(row.post_count);
+    // Attempt 2 was the idempotent skip: no further persona LLM calls.
+    expect(callsAfterFirst).toBeGreaterThan(0);
+    expect(f.calls.filter(isPersona).length).toBe(callsAfterFirst);
   });
 });
