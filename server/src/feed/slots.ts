@@ -150,6 +150,38 @@ export type FinishPostOpts = {
   logger: Logger;
 };
 
+export type GroundPostOpts = {
+  personaKey: string;
+  chunks: Chunk[];
+  figure: FeedFigure | null;
+  /** Overrides the persona/post_type category (generate_feed's tab_focus); null for none. */
+  tabCategory: string | null;
+  logger: Logger;
+};
+
+/** `figure_url`/`figure_id`/`figure_caption`, and `paper_ref` from the figure when the post has none (:762-783). */
+export function attachFigure(post: Post, figure: FeedFigure): void {
+  post.figure_url = figure.image_url;
+  post.figure_id = figure.id;
+  post.figure_caption = figureCaption(figure);
+  if (!truthy(post.paper_ref)) post.paper_ref = figure.paper_ref === undefined ? '' : figure.paper_ref;
+}
+
+/**
+ * The tail shared by generate_feed and regenerate_post once a post has its persona, post_type, id and time: cite,
+ * figure, sources, category, engagement defaults, shape validation.
+ */
+function groundPost(rng: Rng, post: Post, o: GroundPostOpts): Post {
+  if (o.chunks.length > 0) post.paper_ref = buildShortCite(o.chunks[0]!);
+  if (o.figure) attachFigure(post, o.figure);
+  post.sources = buildPostSources(o.chunks);
+  post.category = assignPostCategory(o.personaKey, post.post_type as string);
+  if (truthy(o.tabCategory)) post.category = o.tabCategory;
+  applyEngagementDefaults(rng, post);
+  validatePostShape(post, { personaKey: o.personaKey, logger: o.logger });
+  return post;
+}
+
 /** Everything generate_feed does to an LLM post between generation and `posts.append` (:747-812). */
 export function finishPost(rng: Rng, raw: Post, o: FinishPostOpts): Post {
   const post: Post = raw;
@@ -158,20 +190,24 @@ export function finishPost(rng: Rng, raw: Post, o: FinishPostOpts): Post {
   post.id = o.idOffset + o.newCount + 1;
   post.time = `${o.timeOffset + (o.newCount + 1) * 2}m`;
   post._task_id = o.jobId;
-  if (o.chunks.length > 0) post.paper_ref = buildShortCite(o.chunks[0]!);
+  return groundPost(rng, post, o);
+}
 
-  if (o.figure) {
-    post.figure_url = o.figure.image_url;
-    post.figure_id = o.figure.id;
-    post.figure_caption = figureCaption(o.figure);
-    if (!truthy(post.paper_ref)) post.paper_ref = o.figure.paper_ref === undefined ? '' : o.figure.paper_ref;
-  }
+export type FinishRegeneratedOpts = GroundPostOpts & {
+  postType: string;
+  /** The post being replaced: its id and time are kept. */
+  oldPost: Post;
+  postIndex: number;
+};
 
-  post.sources = buildPostSources(o.chunks);
-  post.category = assignPostCategory(o.personaKey, post.post_type as string);
-  if (truthy(o.tabCategory)) post.category = o.tabCategory;
-
-  applyEngagementDefaults(rng, post);
-  validatePostShape(post, { personaKey: o.personaKey, logger: o.logger });
+/** regenerate_post's fill (persona_tasks.py:1018-1040): keeps the old id and time, sets no `_task_id`. */
+export function finishRegeneratedPost(rng: Rng, raw: Post, o: FinishRegeneratedOpts): Post {
+  const post: Post = raw;
+  post.persona = o.personaKey;
+  if (!Object.hasOwn(post, 'post_type')) post.post_type = o.postType;
+  post.id = Object.hasOwn(o.oldPost, 'id') ? o.oldPost.id : o.postIndex + 1;
+  post.time = Object.hasOwn(o.oldPost, 'time') ? o.oldPost.time : `${o.postIndex * 2}m`;
+  groundPost(rng, post, o);
+  post.regenerated = true;
   return post;
 }
