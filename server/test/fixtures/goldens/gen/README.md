@@ -79,3 +79,17 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+`persona_prompts.py` patches `get_personas`, `_fetch_chunks_by_ids` and `random.choice`/`randint` (first item, low
+bound), runs `build_post_prompt` over fixed cases and writes `persona-prompts.json` (`[{name, args, prompt}]`).
+`test/feed/prompts.test.ts` replays `args` with `rng = () => 0` and compares against `prompt`.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/persona_prompts.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.

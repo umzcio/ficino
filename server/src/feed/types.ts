@@ -1,4 +1,4 @@
-// Shared types for the feed generator (plan 03). Task 3 adds FeedFigure and Contradiction here.
+// Shared types for the feed generator (plan 03).
 
 /** One row of the personas table. Mirrors the dict worker/lib/persona.py get_personas() builds. */
 export type Persona = {
@@ -44,3 +44,30 @@ export type Post = Record<string, unknown>;
 
 /** One slot of a feed plan. */
 export type Assignment = { persona: string; post_type: string };
+
+/** The figure dict generate_feed builds (persona_tasks.py:458-486) and build_post_prompt reads. */
+export type FeedFigure = {
+  id: string;
+  paper_id: string;
+  page_number: number;
+  image_url: string;
+  description: string;
+  claim_summary: string;
+  figure_index: number | null;
+  paper_ref: string | null;
+  figure_type: string | null;
+  caption: string;
+  figure_number: string;
+  data_claim: string;
+  referenced_paragraph: string;
+  detector_confidence: number | null;
+};
+
+/** One contradiction pair as the prompt formatter reads it. */
+export type Contradiction = {
+  paper_a: string | null;
+  paper_b: string | null;
+  content_a: string;
+  content_b: string;
+  relationship: string;
+};
