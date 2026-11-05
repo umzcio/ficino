@@ -83,7 +83,7 @@ function fakes(opts: FakeProviderOpts = {}) {
 }
 
 function depsWith(providers: WorkerDeps['providers']): WorkerDeps {
-  return { sql, config, env: {}, logger, storage, queue: testQueue(), providers };
+  return { sql, config, env: {}, logger, storage, queue: testQueue(), providers, rng: Math.random };
 }
 
 function ctxFor(softLimitMs = 600_000) {

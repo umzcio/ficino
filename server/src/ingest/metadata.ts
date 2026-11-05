@@ -3,7 +3,7 @@ import type { ProviderConfig } from '../providers/config.js';
 import type { ProviderDeps } from '../providers/deps.js';
 import { generateText } from '../providers/llm.js';
 import { fenceUntrusted } from '../shared/sanitize.js';
-import { pySlice, pyStrip } from '../shared/pystr.js';
+import { pySlice, pyStr, pyStrip } from '../shared/pystr.js';
 
 export type PaperMetadata = {
   title: string | null;
@@ -50,15 +50,6 @@ function truthy(v: unknown): boolean {
   if (Array.isArray(v)) return v.length > 0;
   if (typeof v === 'object') return Object.keys(v as object).length > 0;
   return true;
-}
-
-/** Python str() for the scalar JSON values an LLM list can hold. */
-function pyStr(v: unknown): string {
-  if (typeof v === 'string') return v;
-  if (v === true) return 'True';
-  if (v === false) return 'False';
-  if (v === null || v === undefined) return 'None';
-  return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
 
 /** Python int(x) for a JSON value; null where Python raises. */

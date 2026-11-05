@@ -1,3 +1,6 @@
+import { logger } from './logger.js';
+import { pyStrip } from './shared/pystr.js';
+
 export type Env = Record<string, string | undefined>;
 
 export interface Config {
@@ -25,6 +28,13 @@ export interface Config {
   contextMaxPaperChars: number;
   contextMaxTokens: number;
   port: number;
+  retrieval: {
+    vectorWeight: number;
+    keywordWeight: number;
+    maxVectorDistance: number;
+    candidatePool: number;
+    rerankMultiplier: number;
+  };
   rateLimits: {
     paper_upload: number;
     feed_generation: number;
@@ -60,6 +70,30 @@ function int(env: Env, name: string, fallback: number): number {
   return n;
 }
 
+const FLOAT_RE = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+const SPECIAL_RE = /^([+-]?)(inf|infinity|nan)$/i;
+
+/** Python `float(str)` or null where it raises ValueError. */
+function pyFloatStr(raw: string): number | null {
+  const s = pyStrip(raw).replace(/(?<=\d)_(?=\d)/g, '');
+  const sp = SPECIAL_RE.exec(s);
+  if (sp) return sp[2]!.toLowerCase() === 'nan' ? Number.NaN : sp[1] === '-' ? -Infinity : Infinity;
+  return FLOAT_RE.test(s) ? Number(s) : null;
+}
+
+/** retrieval.py `_clamp_weight`: unparsable -> warning + default; otherwise clamped to [0, 1] (NaN gives 1.0, as max/min do). */
+function clampWeight(env: Env, name: string, fallback: number, log: ConfigLog): number {
+  const raw = env[name];
+  if (raw === undefined) return fallback;
+  const v = pyFloatStr(raw);
+  if (v === null) {
+    log.warn({ key: name, value: raw }, 'invalid_weight_env');
+    return fallback;
+  }
+  if (Number.isNaN(v)) return 1;
+  return Math.max(0, Math.min(1, v));
+}
+
 function authProvider(v: string): 'none' | 'basic' {
   if (v === 'none' || v === 'basic') return v;
   if (v === 'supabase') throw new Error('AUTH_PROVIDER=supabase is no longer supported');
@@ -87,7 +121,10 @@ function atLeastOne(name: string, n: number): number {
   return n;
 }
 
-export function loadConfig(env: Env = process.env): Config {
+/** Where config-time warnings go; defaults to the process logger. */
+export type ConfigLog = { warn(obj: object, msg: string): void };
+
+export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Config {
   const poolVar = env.API_DB_POOL_MAX_SIZE !== undefined ? 'API_DB_POOL_MAX_SIZE' : 'DB_POOL_MAX_SIZE';
   const workerPoolVar = env.WORKER_DB_POOL_MAX_SIZE !== undefined ? 'WORKER_DB_POOL_MAX_SIZE' : 'DB_POOL_MAX_SIZE';
   return {
@@ -118,6 +155,13 @@ export function loadConfig(env: Env = process.env): Config {
     contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
     contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),
     port: int(env, 'PORT', 8000),
+    retrieval: {
+      vectorWeight: clampWeight(env, 'RETRIEVAL_VECTOR_WEIGHT', 0.7, log),
+      keywordWeight: clampWeight(env, 'RETRIEVAL_KEYWORD_WEIGHT', 0.3, log),
+      maxVectorDistance: clampWeight(env, 'RETRIEVAL_MAX_VECTOR_DISTANCE', 0.8, log),
+      candidatePool: int(env, 'RETRIEVAL_CANDIDATE_POOL', 100),
+      rerankMultiplier: int(env, 'RETRIEVAL_RERANK_MULTIPLIER', 5),
+    },
     rateLimits: {
       paper_upload: int(env, 'RATE_LIMIT_UPLOADS_PER_DAY', 50),
       feed_generation: int(env, 'RATE_LIMIT_GENERATIONS_PER_DAY', 20),

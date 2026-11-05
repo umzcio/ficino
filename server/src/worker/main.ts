@@ -6,6 +6,7 @@ import { createSql } from '../db/sql.js';
 import { makeJobContext } from '../jobs/context.js';
 import { createBoss, ensureQueues, JobQueue } from '../jobs/queue.js';
 import { isQueueName, QUEUES, type QueueName } from '../jobs/registry.js';
+import type { Rng } from '../shared/random.js';
 import { logger } from '../logger.js';
 import { defaultProviderDeps, type ProviderDeps } from '../providers/deps.js';
 import { resolveSigningKey } from '../shared/signedUrl.js';
@@ -24,6 +25,8 @@ export interface WorkerOverrides {
   softLimitMs?: number;
   /** pg-boss graceful-stop timeout in close() (default 30 s). */
   stopTimeoutMs?: number;
+  /** Random source for the feed generator (default Math.random). */
+  rng?: Rng;
 }
 
 /** How long close() waits, after pg-boss's own stop timeout, for aborted handlers to finish their DB writes. */
@@ -63,6 +66,7 @@ export async function startWorker(rawEnv: Env = process.env, overrides: WorkerOv
       storage,
       queue: new JobQueue(boss, sql),
       providers: { ...defaultProviderDeps(), ...overrides.providers },
+      rng: overrides.rng ?? Math.random,
     };
     const softLimitMs = overrides.softLimitMs ?? (config.jobTimeLimitSec - 60) * 1000;
     const handlers = { ...HANDLERS, ...overrides.handlers };

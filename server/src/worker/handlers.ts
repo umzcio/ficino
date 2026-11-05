@@ -9,6 +9,7 @@ import type { LocalStorage } from '../storage/local.js';
 import { checkStalePapers } from '../tasks/alerts.js';
 import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
+import type { Rng } from '../shared/random.js';
 
 export type WorkerDeps = {
   sql: Sql;
@@ -18,6 +19,7 @@ export type WorkerDeps = {
   storage: LocalStorage;
   queue: JobQueue;
   providers: ProviderDeps;
+  rng: Rng;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

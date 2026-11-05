@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { loadConfig, parseBool } from '../src/config.js';
 
 it('defaults match api/config.py', () => {
@@ -64,4 +64,27 @@ it('JOB_TIME_LIMIT_SEC below 120 throws', () => {
 });
 it('ingestion concurrency must be >= 1', () => {
   expect(() => loadConfig({ WORKER_INGESTION_CONCURRENCY: '0' })).toThrow('WORKER_INGESTION_CONCURRENCY must be at least 1');
+});
+
+it('retrieval defaults', () => {
+  expect(loadConfig({}).retrieval).toEqual({
+    vectorWeight: 0.7,
+    keywordWeight: 0.3,
+    maxVectorDistance: 0.8,
+    candidatePool: 100,
+    rerankMultiplier: 5,
+  });
+});
+it('unparsable retrieval weight warns and uses the default', () => {
+  const warn = vi.fn();
+  expect(loadConfig({ RETRIEVAL_VECTOR_WEIGHT: 'abc' }, { warn }).retrieval.vectorWeight).toBe(0.7);
+  expect(warn).toHaveBeenCalledWith({ key: 'RETRIEVAL_VECTOR_WEIGHT', value: 'abc' }, 'invalid_weight_env');
+});
+it('retrieval weights clamp to [0, 1]', () => {
+  const r = loadConfig({ RETRIEVAL_VECTOR_WEIGHT: '1.7', RETRIEVAL_KEYWORD_WEIGHT: '-2', RETRIEVAL_MAX_VECTOR_DISTANCE: 'inf' }).retrieval;
+  expect([r.vectorWeight, r.keywordWeight, r.maxVectorDistance]).toEqual([1, 0, 1]);
+});
+it('retrieval int fields throw on a non-integer', () => {
+  expect(() => loadConfig({ RETRIEVAL_CANDIDATE_POOL: 'ten' })).toThrow();
+  expect(loadConfig({ RETRIEVAL_RERANK_MULTIPLIER: '3' }).retrieval.rerankMultiplier).toBe(3);
 });

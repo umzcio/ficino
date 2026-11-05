@@ -74,3 +74,17 @@ export function pyRound(x: number, nd = 0): number {
   const out = nd >= 0 ? Number(q) / 10 ** nd : Number(q) * 10 ** -nd;
   return neg ? -out : out;
 }
+
+/** Python `str(x)` for a JSON value (ints print as ints; JS cannot tell 5.0 from 5). */
+export function pyStr(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (v === null || v === undefined) return 'None';
+  if (typeof v === 'boolean') return v ? 'True' : 'False';
+  if (typeof v === 'number') return String(v);
+  return JSON.stringify(v);
+}
+
+/** `json.dumps(s)` for a string under the default ensure_ascii=True: non-ASCII UTF-16 units become lowercase \\uXXXX. */
+export function pyJsonString(s: string): string {
+  return JSON.stringify(s).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PY_WORD, PY_WS, pyIsUpper, pyLen, pyRound, pySlice, pySplit, pyStrip } from '../../src/shared/pystr.js';
+import { PY_WORD, PY_WS, pyIsUpper, pyJsonString, pyStr, pyLen, pyRound, pySlice, pySplit, pyStrip } from '../../src/shared/pystr.js';
 
 // Every expected value below was checked with `python3 -I -c`.
 describe('pystr', () => {
@@ -49,5 +49,16 @@ describe('pystr', () => {
     expect(new RegExp(`^[${PY_WS}]$`, 'u').test('　')).toBe(true);
     expect(new RegExp(`^${PY_WORD}$`, 'u').test('é')).toBe(true);
     expect(new RegExp(`^${PY_WORD}$`, 'u').test('-')).toBe(false);
+  });
+});
+
+// Expected values from `python3 -I -c 'import json;print(json.dumps(...))'` (ensure_ascii escapes DEL too).
+describe('pyJsonString / pyStr', () => {
+  it('matches json.dumps', () => {
+    expect(pyJsonString('é "q" \n 😀')).toBe('"\\u00e9 \\"q\\" \\n \\ud83d\\ude00"');
+    expect(pyJsonString('\x7fé ')).toBe('"\\u007f\\u00e9\\u2028"');
+  });
+  it('pyStr prints Python scalars', () => {
+    expect([pyStr(null), pyStr(true), pyStr(5), pyStr('x'), pyStr([1])]).toEqual(['None', 'True', '5', 'x', '[1]']);
   });
 });

@@ -1,7 +1,7 @@
 import type { ProviderConfig } from './config.js';
 import type { ProviderDeps } from './deps.js';
 import { logger } from '../logger.js';
-import { pySlice, pyStrip } from '../shared/pystr.js';
+import { pySlice, pyStr, pyStrip } from '../shared/pystr.js';
 import { fetchJson } from './http.js';
 
 // Port of worker/lib/figure_detector.py.
@@ -79,15 +79,6 @@ const ALIASES: Record<string, string> = {
   picture: 'photograph', image: 'photograph',
   table: 'table_image',
 };
-
-/** Python `str(x)` for a JSON value (ints print as ints; JS cannot tell 5.0 from 5). */
-function pyStr(v: unknown): string {
-  if (typeof v === 'string') return v;
-  if (v === null || v === undefined) return 'None';
-  if (typeof v === 'boolean') return v ? 'True' : 'False';
-  if (typeof v === 'number') return String(v);
-  return JSON.stringify(v);
-}
 
 const FLOAT_RE = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
 
