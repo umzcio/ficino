@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig } from '../../src/config.js';
 import { LocalStorage } from '../../src/storage/local.js';
 import { client, testApp } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID, type Seeded } from '../helpers/db.js';
@@ -273,5 +274,21 @@ describe('POST /feed/:id/regenerate/:index', () => {
     expect(audit).toHaveLength(1);
     expect(audit[0]!.metadata).toEqual({ post_index: 1, task_id: j.task_id });
     expect(audit[0]!.status_code).toBe(202);
+  });
+
+  it('rate limit runs before validation: a bad post_index uses a slot and still 422s; then 429', async () => {
+    await setPosts(seeded.feed_a, [{ content: 'a' }]);
+    const base = loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' });
+    const app = client(
+      testApp({
+        user: user(USER_A_ID),
+        config: { authProvider: 'basic', rateLimits: { ...base.rateLimits, feed_generation: 2 } },
+      }),
+    );
+    expect((await app.post(`/feed/${seeded.feed_a}/regenerate/abc`)).status).toBe(422);
+    expect((await app.post(`/feed/${seeded.feed_a}/regenerate/0`)).status).toBe(202);
+    const r = await app.post(`/feed/${seeded.feed_a}/regenerate/abc`);
+    expect(r.status).toBe(429);
+    expect((await r.json()).detail).toMatch(/^Rate limit exceeded: 2 feed_generation per 24h/);
   });
 });

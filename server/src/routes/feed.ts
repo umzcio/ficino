@@ -92,7 +92,9 @@ async function hydrateFigureUrls(
       FROM figures f
       JOIN papers p ON f.paper_id = p.id AND p.user_id = ${userId}
       WHERE f.id = ANY(${ids}::uuid[])`;
-  } catch {
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    logger.warn({ user_id: userId, error_type: err.name, error: err.message.slice(0, 200) }, 'figure_url_resign_query_failed');
     rows = []; // e.g. a malformed persisted figure_id: keep every persisted URL
   }
   const info = new Map(rows.map((r) => [String(r.id), String(r.paper_id)]));
@@ -231,7 +233,7 @@ export function feedRoutes(): Hono<AppEnv> {
     return c.body(null, 204);
   });
 
-  r.post('/:feed_id/regenerate/:post_index', params(postParams), userRateLimit('feed_generation'), async (c) => {
+  r.post('/:feed_id/regenerate/:post_index', userRateLimit('feed_generation'), params(postParams), async (c) => {
     const { sql, queue, logger } = c.var.deps;
     const userId = c.var.user.id;
     const { feed_id, post_index } = c.req.valid('param');
