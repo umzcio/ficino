@@ -7,6 +7,7 @@ import type { QueueName } from '../jobs/registry.js';
 import type { ProviderDeps } from '../providers/deps.js';
 import type { LocalStorage } from '../storage/local.js';
 import { checkStalePapers } from '../tasks/alerts.js';
+import { generateFeed } from '../tasks/feed.js';
 import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
 import type { Rng } from '../shared/random.js';
@@ -28,6 +29,7 @@ export type Handler = (data: any, ctx: JobContext, deps: WorkerDeps) => Promise<
 /** Handlers return objects (pg-boss wraps other results as `{ value }`). Later tasks add the rest. */
 export const HANDLERS: Partial<Record<QueueName, Handler>> = {
   process_paper: (data, ctx, deps) => processPaper(data, ctx, deps),
+  generate_feed: (data, ctx, deps) => generateFeed(data, ctx, deps),
   check_stale_papers: (_data, _ctx, deps) => checkStalePapers(deps.sql),
   prune_expired: (_data, _ctx, deps) => pruneExpired(deps.sql),
 };

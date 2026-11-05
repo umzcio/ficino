@@ -8,7 +8,7 @@ export type FakeCall = {
 };
 
 /** What a chat call is for, read from its system prompt. */
-export type ChatPurpose = 'metadata' | 'context' | 'vision' | 'other';
+export type ChatPurpose = 'metadata' | 'context' | 'vision' | 'persona' | 'classify' | 'other';
 
 export type ChatInfo = { purpose: ChatPurpose; system: string; user: string; via: 'ollama' | 'anthropic' };
 
@@ -29,6 +29,8 @@ function purposeOf(system: string): ChatPurpose {
   if (system.startsWith('You are a precise metadata extractor')) return 'metadata';
   if (system.startsWith('You situate a short excerpt')) return 'context';
   if (system.startsWith('You are an academic paper text extractor')) return 'vision';
+  if (system.startsWith('You are one of five AI personas')) return 'persona';
+  if (system.startsWith('You are a precise academic text classifier')) return 'classify';
   return 'other';
 }
 
@@ -73,6 +75,8 @@ function abortable<T>(p: Promise<T>, signal: AbortSignal | null | undefined): Pr
 const defaultChat = (_body: unknown, info: ChatInfo): string => {
   if (info.purpose === 'metadata') return '{"title": null, "authors": [], "year": null, "doi": null, "tags": []}';
   if (info.purpose === 'context') return 'A situating sentence.';
+  if (info.purpose === 'persona') return '{"post_type": "post", "content": "A grounded take."}';
+  if (info.purpose === 'classify') return 'extends';
   return 'Page text.';
 };
 

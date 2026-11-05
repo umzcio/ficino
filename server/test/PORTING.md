@@ -242,10 +242,10 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [ ] worker/tests/test_chapter_post_validation.py::test_reading_list_tasks_imports_validator — plan05
 - [x] worker/tests/test_event_loop.py::test_loop_runner_recovers_from_a_dead_but_unclosed_loop_thread — n/a: no LoopRunner in Node (W §4)
 - [x] worker/tests/test_event_loop.py::test_loop_runner_concurrent_submissions_dont_serialize — n/a: no LoopRunner in Node (W §4)
-- [ ] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_redelivery_is_idempotent — plan03
-- [ ] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_new_dispatch_gets_new_feed_id — plan03
-- [ ] worker/tests/test_generate_feed_idempotency.py::test_empty_feed_redelivery_does_not_error_or_duplicate — plan03
-- [ ] worker/tests/test_generate_feed_idempotency.py::test_empty_attempt_then_successful_redelivery_recovers_posts — plan03
+- [x] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_redelivery_is_idempotent — plan03/T8
+- [x] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_new_dispatch_gets_new_feed_id — plan03/T8
+- [x] worker/tests/test_generate_feed_idempotency.py::test_empty_feed_redelivery_does_not_error_or_duplicate — plan03/T8
+- [x] worker/tests/test_generate_feed_idempotency.py::test_empty_attempt_then_successful_redelivery_recovers_posts — plan03/T8
 - [ ] worker/tests/test_group_chat_pending_state.py::test_generate_corpus_synthesis_marks_error_on_retry_exhaustion — plan04
 - [x] worker/tests/test_llm_hardening.py::test_ollama_empty_response_raises_runtime_error — plan02/T6
 - [x] worker/tests/test_llm_hardening.py::test_ollama_whitespace_only_response_raises_runtime_error — plan02/T6
