@@ -48,6 +48,13 @@ They go beyond what the plan specified, so treat them as reviewable.
 - A soft-limit abort of `generate_feed` discards the posts already generated, and pg-boss retries from scratch. Persisting the partial slice, or skipping the retry on abort, is worth considering.
 - The plan 02 cutover items still apply (delete the golden generators with `worker/`, worker compose command, shared volumes, `stop_grace_period`).
 
+## Carry into the feed rework (step 2 of the roadmap)
+
+- A second Ollama smoke after the final fixes (qwen3.8:27b, qwen3-embedding, sample.pdf, posts_per_generation 4) planned 4 slots and
+  produced 2 posts in 11 s. The 2 drops were both `persona_post_missing_content`: the model answered in the `{"posts":[...]}` shape
+  that `SYSTEM_PREAMBLE` asks for, while the user prompt asks for `{"post_type","content",...}` (W §9.8). The port reproduces this on
+  purpose. Resolving the two contradictory output formats is the cheapest quality win for the rework: half the slots were lost to it.
+
 ## Deferred minors
 
 Small test-tightening and parity notes; none blocks anything.
