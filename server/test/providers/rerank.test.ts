@@ -155,4 +155,24 @@ describe('rerank', () => {
     expect(ids(await rerank(voyage, deps, 'q', mk(3), 2, { logger: l, signal: new AbortController().signal }))).toEqual(['c0', 'c1']);
     expect(l.warn.mock.calls[0][1]).toBe('rerank_failed_passthrough');
   });
+
+  it('a result item without a numeric relevance_score passes through and leaves chunks unscored', async () => {
+    const { deps } = fakeDeps(() => json({ data: [{ index: 1, relevance_score: 0.9 }, { index: 0 }] }));
+    const l = mkLogger();
+    const input = mk(3);
+    expect(ids(await rerank(voyage, deps, 'q', input, 2, { logger: l }))).toEqual(['c0', 'c1']);
+    expect(l.warn.mock.calls[0][1]).toBe('rerank_failed_passthrough');
+    expect(input.every((c) => c.rerank_score === undefined)).toBe(true);
+  });
+
+  it('uses a 30 s per-request timeout', async () => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const { deps } = fakeDeps(() => json({ data: [] }));
+      await rerank(voyage, deps, 'q', mk(2), 2, { logger: mkLogger() });
+      expect(spy).toHaveBeenCalledWith(30_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

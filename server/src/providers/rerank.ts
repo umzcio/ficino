@@ -12,11 +12,17 @@ type Item = { index?: unknown; relevance_score?: unknown };
 /** Map hosted scores back onto the chunks by `index`; out-of-range and negative indexes are skipped. */
 function applyScores(chunks: Chunk[], items: unknown): void {
   if (!Array.isArray(items)) throw new Error('rerank response has no result list');
+  // Validate every score before touching a chunk, so a failure leaves the caller's chunks unscored.
+  const scored: Array<[number, number]> = [];
   for (const item of items as Item[]) {
     const idx = item.index;
     if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= chunks.length) continue;
-    chunks[idx]!.rerank_score = Number(item.relevance_score);
+    // Python's float(item["relevance_score"]) raises on a missing or non-numeric score.
+    const score = typeof item.relevance_score === 'string' ? Number(item.relevance_score) : item.relevance_score;
+    if (typeof score !== 'number' || !Number.isFinite(score)) throw new Error('rerank result has no numeric relevance_score');
+    scored.push([idx, score]);
   }
+  for (const [idx, score] of scored) chunks[idx]!.rerank_score = score;
 }
 
 /**
