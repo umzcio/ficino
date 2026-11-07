@@ -10,6 +10,7 @@
     "test": "vitest run",
     "dev:api": "tsx watch src/api/main.ts",
     "migrate": "tsx src/db/migrate-cli.ts",
+    "reembed": "tsx src/db/reembed-cli.ts",
     "dev:worker": "tsx watch src/worker/main.ts",
     "worker": "node dist/worker/main.js"
   },
