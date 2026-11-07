@@ -280,3 +280,29 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Podcast-script goldens
+
+`podcast_script.py` runs in the `ficino-worker` image and imports the real `lib.podcast`. Per case it calls
+`build_podcast_script` with `retrieve_chunks`, `fetch` (the titles query), `get_personas` and
+`claude_client.generate_text_sync` patched to the case's canned chunks, title rows, personas and raw LLM text (or a
+raise), and records the retrieval and titles calls, the LLM call (system, user, kwargs), the log events and the
+returned segments. Beside each run it records the private helpers on the same inputs (`_collect_paper_ids`,
+`_summarize_feed_for_prompt`, `_format_chunks_for_prompt`, `_parse_script`, `_fit_total_chars`, the title mapping and
+`_fallback_script`), plus `_persona_name`, `_parse_script` and `_fit_total_chars` over extra inputs. Cases cover a clean
+script, short and unparseable scripts, speaker normalization, a script trimmed to two turns, posts without sources,
+null titles, a source id with no row and an uppercase id (both dropped), custom persona keys, deleted and non-dict
+posts, the 3000 and 14 000 code-point caps, `</untrusted>` in a chunk, an astral title, six titles in the fallback, and
+failing retrieval and titles. It writes `podcast-script.json`; `test/audio/podcast.test.ts` pins `src/audio/podcast.ts`
+to it.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/podcast_script.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards. Remove a
+root-owned `podcast-script.json` before a re-run, since the image's user cannot overwrite it.
