@@ -92,7 +92,10 @@ storage paths, legacy media keys and stitched podcasts, stuck statuses, double-e
 tags, a rebuilt `feed_posts`), then
 check every foreign key from the catalog and that no old id remains anywhere. `files` copies only objects that a
 restored row points at, checks each against the manifest's checksum before copying anything, and skips (with a
-reason) orphans, legacy podcast segments and unsafe keys.
+reason) orphans, legacy podcast segments and unsafe keys. It never overwrites a file already in place: a target with
+the archived bytes is reported as `already in place` and one with other bytes (media the api regenerated since) as
+`target differs` under `kept`, so a re-run, say to fill a gap `missing` reported, is safe; `--force` replaces the
+differing ones.
 
 ## Re-embedding after an embedding-model change
 

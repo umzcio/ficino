@@ -79,6 +79,22 @@ describe('parseDump', () => {
     expect(() => parseDump('COPY public.tags FROM stdin;\nx\n\\.\n')).toThrow(RestoreError);
     expect(() => parseDump('COPY public.tags (id FROM stdin;\nx\n\\.\n')).toThrow(/line 1/);
     expect(() => parseDump('COPY "public.tags (id) FROM stdin;\nx\n\\.\n')).toThrow(RestoreError);
+    expect(() => parseDump('COPY public.tags (id) FROM stdin WITH (FORMAT csv);\nx\n\\.\n')).toThrow(/line 1/);
+  });
+
+  it('reads a FROM stdin header with trailing whitespace', () => {
+    const want = [{ schema: 'public', table: 'tags', columns: ['id', 'name'], rows: ['a\tb'] }];
+    expect(parseDump('COPY public.tags (id, name) FROM stdin; \na\tb\n\\.\n')).toEqual(want);
+    expect(parseDump('COPY public.tags (id, name) FROM stdin;\t\r\na\tb\r\n\\.\r\n')).toEqual(want);
+  });
+
+  it('rejects a terminator outside a block rather than dropping the rows before it', () => {
+    // A header split over two lines is missed, so its rows and terminator would otherwise be ignored lines.
+    expect(() => parseDump('COPY public.tags (id, name)\n FROM stdin;\na\tb\n\\.\n')).toThrow(
+      /COPY terminator outside a COPY block at line 4/,
+    );
+    expect(() => parseDump('COPY public.tags (id) FROM stdin;\na\n\\.\n\\.\n')).toThrow(RestoreError);
+    expect(() => parseDump('SET x = 1;\n\\.\n')).toThrow(/line 2/);
   });
 });
 

@@ -6,7 +6,8 @@ export type CopyBlock = { schema: string; table: string; columns: string[]; rows
 /** Tables a restore never loads: the target's own seed and migration ledger win. */
 export const DEFAULT_SKIPPED_TABLES: ReadonlySet<string> = new Set(['personas', 'schema_migrations']);
 
-const COPY_FROM_STDIN = /^COPY\s.*\sFROM\s+stdin;$/i;
+// Any statement that starts like a COPY and reads from stdin: parseHeader either reads it or the parse throws.
+const COPY_FROM_STDIN = /^COPY\b.*\bFROM\s+stdin\b/i;
 const UNQUOTED = /^[A-Za-z_][A-Za-z0-9_$]*/;
 
 type Cursor = { s: string; i: number };
@@ -66,15 +67,16 @@ function parseHeader(line: string): Omit<CopyBlock, 'rows'> | null {
     return null;
   }
   skipSpace(c);
-  if (!/^FROM\s+stdin;$/i.test(c.s.slice(c.i))) return null;
+  if (!/^FROM\s+stdin;\s*$/i.test(c.s.slice(c.i))) return null;
   return { schema, table, columns };
 }
 
 /**
  * Every `COPY … FROM stdin;` block of a plain-text pg_dump, in file order. Every other line (SET, `\restrict`,
  * comments, DDL, `COPY … TO`) is ignored. A FROM-stdin statement this parser cannot read throws rather than letting its
- * rows fall through as ignored lines; so does a block with no `\.` terminator. A data line is the terminator only when
- * it is exactly `\.` (an escaped backslash followed by a dot, `\\.`, is data).
+ * rows fall through as ignored lines; so does a block with no `\.` terminator, and so does a `\.` outside any block
+ * (it ends a block whose header was missed, e.g. one split over two lines). A data line is the terminator only when it
+ * is exactly `\.` (an escaped backslash followed by a dot, `\\.`, is data).
  */
 export function parseDump(text: string): CopyBlock[] {
   const lines = text.split('\n');
@@ -92,6 +94,7 @@ export function parseDump(text: string): CopyBlock[] {
       }
       continue;
     }
+    if (line === '\\.') throw new RestoreError(`COPY terminator outside a COPY block at line ${n + 1}`);
     if (!COPY_FROM_STDIN.test(line)) continue;
     const header = parseHeader(line);
     if (!header) throw new RestoreError(`unrecognised COPY statement at line ${n + 1}`);

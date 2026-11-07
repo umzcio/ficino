@@ -1,6 +1,6 @@
 // Restore the archived SaaS data into a freshly migrated TS database and its storage volumes.
 //   node dist/restore/cli.js db --dump <file> --source-embed-model <id> [--dry-run]
-//   node dist/restore/cli.js files --bucket <dir> --manifest <file> [--chown <uid>:<gid>] [--dry-run]
+//   node dist/restore/cli.js files --bucket <dir> --manifest <file> [--chown <uid>:<gid>] [--force] [--dry-run]
 //   node dist/restore/cli.js verify [--embed-model <id>] [--owner <uid>:<gid>]
 // stdout carries exactly one JSON object (the report) and a newline, so `cli.js … > report.json` parses; logs (pino
 // JSON, counts only) and errors (the message only: no stack, no row content) go to stderr. Exit 0 on success, 1 on any
@@ -14,11 +14,11 @@ import { createSql, type Sql } from '../db/sql.js';
 import type { StorageDirs } from '../storage/local.js';
 import { restoreDatabase } from './database.js';
 import { RestoreError } from './errors.js';
-import { copyStorage, parseManifest, planStorageCopy } from './files.js';
+import { copyStorage, parseManifest, planStorageCopy, type KeptTarget } from './files.js';
 import { verifyRestore } from './verify.js';
 
 const USAGE = `usage: cli.js db --dump <file> --source-embed-model <id> [--dry-run]
-       cli.js files --bucket <dir> --manifest <file> [--chown <uid>:<gid>] [--dry-run]
+       cli.js files --bucket <dir> --manifest <file> [--chown <uid>:<gid>] [--force] [--dry-run]
        cli.js verify [--embed-model <id>] [--owner <uid>:<gid>]`;
 
 // src/logger.ts writes to stdout, which is reserved for the report: everything here logs through this one.
@@ -88,12 +88,15 @@ async function files(argv: string[]): Promise<number> {
     bucket: { type: 'string' },
     manifest: { type: 'string' },
     chown: { type: 'string' },
+    // Replace a target that exists with other bytes (by default it is kept and reported as `target differs`).
+    force: { type: 'boolean' },
     'dry-run': { type: 'boolean' },
   });
   const bucket = required('--bucket', v.bucket as string | undefined);
   const manifestPath = required('--manifest', v.manifest as string | undefined);
   const chown = ids('--chown', v.chown as string | undefined);
   const dryRun = v['dry-run'] === true;
+  const force = v.force === true;
   let raw: unknown;
   try {
     raw = JSON.parse(await readFile(manifestPath, 'utf8'));
@@ -103,12 +106,13 @@ async function files(argv: string[]): Promise<number> {
   }
   const manifest = parseManifest(raw);
 
-  const { plan, copied } = await withDb(async (sql, dirs) => {
+  const { plan, copied, kept } = await withDb(async (sql, dirs) => {
     const plan = await planStorageCopy(sql, bucket, manifest, dirs);
     // A dry run stops at the plan: nothing is copied or chowned.
-    const copied = dryRun ? 0 : (await copyStorage(plan, dirs, { chown })).copied;
-    return { plan, copied };
+    if (dryRun) return { plan, copied: 0, kept: [] as KeptTarget[] };
+    return { plan, ...(await copyStorage(plan, dirs, { chown, force })) };
   });
+  const differs = kept.filter((k) => k.reason === 'target differs').length;
   log.info(
     {
       dry_run: dryRun,
@@ -116,11 +120,17 @@ async function files(argv: string[]): Promise<number> {
       skipped: plan.skipped.length,
       missing: plan.missing.length,
       copied,
+      kept: kept.length,
+      target_differs: differs,
       chown: chown !== undefined && !dryRun,
     },
     'restore_files',
   );
-  emit({ copies: plan.copies, skipped: plan.skipped, missing: plan.missing, copied });
+  emit({ copies: plan.copies, skipped: plan.skipped, missing: plan.missing, copied, kept });
+  if (differs > 0) {
+    const what = differs === 1 ? 'target that differs' : 'targets that differ';
+    process.stderr.write(`restore files: kept ${differs} existing ${what} from the archive (see "kept"; --force replaces)\n`);
+  }
   if (plan.missing.length > 0) {
     const n = plan.missing.length;
     process.stderr.write(`restore files: ${n} restored ${n === 1 ? 'row has' : 'rows have'} no file (see "missing")\n`);

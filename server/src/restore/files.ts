@@ -14,14 +14,21 @@ import { RestoreError } from './errors.js';
 /** An archive manifest row: `name` relative to the bucket root (`<user>/<…>`); `etag` a quoted md5 or `"<hex>-<n>"`. */
 export type ManifestEntry = { name: string; size: number; etag: string };
 
-/** `md5` is the expected hex digest, or null for a multipart upload (whose etag is not an md5; size is checked). */
+/**
+ * `size` is the manifest's byte count; `md5` the expected hex digest, or null for a multipart upload (whose etag is not
+ * an md5, so only the size is checked).
+ */
 export type PlannedCopy = {
   key: string;
   from: string;
   to: string;
   kind: 'pdf' | 'figure' | 'audio' | 'episode';
+  size: number;
   md5: string | null;
 };
+
+/** A planned copy `copyStorage` did not make, and why. */
+export type KeptTarget = { key: string; to: string; reason: 'already in place' | 'target differs' };
 
 export type FileCopyPlan = {
   copies: PlannedCopy[];
@@ -179,7 +186,7 @@ export async function planStorageCopy(
       skip(key, 'unsafe key');
       continue;
     }
-    copies.push({ key, from: join(bucketRoot, key), to, kind, md5: null, entry });
+    copies.push({ key, from: join(bucketRoot, key), to, kind, size: entry.size, md5: null, entry });
   }
 
   // Two objects for one file (e.g. the same paper id under two user prefixes): which one is right is unknowable.
@@ -314,18 +321,30 @@ async function chownTree(root: string, uid: number, gid: number, impl: ChownImpl
   }
 }
 
+/** True when the file at `path` has the planned bytes: the manifest size, and the md5 when the plan has one. */
+async function matchesPlan(path: string, c: PlannedCopy): Promise<boolean> {
+  if ((await lstat(path)).size !== c.size) return false;
+  return c.md5 === null || (await md5File(path)) === c.md5;
+}
+
 /**
  * Copy every planned object: create the target dirs (0755), copy to a temp file beside the target, chmod 0644,
- * re-checksum it (md5, or size for a multipart upload) and rename it into place, so a target is either the old file
- * or a verified copy. With `chown`, then `chown -R` the three storage roots, so every directory the copy created is
- * owned by the app user too: the api and worker write temp files inside those dirs and remove `feeds/<id>` trees.
- * Re-running is harmless (each target is replaced by the same bytes).
+ * re-checksum it against the plan (the manifest size, and the md5 unless it is a multipart upload) and rename it into
+ * place, so a target is either the old file or a verified copy. With `chown`, then `chown -R` the three storage roots,
+ * so every directory the copy created is owned by the app user too: the api and worker write temp files inside those
+ * dirs and remove `feeds/<id>` trees.
+ *
+ * A target that already exists is never overwritten by default: one with the planned bytes is kept as `already in
+ * place`, and any other (a regular file with other bytes, or anything that is not a regular file) is kept as `target
+ * differs`. The api writes regenerated media at the same paths, so a re-run after it started (say, to fill gaps
+ * reported in `missing`) must not put the archived bytes back under a row that describes the new render. `force`
+ * replaces a differing target. Re-running is therefore harmless.
  */
 export async function copyStorage(
   plan: FileCopyPlan,
   dirs: StorageDirs,
-  opts: { chown?: { uid: number; gid: number }; chownImpl?: ChownImpl } = {},
-): Promise<{ copied: number }> {
+  opts: { chown?: { uid: number; gid: number }; chownImpl?: ChownImpl; force?: boolean } = {},
+): Promise<{ copied: number; kept: KeptTarget[] }> {
   const roots = [dirs.uploadDir, dirs.figuresDir, dirs.mediaDir];
   for (const c of plan.copies) {
     if (!roots.some((r) => within(r, c.to))) throw new RestoreError(`unsafe target: ${c.key}`);
@@ -333,17 +352,25 @@ export async function copyStorage(
   for (const r of roots) await mkdirs(r);
 
   let copied = 0;
+  const kept: KeptTarget[] = [];
   for (const c of plan.copies) {
+    const existing = await lstat(c.to).catch(() => null);
+    if (existing) {
+      if (existing.isFile() && (await matchesPlan(c.to, c))) {
+        kept.push({ key: c.key, to: c.to, reason: 'already in place' });
+        continue;
+      }
+      if (!opts.force) {
+        kept.push({ key: c.key, to: c.to, reason: 'target differs' });
+        continue;
+      }
+    }
     await mkdirs(dirname(c.to));
     const tmp = `${c.to}.tmp-${randomBytes(6).toString('hex')}`;
     try {
       await copyFile(c.from, tmp);
       await chmod(tmp, 0o644);
-      const ok =
-        c.md5 !== null
-          ? (await md5File(tmp)) === c.md5
-          : (await lstat(tmp)).size === (await stat(c.from)).size;
-      if (!ok) throw new RestoreError(`checksum mismatch after copy: ${c.key}`);
+      if (!(await matchesPlan(tmp, c))) throw new RestoreError(`checksum mismatch after copy: ${c.key}`);
       await rename(tmp, c.to);
     } catch (e) {
       await unlink(tmp).catch(() => {});
@@ -357,5 +384,5 @@ export async function copyStorage(
     const impl = opts.chownImpl ?? chown;
     for (const r of roots) await chownTree(r, uid, gid, impl);
   }
-  return { copied };
+  return { copied, kept };
 }

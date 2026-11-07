@@ -1,6 +1,6 @@
 import { lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../../src/db/migrate.js';
 import { createSql, type Sql } from '../../src/db/sql.js';
@@ -105,7 +105,7 @@ describe('archive storage copy', () => {
     }
     expect(p.missing).toEqual([]);
 
-    expect(await copyStorage(p, dirs)).toEqual({ copied: 5 });
+    expect(await copyStorage(p, dirs)).toEqual({ copied: 5, kept: [] });
     for (const c of p.copies) {
       expect(md5Hex(await readFile(c.to)), c.key).toBe(md5Hex(await readFile(c.from)));
     }
@@ -179,7 +179,8 @@ describe('archive storage copy', () => {
     const p = await plan(m);
     const ep = p.copies.find((c) => c.key === KEYS.episode)!;
     expect(ep.md5).toBeNull();
-    expect(await copyStorage(p, dirs)).toEqual({ copied: 5 });
+    expect(ep.size).toBe(m.find((e) => e.name === KEYS.episode)!.size);
+    expect(await copyStorage(p, dirs)).toEqual({ copied: 5, kept: [] });
     expect(await readFile(ep.to)).toEqual(await readFile(ep.from));
 
     await expect(plan(m.map((e) => (e.name === KEYS.episode ? { ...e, size: e.size + 1 } : e)))).rejects.toThrow(
@@ -264,7 +265,10 @@ describe('archive storage copy', () => {
   it('copying twice is harmless and files are 0644', async () => {
     const p = await plan();
     await copyStorage(p, dirs);
-    expect(await copyStorage(p, dirs)).toEqual({ copied: 5 });
+    expect(await copyStorage(p, dirs)).toEqual({
+      copied: 0,
+      kept: p.copies.map((c) => ({ key: c.key, to: c.to, reason: 'already in place' })),
+    });
     const paths = await allTargetPaths();
     expect(paths.length).toBeGreaterThan(5);
     for (const path of paths) {
@@ -289,6 +293,60 @@ describe('archive storage copy', () => {
     await writeFile(pdf.from, 'changed after the plan');
     await expect(copyStorage(p, dirs)).rejects.toThrow(/checksum mismatch after copy: .*\.pdf/);
     expect(await readdir(dirs.uploadDir)).not.toContain(`${SYN.paperOther}.pdf`);
+    expect((await allTargetPaths()).filter((x) => x.includes('.tmp-'))).toEqual([]);
+  });
+
+  it('a multipart source changed after planning fails the copy too (checked against the manifest size)', async () => {
+    const multipart = '"0123456789abcdef0123456789abcdef-2"';
+    const p = await plan(manifest.map((e) => (e.name === KEYS.episode ? { ...e, etag: multipart } : e)));
+    const ep = p.copies.find((c) => c.key === KEYS.episode)!;
+    expect(ep.md5).toBeNull();
+    await writeFile(ep.from, 'ABC'); // a truncated or replaced source: its new size is not the manifest's
+    await expect(copyStorage(p, dirs)).rejects.toThrow(/checksum mismatch after copy: .*episode\.mp3/);
+    expect(await lstat(ep.to).catch(() => null)).toBeNull();
+    expect((await allTargetPaths()).filter((x) => x.includes('.tmp-'))).toEqual([]);
+  });
+
+  it('leaves an existing target with other bytes alone (the api regenerated it)', async () => {
+    const p = await plan();
+    const ep = p.copies.find((c) => c.key === KEYS.episode)!;
+    await mkdir(dirname(ep.to), { recursive: true });
+    await writeFile(ep.to, 'a newer render');
+    const res = await copyStorage(p, dirs);
+    expect(res.copied).toBe(4);
+    expect(res.kept).toEqual([{ key: KEYS.episode, to: ep.to, reason: 'target differs' }]);
+    expect(await readFile(ep.to, 'utf8')).toBe('a newer render');
+    for (const c of p.copies.filter((x) => x !== ep)) expect(md5Hex(await readFile(c.to))).toBe(c.md5);
+  });
+
+  it('keeps an existing target that is not a regular file', async () => {
+    const p = await plan();
+    const pdf = p.copies.find((c) => c.key === KEYS.pdfDefault)!;
+    await mkdir(dirs.uploadDir, { recursive: true });
+    await writeFile(join(base, 'elsewhere.pdf'), await readFile(pdf.from));
+    await symlink(join(base, 'elsewhere.pdf'), pdf.to);
+    const res = await copyStorage(p, dirs);
+    expect(res.kept).toEqual([{ key: KEYS.pdfDefault, to: pdf.to, reason: 'target differs' }]);
+    expect((await lstat(pdf.to)).isSymbolicLink()).toBe(true);
+  });
+
+  it('force replaces a differing target', async () => {
+    const p = await plan();
+    const ep = p.copies.find((c) => c.key === KEYS.episode)!;
+    await mkdir(dirname(ep.to), { recursive: true });
+    await writeFile(ep.to, 'a newer render');
+    expect(await copyStorage(p, dirs, { force: true })).toEqual({ copied: 5, kept: [] });
+    expect(md5Hex(await readFile(ep.to))).toBe(ep.md5);
+  });
+
+  it('a failed forced copy leaves the existing target as it was (temp file, then rename)', async () => {
+    const p = await plan();
+    const pdf = p.copies.find((c) => c.key === KEYS.pdfOther)!;
+    await mkdir(dirs.uploadDir, { recursive: true });
+    await writeFile(pdf.to, 'the file already in place');
+    await writeFile(pdf.from, 'changed after the plan');
+    await expect(copyStorage(p, dirs, { force: true })).rejects.toThrow(/checksum mismatch after copy: .*\.pdf/);
+    expect(await readFile(pdf.to, 'utf8')).toBe('the file already in place');
     expect((await allTargetPaths()).filter((x) => x.includes('.tmp-'))).toEqual([]);
   });
 
