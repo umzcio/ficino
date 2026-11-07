@@ -103,6 +103,11 @@ describe('generatePersonaPost: {"posts": [...]} / {"post": ...} wrappers', () =>
     const { post } = await gen({ posts: [{ content: 'c', text: 't' }] });
     expect(post).toEqual({ content: 'c', text: 't' });
   });
+  it.each([null, ''])('takes text over a falsy content (%j) inside a wrapper', async (content) => {
+    const { post, log } = await gen({ posts: [{ content, text: 't' }] });
+    expect(post).toEqual({ content: 't' });
+    expect(log.warn).toHaveBeenCalledWith({ wrapper: 'posts', count: 1, text_as_content: true }, 'persona_post_unwrapped');
+  });
   it('leaves a flat "text" post (no wrapper) alone', async () => {
     const { post, log } = await gen({ text: 'flat' });
     expect(post).toEqual({ text: 'flat' });

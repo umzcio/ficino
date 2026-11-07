@@ -113,7 +113,8 @@ export function unwrapPostWrapper(parsed: Post, logger?: Pick<Logger, 'warn'>): 
   const textAsContent = falsy(inner.content) && typeof inner.text === 'string' && pyStrip(inner.text) !== '';
   if (textAsContent) {
     const { text, ...rest } = inner;
-    inner = { content: text, ...rest };
+    // rest may still carry a falsy content (null, ''); text must win over it.
+    inner = { ...rest, content: text };
   }
   logger?.warn({ wrapper, count, text_as_content: textAsContent }, 'persona_post_unwrapped');
   return inner;
