@@ -388,21 +388,32 @@ describe('processPaper', () => {
   });
 
   // Review Focus 5: an over-time job stops spending.
-  it('a hung provider is cut off by the soft limit: rejects fast, paper error, no calls after the abort', async () => {
+  // The soft limit is final (security review): a rerun would spend the same budget again and time out again.
+  it('a hung provider is cut off by the soft limit: returns fast with status error (no retry), no calls after the abort', async () => {
     const id = await newPaper(s.user_a, SAMPLE);
     const f = fakes({ chat: () => new Promise<string>(() => {}) });
     const { ctx } = ctxFor(1000);
     let callsAtAbort = -1;
     ctx.signal.addEventListener('abort', () => (callsAtAbort = f.calls.length), { once: true });
     const t0 = Date.now();
-    await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBeDefined();
+    const r = await processPaper({ paper_id: id }, ctx, depsWith(f.deps));
     expect(Date.now() - t0).toBeLessThan(3000);
     const p = await paper(id);
     expect(p.status).toBe('error');
     expect(String(p.error_message)).toMatch(/abort|timeout/i);
+    expect(r).toEqual({ status: 'error', paper_id: id, error: String(p.error_message) });
     expect(callsAtAbort).toBeGreaterThan(0);
     await new Promise((r) => setTimeout(r, 300));
     expect(f.calls).toHaveLength(callsAtAbort);
+  });
+
+  it('a pg-boss abort (not the soft limit) still rejects, so the job is retried', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes({ chat: () => new Promise<string>(() => {}) });
+    const { ctx, ac } = ctxFor();
+    setTimeout(() => ac.abort(new Error('worker stopping')), 200);
+    await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBeDefined();
+    expect((await paper(id)).status).toBe('error');
   });
 
   // Review Focus 1: concurrent jobs for different users never cross keys.
@@ -505,6 +516,63 @@ describe('process_paper through a real worker', () => {
       expect(p!.status).toBe('error');
       expect(String(p!.error_message)).not.toBe('');
       expect(f.calls).toEqual([]);
+    } finally {
+      await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
+      await probe.end();
+    }
+  }, 60_000);
+
+  it('a soft-limit timeout completes the job without a retry and leaves the paper error', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    const env = {
+      DATABASE_URL: scratch.url,
+      AUTH_PROVIDER: 'none',
+      ENVIRONMENT: 'development',
+      LOG_LEVEL: 'silent',
+      OLLAMA_BASE_URL: OLLAMA,
+      UPLOAD_DIR: join(dir, 'w-uploads'),
+      FIGURES_DIR: join(dir, 'w-figures'),
+      MEDIA_DIR: join(dir, 'w-media'),
+    };
+    const f = fakes({ chat: () => new Promise<string>(() => {}) });
+    worker = await startWorker(env, {
+      providers: f.deps,
+      softLimitMs: 500,
+      queueOverrides: { process_paper: { retryDelay: 0 } },
+    });
+
+    const probe = createSql(scratch.url, { max: 2 });
+    const boss = createBoss(scratch.url, { max: 2, supervise: false, schedule: false });
+    boss.on('error', () => undefined);
+    try {
+      const userId = randomUUID();
+      const paperId = randomUUID();
+      await probe`INSERT INTO users (id, email) VALUES (${userId}, 'w@ficino.dev')`;
+      await probe`
+        INSERT INTO papers (id, user_id, filename, file_path, status)
+        VALUES (${paperId}, ${userId}, 't.pdf', 't.pdf', 'pending')`;
+      await mkdir(env.UPLOAD_DIR, { recursive: true });
+      await writeFile(join(env.UPLOAD_DIR, `${paperId}.pdf`), SAMPLE);
+
+      await boss.start();
+      const queue = new JobQueue(boss, probe);
+      const jobId = await queue.send('process_paper', { paper_id: paperId });
+      await vi.waitFor(
+        async () => {
+          expect((await queue.getJobState(jobId)).state).toBe('completed');
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+      const job = await boss.getJobById('process_paper', jobId);
+      expect(job!.retryCount).toBe(0);
+      const [p] = await probe`SELECT status, error_message FROM papers WHERE id = ${paperId}`;
+      expect(p!.status).toBe('error');
+      expect(String(p!.error_message)).toMatch(/abort|timeout/i);
+      // One attempt: the metadata call that hung, and nothing after it.
+      expect(f.calls).toHaveLength(1);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(f.calls).toHaveLength(1);
     } finally {
       await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
       await probe.end();

@@ -20,6 +20,17 @@ it('signal aborts with a TimeoutError after the soft limit', async () => {
     ctx.signal.addEventListener('abort', () => (clearTimeout(t), resolve()));
   });
   expect((ctx.signal.reason as Error).name).toBe('TimeoutError');
+  expect(ctx.softLimitHit()).toBe(true);
+});
+
+it('softLimitHit is false before any abort and when the pg-boss job signal aborted first', async () => {
+  const ac = new AbortController();
+  const ctx = makeJobContext({ id: randomUUID(), name: 'process_paper', retryCount: 0, signal: ac.signal }, testSql(), pino({ level: 'silent' }), 50, 2);
+  expect(ctx.softLimitHit()).toBe(false);
+  ac.abort(new DOMException('stopping', 'TimeoutError')); // even a reason named like a timeout
+  await new Promise((r) => setTimeout(r, 100)); // the soft limit has now passed too
+  expect(ctx.signal.aborted).toBe(true);
+  expect(ctx.softLimitHit()).toBe(false);
 });
 
 it('signal follows the pg-boss job signal', () => {

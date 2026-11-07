@@ -36,8 +36,9 @@ async function setError(sql: Sql, paperId: string, message: string): Promise<voi
  *
  * Provider settings are resolved once for the paper's owner and the same frozen config goes to every call, so
  * concurrent jobs never share keys. `ctx.signal` (pg-boss abort or the soft time limit) reaches every provider
- * call. An embedding failure is final (status error, returned, no retry); any other failure marks the paper
- * error and rethrows so pg-boss retries the whole job.
+ * call. An embedding failure is final (status error, returned, no retry), and so is the soft time limit: a rerun
+ * would spend the same provider budget again and time out the same way. Any other failure (a pg-boss abort included)
+ * marks the paper error and rethrows so pg-boss retries the whole job.
  */
 export async function processPaper(
   data: { paper_id: string },
@@ -270,6 +271,10 @@ export async function processPaper(
       await setError(sql, paperId, errMessage(e));
     } catch {
       log.error('status_update_failed_on_error');
+    }
+    if (ctx.softLimitHit()) {
+      log.warn('ingestion_soft_limit_not_retried');
+      return { status: 'error', paper_id: paperId, error: errMessage(e) };
     }
     throw e;
   } finally {

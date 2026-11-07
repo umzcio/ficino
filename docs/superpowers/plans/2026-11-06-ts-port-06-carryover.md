@@ -129,6 +129,14 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     paper would rank its front chunks differently from the rest), and an oversized upload, whose text the prompt
     truncates at `CONTEXT_MAX_PAPER_CHARS` anyway, costs no calls at all. Papers at or under the cap, and every paper
     when `CONTEXT_PROVIDER` is `none`, behave as before.
+17. **An ingestion soft-limit timeout is not retried** (security review). Python's `process_paper` sent every
+    exception, the soft time limit's included, to `self.retry` (two retries), except that the contextualizer step
+    caught it and carried on without prefixes; the port retried every soft-limit abort, so one over-long upload ran
+    the whole pipeline, provider calls and all, up to three times. When the job's soft limit (not a pg-boss abort)
+    stops `process_paper`, the paper is still marked `error` with the abort's message, and the job now returns
+    `{status: "error"}` instead of rethrowing, as the embedding-unavailable path already did, so pg-boss completes it
+    without a retry; the worker logs `ingestion_soft_limit_not_retried`. Every other failure, a pg-boss abort included,
+    still rethrows and is retried. `JobContext.softLimitHit()` tells the two aborts apart.
 
 ## 3. Rulings made during execution
 

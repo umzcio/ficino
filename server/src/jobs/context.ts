@@ -9,6 +9,8 @@ export type JobContext = {
   /** True when a throw from this run will not be retried. */
   isFinalAttempt: boolean;
   signal: AbortSignal;
+  /** True when `signal` aborted because the soft time limit passed (not because pg-boss aborted the job). */
+  softLimitHit(): boolean;
   logger: Logger;
   progress(meta: Record<string, unknown>): Promise<void>;
 };
@@ -21,12 +23,16 @@ export function makeJobContext(
   softLimitMs: number,
   retryLimit: number,
 ): JobContext {
+  const softLimit = AbortSignal.timeout(softLimitMs);
+  const signal = AbortSignal.any([job.signal, softLimit]);
   return {
     jobId: job.id,
     retryCount: job.retryCount,
     retryLimit,
     isFinalAttempt: job.retryCount >= retryLimit,
-    signal: AbortSignal.any([job.signal, AbortSignal.timeout(softLimitMs)]),
+    signal,
+    // AbortSignal.any takes the reason of whichever source aborted first.
+    softLimitHit: () => signal.aborted && softLimit.aborted && signal.reason === softLimit.reason,
     logger,
     async progress(meta) {
       await sql`
