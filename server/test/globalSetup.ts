@@ -63,6 +63,9 @@ export default async function setup(project: TestProject) {
     '-e', 'POSTGRES_USER=ficino', '-e', 'POSTGRES_PASSWORD=ficino', '-e', 'POSTGRES_DB=ficino',
     '-p', '127.0.0.1::5432',
     'pgvector/pgvector:pg18',
+    // A throwaway server: skip durability. CREATE/DROP DATABASE checkpoints otherwise flush every dirty
+    // page the suite has made so far, which pushed late scratch-DB tests past their 5 s timeout.
+    'postgres', '-c', 'fsync=off', '-c', 'synchronous_commit=off', '-c', 'full_page_writes=off',
   );
   try {
     // "0.0.0.0:49153" or "127.0.0.1:49153": take the port after the last colon.
