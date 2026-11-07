@@ -94,6 +94,13 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     validation required `content` (Python too), so such threads were dropped. A thread with a usable `thread_posts`
     list and no `content` now gets the joined thread as its `content` (the feed search text; the UI renders
     `thread_posts`).
+13. **`num_posts` is bounded** (security review). Python accepted any integer for `POST /feed/generate`'s `num_posts`,
+    and a `persona_key` request skipped the 1..50 `posts_per_generation` cap, so a huge value (or a long digit string,
+    which became `Infinity`) drove the synchronous post planner until the worker ran out of memory. The route now
+    answers 422 outside 0..50 (`0` still means the default), and the worker clamps every `generate_feed` job: a
+    missing, non-finite or below-1 count is the default 12, anything else is truncated and capped at 50. One constant,
+    `MAX_POSTS_PER_GENERATION` in `server/src/shared/constants.ts`, is both bounds and the setting's max. The shipped
+    UI always sends 3, so nothing visible changes.
 
 ## 3. Rulings made during execution
 

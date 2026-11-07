@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { providerConfig } from '../../src/providers/config.js';
 import { embedModelId } from '../../src/providers/embed.js';
 import { loadConfig } from '../../src/config.js';
+import { MAX_POSTS_PER_GENERATION } from '../../src/shared/constants.js';
 import { uuid5 } from '../../src/shared/uuid5.js';
 import { HANDLERS } from '../../src/worker/handlers.js';
 import { startWorker, type RunningWorker } from '../../src/worker/main.js';
@@ -83,6 +84,22 @@ describe('POST /feed/generate', () => {
       persona_key: 'skeptic',
       num_posts: 4,
     });
+  });
+
+  it('num_posts is bounded to 0..MAX_POSTS_PER_GENERATION: out of range is 422 and enqueues nothing', async () => {
+    expect(MAX_POSTS_PER_GENERATION).toBe(50);
+    await testBoss();
+    const c = as();
+    for (const n of [51, '51', -1, '-3', '9'.repeat(400), 9007199254740991]) {
+      const r = await c.post('/feed/generate', { persona_key: 'skeptic', num_posts: n });
+      expect(r.status, `num_posts ${String(n).slice(0, 12)}`).toBe(422);
+      expect((await r.json()).detail[0].loc).toEqual(['body', 'num_posts']);
+    }
+    expect(await sql`SELECT 1 FROM pgboss.job WHERE name = 'generate_feed'`).toHaveLength(0);
+
+    const r = await c.post('/feed/generate', { persona_key: 'skeptic', num_posts: '50' });
+    expect(r.status).toBe(202);
+    expect(await jobData((await r.json()).task_id)).toMatchObject({ persona_key: 'skeptic', num_posts: 50 });
   });
 
   it('after 20 generates the next is 429; a 422 body still uses a slot', async () => {

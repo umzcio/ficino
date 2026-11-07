@@ -35,7 +35,7 @@ import type { JobContext } from '../jobs/context.js';
 import { loadJobSettings, type ProviderConfig } from '../providers/config.js';
 import type { ProviderDeps } from '../providers/deps.js';
 import { embedModelId, embedTexts } from '../providers/embed.js';
-import { STUB_USER_ID } from '../shared/constants.js';
+import { MAX_POSTS_PER_GENERATION, STUB_USER_ID } from '../shared/constants.js';
 import { pySlice, pyStr } from '../shared/pystr.js';
 import { choice, sample, type Rng } from '../shared/random.js';
 import { uuid5 } from '../shared/uuid5.js';
@@ -54,6 +54,14 @@ export type GenerateFeedData = {
   tab_focus?: string | null;
   persona_key?: string | null;
 };
+
+const DEFAULT_NUM_POSTS = 12;
+
+/** A planned post count the worker can act on: non-numeric, non-finite or below 1 is the default, else truncated and capped. */
+export function clampNumPosts(n: unknown): number {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 1) return DEFAULT_NUM_POSTS;
+  return Math.min(MAX_POSTS_PER_GENERATION, Math.trunc(n));
+}
 
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const errType = (e: unknown): string => (e instanceof Error ? e.name : typeof e);
@@ -340,11 +348,13 @@ export async function generateFeed(
     // --- Settings: one frozen config for the owner, used by every call below ---
     const { settings, providers } = await loadJobSettings(sql, owner, deps.env, config);
     const personas = await loadPersonas(sql);
-    let numPosts = data.num_posts ?? 12;
+    let numPosts = data.num_posts ?? DEFAULT_NUM_POSTS;
     // posts_per_generation applies to normal feeds, not to persona-scoped "Get their take" requests.
     if (!requestedPersona && Object.hasOwn(settings, 'posts_per_generation')) {
       numPosts = settings.posts_per_generation as number;
     }
+    // Backstop for jobs not enqueued through the bounded route: planFeedPosts is a synchronous loop.
+    numPosts = clampNumPosts(numPosts);
     let enabled = resolveEnabledPersonas(settings, personas);
     const temperature = (Object.hasOwn(settings, 'persona_temperature') ? settings.persona_temperature : 0.8) as number;
     let postWeights = (
