@@ -113,6 +113,8 @@ test('pre-commit check-yaml skips the override example', () => {
   const pc = readFileSync(join(REPO, '.pre-commit-config.yaml'), 'utf8');
   const block = pc.slice(pc.indexOf('id: check-yaml'), pc.indexOf('id: check-json'));
   assert.match(block, /exclude: .*deploy\/tailnet\/docker-compose\\\.override\\\.example\\\.yml/);
+  // infra/ left with the Python services (tag python-final): the example is the only exclusion.
+  assert.match(block, /exclude: \^deploy\/tailnet\/docker-compose\\\.override\\\.example\\\.yml\$\n/);
 });
 
 test('the web image keeps the stock nginx entrypoint that renders templates', () => {

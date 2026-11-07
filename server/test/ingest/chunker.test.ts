@@ -4,7 +4,7 @@ import { Tiktoken } from 'js-tiktoken/lite';
 import cl100k_base from 'js-tiktoken/ranks/cl100k_base';
 import { chunkMarkdown, countTokens } from '../../src/ingest/chunker.js';
 
-// Goldens come from worker/lib/chunker.py in the ficino-worker image; see test/fixtures/goldens/gen/README.md.
+// Goldens come from worker/lib/chunker.py; see test/fixtures/goldens/README.md (tag `python-final`).
 const fx = (name: string): string => readFileSync(new URL(`../fixtures/goldens/${name}`, import.meta.url), 'utf8');
 type Case = { name: string; markdown: string; max_tokens: number };
 const inputs = JSON.parse(fx('chunker-inputs.json')) as Case[];

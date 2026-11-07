@@ -7,7 +7,7 @@ repos:
         args: ['--maxkb=2048']
       - id: check-merge-conflict
       - id: check-yaml
-        exclude: ^(infra/postgres/.*\.sql|deploy/tailnet/docker-compose\.override\.example\.yml)$
+        exclude: ^deploy/tailnet/docker-compose\.override\.example\.yml$
       - id: check-json
       - id: end-of-file-fixer
       - id: trailing-whitespace

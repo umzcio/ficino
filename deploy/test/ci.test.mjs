@@ -25,3 +25,9 @@ test('e2e runs on a runner Playwright supports and boots the TS stack', () => {
 });
 
 test('deploy checks run in CI', () => assert.match(job('deploy'), /npm run test:deploy/));
+
+// The Python services were removed at tag python-final; CI must not try to lint, install or test them.
+test('CI runs no Python jobs', () => {
+  for (const n of ['python-lint', 'api-tests', 'worker-tests', 'shared-tests']) assert.equal(job(n), '', n);
+  assert.doesNotMatch(ci, /setup-python|pytest|pip install|ruff|requirements\.lock|infra\//);
+});

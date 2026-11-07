@@ -4,7 +4,8 @@
  * for two CJK characters, and has no images. All text is original to this file.
  *
  * Run from server/: npx tsx test/fixtures/build-sample-pdf.ts
- * The goldens in test/fixtures/goldens are generated from the output (see goldens/gen/README.md).
+ * The sample.* goldens in test/fixtures/goldens are the Python extractor's output for it
+ * (see test/fixtures/goldens/README.md, tag `python-final`).
  */
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

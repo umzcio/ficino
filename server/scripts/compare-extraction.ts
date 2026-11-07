@@ -2,7 +2,7 @@
  * Manual check (not in CI): run the TS extraction on every PDF in <dir> and write the results to <out>:
  *   <name>.ts.md          extractTextMarkdown
  *   <name>.ts.pages.json  extractPagesText
- * Compare them with the Python outputs from test/fixtures/goldens/gen/pdf_text.py (see its README).
+ * Compare them against another extractor's output.
  *
  * Usage (from server/): npx tsx scripts/compare-extraction.ts <dir> <out>
  * Never point <out> inside the repo when <dir> holds private papers.

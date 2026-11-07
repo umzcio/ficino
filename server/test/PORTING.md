@@ -1,5 +1,7 @@
 # Python test porting ledger
 
+The Python sources named here were removed at tag `python-final`.
+
 One line per Python test in api/tests, shared/tests and worker/tests. When a task ports a test, tick the box and append
 ` — <plan/task>`; when a test is not ported, tick it and append ` — n/a: <reason>`.
 

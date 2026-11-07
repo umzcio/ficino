@@ -9,21 +9,10 @@ docker-compose.override.yml
 /postgres.env
 /tailscale.env
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-*.egg-info/
-
 # Node
 node_modules/
 dist/
 .vite/
-
-# Docker volumes
-postgres_data/
-redis_data/
 
 # App data
 uploads/
