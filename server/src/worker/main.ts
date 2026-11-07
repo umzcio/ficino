@@ -74,13 +74,18 @@ export async function startWorker(rawEnv: Env = process.env, overrides: WorkerOv
     for (const name of Object.keys(handlers)) {
       const handler = handlers[name as QueueName];
       if (!handler || !isQueueName(name)) continue;
-      const retryLimit = overrides.queueOverrides?.[name]?.retryLimit ?? QUEUES[name].retryLimit;
       await boss.work(
         name,
-        { localConcurrency: name === 'process_paper' ? config.ingestionConcurrency : 1, batchSize: 1 },
+        {
+          localConcurrency: name === 'process_paper' ? config.ingestionConcurrency : 1,
+          batchSize: 1,
+          includeMetadata: true,
+        },
         async ([job]) => {
           if (!job) return;
-          const ctx = makeJobContext(job, sql, logger, softLimitMs, retryLimit);
+          // The job row's retry_limit is what pg-boss's own retry decision reads (filled at send from the per-job
+          // option or the queue policy that ensureQueues set), so the context takes it from there.
+          const ctx = makeJobContext(job, sql, logger, softLimitMs, job.retryLimit);
           const run = (async () => handler(job.data, ctx, deps))();
           const settled = run.then(() => undefined, () => undefined);
           inFlight.add(settled);
@@ -88,7 +93,7 @@ export async function startWorker(rawEnv: Env = process.env, overrides: WorkerOv
           try {
             return await run;
           } catch (err) {
-            // Rethrow so pg-boss applies the queue's retry policy.
+            // Rethrow so pg-boss applies the job's retry policy.
             logger.error({ err, queue: name, jobId: job.id, retryCount: job.retryCount }, 'job failed');
             throw err;
           }

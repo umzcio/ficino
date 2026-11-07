@@ -379,8 +379,8 @@ describe('POST /replies', () => {
   });
 
   it('Review Focus 1: concurrent replies from two users never cross keys', async () => {
-    for (const [id, key] of [[USER_A_ID, 'ka'], [USER_B_ID, 'kb']] as const) {
-      await sql`INSERT INTO user_settings (user_id, settings) VALUES (${id}, ${sql.json({ llm_provider: 'api', anthropic_api_key: key } as never)})`;
+    for (const [id, key, model] of [[USER_A_ID, 'ka', 'model-a'], [USER_B_ID, 'kb', 'model-b']] as const) {
+      await sql`INSERT INTO user_settings (user_id, settings) VALUES (${id}, ${sql.json({ llm_provider: 'api', anthropic_api_key: key, claude_model: model } as never)})`;
     }
     const fp = byPurpose({ delayMs: 50 });
     const a = as(USER_A_ID, { providers: fp.deps });
@@ -400,8 +400,9 @@ describe('POST /replies', () => {
     for (const c of anth) {
       const text = lastUser(c);
       expect(text.includes('from-a-') !== text.includes('from-b-')).toBe(true);
-      expect(c.apiKey).toBe(text.includes('from-a-') ? 'ka' : 'kb');
+      expect([c.apiKey, c.model]).toEqual(text.includes('from-a-') ? ['ka', 'model-a'] : ['kb', 'model-b']);
     }
+    expect(new Set(anth.map((c) => c.model))).toEqual(new Set(['model-a', 'model-b']));
   });
 });
 

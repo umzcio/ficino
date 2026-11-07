@@ -4,7 +4,7 @@ import type { Sql } from '../db/sql.js';
 export type JobContext = {
   jobId: string;
   retryCount: number;
-  /** The queue's retry limit (policy plus overrides); pg-boss jobs fetched without metadata don't carry it. */
+  /** The job row's retry limit (pg-boss `includeMetadata`), the same number pg-boss's own retry decision reads. */
   retryLimit: number;
   /** True when a throw from this run will not be retried. */
   isFinalAttempt: boolean;

@@ -5,10 +5,9 @@ import { mkdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { MEDIA_URL_TTL, SIGNED_URL_DEFAULT_TTL } from '../shared/constants.js';
 import { signResource } from '../shared/signedUrl.js';
+import { isUuid, UUID_PATTERN } from '../shared/uuid.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MEDIA_KEY_RE =
-  /^feeds\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(audio\/post_\d+|podcast\/episode)\.mp3$/i;
+const MEDIA_KEY_RE = new RegExp(`^feeds/${UUID_PATTERN}/(audio/post_\\d+|podcast/episode)\\.mp3$`, 'i');
 
 export interface WarnLogger {
   warn(obj: Record<string, unknown>, msg: string): void;
@@ -21,7 +20,7 @@ export interface StorageDirs {
 }
 
 function checkId(id: string): void {
-  if (typeof id !== 'string' || !UUID_RE.test(id)) throw new Error('invalid id');
+  if (!isUuid(id)) throw new Error('invalid id');
 }
 
 /** Write to a sibling temp file, then rename over the target, so readers never see a partial file. */
@@ -75,7 +74,7 @@ export class LocalStorage {
    * two directories.
    */
   async deletePaperArtifacts(paperId: string): Promise<void> {
-    if (!UUID_RE.test(paperId)) return;
+    if (!isUuid(paperId)) return;
     const targets: [string, boolean][] = [
       [join(this.dirs.uploadDir, `${paperId}.pdf`), false],
       [join(this.dirs.figuresDir, paperId), true],

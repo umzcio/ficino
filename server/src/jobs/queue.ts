@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { PgBoss } from 'pg-boss';
 import type { Sql } from '../db/sql.js';
+import { isUuid } from '../shared/uuid.js';
 import { isQueueName, QUEUES, type QueueName } from './registry.js';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createBoss(
   databaseUrl: string,
@@ -77,7 +76,7 @@ export class JobQueue {
   }
 
   async getJobState(jobId: string): Promise<JobState> {
-    if (!UUID_RE.test(jobId)) return missing();
+    if (!isUuid(jobId)) return missing();
     const [row] = await this.sql`SELECT queue, meta FROM job_progress WHERE job_id = ${jobId}`;
     if (!row || !isQueueName(row.queue)) return missing();
     const job = await this.boss.getJobById(row.queue, jobId);

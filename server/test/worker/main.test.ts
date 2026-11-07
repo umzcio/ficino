@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -164,6 +165,36 @@ describe('startWorker', () => {
     } finally {
       await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
       await probe.end();
+    }
+  }, 30000);
+  it("reads the retry limit from the job row, so a per-job limit beats the queue's policy", async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    const env = await envFor(scratch.url);
+    const seen: Array<{ retryCount: number; retryLimit: number; final: boolean }> = [];
+    worker = await startWorker(env, {
+      handlers: {
+        generate_corpus_synthesis: async (_data: unknown, ctx: JobContext) => {
+          seen.push({ retryCount: ctx.retryCount, retryLimit: ctx.retryLimit, final: ctx.isFinalAttempt });
+          throw new Error('boom');
+        },
+      },
+    });
+    const boss = createBoss(scratch.url, { max: 1, supervise: false, schedule: false });
+    boss.on('error', () => undefined);
+    try {
+      await boss.start();
+      // The queue's policy is retryLimit 2; this job's own row says 0. Sent through pg-boss directly, because
+      // JobQueue.send takes no per-job options (and writes a job_progress row this fake handler doesn't need).
+      const id = randomUUID();
+      expect(await boss.send('generate_corpus_synthesis', {}, { id, retryLimit: 0 })).toBe(id);
+      await vi.waitFor(
+        async () => expect((await boss.getJobById('generate_corpus_synthesis', id))?.state).toBe('failed'),
+        { timeout: 20000, interval: 200 },
+      );
+      expect(seen).toEqual([{ retryCount: 0, retryLimit: 0, final: true }]);
+    } finally {
+      await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
     }
   }, 30000);
 });

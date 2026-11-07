@@ -34,12 +34,12 @@ export const pyInt = z
   .union([z.number().int(), z.string().regex(/^\s*[+-]?\d+\s*$/)])
   .transform((v) => Number(v));
 
-const UUID_RE = /^[0-9a-f]{32}$/;
+const HEX32_RE = /^[0-9a-f]{32}$/;
 
 /** Python `uuid.UUID(str)`: hyphens ignored, optional braces and `urn:uuid:` prefix; normalized to lowercase hyphenated. */
 export const pyUuid = z.string().transform((v, ctx) => {
   const hex = v.toLowerCase().replace('urn:', '').replace('uuid:', '').replace(/^\{|\}$/g, '').replaceAll('-', '');
-  if (!UUID_RE.test(hex)) {
+  if (!HEX32_RE.test(hex)) {
     ctx.addIssue({ code: 'custom', message: 'Input should be a valid UUID' });
     return z.NEVER;
   }

@@ -189,8 +189,8 @@ describe('POST /personas/:key/dm', () => {
   });
 
   it('Review Focus 1: concurrent DMs from two users never cross keys', async () => {
-    for (const [id, key] of [[USER_A_ID, 'ka'], [USER_B_ID, 'kb']] as const) {
-      await sql`INSERT INTO user_settings (user_id, settings) VALUES (${id}, ${sql.json({ llm_provider: 'api', anthropic_api_key: key } as never)})`;
+    for (const [id, key, model] of [[USER_A_ID, 'ka', 'model-a'], [USER_B_ID, 'kb', 'model-b']] as const) {
+      await sql`INSERT INTO user_settings (user_id, settings) VALUES (${id}, ${sql.json({ llm_provider: 'api', anthropic_api_key: key, claude_model: model } as never)})`;
     }
     const fp = fakeProviders({ delayMs: 50 });
     const a = as(USER_A_ID, { providers: fp.deps });
@@ -207,7 +207,10 @@ describe('POST /personas/:key/dm', () => {
       const ms = (c.body as any).messages as Array<{ role: string; content: string }>;
       return ms.filter((m) => m.role === 'user').at(-1)!.content;
     };
-    for (const c of anth) expect(c.apiKey).toBe(lastUser(c).startsWith('from-a') ? 'ka' : 'kb');
+    for (const c of anth) {
+      expect([c.apiKey, c.model]).toEqual(lastUser(c).startsWith('from-a') ? ['ka', 'model-a'] : ['kb', 'model-b']);
+    }
+    expect(new Set(anth.map((c) => c.model))).toEqual(new Set(['model-a', 'model-b']));
   });
 });
 

@@ -15,9 +15,8 @@ import { embedModelId, embedTexts, EmbeddingUnavailableError } from '../provider
 import { extractWithVision, isVisionAvailable } from '../providers/vision.js';
 import { STUB_USER_ID } from '../shared/constants.js';
 import { pyRound, pySlice, pyStrip } from '../shared/pystr.js';
+import { isUuid } from '../shared/uuid.js';
 import type { WorkerDeps } from '../worker/handlers.js';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const errType = (e: unknown): string => (e instanceof Error ? e.name : typeof e);
@@ -50,7 +49,7 @@ export async function processPaper(
   const log: Logger = ctx.logger.child({ paper_id: paperId, job_id: ctx.jobId });
 
   // A non-UUID id cannot name a row; treat it like a missing row instead of retrying a cast error.
-  const [row] = UUID_RE.test(String(paperId)) ? await sql`SELECT user_id FROM papers WHERE id = ${paperId}` : [];
+  const [row] = isUuid(paperId) ? await sql`SELECT user_id FROM papers WHERE id = ${paperId}` : [];
   if (!row) {
     log.warn('paper_not_found_skipping');
     return { status: 'skipped', paper_id: paperId, reason: 'paper not found' };

@@ -23,8 +23,8 @@ import { userRateLimit } from '../http/rateLimit.js';
 import { body, params, pyInt, pyMaxLen } from '../http/validate.js';
 import { LIMITS } from '../shared/constants.js';
 import { pyStr } from '../shared/pystr.js';
+import { isUuid } from '../shared/uuid.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const threadParams = z.object({ feed_id: z.string(), post_index: pyInt });
 const deleteParams = z.object({ feed_id: z.string(), post_index: pyInt, message_index: pyInt });
 const replySchema = z.object({
@@ -47,7 +47,7 @@ const zapSchema = z.object({
 
 /** The caller owns `feedId`, or 404. A non-UUID id cannot match the uuid column (Python 500s on the cast). */
 async function requireOwnedFeed(sql: Sql, feedId: string, userId: string): Promise<void> {
-  const [owner] = UUID_RE.test(feedId)
+  const [owner] = isUuid(feedId)
     ? await sql`SELECT id FROM feeds WHERE id = ${feedId} AND user_id = ${userId}`
     : [];
   if (!owner) throw new HttpError(404, 'Feed not found');
@@ -116,7 +116,7 @@ export function repliesRoutes(): Hono<AppEnv> {
     const { sql } = c.var.deps;
     const feedId = c.req.param('feed_id');
     // A non-UUID id cannot match a uuid column (Python 500s on the cast); answer empty instead.
-    if (!UUID_RE.test(feedId)) return c.json([]);
+    if (!isUuid(feedId)) return c.json([]);
     const rows = await sql`
       SELECT pr.post_index FROM post_replies pr
       JOIN feeds f ON pr.feed_id = f.id AND f.user_id = ${c.var.user.id}
@@ -297,7 +297,7 @@ export function repliesRoutes(): Hono<AppEnv> {
   r.get('/:feed_id/:post_index', params(threadParams), async (c) => {
     const { sql } = c.var.deps;
     const { feed_id: feedId, post_index: postIndex } = c.req.valid('param');
-    const [row] = UUID_RE.test(feedId)
+    const [row] = isUuid(feedId)
       ? await sql`
           SELECT pr.id, pr.messages, pr.persona_key FROM post_replies pr
           JOIN feeds f ON pr.feed_id = f.id AND f.user_id = ${c.var.user.id}
@@ -310,7 +310,7 @@ export function repliesRoutes(): Hono<AppEnv> {
   r.delete('/:feed_id/:post_index/message/:message_index', params(deleteParams), async (c) => {
     const { sql } = c.var.deps;
     const { feed_id: feedId, post_index: postIndex, message_index: idx } = c.req.valid('param');
-    const [owner] = UUID_RE.test(feedId)
+    const [owner] = isUuid(feedId)
       ? await sql`SELECT id FROM feeds WHERE id = ${feedId} AND user_id = ${c.var.user.id}`
       : [];
     if (!owner) throw new HttpError(404, 'Feed not found');

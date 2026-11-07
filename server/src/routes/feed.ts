@@ -11,8 +11,7 @@ import { body, params, pyBool, pyInt, pyUuid, query } from '../http/validate.js'
 import { LIMITS } from '../shared/constants.js';
 import type { LocalStorage } from '../storage/local.js';
 import type { Logger } from 'pino';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { isUuid } from '../shared/uuid.js';
 
 // FeedGenerateRequest: every field optional/nullable, unknown keys ignored (zod strips them).
 const generateSchema = z.object({
@@ -85,7 +84,7 @@ async function hydrateFigureUrls(
   const indices = posts.map((p, i) => (p && typeof p === 'object' && p.figure_id ? i : -1)).filter((i) => i >= 0);
   if (indices.length === 0) return;
   // A non-UUID id would fail the ::uuid[] cast for every post, so only well-formed ids are queried; the rest keep their persisted URL.
-  const ids = indices.map((i) => String(posts[i]!.figure_id)).filter((id) => UUID_RE.test(id));
+  const ids = indices.map((i) => String(posts[i]!.figure_id)).filter(isUuid);
   let rows: Row[] = [];
   try {
     if (ids.length > 0) rows = await sql`
@@ -139,7 +138,7 @@ export function feedRoutes(): Hono<AppEnv> {
     if (req.append_to_feed_id) {
       // Ownership check: without it another user's feed id could be submitted and overwritten.
       // A non-UUID id cannot match a uuid column (Python 500s on the cast); answer 404 instead.
-      const [owned] = UUID_RE.test(req.append_to_feed_id)
+      const [owned] = isUuid(req.append_to_feed_id)
         ? await sql`SELECT 1 AS ok FROM feeds WHERE id = ${req.append_to_feed_id} AND user_id = ${user.id}`
         : [];
       if (!owned) throw new HttpError(404, 'Feed not found');

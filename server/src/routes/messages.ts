@@ -11,8 +11,8 @@ import { chargeUserRateLimit, userRateLimit } from '../http/rateLimit.js';
 import { body } from '../http/validate.js';
 import { LIMITS } from '../shared/constants.js';
 import { pySlice } from '../shared/pystr.js';
+import { isUuid } from '../shared/uuid.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const groupSchema = z.object({ name: z.string(), paper_ids: z.array(z.string()) });
 
 export function messagesRoutes(): Hono<AppEnv> {
@@ -26,7 +26,7 @@ export function messagesRoutes(): Hono<AppEnv> {
     const userId = c.var.user.id;
     const workspaceId = c.req.query('workspace_id');
     // A non-UUID workspace cannot match a uuid column (Python 500s on the cast); answer empty instead.
-    if (workspaceId && !UUID_RE.test(workspaceId)) return c.json([]);
+    if (workspaceId && !isUuid(workspaceId)) return c.json([]);
     const scope = workspaceId ? sql`AND p.corpus_id = ${workspaceId}` : sql``;
     // Project the preview and count in SQL so a long transcript is never shipped just to render 80 chars.
     const rows = await sql`
@@ -74,7 +74,7 @@ export function messagesRoutes(): Hono<AppEnv> {
   r.get('/papers/:paper_id', async (c) => {
     const { sql, queue, logger } = c.var.deps;
     const paperId = c.req.param('paper_id');
-    const [paper] = UUID_RE.test(paperId)
+    const [paper] = isUuid(paperId)
       ? await sql`
           SELECT id, title, filename, authors FROM papers
           WHERE id = ${paperId} AND user_id = ${c.var.user.id} AND status = 'complete'`
@@ -186,7 +186,7 @@ export function messagesRoutes(): Hono<AppEnv> {
 
     // Every id must be the caller's. Duplicates and malformed ids can never match the count.
     let owned = 0;
-    if (ids.every((id) => UUID_RE.test(id))) {
+    if (ids.every(isUuid)) {
       const [row] = await sql`
         SELECT COUNT(*)::int AS n FROM papers WHERE id = ANY(${ids}::uuid[]) AND user_id = ${userId}`;
       owned = row!.n as number;
@@ -213,7 +213,7 @@ export function messagesRoutes(): Hono<AppEnv> {
   r.get('/groups/:synthesis_id', async (c) => {
     const { sql } = c.var.deps;
     const synthesisId = c.req.param('synthesis_id');
-    const [row] = UUID_RE.test(synthesisId)
+    const [row] = isUuid(synthesisId)
       ? await sql`
           SELECT id, name, paper_ids, messages, generated_at, status, task_id
           FROM corpus_syntheses WHERE id = ${synthesisId} AND user_id = ${c.var.user.id}`

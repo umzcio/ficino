@@ -9,8 +9,8 @@ import { HttpError } from '../http/errors.js';
 import { userRateLimit } from '../http/rateLimit.js';
 import { body, pyMaxLen } from '../http/validate.js';
 import { LIMITS } from '../shared/constants.js';
+import { isUuid } from '../shared/uuid.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DISPATCH_FAILED = 'Failed to dispatch Archivist response. Try again.';
 
 const createSchema = z.object({ content: pyMaxLen(4000), corpus_id: z.string().nullish() });
@@ -35,7 +35,7 @@ export function userPostsRoutes(): Hono<AppEnv> {
     const { sql } = c.var.deps;
     const workspaceId = c.req.query('workspace_id');
     // A non-UUID workspace cannot match a uuid column (Python 500s on the cast); answer empty instead.
-    if (workspaceId && !UUID_RE.test(workspaceId)) return c.json([]);
+    if (workspaceId && !isUuid(workspaceId)) return c.json([]);
     const scope = workspaceId ? sql`AND corpus_id = ${workspaceId}` : sql``;
     const rows = await sql`
       SELECT id, content, replies, sources, status, created_at
@@ -48,7 +48,7 @@ export function userPostsRoutes(): Hono<AppEnv> {
   r.get('/:post_id', async (c) => {
     const { sql } = c.var.deps;
     const postId = c.req.param('post_id');
-    const [row] = UUID_RE.test(postId)
+    const [row] = isUuid(postId)
       ? await sql`
           SELECT id, content, replies, sources, status, created_at
           FROM user_posts WHERE id = ${postId} AND user_id = ${c.var.user.id}`
@@ -64,7 +64,7 @@ export function userPostsRoutes(): Hono<AppEnv> {
 
     // A corpus must belong to the caller, else a user could stage an Archivist run over another's corpus.
     if (corpusId) {
-      const [owner] = UUID_RE.test(corpusId)
+      const [owner] = isUuid(corpusId)
         ? await sql`SELECT 1 AS ok FROM corpora WHERE id = ${corpusId} AND user_id = ${userId}`
         : [];
       if (!owner) throw new HttpError(404, 'Workspace not found');
@@ -93,7 +93,7 @@ export function userPostsRoutes(): Hono<AppEnv> {
     const postId = c.req.param('post_id');
     const { content } = c.req.valid('json');
 
-    const [owned] = UUID_RE.test(postId)
+    const [owned] = isUuid(postId)
       ? await sql`SELECT id FROM user_posts WHERE id = ${postId} AND user_id = ${c.var.user.id}`
       : [];
     if (!owned) throw new HttpError(404, 'Post not found');
@@ -122,7 +122,7 @@ export function userPostsRoutes(): Hono<AppEnv> {
   r.delete('/:post_id', async (c) => {
     const { sql } = c.var.deps;
     const postId = c.req.param('post_id');
-    const res = UUID_RE.test(postId)
+    const res = isUuid(postId)
       ? await sql`DELETE FROM user_posts WHERE id = ${postId} AND user_id = ${c.var.user.id}`
       : { count: 0 };
     if (res.count === 0) throw new HttpError(404, 'Post not found');
@@ -133,7 +133,7 @@ export function userPostsRoutes(): Hono<AppEnv> {
   r.get('/:post_id/status', async (c) => {
     const { sql } = c.var.deps;
     const postId = c.req.param('post_id');
-    const [row] = UUID_RE.test(postId)
+    const [row] = isUuid(postId)
       ? await sql`SELECT status, task_id FROM user_posts WHERE id = ${postId} AND user_id = ${c.var.user.id}`
       : [];
     if (!row) throw new HttpError(404, 'Post not found');
