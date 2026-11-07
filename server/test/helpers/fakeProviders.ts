@@ -1,11 +1,23 @@
 import type { AnthropicLike, ProviderDeps } from '../../src/providers/deps.js';
 
 export type FakeCall = {
-  kind: 'ollama-chat' | 'ollama-embed' | 'openai-embed' | 'voyage-embed' | 'anthropic';
+  kind:
+    | 'ollama-chat'
+    | 'ollama-embed'
+    | 'openai-embed'
+    | 'voyage-embed'
+    | 'anthropic'
+    | 'elevenlabs-tts'
+    | 'elevenlabs-dialogue';
   apiKey?: string;
   model?: string;
+  /** Set on ElevenLabs calls. */
+  url?: string;
   body: unknown;
 };
+
+/** One ElevenLabs request: `voiceId` is the text-to-speech path's voice; `body` the parsed JSON body. */
+export type TtsCall = { kind: 'elevenlabs-tts' | 'elevenlabs-dialogue'; voiceId?: string; body: any };
 
 /** What a chat call is for, read from its system prompt. */
 export type ChatPurpose =
@@ -46,7 +58,16 @@ export type FakeProviderOpts = {
   dim?: number;
   /** Wait this long (abortably) before every reply, so concurrent jobs interleave. */
   delayMs?: number;
+  /**
+   * The answer to each ElevenLabs request: mp3 bytes, or a whole Response (an error status, say). May return a
+   * never-settling promise. Defaults to the bytes of `'ID3fake:' + JSON.stringify(body)`, so tests see what was rendered.
+   */
+  tts?: (call: TtsCall) => Uint8Array | Response | Promise<Uint8Array | Response>;
 };
+
+const ELEVENLABS_TTS = 'https://api.elevenlabs.io/v1/text-to-speech/';
+const ELEVENLABS_DIALOGUE = 'https://api.elevenlabs.io/v1/text-to-dialogue';
+const defaultTts = (call: TtsCall): Uint8Array => new TextEncoder().encode('ID3fake:' + JSON.stringify(call.body));
 
 const DETECT_SYSTEM = 'You identify the scientific figures';
 
@@ -135,6 +156,7 @@ const defaultChat = (_body: unknown, info: ChatInfo): string => {
 export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps; calls: FakeCall[] } {
   const calls: FakeCall[] = [];
   const chat = opts.chat ?? defaultChat;
+  const tts = opts.tts ?? defaultTts;
   const detect = opts.detect ?? (() => []);
   const delay = async (signal?: AbortSignal | null) => {
     if (opts.delayMs) await abortable(new Promise((r) => setTimeout(r, opts.delayMs)), signal);
@@ -167,6 +189,20 @@ export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps
       const dim = opts.dim ?? Number(body.dimensions ?? body.output_dimension ?? 1024);
       const input = body.input as string[];
       return Response.json({ data: input.map((t, index) => ({ index, embedding: fakeVector(t, dim) })) });
+    }
+    const eleven = url.startsWith(ELEVENLABS_TTS)
+      ? ('elevenlabs-tts' as const)
+      : url === ELEVENLABS_DIALOGUE
+        ? ('elevenlabs-dialogue' as const)
+        : null;
+    if (eleven) {
+      const apiKey = new Headers(init?.headers).get('xi-api-key') ?? undefined;
+      calls.push({ kind: eleven, apiKey, model: String(body.model_id), url, body });
+      await delay(signal);
+      const voiceId = eleven === 'elevenlabs-tts' ? url.slice(ELEVENLABS_TTS.length) : undefined;
+      const answer = await abortable(Promise.resolve(tts({ kind: eleven, voiceId, body })), signal);
+      if (answer instanceof Response) return answer;
+      return new Response(new Uint8Array(answer), { headers: { 'content-type': 'audio/mpeg' } });
     }
     if (url.endsWith('/api/chat')) {
       calls.push({ kind: 'ollama-chat', model: String(body.model), body });

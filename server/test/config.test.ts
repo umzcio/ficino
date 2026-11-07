@@ -88,3 +88,12 @@ it('retrieval int fields throw on a non-integer', () => {
   expect(() => loadConfig({ RETRIEVAL_CANDIDATE_POOL: 'ten' })).toThrow();
   expect(loadConfig({ RETRIEVAL_RERANK_MULTIPLIER: '3' }).retrieval.rerankMultiplier).toBe(3);
 });
+
+it('ElevenLabs model ids default to tts.py and take env overrides', () => {
+  const d = loadConfig({});
+  expect(d.elevenlabsModelId).toBe('eleven_turbo_v2_5');
+  expect(d.elevenlabsDialogueModelId).toBe('eleven_v3');
+  const o = loadConfig({ ELEVENLABS_MODEL_ID: 'eleven_flash_v2_5', ELEVENLABS_DIALOGUE_MODEL_ID: 'eleven_v3_alpha' });
+  expect(o.elevenlabsModelId).toBe('eleven_flash_v2_5');
+  expect(o.elevenlabsDialogueModelId).toBe('eleven_v3_alpha');
+});

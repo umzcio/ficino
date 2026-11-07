@@ -51,18 +51,25 @@ export async function withRetry<T>(
   }
 }
 
-/** One JSON request with a per-request timeout combined with the job signal. */
-export async function fetchJson(
+type HttpInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  timeoutMs: number;
+  signal?: AbortSignal;
+};
+
+/**
+ * One request with a per-request timeout (a total deadline) combined with the caller's signal. A JSON `body` is
+ * serialized and sent as `application/json`. Rejects with `HttpStatusError` on a non-2xx, `NetworkError` when fetch
+ * itself fails, and the timeout's or the caller's own reason otherwise. The body is read under the same signal.
+ */
+async function request<T>(
   deps: Pick<ProviderDeps, 'fetch'>,
   url: string,
-  init: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: unknown;
-    timeoutMs: number;
-    signal?: AbortSignal;
-  },
-): Promise<unknown> {
+  init: HttpInit,
+  read: (res: Response) => Promise<T>,
+): Promise<T> {
   const timeout = AbortSignal.timeout(init.timeoutMs);
   const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   const hasBody = init.body !== undefined;
@@ -80,5 +87,15 @@ export async function fetchJson(
     throw new NetworkError(e);
   }
   if (!res.ok) throw new HttpStatusError(res.status, await res.text().catch(() => ''));
-  return res.json();
+  return read(res);
+}
+
+/** One JSON request and JSON response. */
+export function fetchJson(deps: Pick<ProviderDeps, 'fetch'>, url: string, init: HttpInit): Promise<unknown> {
+  return request(deps, url, init, (res) => res.json());
+}
+
+/** One JSON request whose response body is returned as raw bytes (audio). */
+export function fetchBytes(deps: Pick<ProviderDeps, 'fetch'>, url: string, init: HttpInit): Promise<Uint8Array> {
+  return request(deps, url, init, async (res) => new Uint8Array(await res.arrayBuffer()));
 }

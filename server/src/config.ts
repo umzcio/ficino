@@ -17,6 +17,10 @@ export interface Config {
   maxUploadSizeMb: number;
   ollamaBaseUrl: string;
   elevenlabsApiKey: string;
+  /** `ELEVENLABS_MODEL_ID`: the single-voice text-to-speech model (worker/lib/tts.py). */
+  elevenlabsModelId: string;
+  /** `ELEVENLABS_DIALOGUE_MODEL_ID`: the one-call text-to-dialogue model (worker/lib/tts.py). */
+  elevenlabsDialogueModelId: string;
   signedUrlKey: string;
   searchUseNormalizedPosts: boolean;
   dbPoolMax: number;
@@ -144,6 +148,8 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     maxUploadSizeMb: int(env, 'MAX_UPLOAD_SIZE_MB', 50),
     ollamaBaseUrl: str(env, 'OLLAMA_BASE_URL', 'http://host.docker.internal:11434'),
     elevenlabsApiKey: str(env, 'ELEVENLABS_API_KEY', ''),
+    elevenlabsModelId: str(env, 'ELEVENLABS_MODEL_ID', 'eleven_turbo_v2_5'),
+    elevenlabsDialogueModelId: str(env, 'ELEVENLABS_DIALOGUE_MODEL_ID', 'eleven_v3'),
     signedUrlKey: str(env, 'SIGNED_URL_KEY', '').trim(),
     searchUseNormalizedPosts: parseBool(env.SEARCH_USE_NORMALIZED_POSTS, true),
     dbPoolMax: poolMax(int(env, poolVar, 20)),
