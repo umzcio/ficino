@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pino } from 'pino';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
@@ -10,8 +12,10 @@ import { embedModelId } from '../../src/providers/embed.js';
 import { STUB_USER_ID } from '../../src/shared/constants.js';
 import { uuid5 } from '../../src/shared/uuid5.js';
 import { LocalStorage } from '../../src/storage/local.js';
+import { insertChapters } from '../../src/readingLists/chapters.js';
 import { generateChapter, type GenerateChapterData } from '../../src/tasks/readingLists.js';
 import { HANDLERS, type WorkerDeps } from '../../src/worker/handlers.js';
+import { testStorageDirs } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, type Seeded } from '../helpers/db.js';
 import { fakeProviders, fakeVector, type ChatInfo } from '../helpers/fakeProviders.js';
 import { testQueue } from '../helpers/queue.js';
@@ -100,6 +104,7 @@ type HarnessOpts = {
   controller?: AbortController;
   /** Called synchronously with each log line as the handler writes it. */
   onLog?: (line: Line) => void;
+  storage?: LocalStorage;
 };
 
 function harness(o: HarnessOpts = {}) {
@@ -134,7 +139,7 @@ function harness(o: HarnessOpts = {}) {
     config,
     env: {},
     logger,
-    storage,
+    storage: o.storage ?? storage,
     queue: testQueue(),
     providers: f.deps,
     rng: () => 0.5,
@@ -408,6 +413,80 @@ describe('generate_chapter', () => {
       { chapter_index: 0, status: 'unlocked', feed_id: null },
       { chapter_index: 1, status: 'locked', feed_id: null },
     ]);
+  });
+
+  describe('deliberate change 20: a chapter rebuilt during generation commits nothing', () => {
+    const rebuilt = async (listId: string, how: 'reorder' | 'repoint') => {
+      if (how === 'reorder') {
+        // What propose_ordering / apply-ordering do: every chapter deleted and rebuilt (new ids).
+        await sql.begin(async (tx) => {
+          await tx`DELETE FROM reading_list_chapters WHERE reading_list_id = ${listId}`;
+          await insertChapters(tx, listId, [a2, s.paper_a]);
+        });
+      } else {
+        await sql`
+          UPDATE reading_list_chapters SET paper_ids = ${[a2]}::uuid[]
+          WHERE reading_list_id = ${listId} AND chapter_index = 0`;
+      }
+    };
+
+    it.each(['reorder', 'repoint'] as const)('%s: skipped, no feed, the rebuilt lock order intact', async (how) => {
+      await setSettings(s.user_a, simple(2));
+      const listId = await seedList(s.user_a, [s.paper_a, a2]);
+      const h = harness({
+        chat: async (_info, n) => {
+          if (n === 1) await rebuilt(listId, how);
+          return '{"post_type": "post", "content": "A grounded take."}';
+        },
+      });
+      expect(await h.run({ reading_list_id: listId, chapter_index: 0, user_id: s.user_a })).toEqual({
+        status: 'skipped',
+        reason: 'chapter_rebuilt',
+      });
+      const feedId = uuid5(`ficino:chapter:${listId}:0`);
+      expect(await feedRow(feedId)).toBeUndefined();
+      expect(await sql`SELECT 1 FROM feed_posts WHERE feed_id = ${feedId}`).toHaveLength(0);
+      expect(await chapters(listId)).toEqual([
+        { chapter_index: 0, status: 'unlocked', feed_id: null },
+        { chapter_index: 1, status: 'locked', feed_id: null },
+      ]);
+      expect(logged(h.lines, 'generate_chapter_rebuilt')).toHaveLength(1);
+      expect(logged(h.lines, 'generate_chapter_complete')).toHaveLength(0);
+    });
+  });
+
+  it('deliberate change 21: a regenerated chapter feed drops its old media state and files', async () => {
+    const dirs = testStorageDirs();
+    const media = new LocalStorage(dirs, Buffer.from('k'.repeat(32)));
+    await setSettings(s.user_a, simple(1));
+    const listId = await seedList(s.user_a, [s.paper_a]);
+    const feedId = uuid5(`ficino:chapter:${listId}:0`);
+    // An earlier run left an empty feed whose (empty) audio and podcast are ready.
+    await sql`
+      INSERT INTO feeds (id, user_id, posts, post_count, audio_status, audio_claimed_at, audio_generated_at,
+                         podcast_status, podcast_claimed_at, podcast_generated_at, podcast_segments)
+      VALUES (${feedId}, ${s.user_a}, '[]', 0, 'ready', NOW(), NOW(), 'ready', NOW(), NOW(), '[{"index":0}]')`;
+    await sql`UPDATE reading_list_chapters SET feed_id = ${feedId} WHERE reading_list_id = ${listId}`;
+    const episode = join(dirs.mediaDir, 'feeds', feedId, 'podcast', 'episode.mp3');
+    mkdirSync(join(dirs.mediaDir, 'feeds', feedId, 'podcast'), { recursive: true });
+    writeFileSync(episode, 'old');
+
+    const result = await harness({ storage: media }).run({ reading_list_id: listId, chapter_index: 0, user_id: s.user_a });
+    expect(result).toEqual({ status: 'complete', feed_id: feedId, post_count: 1 });
+    const row = (await feedRow(feedId))!;
+    expect(row.posts).toHaveLength(1);
+    for (const col of [
+      'audio_status',
+      'audio_claimed_at',
+      'audio_generated_at',
+      'podcast_status',
+      'podcast_claimed_at',
+      'podcast_generated_at',
+      'podcast_segments',
+    ]) {
+      expect(row[col], col).toBeNull();
+    }
+    expect(existsSync(join(dirs.mediaDir, 'feeds', feedId))).toBe(false);
   });
 
   it('a missing list or chapter throws the Python message', async () => {

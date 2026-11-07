@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { HttpStatusError } from '../../src/providers/http.js';
 import {
@@ -93,6 +93,20 @@ describe('golden requests (worker/lib/tts.py)', () => {
       expect(r.call.fn === 'synthesize' ? TTS_TIMEOUT_MS : DIALOGUE_TIMEOUT_MS).toBe(r.timeout * 1000);
     });
   }
+
+  it('deliberate change 15: speak passes a 30 s total deadline and speakDialogue 180 s', async () => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const { deps } = recorder();
+      await speak(cfg, deps, { text: 'One line.', voiceId: 'A' });
+      expect(spy.mock.calls.map((c) => c[0])).toEqual([30_000]);
+      spy.mockClear();
+      await speakDialogue(cfg, deps, { inputs: turns('One.', 'Two.') });
+      expect(spy.mock.calls.map((c) => c[0])).toEqual([180_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   it('the voice map and the default voice equal the golden', () => {
     expect(DEFAULT_VOICE).toBe(golden.default_voice);

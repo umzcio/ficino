@@ -81,6 +81,41 @@ Each is pinned by a test. The plan lists them in full; this is the record.
     non-array `posts` with `feed posts is not a list`. `tasks/podcast-settings-failure.test.ts`,
     `tasks/podcast.test.ts`, `tasks/feed-audio.test.ts`.
 
+Changes 18 to 23 came from the final review's fix wave.
+
+18. **A media job writes only while it owns its claim, and stops as soon as it does not.** `claimMedia` returns the
+    claim timestamp as a token; every later write (`audio_key`, `audio_error`, `podcast_segments`, `ready`,
+    `failed`) is guarded by `<col>_status = 'generating' AND <col>_claimed_at = <token>`, and feed audio checks the
+    claim before each paid render, the podcast before the dialogue render and before saving the episode. A deleted
+    feed ends the job `{status: 'skipped', reason: 'feed_deleted'}`, removes `{MEDIA_DIR}/feeds/{id}/` again (a
+    save may have recreated it after the delete path's cleanup) and logs `feed_audio_feed_deleted` /
+    `feed_podcast_feed_deleted`; a claim taken over (a reclaim, change 21's reset) ends it `claim_lost`
+    (`feed_*_claim_lost`), leaving the row and files to the new owner. Python kept paying for renders of a deleted
+    feed and could overwrite a newer claim's status. `tasks/feed-audio.test.ts`, `tasks/podcast.test.ts`. Cost if
+    wrong: a job whose claim is rewritten by something unforeseen stops early and the user presses Listen again.
+19. **`propose_ordering` keeps a repeated paper id once**, at its first place after the position sort, and logs
+    `propose_ordering_duplicate_ids`. `validateOrdering` keeps its golden parity (duplicates pass the set check);
+    Python persisted one chapter per entry, so a padded answer bought a second paid chapter for one paper (both
+    routes already 422 that shape). `tasks/propose-ordering.test.ts`.
+20. **`generate_chapter` commits only onto the chapter row it read.** The complete mark is
+    `WHERE id = <chapter> AND paper_ids = <its paper_ids>`; when that matches nothing (propose_ordering,
+    apply-ordering or reorder rebuilt the chapters during the LLM calls) the whole change-3 transaction rolls back
+    and the job returns `{status: 'skipped', reason: 'chapter_rebuilt'}` (`generate_chapter_rebuilt`). Python
+    committed a feed no chapter pointed at and unlocked the next rebuilt chapter. `tasks/generate-chapter.test.ts`.
+21. **A regenerated chapter feed drops its old media.** The chapter upsert's `ON CONFLICT DO UPDATE` also nulls
+    `audio_status`, `audio_claimed_at`, `audio_generated_at`, `podcast_status`, `podcast_claimed_at`,
+    `podcast_generated_at` and `podcast_segments`, and an updated (not inserted) row has its media directory removed
+    after the commit. Python left a `ready` status on the new posts, so they could never be voiced and the old
+    episode kept playing. `tasks/generate-chapter.test.ts`.
+22. **An Archivist redelivery answers only its own turn.** A job whose post's `task_id` names another job that is
+    still `created`, `retry` or `active` skips with `archivist_response_superseded` / `archivist_followup_superseded`
+    (a finished or missing job named there does not stop it: a late `task_id` write can name one). A first-answer
+    job whose post already has replies skips (`archivist_response_idempotent_skip`) instead of overwriting the
+    conversation. `tasks/archivist.test.ts`.
+23. **`generate_corpus_synthesis`'s idempotent skip heals a `generating` row** (`status = 'complete'`,
+    `task_id = NULL`), so a restored row whose `messages` is a non-empty non-array (a double-encoded string) no
+    longer loops through the group-chat stuck check, charging `summary` on every poll. `tasks/summary.test.ts`.
+
 **Non-UUID ids.** As in plan 04, a path or body id that cannot be a UUID answers the route's own 404 (or the empty
 shape) where Python returned 500 on the cast. A 32-hex unhyphenated or braced id, which Postgres accepts, is also 404.
 
@@ -278,4 +313,17 @@ None blocks anything. Plan 06 should fix each one or consciously keep it.
   - A persona key for a truthy object `persona` goes through `pyStr` (JSON) where Python printed a repr; it only
     changes the spoken name.
   - The smoke script is typechecked but has not been run by its author.
+- **From the final review (not fixed).**
+  - `POST /feed/{id}/audio|podcast` writes nothing before the job claims, so every POST between a dispatch and the
+    claim (a reload, a second tab, a busy queue) charges `audio` again and enqueues a job that then skips; on a
+    stale claim that means one dead claim can be charged more than once. Python parity for NULL/failed rows; a
+    guarded `<col>_claimed_at` stamp before the charge would make one request win.
+  - The podcast's titles-query abort rethrow (`audio/podcast.ts`) has no test: the titles query is SQL and never
+    sees the signal, so no fake reaches it. The retrieval rethrow is pinned.
+  - The podcast's final `ready` write that matches no row (a delete between the pre-save claim check and the save)
+    is covered by the same guard as feed audio but has no podcast-specific test; the window is one SQL round trip.
+  - Change 22 is skipped when the newer follow-up's `task_id` write has not landed yet (`task_id` still NULL); the
+    redelivery then answers the newer turn, as before.
+  - A media job that loses its claim (change 18) may leave the one file it saved just before noticing in the
+    feed's media directory; the next render of that index overwrites it and a feed delete removes it.
 - **Tooling.** The eslint config is still broken; the linter was not run.

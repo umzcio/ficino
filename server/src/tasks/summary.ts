@@ -137,6 +137,11 @@ export async function generateCorpusSynthesis(
     const [existing] = await sql`SELECT messages FROM corpus_syntheses WHERE id = ${synthesisId}`;
     if (existing && truthy(existing.messages)) {
       const count = jsonLen(existing.messages);
+      // Deliberate change 23: heal a row the skip would otherwise leave `generating` (a non-array `messages` from a
+      // restore), or the group-chat stuck check would charge and re-dispatch it on every poll.
+      await sql`
+        UPDATE corpus_syntheses SET status = 'complete', task_id = NULL
+        WHERE id = ${synthesisId} AND status = 'generating'`;
       log.info({ messages: count }, 'corpus_synthesis_idempotent_skip');
       return { status: 'complete', synthesis_id: synthesisId, message_count: count, idempotent: true };
     }

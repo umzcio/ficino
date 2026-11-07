@@ -115,6 +115,28 @@ describe('propose_ordering', () => {
     }
   });
 
+  it('deliberate change 19: a repeated paper id is kept once, so no paper gets a second chapter', async () => {
+    const p1 = await newPaper(USER_A_ID, 'Foundations', ['Base chunk.']);
+    const p2 = await newPaper(USER_A_ID, 'Follow-up', ['Later chunk.']);
+    const listId = await seedList(USER_A_ID, [p1, p2]);
+    const answer = JSON.stringify([
+      { paper_id: p2, position: 1, rationale: 'First.' },
+      { paper_id: p1, position: 2, rationale: 'Second.' },
+      { paper_id: p2, position: 3, rationale: 'Again.' },
+    ]);
+    const { result, lines } = await run({ paper_ids: [p1, p2], list_id: listId, user_id: USER_A_ID }, () => answer);
+    const row = await listRow(listId);
+    expect(row.paper_sequence).toEqual([p2, p1]);
+    expect((row.rationale as Array<{ rationale: string }>).map((r) => r.rationale)).toEqual(['First.', 'Second.']);
+    expect(await chapterRows(listId)).toEqual([
+      { chapter_index: 0, paper_ids: [p2], status: 'unlocked' },
+      { chapter_index: 1, paper_ids: [p1], status: 'locked' },
+    ]);
+    expect((result.ordered_papers as unknown[]).length).toBe(2);
+    expect(lines.filter((l) => l.msg === 'propose_ordering_duplicate_ids')).toMatchObject([{ dropped: 1 }]);
+    expect(lines.filter((l) => l.msg === 'propose_ordering_id_mismatch')).toHaveLength(0);
+  });
+
   it('persists the reversed order, the rationale and chapters rebuilt from scratch', async () => {
     const p1 = await newPaper(USER_A_ID, 'Foundations', ['Base chunk.']);
     const p2 = await newPaper(USER_A_ID, 'Follow-up', ['Later chunk.']);

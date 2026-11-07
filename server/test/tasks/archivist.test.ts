@@ -256,6 +256,8 @@ describe('respond_to_user_post', () => {
     expect(logged(h.lines, 'archivist_persona_prompt_missing_using_fallback')).toHaveLength(1);
 
     await sql`UPDATE personas SET is_active = false WHERE key = 'archivist'`;
+    // An answered first post is skipped (deliberate change 22), so the second run starts from an unanswered one.
+    await sql`UPDATE user_posts SET replies = '[]'::jsonb, status = 'pending' WHERE id = ${id}`;
     try {
       const h2 = harness();
       await respondToUserPost({ user_post_id: id }, h2.ctx, h2.deps);
@@ -379,6 +381,51 @@ describe('respond_to_user_post_followup', () => {
     expect(h.embeds()).toHaveLength(0);
     expect(logged(h.lines, 'archivist_followup_idempotent_skip')).toHaveLength(1);
     expect(logged(h.lines, 'archivist_followup_failed')).toHaveLength(0);
+  });
+
+  describe('deliberate change 22: a redelivery answers only its own turn', () => {
+    it('a follow-up whose post now belongs to a queued newer job is skipped with no LLM call', async () => {
+      const h = harness();
+      // A real queued job (no worker runs in this file), so its state is `created`.
+      const newer = await h.deps.queue.send('respond_to_user_post_followup', { user_post_id: randomUUID() });
+      const id = await addPost(s.user_a, s.workspace_a, { replies: history, taskId: newer });
+      expect(await respondToUserPostFollowup({ user_post_id: id }, h.ctx, h.deps)).toEqual({
+        status: 'complete',
+        user_post_id: id,
+        superseded: true,
+      });
+      expect(h.chats()).toHaveLength(0);
+      expect(h.embeds()).toHaveLength(0);
+      expect((await postRow(id)).replies).toEqual(history);
+      expect(await markRow(id)).toEqual({ status: 'pending', task_id: newer });
+      expect(logged(h.lines, 'archivist_followup_superseded')[0]).toMatchObject({ current_task_id: newer });
+    });
+
+    it('a task_id naming a finished or missing job does not stop the answer (a late task_id write)', async () => {
+      const h = harness();
+      const id = await addPost(s.user_a, s.workspace_a, { replies: history, taskId: randomUUID() });
+      expect((await respondToUserPostFollowup({ user_post_id: id }, h.ctx, h.deps)).status).toBe('complete');
+      expect(h.chats()).toHaveLength(1);
+      expect((await postRow(id)).replies).toHaveLength(history.length + 1);
+      expect(logged(h.lines, 'archivist_followup_superseded')).toHaveLength(0);
+    });
+
+    it('a redelivered first answer never overwrites a conversation that already has replies', async () => {
+      const replies = [
+        { role: 'archivist', persona: 'archivist', content: 'First answer.' },
+        { role: 'user', content: 'And then?' },
+      ];
+      const h = harness();
+      const id = await addPost(s.user_a, s.workspace_a, { replies, sources, status: 'pending', taskId: h.ctx.jobId });
+      expect(await respondToUserPost({ user_post_id: id }, h.ctx, h.deps)).toEqual({
+        status: 'complete',
+        user_post_id: id,
+        idempotent: true,
+      });
+      expect(await postRow(id)).toEqual({ status: 'pending', replies, sources });
+      expect(h.chats()).toHaveLength(0);
+      expect(logged(h.lines, 'archivist_response_idempotent_skip')).toHaveLength(1);
+    });
   });
 
   it('a follow-up failure on the final attempt clears its own task_id, so the post is retryable', async () => {

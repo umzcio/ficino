@@ -87,8 +87,15 @@ export async function proposeOrdering(
       signal: ctx.signal,
     });
 
-    const { ordered, mismatch } = validateOrdering(papers, parseOrderingJson(raw));
-    if (mismatch) log.warn(mismatch, 'propose_ordering_id_mismatch');
+    const validated = validateOrdering(papers, parseOrderingJson(raw));
+    if (validated.mismatch) log.warn(validated.mismatch, 'propose_ordering_id_mismatch');
+    // Deliberate change 19: a repeated paper id passes the set check (golden parity) but is kept once, at its first
+    // place, so the list never gets a second paid chapter for one paper (the routes 422 the same shape).
+    const seen = new Set<unknown>();
+    const ordered = validated.ordered.filter((p) => !seen.has(p.paper_id) && seen.add(p.paper_id));
+    if (ordered.length < validated.ordered.length) {
+      log.warn({ dropped: validated.ordered.length - ordered.length }, 'propose_ordering_duplicate_ids');
+    }
 
     const durationMs = Date.now() - start;
 
@@ -116,6 +123,14 @@ export type GenerateChapterData = { reading_list_id: string; chapter_index: numb
 
 type ListRow = { paper_sequence: string[]; corpus_id: string | null; user_id: string | null };
 type ChapterRow = { id: string; paper_ids: string[]; status: string; feed_id: string | null };
+
+/** The chapter row was deleted (rebuilt) while the job generated it; rolls the commit back. */
+class ChapterRebuiltError extends Error {
+  constructor() {
+    super('chapter rebuilt during generation');
+    this.name = 'ChapterRebuiltError';
+  }
+}
 
 /**
  * Generate the feed of one reading-list chapter, scoped to every paper up to and including the chapter's last
@@ -235,21 +250,41 @@ export async function generateChapter(
     // An abort during the last slot never commits the chapter.
     signal.throwIfAborted();
     const corpusId = rl.corpus_id ? String(rl.corpus_id) : null;
-    // Deliberate change 3: the feed, the complete mark and the unlock commit together.
-    await sql.begin(async (tx) => {
-      await tx`
-        INSERT INTO feeds (id, user_id, corpus_id, posts, paper_count, post_count, generation_duration_ms)
-        VALUES (${feedId}, ${owner}, ${corpusId}, ${sql.json(posts as never)}, ${cumulative.length}, ${posts.length}, ${0})
-        ON CONFLICT (id) DO UPDATE SET
-          posts = EXCLUDED.posts,
-          paper_count = EXCLUDED.paper_count,
-          post_count = EXCLUDED.post_count,
-          generated_at = NOW()`;
-      await tx`UPDATE reading_list_chapters SET feed_id = ${feedId}, status = 'complete' WHERE id = ${chapter.id}`;
-      await tx`
-        UPDATE reading_list_chapters SET status = 'unlocked'
-        WHERE reading_list_id = ${listId} AND chapter_index = ${chapterIndex + 1} AND status = 'locked'`;
-    });
+    // Deliberate change 3: the feed, the complete mark and the unlock commit together. Deliberate change 20: only
+    // onto the chapter row this job read; a rebuild meanwhile (propose_ordering, apply-ordering, reorder) rolls the
+    // whole write back. Deliberate change 21: a regenerated feed row drops its old media state, so its new posts
+    // can be voiced again (the stale files are removed after the commit).
+    let replaced = false;
+    try {
+      await sql.begin(async (tx) => {
+        // xmax is non-zero on a row the upsert updated, zero on one it inserted.
+        const [feed] = await tx<{ replaced: boolean }[]>`
+          INSERT INTO feeds (id, user_id, corpus_id, posts, paper_count, post_count, generation_duration_ms)
+          VALUES (${feedId}, ${owner}, ${corpusId}, ${sql.json(posts as never)}, ${cumulative.length}, ${posts.length}, ${0})
+          ON CONFLICT (id) DO UPDATE SET
+            posts = EXCLUDED.posts,
+            paper_count = EXCLUDED.paper_count,
+            post_count = EXCLUDED.post_count,
+            generated_at = NOW(),
+            audio_status = NULL, audio_claimed_at = NULL, audio_generated_at = NULL,
+            podcast_status = NULL, podcast_claimed_at = NULL, podcast_generated_at = NULL, podcast_segments = NULL
+          RETURNING (xmax <> 0) AS replaced`;
+        replaced = feed?.replaced === true;
+        const marked = await tx`
+          UPDATE reading_list_chapters SET feed_id = ${feedId}, status = 'complete'
+          WHERE id = ${chapter.id} AND paper_ids = ${chapterPaperIds}::uuid[]
+          RETURNING id`;
+        if (marked.length === 0) throw new ChapterRebuiltError();
+        await tx`
+          UPDATE reading_list_chapters SET status = 'unlocked'
+          WHERE reading_list_id = ${listId} AND chapter_index = ${chapterIndex + 1} AND status = 'locked'`;
+      });
+    } catch (e) {
+      if (!(e instanceof ChapterRebuiltError)) throw e;
+      log.warn({ chapter_id: String(chapter.id) }, 'generate_chapter_rebuilt');
+      return { status: 'skipped', reason: 'chapter_rebuilt' };
+    }
+    if (replaced) await deps.storage.deleteFeedMedia(feedId);
 
     // feeds.posts is the source of truth; the index is best-effort and can be backfilled.
     try {

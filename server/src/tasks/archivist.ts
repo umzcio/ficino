@@ -90,7 +90,12 @@ const INITIAL: Mode = {
   chunksEvent: 'archivist_chunks_retrieved',
   hallucinatedEvent: 'archivist_hallucinated_citation',
   emptyReply: EMPTY_CORPUS_REPLY,
-  turn: (row) => ({ query: pyStr(row.content), userPrompt: pyStr(row.content) }),
+  turn: (row) => {
+    // Deliberate change 22: a redelivery after this job's reply committed must not overwrite the conversation
+    // (storeReply replaces `replies`, which may hold follow-ups by now).
+    if (Array.isArray(row.replies) && row.replies.length > 0) return null;
+    return { query: pyStr(row.content), userPrompt: pyStr(row.content) };
+  },
   store: storeReply,
 };
 
@@ -112,6 +117,17 @@ const FOLLOWUP: Mode = {
   store: (sql, id, reply) => appendReply(sql, id, reply),
 };
 
+/** Whether `taskId` is still queued or running; an unreadable state counts as not live (the job answers). */
+async function isLiveJob(deps: WorkerDeps, taskId: string, log: Logger): Promise<boolean> {
+  try {
+    const { state } = await deps.queue.getJobState(taskId);
+    return state === 'created' || state === 'retry' || state === 'active';
+  } catch (e) {
+    log.warn({ task_id: taskId, error: errMessage(e) }, 'archivist_task_state_check_failed');
+    return false;
+  }
+}
+
 async function respond(
   mode: Mode,
   userPostId: string,
@@ -126,15 +142,21 @@ async function respond(
 
   try {
     // Load the row first so provider settings are scoped to the post owner.
-    const [row] =
-      mode === INITIAL
-        ? await sql`SELECT content, corpus_id, user_id FROM user_posts WHERE id = ${userPostId}`
-        : await sql`SELECT content, replies, corpus_id, user_id FROM user_posts WHERE id = ${userPostId}`;
+    const [row] = await sql`SELECT content, replies, corpus_id, user_id, task_id FROM user_posts WHERE id = ${userPostId}`;
     if (!row) throw new Error(`User post ${userPostId} not found`);
+
+    // Deliberate change 22: a redelivered job whose post has since been handed to another live job (a newer
+    // follow-up) leaves that turn to it. A finished or dead job named here is not live: a late task_id write can
+    // name one, and this job is then the one that must answer.
+    const otherTask = row.task_id ? String(row.task_id) : null;
+    if (otherTask && otherTask !== ctx.jobId && (await isLiveJob(deps, otherTask, log))) {
+      log.info({ current_task_id: otherTask }, `${mode.event}_superseded`);
+      return { status: 'complete', user_post_id: userPostId, superseded: true };
+    }
 
     const turn = mode.turn(row);
     if (!turn) {
-      log.info('archivist_followup_idempotent_skip');
+      log.info(mode === INITIAL ? 'archivist_response_idempotent_skip' : 'archivist_followup_idempotent_skip');
       return { status: 'complete', user_post_id: userPostId, idempotent: true };
     }
     const { query, userPrompt } = turn;

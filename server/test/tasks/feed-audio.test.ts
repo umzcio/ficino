@@ -120,7 +120,7 @@ describe('claimMedia', () => {
   it('claims NULL and failed, returning user_id, corpus_id and posts', async () => {
     await setFeed(s.feed_a, [SKEPTIC]);
     const got = await claimMedia(sql, s.feed_a, 'audio', R);
-    expect(got).toEqual({ user_id: s.user_a, corpus_id: s.workspace_a, posts: [SKEPTIC] });
+    expect(got).toEqual({ user_id: s.user_a, corpus_id: s.workspace_a, posts: [SKEPTIC], claim: expect.any(String) });
     const row = await feedRow(s.feed_a);
     expect(row.audio_status).toBe('generating');
     expect(row.audio_claimed_at).not.toBeNull();
@@ -361,6 +361,92 @@ describe('generate_audio_for_feed', () => {
     const row = await feedRow(s.feed_a);
     expect(row.posts[0]).not.toHaveProperty('audio_error');
     expect(row.posts[0].audio_key).toBe(`feeds/${s.feed_a}/audio/post_0.mp3`);
+  });
+
+  describe('deliberate change 18: the job stops once it no longer owns the feed', () => {
+    const FOUR = [SKEPTIC, { persona: 'hype', content: 'Two.' }, { persona: 'hype', content: 'Three.' }, SKEPTIC];
+    const feedDir = (id: string) => join(dirs.mediaDir, 'feeds', id);
+
+    it('a feed deleted during a render gets no further render and no media directory', async () => {
+      await setFeed(s.feed_a, FOUR);
+      const h = harness({
+        tts: async (_c, n) => {
+          // What every delete path does: the row, then its media directory.
+          if (n === 2) {
+            await sql`DELETE FROM feeds WHERE id = ${s.feed_a}`;
+            await storage.deleteFeedMedia(s.feed_a);
+          }
+          return new Uint8Array([1]);
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'feed_deleted' });
+      expect(tts(h.calls)).toHaveLength(2);
+      expect(existsSync(feedDir(s.feed_a))).toBe(false);
+      expect(logged(h.lines, 'feed_audio_feed_deleted')).toHaveLength(1);
+      expect(logged(h.lines, 'feed_audio_failed')).toHaveLength(0);
+      // The key write for post 1 matched no row, so post 1 never counts as rendered.
+      expect(logged(h.lines, 'post_rendered').map((l) => l.post_index)).toEqual([0]);
+    });
+
+    it('a feed deleted during the last render, which failed, never ends ready', async () => {
+      await setFeed(s.feed_a, [{ persona: 'my_persona', content: 'Custom.' }]);
+      const h = harness({
+        tts: async () => {
+          await sql`DELETE FROM feeds WHERE id = ${s.feed_a}`;
+          return fail401();
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'feed_deleted' });
+      expect(logged(h.lines, 'feed_audio_complete')).toHaveLength(0);
+    });
+
+    it('a feed deleted during a failed render is noticed before the next paid call', async () => {
+      // A failed render writes no key, so only the check before each render can see the delete.
+      await setFeed(s.feed_a, [{ persona: 'my_persona', content: 'Custom.' }, SKEPTIC, SKEPTIC]);
+      const h = harness({
+        tts: async (_c, n) => {
+          if (n === 1) await sql`DELETE FROM feeds WHERE id = ${s.feed_a}`;
+          return fail401();
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'feed_deleted' });
+      expect(tts(h.calls)).toHaveLength(1);
+      expect(logged(h.lines, 'feed_audio_feed_deleted')).toHaveLength(1);
+    });
+
+    it('a claim taken over mid-job stops this job and leaves the row and files to the new owner', async () => {
+      await setFeed(s.feed_a, FOUR);
+      const h = harness({
+        tts: async (_c, n) => {
+          if (n === 2) await sql`UPDATE feeds SET audio_claimed_at = NOW() + interval '1 second' WHERE id = ${s.feed_a}`;
+          return new Uint8Array([1]);
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'claim_lost' });
+      expect(tts(h.calls)).toHaveLength(2);
+      const row = await feedRow(s.feed_a);
+      expect(row.audio_status).toBe('generating');
+      expect(row.posts[0].audio_key).toBe(`feeds/${s.feed_a}/audio/post_0.mp3`);
+      expect(row.posts[1].audio_key).toBeUndefined();
+      expect(existsSync(join(feedDir(s.feed_a), 'audio', 'post_0.mp3'))).toBe(true);
+      expect(logged(h.lines, 'feed_audio_claim_lost')).toHaveLength(1);
+    });
+
+    it('a job that fails after its claim was reset does not overwrite the new state with failed', async () => {
+      await setFeed(s.feed_a, [SKEPTIC]);
+      const controller = new AbortController();
+      const h = harness({
+        controller,
+        tts: async () => {
+          await sql`UPDATE feeds SET audio_status = NULL, audio_claimed_at = NULL WHERE id = ${s.feed_a}`;
+          controller.abort();
+          return new Promise<Uint8Array>(() => {});
+        },
+      });
+      await expect(h.run(s.feed_a)).rejects.toThrow();
+      expect((await feedRow(s.feed_a)).audio_status).toBeNull();
+      expect(logged(h.lines, 'feed_audio_failed')).toHaveLength(1);
+    });
   });
 
   describe('the job abort (deliberate change 16)', () => {

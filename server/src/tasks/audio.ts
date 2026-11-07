@@ -1,6 +1,14 @@
 // Port of worker/tasks/audio_tasks.py: generate_audio_for_feed and generate_podcast_for_feed (W §2.7).
 import type { Logger } from 'pino';
-import { claimMedia, personaKeyOf, postToSpeechText, reclaimMinutes } from '../audio/feedAudio.js';
+import {
+  claimMedia,
+  claimState,
+  personaKeyOf,
+  postToSpeechText,
+  reclaimMinutes,
+  type ClaimState,
+  type MediaColumn,
+} from '../audio/feedAudio.js';
 import { buildPodcastScript, collectPaperIds } from '../audio/podcast.js';
 import { loadPersonas } from '../feed/personas.js';
 import { assertEmbedModelScope, type RetrievalCtx } from '../feed/retrieval.js';
@@ -29,6 +37,38 @@ export type FeedMediaData = { feed_id: string };
 
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const errType = (e: unknown): string => (e instanceof Error ? e.name : typeof e);
+
+/**
+ * Deliberate change 18: a media job writes only while it still owns its claim, and stops as soon as it does not.
+ * `owned()` is the SQL guard for every write after the claim; `stop()` answers null while the claim is held, or
+ * ends the job: a deleted feed (`gone`) gets its media directory removed again (a save may have recreated it after
+ * the delete path's cleanup) and logs `feed_<kind>_feed_deleted`; a claim taken over (`lost`) leaves the directory
+ * to its new owner and logs `feed_<kind>_claim_lost`. Neither ends `failed`; nothing further is rendered.
+ */
+function claimGuard(deps: WorkerDeps, feedId: string, column: MediaColumn, claim: string, log: Logger) {
+  const { sql } = deps;
+  const event = column === 'audio' ? 'feed_audio' : 'feed_podcast';
+  const owned = () =>
+    column === 'audio'
+      ? sql`audio_status = 'generating' AND audio_claimed_at = ${claim}::timestamptz`
+      : sql`podcast_status = 'generating' AND podcast_claimed_at = ${claim}::timestamptz`;
+  const end = async (state: Exclude<ClaimState, 'held'>): Promise<Record<string, unknown>> => {
+    if (state === 'gone') {
+      await deps.storage.deleteFeedMedia(feedId);
+      log.warn(`${event}_feed_deleted`);
+      return { status: 'skipped', reason: 'feed_deleted' };
+    }
+    log.warn(`${event}_claim_lost`);
+    return { status: 'skipped', reason: 'claim_lost' };
+  };
+  const stop = async (): Promise<Record<string, unknown> | null> => {
+    const state = await claimState(sql, feedId, column, claim);
+    return state === 'held' ? null : end(state);
+  };
+  /** After a guarded write matched no row: the claim cannot still be held, so this always ends the job. */
+  const stopAfterMiss = async (): Promise<Record<string, unknown>> => (await stop()) ?? end('lost');
+  return { owned, stop, stopAfterMiss };
+}
 
 type SynthesisOpts = {
   cfg: TtsConfig;
@@ -107,6 +147,7 @@ export async function generateAudioForFeed(
     log.info('feed_audio_skipped_already_claimed_or_ready');
     return { status: 'skipped', reason: 'claimed_or_ready' };
   }
+  const guard = claimGuard(deps, feedId, 'audio', claimed.claim, log);
 
   // A DB-readable breadcrumb for a silent per-post failure; it never replaces the logs.
   const recordPostError = async (idx: number, stage: string, detail: string): Promise<void> => {
@@ -115,7 +156,7 @@ export async function generateAudioForFeed(
         UPDATE feeds
         SET posts = jsonb_set(posts, ARRAY[${String(idx)}::text, 'audio_error'],
                               to_jsonb(${`${stage}: ${pySlice(detail, 0, 300)}`}::text), true)
-        WHERE id = ${feedId}`;
+        WHERE id = ${feedId} AND ${guard.owned()}`;
     } catch {
       // best-effort
     }
@@ -144,6 +185,10 @@ export async function generateAudioForFeed(
         skipped += 1;
         continue;
       }
+
+      // Deliberate change 18: no paid render for a feed that was deleted or taken over.
+      const stopped = await guard.stop();
+      if (stopped) return stopped;
 
       const voiceId = voiceIdFor(personaKey);
       log.info(
@@ -178,13 +223,17 @@ export async function generateAudioForFeed(
       }
 
       // jsonb_set with create_if_missing patches the one field without rewriting the array.
-      await sql`
+      const keyed = await sql`
         UPDATE feeds
         SET posts = jsonb_set(posts, ARRAY[${String(idx)}::text, 'audio_key'], to_jsonb(${key}::text), true)
-        WHERE id = ${feedId}`;
+        WHERE id = ${feedId} AND ${guard.owned()}
+        RETURNING id`;
+      if (keyed.length === 0) return await guard.stopAfterMiss();
       // A successful render clears an earlier breadcrumb.
       try {
-        await sql`UPDATE feeds SET posts = posts #- ARRAY[${String(idx)}::text, 'audio_error'] WHERE id = ${feedId}`;
+        await sql`
+          UPDATE feeds SET posts = posts #- ARRAY[${String(idx)}::text, 'audio_error']
+          WHERE id = ${feedId} AND ${guard.owned()}`;
       } catch {
         // best-effort
       }
@@ -194,13 +243,17 @@ export async function generateAudioForFeed(
 
     // An abort during the last post never ends `ready` (deliberate change 16).
     ctx.signal.throwIfAborted();
-    await sql`UPDATE feeds SET audio_status = 'ready', audio_generated_at = NOW() WHERE id = ${feedId}`;
+    const done = await sql`
+      UPDATE feeds SET audio_status = 'ready', audio_generated_at = NOW()
+      WHERE id = ${feedId} AND ${guard.owned()}
+      RETURNING id`;
+    if (done.length === 0) return await guard.stopAfterMiss();
     log.info({ rendered, skipped, duration_ms: Date.now() - start }, 'feed_audio_complete');
     return { status: 'complete', rendered, skipped };
   } catch (e) {
     log.error({ error: pySlice(errMessage(e), 0, 300) }, 'feed_audio_failed');
     try {
-      await sql`UPDATE feeds SET audio_status = 'failed' WHERE id = ${feedId}`;
+      await sql`UPDATE feeds SET audio_status = 'failed' WHERE id = ${feedId} AND ${guard.owned()}`;
     } catch {
       // best-effort
     }
@@ -231,6 +284,7 @@ export async function generatePodcastForFeed(
     log.info('feed_podcast_skipped_already_claimed_or_ready');
     return { status: 'skipped', reason: 'claimed_or_ready' };
   }
+  const guard = claimGuard(deps, feedId, 'podcast', claimed.claim, log);
   // Parity: Python coerced a non-list `posts` to [] here (feed audio fails on one instead).
   const posts: unknown[] = Array.isArray(claimed.posts) ? claimed.posts : [];
 
@@ -255,7 +309,12 @@ export async function generatePodcastForFeed(
       text: seg.text,
       voice_id: voiceIdFor(seg.speaker),
     }));
-    await sql`UPDATE feeds SET podcast_segments = ${sql.json(segmentsMeta)} WHERE id = ${feedId}`;
+    const stored = await sql`
+      UPDATE feeds SET podcast_segments = ${sql.json(segmentsMeta)}
+      WHERE id = ${feedId} AND ${guard.owned()}
+      RETURNING id`;
+    // Deliberate change 18: no dialogue render for a feed deleted (or taken over) while the script was written.
+    if (stored.length === 0) return await guard.stopAfterMiss();
 
     const inputs = script.map((seg) => ({ text: seg.text, voice_id: voiceIdFor(seg.speaker) }));
     const totalChars = inputs.reduce((n, t) => n + pyLen(t.text), 0);
@@ -273,10 +332,17 @@ export async function generatePodcastForFeed(
       throw e;
     }
 
+    const before = await guard.stop();
+    if (before) return before;
     const key = await deps.storage.savePodcastEpisode(feedId, mp3);
     log.info({ bytes: mp3.byteLength, key }, 'podcast_episode_uploaded');
 
-    await sql`UPDATE feeds SET podcast_status = 'ready', podcast_generated_at = NOW() WHERE id = ${feedId}`;
+    const done = await sql`
+      UPDATE feeds SET podcast_status = 'ready', podcast_generated_at = NOW()
+      WHERE id = ${feedId} AND ${guard.owned()}
+      RETURNING id`;
+    // A delete between the check and the save: the save recreated the directory, so it is removed again.
+    if (done.length === 0) return await guard.stopAfterMiss();
     log.info(
       { segments: script.length, total_chars: totalChars, bytes: mp3.byteLength, duration_ms: Date.now() - start },
       'feed_podcast_complete',
@@ -285,7 +351,7 @@ export async function generatePodcastForFeed(
   } catch (e) {
     log.error({ error: pySlice(errMessage(e), 0, 300) }, 'feed_podcast_failed');
     try {
-      await sql`UPDATE feeds SET podcast_status = 'failed' WHERE id = ${feedId}`;
+      await sql`UPDATE feeds SET podcast_status = 'failed' WHERE id = ${feedId} AND ${guard.owned()}`;
     } catch {
       // best-effort
     }

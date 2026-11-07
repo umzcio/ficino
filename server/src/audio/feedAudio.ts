@@ -58,7 +58,8 @@ export function reclaimMinutes(jobTimeLimitSec: number): number {
 }
 
 export type MediaColumn = 'audio' | 'podcast';
-export type MediaClaim = { user_id: string | null; corpus_id: string | null; posts: unknown };
+/** `claim` is the claim timestamp as Postgres text: the job's token, compared exactly (`::timestamptz`). */
+export type MediaClaim = { user_id: string | null; corpus_id: string | null; posts: unknown; claim: string };
 
 /**
  * The claim `UPDATE` both media jobs open with, and their only idempotency guard: NULL, `failed` or an abandoned
@@ -82,7 +83,7 @@ export async function claimMedia(
                  OR (audio_status = 'generating'
                      AND (audio_claimed_at IS NULL
                           OR audio_claimed_at < NOW() - make_interval(mins => ${minutes}::int))))
-          RETURNING user_id, corpus_id, posts`
+          RETURNING user_id, corpus_id, posts, audio_claimed_at::text AS claim`
       : await sql<MediaClaim[]>`
           UPDATE feeds
           SET podcast_status = 'generating', podcast_claimed_at = NOW()
@@ -91,7 +92,26 @@ export async function claimMedia(
                  OR (podcast_status = 'generating'
                      AND (podcast_claimed_at IS NULL
                           OR podcast_claimed_at < NOW() - make_interval(mins => ${minutes}::int))))
-          RETURNING user_id, corpus_id, posts`;
+          RETURNING user_id, corpus_id, posts, podcast_claimed_at::text AS claim`;
   const row = rows[0];
-  return row ? { user_id: row.user_id, corpus_id: row.corpus_id, posts: row.posts } : undefined;
+  return row ? { user_id: row.user_id, corpus_id: row.corpus_id, posts: row.posts, claim: row.claim } : undefined;
+}
+
+/**
+ * Whether a media job still owns its feed: `held` while the row is `generating` on this job's claim, `gone` once
+ * the feed row is deleted, `lost` when anything else rewrote the claim (a reclaim, a regenerated chapter's reset).
+ */
+export type ClaimState = 'held' | 'lost' | 'gone';
+
+export async function claimState(sql: Sql, feedId: string, column: MediaColumn, claim: string): Promise<ClaimState> {
+  const [row] =
+    column === 'audio'
+      ? await sql<{ held: boolean }[]>`
+          SELECT COALESCE(audio_status = 'generating' AND audio_claimed_at = ${claim}::timestamptz, false) AS held
+          FROM feeds WHERE id = ${feedId}`
+      : await sql<{ held: boolean }[]>`
+          SELECT COALESCE(podcast_status = 'generating' AND podcast_claimed_at = ${claim}::timestamptz, false) AS held
+          FROM feeds WHERE id = ${feedId}`;
+  if (!row) return 'gone';
+  return row.held ? 'held' : 'lost';
 }

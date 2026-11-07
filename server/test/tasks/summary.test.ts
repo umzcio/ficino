@@ -340,6 +340,30 @@ describe('generate_corpus_synthesis', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('deliberate change 23: the skip heals a generating row whose messages are a non-array', async () => {
+    const id = randomUUID();
+    const jobId = randomUUID();
+    // A double-encoded legacy value: a jsonb string (sql.json of a JS string), truthy for the skip but not an array
+    // for the group-chat stuck check.
+    await sql`
+      INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages, status, task_id)
+      VALUES (${id}, ${s.user_a}, 'Legacy', ${[s.paper_a]}::uuid[], ${sql.json('[{"content":"a"}]')},
+              'generating', ${jobId})`;
+    const { result, calls } = await synthesis({ synthesis_id: id, paper_ids: [s.paper_a], name: 'Legacy', user_id: s.user_a });
+    expect(result).toMatchObject({ status: 'complete', synthesis_id: id, idempotent: true });
+    expect(calls).toHaveLength(0);
+    expect(await synthRow(id)).toMatchObject({ status: 'complete', task_id: null, messages: '[{"content":"a"}]' });
+  });
+
+  it('the skip heals only a generating row (an error row keeps its status)', async () => {
+    const id = randomUUID();
+    await sql`
+      INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages, status, task_id)
+      VALUES (${id}, ${s.user_a}, 'Done', ${[s.paper_a]}::uuid[], '[{"content":"a"}]', 'error', NULL)`;
+    await synthesis({ synthesis_id: id, paper_ids: [s.paper_a], name: 'Done', user_id: s.user_a });
+    expect((await synthRow(id)).status).toBe('error');
+  });
+
   it('an empty-messages placeholder is not skipped', async () => {
     const id = randomUUID();
     await sql`

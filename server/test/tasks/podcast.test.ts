@@ -102,6 +102,7 @@ type HarnessOpts = {
   tts?: (call: TtsCall) => Uint8Array | Response | Promise<Uint8Array | Response>;
   controller?: AbortController;
   config?: Config;
+  delayMs?: number;
 };
 
 function harness(o: HarnessOpts = {}) {
@@ -114,6 +115,7 @@ function harness(o: HarnessOpts = {}) {
       return o.chat ? o.chat(info) : turns(6);
     },
     ...(o.tts ? { tts: o.tts } : {}),
+    ...(o.delayMs ? { delayMs: o.delayMs } : {}),
   });
   const ctx = makeJobContext(
     {
@@ -272,6 +274,77 @@ describe('generate_podcast_for_feed', () => {
     expect((await feedRow(s.feed_a)).podcast_status).toBe('ready');
   });
 
+  it('takes over a generating row with a NULL claim (a row from before the claim existed)', async () => {
+    await setFeed(s.feed_a, [post('skeptic', 'A take.', [paper])], { status: 'generating' });
+    const h = harness();
+    expect((await h.run(s.feed_a)).status).toBe('complete');
+    expect(dialogue(h.calls)).toHaveLength(1);
+    const row = await feedRow(s.feed_a);
+    expect(row.podcast_status).toBe('ready');
+    expect(row.podcast_claimed_at).not.toBeNull();
+    expect(logged(h.lines, 'feed_podcast_skipped_already_claimed_or_ready')).toHaveLength(0);
+  });
+
+  describe('deliberate change 18: the job stops once it no longer owns the feed', () => {
+    it('a feed deleted while the script is written gets no dialogue call', async () => {
+      await setFeed(s.feed_a, [post('skeptic', 'A take.', [paper])]);
+      const h = harness({
+        chat: async () => {
+          await sql`DELETE FROM feeds WHERE id = ${s.feed_a}`;
+          return turns(6);
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'feed_deleted' });
+      expect(eleven(h.calls)).toHaveLength(0);
+      expect(existsSync(join(dirs.mediaDir, 'feeds', s.feed_a))).toBe(false);
+      expect(logged(h.lines, 'feed_podcast_feed_deleted')).toHaveLength(1);
+      expect(logged(h.lines, 'feed_podcast_failed')).toHaveLength(0);
+    });
+
+    it('a feed deleted during the dialogue render saves no episode and leaves no media directory', async () => {
+      await setFeed(s.feed_a, [post('skeptic', 'A take.', [paper])]);
+      const h = harness({
+        tts: async () => {
+          await sql`DELETE FROM feeds WHERE id = ${s.feed_a}`;
+          await storage.deleteFeedMedia(s.feed_a);
+          return new Uint8Array([1, 2, 3]);
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'feed_deleted' });
+      expect(dialogue(h.calls)).toHaveLength(1);
+      expect(existsSync(join(dirs.mediaDir, 'feeds', s.feed_a))).toBe(false);
+    });
+
+    it('a claim taken over during the dialogue render writes no episode file', async () => {
+      await setFeed(s.feed_a, [post('skeptic', 'A take.', [paper])]);
+      const h = harness({
+        tts: async () => {
+          await sql`UPDATE feeds SET podcast_status = NULL, podcast_claimed_at = NULL WHERE id = ${s.feed_a}`;
+          return new Uint8Array([1, 2, 3]);
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'claim_lost' });
+      expect(existsSync(episodePath(s.feed_a))).toBe(false);
+      expect((await feedRow(s.feed_a)).podcast_status).toBeNull();
+    });
+
+    it('a claim taken over while the script is written stops before the render and keeps the new state', async () => {
+      await setFeed(s.feed_a, [post('skeptic', 'A take.', [paper])]);
+      const h = harness({
+        chat: async () => {
+          await sql`UPDATE feeds SET podcast_status = NULL, podcast_claimed_at = NULL WHERE id = ${s.feed_a}`;
+          return turns(6);
+        },
+      });
+      expect(await h.run(s.feed_a)).toEqual({ status: 'skipped', reason: 'claim_lost' });
+      expect(eleven(h.calls)).toHaveLength(0);
+      const row = await feedRow(s.feed_a);
+      expect(row.podcast_status).toBeNull();
+      expect(row.podcast_segments).toBeNull();
+      expect(logged(h.lines, 'feed_podcast_claim_lost')).toHaveLength(1);
+    });
+  });
+
   it('an empty ElevenLabs key ends failed', async () => {
     await setFeed(s.feed_a, [post('skeptic', 'A take.', [paper])]);
     const h = harness({ config: { ...config, elevenlabsApiKey: '  ' } });
@@ -349,6 +422,19 @@ describe('generate_podcast_for_feed', () => {
       const row = await feedRow(s.feed_a);
       expect(row.podcast_status).toBe('failed');
       expect(row.podcast_segments).toBeNull();
+    });
+
+    it('during retrieval ends failed with no soft-fail log and no LLM or ElevenLabs call', async () => {
+      await setFeed(s.feed_a, [post('skeptic', 'A take.', [paper])]);
+      const controller = new AbortController();
+      // Every fake provider call waits 60 s (abortably); the first one is retrieval's embed.
+      const h = harness({ controller, delayMs: 60_000 });
+      setTimeout(() => controller.abort(), 20);
+      await expect(h.run(s.feed_a)).rejects.toThrow();
+      expect(h.calls.map((c) => c.kind)).toEqual(['ollama-embed']);
+      expect(logged(h.lines, 'podcast_retrieval_failed')).toHaveLength(0);
+      expect(logged(h.lines, 'podcast_paper_titles_failed')).toHaveLength(0);
+      expect((await feedRow(s.feed_a)).podcast_status).toBe('failed');
     });
 
     it('reaches the dialogue call', async () => {
