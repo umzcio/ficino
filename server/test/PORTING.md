@@ -266,15 +266,15 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan04/T9
 - [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan04/T9
 - [ ] worker/tests/test_podcast_settings.py::test_podcast_task_applies_owner_settings — plan05
-- [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_commits_all_statements — plan05
-- [ ] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_rolls_back_on_failure — plan05
-- [ ] worker/tests/test_reading_list_persist.py::test_propose_ordering_persists_in_one_transaction — plan05
-- [ ] worker/tests/test_reading_list_persist.py::test_propose_ordering_persist_failure_propagates_to_retry — plan05
+- [x] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_commits_all_statements — plan05/T3 (propose-ordering.test.ts: persists the reversed order, the rationale and chapters rebuilt from scratch)
+- [x] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_rolls_back_on_failure — plan05/T3 (propose-ordering.test.ts: persists in one transaction: a failing chapter insert leaves the list unchanged and throws)
+- [x] worker/tests/test_reading_list_persist.py::test_propose_ordering_persists_in_one_transaction — plan05/T3 (propose-ordering.test.ts: persists in one transaction: a failing chapter insert leaves the list unchanged and throws)
+- [x] worker/tests/test_reading_list_persist.py::test_propose_ordering_persist_failure_propagates_to_retry — plan05/T3 (propose-ordering.test.ts: persists in one transaction: a failing chapter insert leaves the list unchanged and throws)
 - [x] worker/tests/test_settings_env_hygiene.py::test_no_key_leak_between_users — plan02/T6
 - [x] worker/tests/test_settings_env_hygiene.py::test_operator_baseline_is_restored — plan02/T6
 - [x] worker/tests/test_settings_env_hygiene.py::test_public_deployment_reassert_wins_over_stale_user_value — plan02/T6
 - [x] worker/tests/test_settings_env_hygiene.py::test_public_deployment_does_not_launder_previous_users_key — plan02/T6
-- [ ] worker/tests/test_shared_adoption.py::test_chapter_sql_imported_by_both_sites — plan05
+- [x] worker/tests/test_shared_adoption.py::test_chapter_sql_imported_by_both_sites — plan05/T3 (propose-ordering.test.ts: the route and the job build chapters with the one shared insertChapters)
 - [ ] worker/tests/test_shared_adoption.py::test_default_for_matches_defaults — plan01
 - [x] worker/tests/test_stale_papers.py::test_stale_query_counts_null_corpus_feeds — plan02/T4
 - [ ] worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index — plan05

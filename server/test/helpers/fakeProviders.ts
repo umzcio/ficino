@@ -22,6 +22,7 @@ export type ChatPurpose =
   | 'mention'
   | 'interjection'
   | 'zap'
+  | 'ordering'
   | 'other';
 
 export type ChatInfo = {
@@ -58,6 +59,7 @@ const PURPOSE_MARKERS: Array<[ChatPurpose, string]> = [
   ['mention', 'You were tagged in a conversation thread by a user.'],
   ['interjection', 'You are jumping into an existing conversation thread'],
   ['zap', 'You were called in to respond to a specific point made by'],
+  ['ordering', 'analyzing a set of academic papers to propose an optimal reading order'],
 ];
 
 function purposeOf(system: string): ChatPurpose {
@@ -120,6 +122,8 @@ const defaultChat = (_body: unknown, info: ChatInfo): string => {
     ]);
   if (['archivist', 'dm', 'reply', 'mention', 'interjection', 'zap'].includes(info.purpose))
     return 'A considered reply.';
+  // Callers that need a real ordering pass `chat`.
+  if (info.purpose === 'ordering') return '[]';
   return 'Page text.';
 };
 
