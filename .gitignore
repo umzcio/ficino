@@ -1,8 +1,13 @@
-# Environment — both the non-sensitive .env and the sensitive .env.secrets
-# are gitignored. .env.example and .env.secrets.example are committed.
+# Environment: .env is gitignored; .env.example is the committed shape reference.
 .env
 .env.secrets
 .env.*.local
+
+# Host-only deployment files (built from deploy/*/docker-compose.override.example.yml).
+docker-compose.override.yml
+/secrets.env
+/postgres.env
+/tailscale.env
 
 # Python
 __pycache__/

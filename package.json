@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "test:deploy": "node --test \"deploy/test/*.test.mjs\""
+  },
   "dependencies": {
     "@playwright/test": "^1.59.1"
   }
