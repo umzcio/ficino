@@ -203,9 +203,22 @@ function falsy(v: unknown): boolean {
   return false;
 }
 
-/** Mutates and returns `post`; throws persona_post_missing_content when content is falsy. */
+/** Non-empty list of non-blank strings: a thread the UI can render. */
+function validThreadPosts(tp: unknown): tp is string[] {
+  return Array.isArray(tp) && tp.length > 0 && tp.every((x) => typeof x === 'string' && pyStrip(x) !== '');
+}
+
+/**
+ * Mutates and returns `post`; throws persona_post_missing_content when content is falsy. A thread's prompt asks for
+ * thread_posts and no content (Python required content anyway and dropped such threads), so a thread with usable
+ * thread_posts and no content gets the joined thread as its content (feed_posts search text; the UI renders
+ * thread_posts).
+ */
 export function validatePostShape(post: Post, opts: { personaKey: string; logger: Logger }): Post {
   const { personaKey, logger } = opts;
+  if (post.post_type === 'thread' && falsy(post.content) && validThreadPosts(post.thread_posts)) {
+    post.content = post.thread_posts.join('\n\n');
+  }
   for (const field of REQUIRED_FIELDS) {
     if (falsy(post[field])) {
       logger.warn({ persona: personaKey, field, have: Object.keys(post) }, 'post_shape_missing_required_field');
@@ -224,8 +237,7 @@ export function validatePostShape(post: Post, opts: { personaKey: string; logger
 
   if (pt === 'thread') {
     const tp = post.thread_posts;
-    const valid = Array.isArray(tp) && tp.length > 0 && tp.every((x) => typeof x === 'string' && pyStrip(x) !== '');
-    if (!valid) {
+    if (!validThreadPosts(tp)) {
       logger.warn(
         {
           persona: personaKey,
