@@ -13,12 +13,6 @@ export function personaKeyOf(v: unknown): string {
   return pyTruthy(v) ? pyStr(v) : '';
 }
 
-/**
- * `_post_to_speech_text`: the text handed to ElevenLabs, or null for a deleted or empty post. The content and each
- * non-blank string thread part, stripped and joined by blank lines, after a `"<name> says: "` speaker cue. Over the
- * cap it is cut at the last space before code point 4000, plus `…`. A truthy non-string `content` throws Python's
- * `AttributeError` message, which fails the job as it did in Python.
- */
 /** True when `content` is the thread's own parts joined by blank lines, whole or cut with a trailing '…'. */
 function contentIsJoinedThread(content: string, threadPosts: unknown, parts: string[]): boolean {
   if (parts.length === 0) return false;
@@ -31,6 +25,12 @@ function contentIsJoinedThread(content: string, threadPosts: unknown, parts: str
   );
 }
 
+/**
+ * `_post_to_speech_text`: the text handed to ElevenLabs, or null for a deleted or empty post. The content and each
+ * non-blank string thread part, stripped and joined by blank lines, after a `"<name> says: "` speaker cue. Over the
+ * cap it is cut at the last space before code point 4000, plus `…`. A truthy non-string `content` throws Python's
+ * `AttributeError` message, which fails the job as it did in Python.
+ */
 export function postToSpeechText(post: Post, displayName: string): string | null {
   if (pyTruthy(post.deleted)) return null;
 

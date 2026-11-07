@@ -25,6 +25,10 @@ describe('postToSpeechText', () => {
     const post = { post_type: 'thread', content: parts.join('\n\n').slice(0, 2000) + '…', thread_posts: parts };
     expect(postToSpeechText(post, '')).toBe(parts.join('\n\n'));
   });
+  it('speaks padded thread parts once when content is their trimmed raw join', () => {
+    const post = { post_type: 'thread', content: 'Hook. \n\n Point.', thread_posts: ['  Hook. ', ' Point.  '] };
+    expect(postToSpeechText(post, '')).toBe('Hook.\n\nPoint.');
+  });
   it('still speaks content and parts when content is its own text', () => {
     const post = { post_type: 'thread', content: 'Head.', thread_posts: ['One.', 'Two.'] };
     expect(postToSpeechText(post, '')).toBe('Head.\n\nOne.\n\nTwo.');
