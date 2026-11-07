@@ -275,7 +275,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_settings_env_hygiene.py::test_public_deployment_reassert_wins_over_stale_user_value — plan02/T6
 - [x] worker/tests/test_settings_env_hygiene.py::test_public_deployment_does_not_launder_previous_users_key — plan02/T6
 - [x] worker/tests/test_shared_adoption.py::test_chapter_sql_imported_by_both_sites — plan05/T3 (propose-ordering.test.ts: the route and the job build chapters with the one shared insertChapters)
-- [ ] worker/tests/test_shared_adoption.py::test_default_for_matches_defaults — plan01
+- [x] worker/tests/test_shared_adoption.py::test_default_for_matches_defaults — plan01 — plan06/T12 (settings/schema.test.ts: vision models default to qwen3-vl:32b (installed on <host>); providers/config.test.ts: falls back to built-in defaults when neither stored nor env has a value; default_for itself is a Python-only adapter: providerConfig reads buildDefaults directly, and its unknown-key '' half is n/a because providerConfig throws on a key that is not env-mapped)
 - [x] worker/tests/test_stale_papers.py::test_stale_query_counts_null_corpus_feeds — plan02/T4
 - [x] worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index — plan05/T4 (generate-chapter.test.ts: happy path: deterministic feed, chapter complete, next unlocked, feed_posts index, chapter purpose)
 - [x] worker/tests/test_wave3_task_fixes.py::test_coerce_messages_drops_non_dict_elements — plan04/T7 (conversations/summaryParse.test.ts: drops non-dict elements)
