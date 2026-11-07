@@ -6,12 +6,14 @@ import {
   figureCaption,
   filterByBudget,
   finishPost,
+  finishRegeneratedPost,
   paperCap,
   pickFigure,
   priorPostsSummary,
   rotateWindow,
   seedBudget,
 } from '../../src/feed/slots.js';
+import { unwrapPostWrapper } from '../../src/feed/llmPost.js';
 import type { Chunk, FeedFigure, Persona, Personas } from '../../src/feed/types.js';
 
 const chunk = (id: string, paper = 'p1', extra: Partial<Chunk> = {}): Chunk => ({
@@ -178,12 +180,13 @@ describe('finishPost', () => {
     personaKey: 'stats', postType: 'post', chunks: chunks(2), figure: null as FeedFigure | null, idOffset: 10,
     timeOffset: 5, newCount: 2, jobId: 'job-1', tabCategory: null as string | null, personas, logger: logger(), ...over,
   });
-  it('keeps extra keys and the LLM post_type; sets id, time, _task_id, paper_ref, sources, category', () => {
+  it('keeps the LLM post_type and drops unknown keys; sets id, time, _task_id, paper_ref, sources, category', () => {
     const out = finishPost(rngOf(0), { content: 'hi', post_type: 'thread', thread_posts: ['a'], extra: 1, paper_ref: 'LLM' }, base());
     expect(out).toMatchObject({
-      content: 'hi', post_type: 'thread', extra: 1, persona: 'stats', id: 13, time: '11m', _task_id: 'job-1',
+      content: 'hi', post_type: 'thread', persona: 'stats', id: 13, time: '11m', _task_id: 'job-1',
       paper_ref: 'Ann Smith'.split(' ')[1] + ' 2024', category: 'findings',
     });
+    expect(out).not.toHaveProperty('extra');
     expect(Array.isArray(out.sources)).toBe(true);
     expect(out.likes).toBe(ENGAGEMENT_RANGES.likes![0]);
   });
@@ -204,10 +207,170 @@ describe('finishPost', () => {
   it('applies the tab override', () => {
     expect(finishPost(rngOf(0), { content: 'hi' }, base({ tabCategory: 'methods' })).category).toBe('methods');
   });
-  it('does not overwrite an LLM-supplied likes', () => {
-    expect(finishPost(rngOf(0), { content: 'hi', likes: 3 }, base()).likes).toBe(3);
+  it('ignores an LLM-supplied likes (engagement counts belong to the server)', () => {
+    expect(finishPost(rngOf(0), { content: 'hi', likes: 3 }, base()).likes).toBe(ENGAGEMENT_RANGES.likes![0]);
   });
   it('runs validatePostShape (throws without content)', () => {
     expect(() => finishPost(rngOf(0), {}, base())).toThrow('persona_post_missing_content');
+  });
+});
+
+// Security review: model output is untrusted (a hostile paper can steer it), so it sets only the text fields the
+// prompts ask for. Every server-owned field comes from worker code or is absent.
+describe('model output cannot set server-owned post fields', () => {
+  const personas: Personas = new Map([['stats', persona()]]);
+  const feedOpts = (over: Record<string, unknown> = {}) => ({
+    personaKey: 'stats', postType: 'post', chunks: chunks(2), figure: null as FeedFigure | null, idOffset: 0,
+    timeOffset: 0, newCount: 0, jobId: 'job-1', tabCategory: null as string | null, personas, logger: logger(), ...over,
+  });
+  const regenOpts = (over: Record<string, unknown> = {}) => ({
+    personaKey: 'stats', postType: 'post', chunks: chunks(2), figure: null as FeedFigure | null,
+    tabCategory: null as string | null, oldPost: { id: 7, time: '14m' }, postIndex: 6, logger: logger(), ...over,
+  });
+  const injected: Record<string, unknown> = {
+    figure_url: 'https://attacker.example/x.png?d=leak',
+    figure_id: '00000000-0000-4000-8000-000000000000',
+    figure_caption: 'Fig. 9, p.1 — fake',
+    audio_url: 'https://attacker.example/a.mp3',
+    audio_key: 'someone/else.mp3',
+    sources: [{ chunk_id: 'evil', paper_id: 'evil', paper_title: 'x', section: 'x', content: 'x', score: 9 }],
+    id: 999,
+    time: '0m',
+    deleted: true,
+    regenerated: true,
+    _task_id: 'forged',
+    persona: 'someone_else',
+    category: 'forged',
+    likes: 1,
+    retweets: 1,
+    replies: 1,
+    bookmarks: 1,
+    figure_type: 'chart',
+  };
+  // JSON.parse makes __proto__ an own key, as a model reply would.
+  const reply = (extra: Record<string, unknown>) => JSON.parse(JSON.stringify({ content: 'hi', ...extra }).replace(
+    '"content"', '"__proto__":{"polluted":true},"content"')) as Record<string, unknown>;
+
+  const serverValues = (out: Record<string, unknown>) => {
+    expect(out.persona).toBe('stats');
+    expect(out.category).not.toBe('forged');
+    expect(out.likes).toBe(ENGAGEMENT_RANGES.likes![0]);
+    expect(out.retweets).toBe(ENGAGEMENT_RANGES.retweets![0]);
+    expect(out.replies).toBe(ENGAGEMENT_RANGES.replies![0]);
+    expect(out.bookmarks).toBe(ENGAGEMENT_RANGES.bookmarks![0]);
+    expect((out.sources as Array<{ chunk_id: string }>).map((x) => x.chunk_id)).toEqual(['c0', 'c1']);
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(out).not.toHaveProperty('polluted');
+  };
+
+  for (const key of Object.keys(injected)) {
+    it(`finishPost drops a model-supplied ${key}`, () => {
+      const out = finishPost(rngOf(0), reply({ [key]: injected[key] }), feedOpts());
+      if (['figure_url', 'figure_id', 'figure_caption', 'audio_url', 'audio_key', 'deleted', 'regenerated', 'figure_type'].includes(key)) {
+        expect(out).not.toHaveProperty(key);
+      }
+      expect(out).toMatchObject({ id: 1, time: '2m', _task_id: 'job-1', post_type: 'post', content: 'hi' });
+      serverValues(out);
+    });
+  }
+
+  it('finishPost drops them all at once and keeps the content', () => {
+    const out = finishPost(rngOf(0), reply({ post_type: 'post', ...injected }), feedOpts());
+    for (const k of ['figure_url', 'figure_id', 'figure_caption', 'audio_url', 'audio_key', 'deleted', 'regenerated']) {
+      expect(out).not.toHaveProperty(k);
+    }
+    expect(out).toMatchObject({ id: 1, time: '2m', _task_id: 'job-1', post_type: 'post', content: 'hi' });
+    serverValues(out);
+  });
+
+  it('finishRegeneratedPost drops them; id and time come from the old post, regenerated from the server', () => {
+    const out = finishRegeneratedPost(rngOf(0), reply({ post_type: 'post', ...injected }), regenOpts());
+    for (const k of ['figure_url', 'figure_id', 'figure_caption', 'audio_url', 'audio_key', 'deleted', '_task_id']) {
+      expect(out).not.toHaveProperty(k);
+    }
+    expect(out).toMatchObject({ id: 7, time: '14m', regenerated: true, post_type: 'post', content: 'hi' });
+    serverValues(out);
+  });
+
+  it('finishRegeneratedPost falls back to the index for id and time, never the model', () => {
+    const out = finishRegeneratedPost(rngOf(0), reply({ id: 999, time: '0m' }), regenOpts({ oldPost: {} }));
+    expect(out).toMatchObject({ id: 7, time: '12m' });
+  });
+
+  it('a figure slot uses the server figure, not the model figure fields', () => {
+    const out = finishPost(rngOf(0), reply({ post_type: 'figure', ...injected }), feedOpts({ postType: 'figure', figure: fig() }));
+    expect(out).toMatchObject({
+      post_type: 'figure', figure_url: '/img/f1.png', figure_id: 'f1', figure_caption: 'Fig. 2, p.4 — Cap. Smith 2024',
+    });
+    expect(out).not.toHaveProperty('audio_url');
+    expect(out).not.toHaveProperty('deleted');
+  });
+
+  describe('post_type figure needs a worker-attached figure', () => {
+    it('downgrades to the slot type on a post slot', () => {
+      expect(finishPost(rngOf(0), reply({ post_type: 'figure' }), feedOpts()).post_type).toBe('post');
+    });
+    it('downgrades to the slot type on a thread slot (the thread survives)', () => {
+      const out = finishPost(rngOf(0), reply({ post_type: 'figure', thread_posts: ['a', 'b'], thread_count: 2 }),
+        feedOpts({ postType: 'thread' }));
+      expect(out).toMatchObject({ post_type: 'thread', thread_posts: ['a', 'b'], thread_count: 2 });
+    });
+    it('downgrades to the slot type on a quote slot', () => {
+      expect(finishPost(rngOf(0), reply({ post_type: 'figure' }), feedOpts({ postType: 'quote' })).post_type).toBe('quote');
+    });
+    it('downgrades to post on a figure slot without a figure', () => {
+      expect(finishPost(rngOf(0), reply({ post_type: 'figure' }), feedOpts({ postType: 'figure' })).post_type).toBe('post');
+      expect(finishPost(rngOf(0), reply({}), feedOpts({ postType: 'figure' })).post_type).toBe('post');
+    });
+    it('downgrades on regenerate', () => {
+      expect(finishRegeneratedPost(rngOf(0), reply({ post_type: 'figure' }), regenOpts()).post_type).toBe('post');
+    });
+  });
+
+  it('an unwrapped {"posts": [{"text", "type"}]} reply keeps its text as content', () => {
+    const out = finishPost(rngOf(0), unwrapPostWrapper({ posts: [{ text: 'Wrapped take.', type: 'post', likes: 1 }] }), feedOpts());
+    expect(out).toMatchObject({ post_type: 'post', content: 'Wrapped take.' });
+    expect(out).not.toHaveProperty('text');
+    expect(out).not.toHaveProperty('type');
+    serverValues(out);
+  });
+
+  describe('a normal post of each type is unchanged', () => {
+    const common = (out: Record<string, unknown>) => {
+      expect(out).toMatchObject({ persona: 'stats', id: 1, time: '2m', _task_id: 'job-1', paper_ref: 'Smith 2024' });
+      serverValues(out);
+    };
+    it('post', () => {
+      const out = finishPost(rngOf(0), { post_type: 'post', content: 'A take.', paper_ref: 'Smith 2024' }, feedOpts());
+      expect(out).toMatchObject({ post_type: 'post', content: 'A take.' });
+      common(out);
+    });
+    it('thread', () => {
+      const out = finishPost(rngOf(0),
+        { post_type: 'thread', paper_ref: 'Smith 2024', thread_count: 2, thread_posts: ['One.', 'Two.'] },
+        feedOpts({ postType: 'thread' }));
+      expect(out).toMatchObject({ post_type: 'thread', content: 'One.\n\nTwo.', thread_count: 2, thread_posts: ['One.', 'Two.'] });
+      common(out);
+    });
+    it('quote', () => {
+      const out = finishPost(rngOf(0),
+        { post_type: 'quote', content: 'Pushback.', paper_ref: null, quoting_handle: '@stats', quoting_content: 'Orig...' },
+        feedOpts({ postType: 'quote' }));
+      expect(out).toMatchObject({ post_type: 'quote', content: 'Pushback.', quoting_handle: '@stats', quoting_content: 'Orig...' });
+      common(out);
+    });
+    it('reply', () => {
+      const out = finishPost(rngOf(0),
+        { post_type: 'reply', content: 'Go on.', paper_ref: null, replying_to: '@stats' },
+        feedOpts({ postType: 'reply' }));
+      expect(out).toMatchObject({ post_type: 'reply', content: 'Go on.', replying_to: '@stats' });
+      common(out);
+    });
+    it('figure', () => {
+      const out = finishPost(rngOf(0), { post_type: 'figure', content: 'Look.', paper_ref: 'Smith 2024' },
+        feedOpts({ postType: 'figure', figure: fig() }));
+      expect(out).toMatchObject({ post_type: 'figure', content: 'Look.', figure_url: '/img/f1.png', figure_id: 'f1' });
+      common(out);
+    });
   });
 });

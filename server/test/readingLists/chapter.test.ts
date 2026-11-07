@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { pino } from 'pino';
 import { describe, expect, it } from 'vitest';
 import { buildPostPrompt } from '../../src/feed/prompts.js';
+import { ENGAGEMENT_RANGES } from '../../src/feed/slots.js';
 import { systemPrompts } from '../../src/feed/personas.js';
 import type { Chunk, Persona, Personas, Post } from '../../src/feed/types.js';
 import {
@@ -52,6 +53,11 @@ const personasOf = (raw: Record<string, Record<string, unknown>>): Personas =>
   new Map(Object.entries(raw).map(([key, p]) => [key, { key, ...p } as Persona]));
 const silent = pino({ level: 'silent' });
 const clone = <T>(v: T): T => structuredClone(v);
+
+// Deliberate change 15: a model reply no longer sets engagement counts (two goldens send likes/retweets), so every
+// stored post carries the server default, which is the low bound under this replay's rng.
+const withServerEngagement = (posts: Post[] | null): Post[] | null =>
+  posts && posts.map((p) => ({ ...p, ...Object.fromEntries(Object.entries(ENGAGEMENT_RANGES).map(([k, [lo]]) => [k, lo])) }));
 
 describe('chapter goldens', () => {
   it('covers the cases the plan names', () => {
@@ -130,7 +136,7 @@ describe('chapter goldens', () => {
         if (post) stored.push(post);
       }
       expect(callIdx).toBe(c.calls.length);
-      expect(stored).toEqual(c.stored_posts);
+      expect(stored).toEqual(withServerEngagement(c.stored_posts));
       expect(c.result.post_count).toBe(stored.length);
     });
   }
@@ -243,6 +249,43 @@ describe('finishChapterPost', () => {
       paper_ref: 'Alpha et al. 2024',
       category: 'methods',
     });
+  });
+
+  it('drops model-supplied server-owned fields (security review)', () => {
+    const p = finishChapterPost(
+      () => 0,
+      {
+        content: 'x',
+        post_type: 'post',
+        figure_url: 'https://attacker.example/x.png',
+        figure_id: '00000000-0000-4000-8000-000000000000',
+        figure_caption: 'fake',
+        audio_url: 'https://attacker.example/a.mp3',
+        audio_key: 'k',
+        sources: [],
+        id: 999,
+        time: '0m',
+        deleted: true,
+        regenerated: true,
+        _task_id: 'forged',
+        likes: 1,
+      },
+      { ...base, plannedType: 'post' },
+    );
+    for (const k of ['figure_url', 'figure_id', 'figure_caption', 'audio_url', 'audio_key', 'deleted', 'regenerated', '_task_id']) {
+      expect(p).not.toHaveProperty(k);
+    }
+    expect(p).toMatchObject({ id: 5, time: '10m', post_type: 'post', content: 'x' });
+    expect(p.likes).not.toBe(1);
+    expect((p.sources as unknown[]).length).toBe(1);
+  });
+
+  it('a model post_type figure without a picked figure falls back to the planned type', () => {
+    const p = finishChapterPost(() => 0, { content: 'x', post_type: 'figure', figure_url: '/x' }, { ...base, plannedType: 'quote' });
+    expect(p.post_type).toBe('quote');
+    expect(p).not.toHaveProperty('figure_url');
+    const q = finishChapterPost(() => 0, { content: 'x', post_type: 'figure' }, { ...base, plannedType: 'figure' });
+    expect(q.post_type).toBe('post');
   });
 
   it('throws on a post without content', () => {

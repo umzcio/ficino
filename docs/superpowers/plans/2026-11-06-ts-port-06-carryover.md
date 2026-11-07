@@ -108,6 +108,17 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     is rejected before the body is read, and a chunked body is cut off once it passes the cap. Either way the answer
     is 413 `{"detail":"Request body too large"}`. `POST /papers` is exempt and keeps its own `MAX_UPLOAD_SIZE_MB` cap.
     No shipped client sends a JSON body anywhere near the cap.
+15. **Model output sets only the post's text fields** (security review). Python started every finished post from the
+    model's whole JSON object and only overwrote some keys, so a reply steered by a hostile paper could store its own
+    `figure_url`, `figure_id`, `figure_caption`, `audio_url`, `audio_key`, `deleted`, `regenerated`, `_task_id` or
+    engagement counts, and claim `post_type: "figure"` with no figure; the browser then loaded the model's URLs.
+    `startPost` in `server/src/feed/slots.ts`, the first step of `finishPost`, `finishRegeneratedPost` and
+    `finishChapterPost`, now builds a new post from the fields the prompts ask for (`post_type`, `content`,
+    `paper_ref`, `thread_count`, `thread_posts`, `quoting_handle`, `quoting_content`, `replying_to`); persona, id,
+    time, sources, category, figure fields and engagement counts come from the worker only. The model's `post_type`
+    still wins, except `figure` without a figure the worker picked, which falls back to the slot type (`post` for a
+    figure slot). Model-supplied engagement counts are no longer kept, so two chapter goldens' `likes`/`retweets`
+    now read the server default. Posts already stored are unchanged.
 
 ## 3. Rulings made during execution
 
