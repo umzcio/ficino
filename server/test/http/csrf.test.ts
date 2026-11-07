@@ -1,5 +1,12 @@
+import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import { client, testApp } from '../helpers/client.js';
+
+function capturingLogger() {
+  const lines: Record<string, unknown>[] = [];
+  const logger = pino({ level: 'debug' }, { write: (x: string) => void lines.push(JSON.parse(x)) });
+  return { lines, logger };
+}
 
 // Ports of api/tests/test_csrf.py (Round 4: enforced under every auth provider).
 describe('csrf', () => {
@@ -105,6 +112,46 @@ describe('csrf', () => {
     const r = await client(testApp(), { csrf: false }).send('HEAD', '/nope');
     expect(r.status).toBe(404);
     expect(r.headers.get('set-cookie')).toMatch(/^ficino_csrf=[\w-]{43};/);
+  });
+
+  it('logs a rejected request without the token values', async () => {
+    const { lines, logger } = capturingLogger();
+    const c = client(testApp({ logger }), { csrf: false });
+    c.cookies.set('ficino_csrf', 'COOKIEVAL');
+    const r = await c.post('/papers', {}, { headers: { 'X-CSRF-Token': 'HEADERVAL' } });
+    expect(r.status).toBe(403);
+    const warns = lines.filter((l) => l.level === 40);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({ msg: 'csrf_rejected', method: 'POST', path: '/papers', has_cookie: true, has_header: true });
+    for (const l of lines) {
+      expect(JSON.stringify(l)).not.toContain('COOKIEVAL');
+      expect(JSON.stringify(l)).not.toContain('HEADERVAL');
+    }
+  });
+
+  it('the rejection log says which half was missing', async () => {
+    const { lines, logger } = capturingLogger();
+    const app = testApp({ logger });
+    await client(app, { csrf: false }).post('/x', {});
+    const cookieOnly = client(app, { csrf: false });
+    cookieOnly.cookies.set('ficino_csrf', 'one');
+    await cookieOnly.send('DELETE', '/x');
+    await client(app, { csrf: false }).post('/x', {}, { headers: { 'X-CSRF-Token': 'one' } });
+    const rejects = lines.filter((l) => l.msg === 'csrf_rejected');
+    expect(rejects.map(({ method, path, has_cookie, has_header }) => ({ method, path, has_cookie, has_header }))).toEqual([
+      { method: 'POST', path: '/x', has_cookie: false, has_header: false },
+      { method: 'DELETE', path: '/x', has_cookie: true, has_header: false },
+      { method: 'POST', path: '/x', has_cookie: false, has_header: true },
+    ]);
+  });
+
+  it('accepted and safe requests log nothing', async () => {
+    const { lines, logger } = capturingLogger();
+    const app = testApp({ logger });
+    await client(app).get('/health');
+    await client(app).post('/nope', {});
+    await client(app, { csrf: false }).post('/auth/register', {});
+    expect(lines.filter((l) => l.msg === 'csrf_rejected')).toEqual([]);
   });
 
   it('empty cookie with empty header is 403', async () => {
