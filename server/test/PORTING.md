@@ -265,7 +265,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_scopes_by_corpus — plan04/T9
 - [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_no_corpus_scopes_by_user_only — plan04/T9
 - [x] worker/tests/test_persona_helpers.py::test_archivist_get_paper_ids_empty_when_no_rows — plan04/T9
-- [ ] worker/tests/test_podcast_settings.py::test_podcast_task_applies_owner_settings — plan05
+- [x] worker/tests/test_podcast_settings.py::test_podcast_task_applies_owner_settings — plan05/T7 (tasks/podcast.test.ts: renders ONE dialogue call into ONE episode file; a NULL owner reads the stub user settings)
 - [x] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_commits_all_statements — plan05/T3 (propose-ordering.test.ts: persists the reversed order, the rationale and chapters rebuilt from scratch)
 - [x] worker/tests/test_reading_list_persist.py::test_execute_in_transaction_rolls_back_on_failure — plan05/T3 (propose-ordering.test.ts: persists in one transaction: a failing chapter insert leaves the list unchanged and throws)
 - [x] worker/tests/test_reading_list_persist.py::test_propose_ordering_persists_in_one_transaction — plan05/T3 (propose-ordering.test.ts: persists in one transaction: a failing chapter insert leaves the list unchanged and throws)

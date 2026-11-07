@@ -8,7 +8,7 @@ import type { ProviderDeps } from '../providers/deps.js';
 import type { LocalStorage } from '../storage/local.js';
 import { checkContradictions, checkPostFeed, checkStalePapers } from '../tasks/alerts.js';
 import { respondToUserPost, respondToUserPostFollowup } from '../tasks/archivist.js';
-import { generateAudioForFeed } from '../tasks/audio.js';
+import { generateAudioForFeed, generatePodcastForFeed } from '../tasks/audio.js';
 import { generateFeed } from '../tasks/feed.js';
 import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
@@ -49,4 +49,5 @@ export const HANDLERS: Partial<Record<QueueName, Handler>> = {
   propose_ordering: (data, ctx, deps) => proposeOrdering(data, ctx, deps),
   generate_chapter: (data, ctx, deps) => generateChapter(data, ctx, deps),
   generate_audio_for_feed: (data, ctx, deps) => generateAudioForFeed(data, ctx, deps),
+  generate_podcast_for_feed: (data, ctx, deps) => generatePodcastForFeed(data, ctx, deps),
 };

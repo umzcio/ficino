@@ -1,13 +1,28 @@
-// Port of worker/tasks/audio_tasks.py: generate_audio_for_feed (W §2.7).
+// Port of worker/tasks/audio_tasks.py: generate_audio_for_feed and generate_podcast_for_feed (W §2.7).
 import type { Logger } from 'pino';
 import { claimMedia, personaKeyOf, postToSpeechText, reclaimMinutes } from '../audio/feedAudio.js';
+import { buildPodcastScript, collectPaperIds } from '../audio/podcast.js';
 import { loadPersonas } from '../feed/personas.js';
+import { assertEmbedModelScope, type RetrievalCtx } from '../feed/retrieval.js';
 import type { Post } from '../feed/types.js';
 import type { JobContext } from '../jobs/context.js';
+import { loadJobSettings } from '../providers/config.js';
 import type { ProviderDeps } from '../providers/deps.js';
+import { embedModelId } from '../providers/embed.js';
 import { HttpStatusError } from '../providers/http.js';
-import { DEFAULT_VOICE, speak, ttsConfig, TtsUnavailableError, voiceIdFor, type TtsConfig } from '../providers/speak.js';
+import {
+  DEFAULT_VOICE,
+  DialogueTooLongError,
+  speak,
+  speakDialogue,
+  ttsConfig,
+  TtsUnavailableError,
+  voiceIdFor,
+  type TtsConfig,
+} from '../providers/speak.js';
+import { STUB_USER_ID } from '../shared/constants.js';
 import { pyLen, pySlice, pyTitle, pyTypeName } from '../shared/pystr.js';
+import { isUuid } from '../shared/uuid.js';
 import type { WorkerDeps } from '../worker/handlers.js';
 
 export type FeedMediaData = { feed_id: string };
@@ -186,6 +201,91 @@ export async function generateAudioForFeed(
     log.error({ error: pySlice(errMessage(e), 0, 300) }, 'feed_audio_failed');
     try {
       await sql`UPDATE feeds SET audio_status = 'failed' WHERE id = ${feedId}`;
+    } catch {
+      // best-effort
+    }
+    throw e;
+  }
+}
+
+/**
+ * A two-host episode for a feed: an LLM script grounded in the feed's papers, rendered by ONE ElevenLabs
+ * text-to-dialogue call into ONE file, `feeds/<id>/podcast/episode.mp3` (the owner's audio quality bar: a script is
+ * never split, concatenated or rendered per turn; one over the cap fails). The transcript is stored before
+ * synthesis so it shows even when the render fails. Any throw after the claim ends `failed` and is rethrown (the
+ * queue does not retry).
+ */
+export async function generatePodcastForFeed(
+  data: FeedMediaData,
+  ctx: JobContext,
+  deps: WorkerDeps,
+): Promise<Record<string, unknown>> {
+  const { sql, config } = deps;
+  const feedId = data.feed_id;
+  const log = ctx.logger.child({ feed_id: feedId, task_id: ctx.jobId });
+  log.info('feed_podcast_start');
+  const start = Date.now();
+
+  const claimed = await claimMedia(sql, feedId, 'podcast', reclaimMinutes(config.jobTimeLimitSec));
+  if (!claimed) {
+    log.info('feed_podcast_skipped_already_claimed_or_ready');
+    return { status: 'skipped', reason: 'claimed_or_ready' };
+  }
+  // Parity: Python coerced a non-list `posts` to [] here (feed audio fails on one instead).
+  const posts: unknown[] = Array.isArray(claimed.posts) ? claimed.posts : [];
+
+  try {
+    // Deliberate change 17: the settings load is inside the catch (a failure ends `failed`), and a NULL owner
+    // reads the stub user's settings (Python passed the string 'None').
+    const owner = claimed.user_id ?? STUB_USER_ID;
+    const { providers } = await loadJobSettings(sql, owner, deps.env, config);
+    const scriptLog = log.child({ user_id: owner, corpus_id: claimed.corpus_id });
+
+    // Deliberate change 14: an episode whose papers were all embedded with another model fails before any spend.
+    await assertEmbedModelScope(sql, collectPaperIds(posts).filter(isUuid), embedModelId(providers), log);
+
+    const rctx: RetrievalCtx = { sql, config, providers, deps: deps.providers, logger: scriptLog, signal: ctx.signal };
+    const personas = await loadPersonas(sql);
+    const script = await buildPodcastScript(rctx, { posts, personas, logger: scriptLog });
+
+    // The transcript first, so the UI can show it even if synthesis fails.
+    const segmentsMeta = script.map((seg, index) => ({
+      index,
+      speaker: seg.speaker,
+      text: seg.text,
+      voice_id: voiceIdFor(seg.speaker),
+    }));
+    await sql`UPDATE feeds SET podcast_segments = ${sql.json(segmentsMeta)} WHERE id = ${feedId}`;
+
+    const inputs = script.map((seg) => ({ text: seg.text, voice_id: voiceIdFor(seg.speaker) }));
+    const totalChars = inputs.reduce((n, t) => n + pyLen(t.text), 0);
+    log.info({ segments: script.length, total_chars: totalChars }, 'podcast_dialogue_start');
+
+    let mp3: Uint8Array;
+    try {
+      mp3 = await speakDialogue(ttsConfig(config), deps.providers, { inputs, signal: ctx.signal });
+    } catch (e) {
+      if (e instanceof DialogueTooLongError) {
+        log.error({ error: e.message }, 'podcast_dialogue_too_long');
+      } else if (e instanceof HttpStatusError) {
+        log.error({ status_code: e.status, body: pySlice(e.body, 0, 400) }, 'podcast_dialogue_http_error');
+      }
+      throw e;
+    }
+
+    const key = await deps.storage.savePodcastEpisode(feedId, mp3);
+    log.info({ bytes: mp3.byteLength, key }, 'podcast_episode_uploaded');
+
+    await sql`UPDATE feeds SET podcast_status = 'ready', podcast_generated_at = NOW() WHERE id = ${feedId}`;
+    log.info(
+      { segments: script.length, total_chars: totalChars, bytes: mp3.byteLength, duration_ms: Date.now() - start },
+      'feed_podcast_complete',
+    );
+    return { status: 'complete', segments: script.length, bytes: mp3.byteLength };
+  } catch (e) {
+    log.error({ error: pySlice(errMessage(e), 0, 300) }, 'feed_podcast_failed');
+    try {
+      await sql`UPDATE feeds SET podcast_status = 'failed' WHERE id = ${feedId}`;
     } catch {
       // best-effort
     }

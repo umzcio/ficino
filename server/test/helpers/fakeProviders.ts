@@ -36,6 +36,7 @@ export type ChatPurpose =
   | 'zap'
   | 'ordering'
   | 'chapter'
+  | 'podcast'
   | 'other';
 
 export type ChatInfo = {
@@ -84,6 +85,7 @@ const PURPOSE_MARKERS: Array<[ChatPurpose, string]> = [
   ['ordering', 'analyzing a set of academic papers to propose an optimal reading order'],
   // generate_chapter's suffix on a persona system prompt (reading_list_tasks.py chapter_context).
   ['chapter', 'of a reading list. '],
+  ['podcast', 'You are a podcast producer writing a short episode'],
 ];
 
 function purposeOf(system: string): ChatPurpose {
@@ -149,6 +151,13 @@ const defaultChat = (_body: unknown, info: ChatInfo): string => {
     return 'A considered reply.';
   // Callers that need a real ordering pass `chat`.
   if (info.purpose === 'ordering') return '[]';
+  if (info.purpose === 'podcast')
+    return JSON.stringify({
+      segments: ['Opening line.', 'Right.', 'The effect held.', 'Wait, really?'].map((text, i) => ({
+        speaker: i % 2 === 0 ? 'host_a' : 'host_b',
+        text,
+      })),
+    });
   return 'Page text.';
 };
 
