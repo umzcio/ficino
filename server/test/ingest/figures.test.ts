@@ -3,6 +3,7 @@ import * as mupdf from 'mupdf';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { extractFigures } from '../../src/ingest/figures.js';
+import { logger } from '../../src/logger.js';
 import { closePdf, openPdf, type PdfDoc } from '../../src/ingest/pdf.js';
 import { providerConfig } from '../../src/providers/config.js';
 import type { ProviderDeps } from '../../src/providers/deps.js';
@@ -273,6 +274,80 @@ describe('extractFigures', () => {
     } finally {
       c.mockRestore();
       d.mockRestore();
+    }
+  });
+});
+
+/** `n` letter pages that share one small text content stream. */
+function blankPages(n: number): Uint8Array {
+  const pdf = new mupdf.PDFDocument();
+  try {
+    const font = pdf.addSimpleFont(new mupdf.Font('Helvetica'));
+    const contents = pdf.addStream('BT /F1 10 Tf 72 700 Td (a page of text) Tj ET', {});
+    for (let i = 0; i < n; i++) {
+      const page = pdf.addPage([0, 0, 612, 792], 0, { Font: { F1: font } }, '');
+      page.put('Contents', contents);
+      pdf.insertPage(-1, page);
+    }
+    const buf = pdf.saveToBuffer('compress');
+    try {
+      return buf.asUint8Array().slice();
+    } finally {
+      buf.destroy();
+    }
+  } finally {
+    pdf.destroy();
+  }
+}
+
+describe('extractFigures bounds', () => {
+  it('sends at most maxPages pages to the detector and logs the cap', async () => {
+    const big = openPdf(blankPages(8));
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      const { deps, pages } = detector(() => []);
+      expect(await extractFigures(big, ollama(), deps, undefined, { maxPages: 5 })).toEqual([]);
+      expect([...pages].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+      expect(warn).toHaveBeenCalledWith({ pages: 8, cap: 5 }, 'figure_detect_page_cap_hit');
+    } finally {
+      warn.mockRestore();
+      closePdf(big);
+    }
+  });
+
+  it('does not log the cap when the paper fits under it', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      const { deps, pages } = detector(() => []);
+      await extractFigures(doc, ollama(), deps, undefined, { maxPages: 3 });
+      expect(pages).toHaveLength(3);
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'figure_detect_page_cap_hit');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('calls the checkpoint for every text page and every detected page', async () => {
+    let calls = 0;
+    const { deps } = detector(() => []);
+    await extractFigures(doc, ollama(), deps, undefined, { checkpoint: () => void calls++ });
+    expect(calls).toBe(6);
+  });
+
+  it('a throwing checkpoint stops detection: no page after it is sent, and the error is rethrown', async () => {
+    const big = openPdf(blankPages(8));
+    try {
+      const stop = new Error('time is up');
+      let calls = 0;
+      const { deps, pages } = detector(() => []);
+      // 8 text-page checks, then the 4 pages first in flight pass, and the next page's check throws.
+      const checkpoint = () => {
+        if (++calls > 12) throw stop;
+      };
+      await expect(extractFigures(big, ollama(), deps, undefined, { checkpoint })).rejects.toBe(stop);
+      expect(pages.length).toBe(4);
+    } finally {
+      closePdf(big);
     }
   });
 });

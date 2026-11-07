@@ -36,6 +36,10 @@ export interface Config {
   jobTimeLimitSec: number;
   ingestionConcurrency: number;
   maxVisionPages: number;
+  /** `MAX_PDF_PAGES`: an upload with more pages than this is rejected when it is opened (paper error). */
+  maxPdfPages: number;
+  /** `FIGURE_DETECT_MAX_PAGES`: figure detection reads and sends only the first this-many pages. */
+  figureDetectMaxPages: number;
   contextMaxPaperChars: number;
   contextMaxTokens: number;
   /** `CONTEXT_MAX_CHUNKS`: a paper with more chunks than this gets no contextual prefixes (no provider calls). */
@@ -181,6 +185,8 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     jobTimeLimitSec: jobTimeLimit(int(env, 'JOB_TIME_LIMIT_SEC', 600)),
     ingestionConcurrency: atLeastOne('WORKER_INGESTION_CONCURRENCY', int(env, 'WORKER_INGESTION_CONCURRENCY', 1)),
     maxVisionPages: int(env, 'MAX_VISION_PAGES', 100),
+    maxPdfPages: atLeastOne('MAX_PDF_PAGES', int(env, 'MAX_PDF_PAGES', 500)),
+    figureDetectMaxPages: atLeastOne('FIGURE_DETECT_MAX_PAGES', int(env, 'FIGURE_DETECT_MAX_PAGES', 60)),
     contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
     contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),
     contextMaxChunks: atLeastOne('CONTEXT_MAX_CHUNKS', int(env, 'CONTEXT_MAX_CHUNKS', 200)),

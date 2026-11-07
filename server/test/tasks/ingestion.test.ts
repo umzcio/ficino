@@ -370,6 +370,55 @@ describe('processPaper', () => {
     expect((await paper(id)).status).toBe('error');
   });
 
+  // Security review: bounded PDF work.
+  it('a PDF over MAX_PDF_PAGES is rejected before any extraction or provider call', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes();
+    const deps = { ...depsWith(f.deps), config: { ...config, maxPdfPages: 2 } };
+    await expect(processPaper({ paper_id: id }, ctxFor().ctx, deps)).rejects.toThrow('PDF has 3 pages; the limit is 2');
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe('PDF has 3 pages; the limit is 2');
+    expect(f.calls).toEqual([]);
+  });
+
+  it('figure detection sees at most FIGURE_DETECT_MAX_PAGES pages', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes(); // the one figure is on page 2
+    const deps = { ...depsWith(f.deps), config: { ...config, figureDetectMaxPages: 1 } };
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, deps);
+    expect(r).toMatchObject({ status: 'complete', figure_count: 0 });
+    const detectCalls = f.calls.filter((c) => JSON.stringify(c.body).includes('This is page'));
+    expect(detectCalls).toHaveLength(1);
+    expect(JSON.stringify(detectCalls[0]!.body)).toContain('This is page 1 of');
+  });
+
+  it('the job checkpoint runs before every page of the text pass, the page-text pass and figure detection', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const { ctx } = ctxFor();
+    let calls = 0;
+    const checkpoint = ctx.checkpoint;
+    ctx.checkpoint = () => {
+      calls++;
+      checkpoint();
+    };
+    expect(await processPaper({ paper_id: id }, ctx, depsWith(fakes().deps))).toMatchObject({ status: 'complete' });
+    expect(calls).toBe(9); // 3 pages x (markdown, page text, detection)
+  });
+
+  it('a checkpoint that throws during text extraction stops the paper before any provider call', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes();
+    const { ctx } = ctxFor();
+    const stop = new Error('time is up');
+    ctx.checkpoint = () => {
+      throw stop;
+    };
+    await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBe(stop);
+    expect((await paper(id)).error_message).toBe('time is up');
+    expect(f.calls).toEqual([]);
+  });
+
   it('a deleted paper row returns skipped and calls no provider', async () => {
     const id = await newPaper(s.user_a, SAMPLE);
     await sql`DELETE FROM papers WHERE id = ${id}`;

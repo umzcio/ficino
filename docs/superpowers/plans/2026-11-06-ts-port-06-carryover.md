@@ -137,6 +137,25 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     `{status: "error"}` instead of rethrowing, as the embedding-unavailable path already did, so pg-boss completes it
     without a retry; the worker logs `ingestion_soft_limit_not_retried`. Every other failure, a pg-boss abort included,
     still rethrows and is retried. `JobContext.softLimitHit()` tells the two aborts apart.
+18. **PDF work is bounded** (security review). Python's PyMuPDF extraction, rendering and figure detection had no
+    page or size limit; Celery's hard time limit killed a runaway child, which the single-threaded TS worker cannot
+    do, so a crafted or oversized PDF could hold its event loop for the whole job. Four bounds now apply, and output
+    under them is byte-identical (the PyMuPDF goldens are unchanged):
+    - `MAX_PDF_PAGES` (default 500, at least 1): `openPdf` rejects a document with more pages with a `PdfOpenError`
+      (`PDF has N pages; the limit is M`), so the paper is marked `error` before any text is read; like other
+      open errors the job is retried.
+    - Raster cap: a page whose render would pass 25 million pixels or 10,000 px on a side (at 150 dpi, a page over
+      about 33 in square) is drawn at a lower uniform scale that fits, decided before the pixmap is allocated, and
+      the worker logs `pdf_render_scaled_down`. Figure crops and vision
+      extraction use the scaled raster as is. Python allocated such a pixmap at full size or failed the paper.
+    - Page checkpoints: the markdown pass, the per-page text pass and figure detection call
+      `JobContext.checkpoint()` before each page. It throws the job's abort reason, or a `TimeoutError` once the
+      soft limit's time has passed by the clock (its timer cannot fire during synchronous work), and
+      `softLimitHit()` counts that case, so such a timeout is final like item 17. One huge page can still run
+      past the limit; only isolation (section 7) bounds that.
+    - `FIGURE_DETECT_MAX_PAGES` (default 60, at least 1): figure detection reads and sends to the detector only
+      the first that-many pages and logs `figure_detect_page_cap_hit` with the page count and the cap; Python
+      scanned every page. Figures past the cap are not extracted.
 
 ## 3. Rulings made during execution
 
@@ -194,7 +213,7 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
 | 01 | `parseBool` silent fallback | Fixed: Task 11 (deliberate change) |
 | 02 | Delete the golden generators with `worker/` | Done: Task 13 (tag `python-final`) |
 | 02 | Worker command, shared volumes, same key, no inherited healthcheck, `stop_grace_period` ≥ 40 s | Fixed: Task 1 (45 s) |
-| 02 | Synchronous extraction has no hard limit (`worker_thread`) | Kept: the feed rework replaces the extractor behind the same interface |
+| 02 | Synchronous extraction has no hard limit (`worker_thread`) | Partly fixed: page, raster and figure-page caps plus per-page time checks (section 2, item 18); isolation kept: the feed rework replaces the extractor behind the same interface |
 | 02/05 | Reprocess endpoint (empty re-run keeps stale chunks) | Kept out of scope; the re-embed does not re-extract |
 | 03 | Re-embed on an embed-setting change | Kept as CLI only (Task 5): after switching the embedding model, run `reembed`; no settings hook, no new route |
 | 03 | Restore re-embed writes `embed_model` | Fixed: Task 5, run by the restore runbook |
@@ -273,8 +292,10 @@ cleanly; after the key is added, the api and worker are recreated and this smoke
   and re-embed after the change.
 - **Re-embed trigger in Settings.** The re-embed is a CLI only; a Settings action (or a prompt after an embedding-model
   change) belongs to the frontend redo.
-- **`worker_thread` extraction.** Synchronous MuPDF extraction has no hard time limit; the feed rework's extractor
-  should run off the main thread.
+- **`worker_thread` extraction.** The bounds landed (section 2, item 18: page cap, raster cap, figure-page cap and a
+  time check between pages), but synchronous MuPDF work still runs on the worker's one thread with no hard time
+  limit, so a single pathological page can hold the event loop past the soft limit. The feed rework's extractor
+  should run in a worker thread (or child process) that is terminated on the job's deadline or abort.
 - **The soft-limit slice.** A soft-limit abort still discards the partial feed slice.
 - **The rest of the preamble still contradicts the per-type prompts.** It says threads use `[1/n]` numbering (the
   thread prompt says not to number) and quotes carry `"quoting": "@handle"` (the quote prompt asks for

@@ -6,7 +6,10 @@ import {
   cropPage,
   extractPagesText,
   extractTextMarkdown,
+  MAX_RENDER_EDGE,
+  MAX_RENDER_PIXELS,
   openPdf,
+  openRenderedPage,
   pageCount,
   PdfOpenError,
   renderPage,
@@ -305,5 +308,149 @@ describe('openPdf', () => {
     buf.destroy();
     pdf.destroy();
     expect(() => openPdf(bytes)).toThrow(PdfOpenError);
+  });
+});
+
+/** A PDF with one page per mediabox, every page sharing one small text content stream. */
+function pdfWithPages(mediaboxes: Array<[number, number, number, number]>): Uint8Array {
+  const pdf = new mupdf.PDFDocument();
+  try {
+    const font = pdf.addSimpleFont(new mupdf.Font('Helvetica'));
+    const contents = pdf.addStream('BT /F1 10 Tf 20 20 Td (bounded page) Tj ET', {});
+    for (const box of mediaboxes) {
+      const page = pdf.addPage(box, 0, { Font: { F1: font } }, '');
+      page.put('Contents', contents);
+      pdf.insertPage(-1, page);
+    }
+    const buf = pdf.saveToBuffer('compress');
+    try {
+      return buf.asUint8Array().slice();
+    } finally {
+      buf.destroy();
+    }
+  } finally {
+    pdf.destroy();
+  }
+}
+
+const letter = (n: number) => Array.from({ length: n }, (): [number, number, number, number] => [0, 0, 612, 792]);
+
+describe('page cap', () => {
+  it('openPdf rejects more pages than maxPages with a PdfOpenError naming both counts', () => {
+    const bytes = pdfWithPages(letter(4));
+    expect(() => openPdf(bytes, { maxPages: 3 })).toThrow(PdfOpenError);
+    expect(() => openPdf(bytes, { maxPages: 3 })).toThrow('PDF has 4 pages; the limit is 3');
+    const doc = openPdf(bytes, { maxPages: 4 });
+    try {
+      expect(pageCount(doc)).toBe(4);
+    } finally {
+      closePdf(doc);
+    }
+  });
+
+  it('openPdf defaults to a 500-page cap', () => {
+    expect(() => openPdf(pdfWithPages(letter(501)))).toThrow('PDF has 501 pages; the limit is 500');
+    closePdf(openPdf(pdfWithPages(letter(500))));
+  });
+});
+
+describe('raster cap', () => {
+  const pngSize = (png: Uint8Array) => {
+    const dv = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    return { w: dv.getUint32(16), h: dv.getUint32(20) };
+  };
+
+  it('scales a huge page down under the pixel and edge caps instead of allocating it', () => {
+    // 14400 pt square at 150 dpi would be a 30000 x 30000 px (2.7 GB) pixmap.
+    const doc = openPdf(pdfWithPages([[0, 0, 14400, 14400]]));
+    try {
+      const r = renderPage(doc, 0, 150);
+      expect(r.width * r.height).toBeLessThanOrEqual(MAX_RENDER_PIXELS);
+      expect(Math.max(r.width, r.height)).toBeLessThanOrEqual(MAX_RENDER_EDGE);
+      expect(Math.abs(r.width - r.height)).toBeLessThanOrEqual(1);
+      expect(r.width).toBeGreaterThanOrEqual(0.99 * Math.sqrt(MAX_RENDER_PIXELS)); // scaled to the cap, not far under it
+      expect(pngSize(r.png)).toEqual({ w: r.width, h: r.height });
+
+      const page = openRenderedPage(doc, 0, 150);
+      try {
+        expect([page.width, page.height]).toEqual([r.width, r.height]);
+        expect(page.crop([0, 0, 10, 10]).width).toBe(10);
+      } finally {
+        page.dispose();
+      }
+    } finally {
+      closePdf(doc);
+    }
+  });
+
+  it('caps the long side of a thin page at the edge limit', () => {
+    const doc = openPdf(pdfWithPages([[0, 0, 14400, 100]]));
+    try {
+      const r = renderPage(doc, 0, 150);
+      expect(r.width).toBeLessThanOrEqual(MAX_RENDER_EDGE);
+      expect(r.width).toBeGreaterThanOrEqual(0.99 * MAX_RENDER_EDGE);
+      expect(r.height).toBeGreaterThan(0);
+      expect(r.height).toBeLessThanOrEqual(Math.ceil((100 * MAX_RENDER_EDGE) / 14400) + 1);
+    } finally {
+      closePdf(doc);
+    }
+  });
+
+  it('leaves a page under the caps at its requested dpi', () => {
+    const doc = openPdf(pdfWithPages([[0, 0, 612, 792]]));
+    try {
+      const r = renderPage(doc, 0, 150);
+      expect([r.width, r.height]).toEqual([1275, 1650]);
+    } finally {
+      closePdf(doc);
+    }
+  });
+});
+
+describe('checkpoint between pages', () => {
+  it('extractTextMarkdown and extractPagesText call it before each page and keep the golden output', () => {
+    const doc = openPdf(SAMPLE);
+    try {
+      let calls = 0;
+      const checkpoint = () => void calls++;
+      expect(extractTextMarkdown(doc, undefined, { checkpoint })).toBe(GOLDEN_MD);
+      expect(calls).toBe(3);
+      calls = 0;
+      expect(extractPagesText(doc, undefined, { checkpoint })).toEqual(GOLDEN_PAGES);
+      expect(calls).toBe(3);
+    } finally {
+      closePdf(doc);
+    }
+  });
+
+  it('a checkpoint that throws stops the walk at that page', () => {
+    const doc = openPdf(pdfWithPages(letter(6)));
+    const loads = vi.spyOn(doc.doc, 'loadPage');
+    try {
+      const stop = new Error('time is up');
+      let calls = 0;
+      const checkpoint = () => {
+        if (++calls === 3) throw stop;
+      };
+      expect(() => extractTextMarkdown(doc, undefined, { checkpoint })).toThrow(stop);
+      expect(loads).toHaveBeenCalledTimes(2);
+      loads.mockClear();
+      calls = 0;
+      expect(() => extractPagesText(doc, undefined, { checkpoint })).toThrow(stop);
+      expect(loads).toHaveBeenCalledTimes(2);
+    } finally {
+      loads.mockRestore();
+      closePdf(doc);
+    }
+  });
+
+  it('extractPagesText reads only the first `pages` pages when asked', () => {
+    const doc = openPdf(SAMPLE);
+    try {
+      expect(extractPagesText(doc, undefined, { pages: 2 })).toEqual(GOLDEN_PAGES.slice(0, 2));
+      expect(extractPagesText(doc, undefined, { pages: 99 })).toEqual(GOLDEN_PAGES);
+    } finally {
+      closePdf(doc);
+    }
   });
 });

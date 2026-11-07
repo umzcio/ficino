@@ -68,7 +68,9 @@ export async function processPaper(
     await progress('extracting');
     await setStatus(sql, paperId, 'extracting');
     step('extracting');
-    doc = openPdf(new Uint8Array(await readFile(deps.storage.pdfPath(paperId))));
+    doc = openPdf(new Uint8Array(await readFile(deps.storage.pdfPath(paperId))), { maxPages: config.maxPdfPages });
+    // The MuPDF walks are synchronous, so they check the soft limit by the clock between pages.
+    const checkpoint = () => ctx.checkpoint();
 
     const extractionMode = String(settings.extraction_mode ?? 'auto');
     let extractionPath = 'pymupdf_clean';
@@ -79,14 +81,14 @@ export async function processPaper(
         extractionPath = 'vision_forced';
       } else {
         log.warn('vision_forced_but_unavailable_falling_back_to_pymupdf');
-        markdown = extractTextMarkdown(doc, log);
+        markdown = extractTextMarkdown(doc, log, { checkpoint });
       }
     } else if (extractionMode === 'pymupdf') {
-      markdown = extractTextMarkdown(doc, log);
+      markdown = extractTextMarkdown(doc, log, { checkpoint });
       extractionPath = 'pymupdf_forced';
     } else {
       // Auto: PyMuPDF, then the quality check below (Marker is gone, so never "marker_clean").
-      markdown = extractTextMarkdown(doc, log);
+      markdown = extractTextMarkdown(doc, log, { checkpoint });
     }
 
     // --- Step 2: quality check (auto only) ---
@@ -198,7 +200,10 @@ export async function processPaper(
     // --- Step 6: figures ---
     await progress('extracting_figures');
     step('extracting_figures');
-    const figures = await extractFigures(doc, p, deps.providers, signal);
+    const figures = await extractFigures(doc, p, deps.providers, signal, {
+      maxPages: config.figureDetectMaxPages,
+      checkpoint,
+    });
 
     const figuresAttempted = figures.length;
     let figuresStored = 0;

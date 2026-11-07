@@ -33,6 +33,34 @@ it('softLimitHit is false before any abort and when the pg-boss job signal abort
   expect(ctx.softLimitHit()).toBe(false);
 });
 
+it('checkpoint throws a TimeoutError once the soft limit passes, even while synchronous work starves its timer', () => {
+  const ctx = makeJobContext(
+    { id: randomUUID(), name: 'process_paper', retryCount: 0, signal: new AbortController().signal },
+    testSql(),
+    pino({ level: 'silent' }),
+    20,
+    2,
+  );
+  ctx.checkpoint();
+  expect(ctx.softLimitHit()).toBe(false);
+  const until = Date.now() + 40;
+  while (Date.now() < until) {
+    // Busy: the event loop never turns, so AbortSignal.timeout cannot fire.
+  }
+  expect(ctx.signal.aborted).toBe(false);
+  expect(() => ctx.checkpoint()).toThrow(expect.objectContaining({ name: 'TimeoutError' }));
+  expect(ctx.softLimitHit()).toBe(true);
+});
+
+it('checkpoint rethrows the pg-boss abort reason, and that is not the soft limit', () => {
+  const ac = new AbortController();
+  const ctx = makeJobContext({ id: randomUUID(), name: 'process_paper', retryCount: 0, signal: ac.signal }, testSql(), pino({ level: 'silent' }), 60_000, 2);
+  const reason = new Error('worker stopping');
+  ac.abort(reason);
+  expect(() => ctx.checkpoint()).toThrow(reason);
+  expect(ctx.softLimitHit()).toBe(false);
+});
+
 it('signal follows the pg-boss job signal', () => {
   const ac = new AbortController();
   const ctx = makeJobContext({ id: randomUUID(), name: 'process_paper', retryCount: 1, signal: ac.signal }, testSql(), pino({ level: 'silent' }), 60_000, 2);

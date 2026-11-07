@@ -67,6 +67,14 @@ it('worker defaults', () => {
   expect(c.contextMaxPaperChars).toBe(200000);
   expect(c.contextMaxTokens).toBe(150);
   expect(c.contextMaxChunks).toBe(200);
+  expect(c.maxPdfPages).toBe(500);
+  expect(c.figureDetectMaxPages).toBe(60);
+});
+it('MAX_PDF_PAGES and FIGURE_DETECT_MAX_PAGES are read and must be at least 1', () => {
+  const c = loadConfig({ MAX_PDF_PAGES: '40', FIGURE_DETECT_MAX_PAGES: '7' });
+  expect([c.maxPdfPages, c.figureDetectMaxPages]).toEqual([40, 7]);
+  expect(() => loadConfig({ MAX_PDF_PAGES: '0' })).toThrow('MAX_PDF_PAGES must be at least 1');
+  expect(() => loadConfig({ FIGURE_DETECT_MAX_PAGES: '0' })).toThrow('FIGURE_DETECT_MAX_PAGES must be at least 1');
 });
 it('CONTEXT_MAX_CHUNKS is read and must be at least 1', () => {
   expect(loadConfig({ CONTEXT_MAX_CHUNKS: '50' }).contextMaxChunks).toBe(50);
