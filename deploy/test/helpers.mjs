@@ -1,6 +1,7 @@
-// Shared helpers for the deploy checks (`npm run test:deploy`). They render compose files with
-// `docker compose config` and never start anything.
-import { execFile, execFileSync } from 'node:child_process';
+// Shared helpers for the deploy checks (`npm run test:deploy`). The compose helpers render files
+// with `docker compose config` and never start anything; the docker helpers run plain docker
+// commands for the tests that start throwaway `ficino-deploytest-*` containers.
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -70,4 +71,11 @@ export function docker(...args) {
   } catch (e) {
     throw new Error(`docker ${args.join(' ')} failed: ${e.stderr ?? e.message}`);
   }
+}
+
+/** Runs `docker …args` synchronously and returns `{ code, stdout, stderr }`; never throws on a non-zero exit. */
+export function dockerTry(...args) {
+  const r = spawnSync('docker', args, { cwd: REPO, env: baseEnv(), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  if (r.error) throw r.error;
+  return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }

@@ -1,0 +1,14 @@
+# Self-host override: one machine, no tailnet. Publishes the web service on loopback only.
+#
+#   cp deploy/loopback/docker-compose.override.example.yml docker-compose.override.yml
+#   docker compose up -d --build
+#
+# then browse http://localhost:8080/ficino/ (use `localhost`, not 127.0.0.1: production cookies
+# are Secure, and Chromium accepts Secure cookies over plain http on `localhost` only).
+#
+# docker-compose.override.yml is gitignored; compose layers it on top of docker-compose.yml.
+# Never publish on 0.0.0.0: the app has no login under AUTH_PROVIDER=none.
+services:
+  web:
+    ports:
+      - "127.0.0.1:8080:80"
