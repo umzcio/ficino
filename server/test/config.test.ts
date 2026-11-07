@@ -97,3 +97,13 @@ it('ElevenLabs model ids default to tts.py and take env overrides', () => {
   expect(o.elevenlabsModelId).toBe('eleven_flash_v2_5');
   expect(o.elevenlabsDialogueModelId).toBe('eleven_v3_alpha');
 });
+
+it('PUBLIC_API_BASE defaults to /ficino/api, allows empty and nested paths, rejects anything else', () => {
+  expect(loadConfig({}).publicApiBase).toBe('/ficino/api');
+  expect(loadConfig({ PUBLIC_API_BASE: '' }).publicApiBase).toBe('');
+  expect(loadConfig({ PUBLIC_API_BASE: '/x/y' }).publicApiBase).toBe('/x/y');
+  expect(loadConfig({ PUBLIC_API_BASE: '/api' }).publicApiBase).toBe('/api');
+  for (const bad of ['x/', '/x/', '/x y', '/', 'https://api.example.test', '/x//y']) {
+    expect(() => loadConfig({ PUBLIC_API_BASE: bad }), bad).toThrow('PUBLIC_API_BASE must be empty or a path like /ficino/api');
+  }
+});

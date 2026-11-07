@@ -286,8 +286,16 @@ describe('papers: delete', () => {
     fs.writeFileSync(path.join(figDir, 'f.png'), 'x');
     expect(fs.existsSync(pdf)).toBe(true);
 
+    const storage = new LocalStorage(testStorageDirs(), resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL }));
+    for (const f of [seeded.feed_a, seeded.feed_b]) {
+      await storage.saveAudio(f, 0, Buffer.from('a'));
+      await storage.savePodcastEpisode(f, Buffer.from('p'));
+    }
+    const mediaOf = (f: string) => path.join(testStorageDirs().mediaDir, 'feeds', f);
+
     // seeded paper_a shares workspace_a: deleting one leaves feeds alone.
     expect((await client(app).delete(`/papers/${up.id}`)).status).toBe(204);
+    expect(fs.existsSync(path.join(mediaOf(seeded.feed_a), 'podcast', 'episode.mp3'))).toBe(true);
     expect(fs.existsSync(pdf)).toBe(false);
     expect(fs.existsSync(figDir)).toBe(false);
     expect(Number((await sql`SELECT COUNT(*) AS n FROM feeds WHERE id = ${seeded.feed_a}`)[0]!.n)).toBe(1);
@@ -298,6 +306,10 @@ describe('papers: delete', () => {
     expect(Number((await sql`SELECT COUNT(*) AS n FROM feeds WHERE id = ${seeded.feed_a}`)[0]!.n)).toBe(0);
     // Another user's feed is untouched.
     expect(Number((await sql`SELECT COUNT(*) AS n FROM feeds WHERE id = ${seeded.feed_b}`)[0]!.n)).toBe(1);
+    // Deliberate change 9: the deleted feed's media goes with it; user B's stays.
+    expect(fs.existsSync(mediaOf(seeded.feed_a))).toBe(false);
+    expect(fs.existsSync(path.join(mediaOf(seeded.feed_b), 'audio', 'post_0.mp3'))).toBe(true);
+    expect(fs.existsSync(path.join(mediaOf(seeded.feed_b), 'podcast', 'episode.mp3'))).toBe(true);
 
     const [audit] = await sql`
       SELECT resource_type, resource_id, metadata, status_code FROM audit_log

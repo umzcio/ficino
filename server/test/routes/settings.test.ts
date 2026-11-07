@@ -268,9 +268,23 @@ async function countFor(table: string, uid: string) {
   return x.n as number;
 }
 
+/** Audio and a podcast episode on disk for user A's and user B's seeded feeds (deliberate change 9). */
+async function seedFeedMedia(mediaDir: string) {
+  const st = new LocalStorage({ uploadDir: mediaDir, figuresDir: mediaDir, mediaDir }, resolveSigningKey({ SIGNED_URL_KEY: 'k' }));
+  for (const f of [seeded.feed_a, seeded.feed_b]) {
+    await st.saveAudio(f, 0, Buffer.from('a'));
+    await st.savePodcastEpisode(f, Buffer.from('p'));
+  }
+}
+
 describe('clear-* routes', () => {
   it('clear-feeds deletes feeds, audits feed.clear_all (test_clear_all_feeds_writes_audit_row)', async () => {
-    const r = await asA().post('/settings/clear-feeds');
+    const mediaDir = await mkdtemp(join(tmpdir(), 'ficino-settings-media-'));
+    await seedFeedMedia(mediaDir);
+    const r = await asA({ config: { mediaDir } }).post('/settings/clear-feeds');
+    expect(await stat(join(mediaDir, 'feeds', seeded.feed_a)).then(() => true, () => false)).toBe(false);
+    expect(await stat(join(mediaDir, 'feeds', seeded.feed_b, 'podcast', 'episode.mp3')).then(() => true, () => false)).toBe(true);
+    await rm(mediaDir, { recursive: true, force: true });
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ status: 'cleared' });
     const [a] = await sql`SELECT count(*)::int n FROM feeds WHERE user_id = ${USER_A_ID}`;
@@ -301,11 +315,12 @@ describe('clear-* routes', () => {
 
   describe('with artifacts on disk', () => {
     let dir: string;
-    let cfg: { uploadDir: string; figuresDir: string };
+    let cfg: { uploadDir: string; figuresDir: string; mediaDir: string };
     const exists = (p: string) => stat(p).then(() => true, () => false);
     beforeEach(async () => {
       dir = await mkdtemp(join(tmpdir(), 'ficino-settings-'));
-      cfg = { uploadDir: join(dir, 'up'), figuresDir: join(dir, 'fig') };
+      cfg = { uploadDir: join(dir, 'up'), figuresDir: join(dir, 'fig'), mediaDir: join(dir, 'media') };
+      await seedFeedMedia(cfg.mediaDir);
       await mkdir(cfg.uploadDir, { recursive: true });
       for (const id of [seeded.paper_a, seeded.paper_b]) {
         await writeFile(join(cfg.uploadDir, `${id}.pdf`), 'pdf');
@@ -326,6 +341,9 @@ describe('clear-* routes', () => {
       expect(await exists(join(cfg.uploadDir, `${seeded.paper_a}.pdf`))).toBe(false);
       expect(await exists(join(cfg.figuresDir, seeded.paper_a))).toBe(false);
       expect(await exists(join(cfg.uploadDir, `${seeded.paper_b}.pdf`))).toBe(true);
+      expect(await exists(join(cfg.mediaDir, 'feeds', seeded.feed_a))).toBe(false);
+      expect(await exists(join(cfg.mediaDir, 'feeds', seeded.feed_b, 'audio', 'post_0.mp3'))).toBe(true);
+      expect(await exists(join(cfg.mediaDir, 'feeds', seeded.feed_b, 'podcast', 'episode.mp3'))).toBe(true);
       expect(await auditCount('paper.clear_all')).toBe(1);
     });
 
@@ -349,6 +367,9 @@ describe('clear-* routes', () => {
       expect(await exists(join(cfg.uploadDir, `${seeded.paper_a}.pdf`))).toBe(false);
       expect(await exists(join(cfg.figuresDir, seeded.paper_a))).toBe(false);
       expect(await exists(join(cfg.uploadDir, `${seeded.paper_b}.pdf`))).toBe(true);
+      expect(await exists(join(cfg.mediaDir, 'feeds', seeded.feed_a))).toBe(false);
+      expect(await exists(join(cfg.mediaDir, 'feeds', seeded.feed_b, 'audio', 'post_0.mp3'))).toBe(true);
+      expect(await exists(join(cfg.mediaDir, 'feeds', seeded.feed_b, 'podcast', 'episode.mp3'))).toBe(true);
       const [row] = await sql`SELECT resource_type, metadata FROM audit_log WHERE user_id = ${USER_A_ID} AND action = 'account.clear_all'`;
       expect(row.resource_type).toBe('account');
       expect(row.metadata).toEqual({ paper_count: 1 });

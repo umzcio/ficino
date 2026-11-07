@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { LocalStorage } from '../../src/storage/local.js';
-import { client, testApp } from '../helpers/client.js';
+import { client, testApp, testStorageDirs } from '../helpers/client.js';
+import { resolveSigningKey } from '../../src/shared/signedUrl.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID, type Seeded } from '../helpers/db.js';
 import { testBoss } from '../helpers/queue.js';
 
@@ -115,9 +116,9 @@ describe('GET /feed/:id hydration', () => {
     );
     const spy = vi.spyOn(LocalStorage.prototype, 'audioUrl').mockImplementation((_f, i) => `/media/signed-${i}`);
     const j = await (await as().get(`/feed/${seeded.feed_a}`)).json();
-    expect(j.posts[0].audio_url).toBe('/media/signed-0');
+    expect(j.posts[0].audio_url).toBe('/ficino/api/media/signed-0');
     expect(j.posts[1]).not.toHaveProperty('audio_url');
-    expect(j.posts[2].audio_url).toBe('/media/signed-2');
+    expect(j.posts[2].audio_url).toBe('/ficino/api/media/signed-2');
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
@@ -140,7 +141,7 @@ describe('GET /feed/:id hydration', () => {
     await setPosts(seeded.feed_a, [], { podcast_status: 'ready' });
     vi.spyOn(LocalStorage.prototype, 'podcastEpisodeUrl').mockReturnValue('/media/ep.mp3?token=t');
     let j = await (await as().get(`/feed/${seeded.feed_a}`)).json();
-    expect(j.podcast_audio_url).toBe('/media/ep.mp3?token=t');
+    expect(j.podcast_audio_url).toBe('/ficino/api/media/ep.mp3?token=t');
     vi.restoreAllMocks();
     vi.spyOn(LocalStorage.prototype, 'podcastEpisodeUrl').mockImplementation(() => {
       throw new Error('down');
@@ -151,6 +152,33 @@ describe('GET /feed/:id hydration', () => {
     await sql`UPDATE feeds SET podcast_status = 'pending' WHERE id = ${seeded.feed_a}`;
     j = await (await as().get(`/feed/${seeded.feed_a}`)).json();
     expect(j.podcast_audio_url).toBeNull();
+  });
+
+  it('media URLs carry the public API base (deliberate change 7); an empty base gives bare /media/', async () => {
+    await setPosts(seeded.feed_a, [{ content: 'a', audio_key: 'k0' }], { audio_status: 'ready', podcast_status: 'ready' });
+    const j = await (await as().get(`/feed/${seeded.feed_a}`)).json();
+    expect(j.posts[0].audio_url.startsWith(`/ficino/api/media/feeds/${seeded.feed_a}/audio/post_0.mp3?token=`)).toBe(true);
+    expect(j.podcast_audio_url.startsWith(`/ficino/api/media/feeds/${seeded.feed_a}/podcast/episode.mp3?token=`)).toBe(true);
+
+    const bare = client(testApp({ user: user(USER_A_ID), config: { publicApiBase: '' } }));
+    const k = await (await bare.get(`/feed/${seeded.feed_a}`)).json();
+    expect(k.posts[0].audio_url.startsWith(`/media/feeds/${seeded.feed_a}/audio/post_0.mp3?token=`)).toBe(true);
+    expect(k.podcast_audio_url.startsWith(`/media/feeds/${seeded.feed_a}/podcast/episode.mp3?token=`)).toBe(true);
+  });
+
+  it('Review Focus 2: the returned URL, with the prefix nginx strips removed, plays', async () => {
+    const MP3 = Buffer.from('ID3-feed-read-roundtrip');
+    await setPosts(seeded.feed_a, [{ content: 'a', audio_key: 'k0' }], { audio_status: 'ready', podcast_status: 'ready' });
+    const storage = new LocalStorage(testStorageDirs(), resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL }));
+    await storage.saveAudio(seeded.feed_a, 0, MP3);
+    await storage.savePodcastEpisode(seeded.feed_a, MP3);
+    const j = await (await as().get(`/feed/${seeded.feed_a}`)).json();
+    for (const url of [j.posts[0].audio_url as string, j.podcast_audio_url as string]) {
+      expect(url.startsWith('/ficino/api/')).toBe(true);
+      const res = await as().get(url.slice('/ficino/api'.length));
+      expect(res.status, url).toBe(200);
+      expect(await res.text(), url).toBe(MP3.toString());
+    }
   });
 
   it('every Feed key is present; podcast_segments is null unless an array', async () => {

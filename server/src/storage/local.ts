@@ -122,8 +122,12 @@ export class LocalStorage {
     return join(this.dirs.mediaDir, key);
   }
 
+  /**
+   * Remove {mediaDir}/feeds/{feedId}/ recursively (deliberate change 9: every feed delete path calls it). Idempotent;
+   * filesystem errors are logged and swallowed. A feedId that is not a UUID does nothing, like deletePaperArtifacts.
+   */
   async deleteFeedMedia(feedId: string): Promise<void> {
-    checkId(feedId);
+    if (!isUuid(feedId)) return;
     try {
       await rm(join(this.dirs.mediaDir, 'feeds', feedId), { recursive: true, force: true });
     } catch (e) {

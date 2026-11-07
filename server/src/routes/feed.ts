@@ -65,11 +65,15 @@ function parsePosts(v: unknown): Post[] {
   return Array.isArray(p) ? (p as Post[]) : [];
 }
 
-function hydrateAudioUrls(posts: Post[], feedId: string, storage: LocalStorage): void {
+/**
+ * Deliberate change 7: media URLs carry the public API base, because ListenView assigns them to `audio.src` as-is
+ * (figure URLs stay relative; the frontend prefixes those). The signed resource itself stays prefix-free.
+ */
+function hydrateAudioUrls(posts: Post[], feedId: string, storage: LocalStorage, base: string): void {
   posts.forEach((post, idx) => {
     if (!post || typeof post !== 'object' || !post.audio_key) return;
     try {
-      post.audio_url = storage.audioUrl(feedId, idx);
+      post.audio_url = `${base}${storage.audioUrl(feedId, idx)}`;
     } catch {
       post.audio_url = null;
     }
@@ -227,7 +231,7 @@ export function feedRoutes(): Hono<AppEnv> {
   });
 
   r.get('/:feed_id', async (c) => {
-    const { sql, storage, logger } = c.var.deps;
+    const { sql, storage, logger, config } = c.var.deps;
     const userId = c.var.user.id;
     const feedId = c.req.param('feed_id');
     const [row] = await sql`
@@ -238,12 +242,12 @@ export function feedRoutes(): Hono<AppEnv> {
       FROM feeds WHERE id = ${feedId} AND user_id = ${userId}`;
     if (!row) throw new HttpError(404, 'Feed not found');
     const posts = parsePosts(row.posts);
-    if (row.audio_status === 'ready') hydrateAudioUrls(posts, feedId, storage);
+    if (row.audio_status === 'ready') hydrateAudioUrls(posts, feedId, storage, config.publicApiBase);
     await hydrateFigureUrls(posts, userId, sql, storage, logger);
     let podcastAudioUrl: string | null = null;
     if (row.podcast_status === 'ready') {
       try {
-        podcastAudioUrl = storage.podcastEpisodeUrl(feedId);
+        podcastAudioUrl = `${config.publicApiBase}${storage.podcastEpisodeUrl(feedId)}`;
       } catch {
         podcastAudioUrl = null;
       }

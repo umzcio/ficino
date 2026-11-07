@@ -22,6 +22,11 @@ export interface Config {
   /** `ELEVENLABS_DIALOGUE_MODEL_ID`: the one-call text-to-dialogue model (worker/lib/tts.py). */
   elevenlabsDialogueModelId: string;
   signedUrlKey: string;
+  /**
+   * `PUBLIC_API_BASE`: the path the browser reaches this API under (the frontend's relative `VITE_API_BASE`),
+   * prefixed to the media URLs `GET /feed/{id}` returns. Same-origin only: `''` or a path, never an origin.
+   */
+  publicApiBase: string;
   searchUseNormalizedPosts: boolean;
   dbPoolMax: number;
   workerDbPoolMax: number;
@@ -125,6 +130,13 @@ function atLeastOne(name: string, n: number): number {
   return n;
 }
 
+const PUBLIC_API_BASE_RE = /^(\/[A-Za-z0-9._~-]+)+$/;
+
+function publicApiBase(v: string): string {
+  if (v === '' || PUBLIC_API_BASE_RE.test(v)) return v;
+  throw new Error('PUBLIC_API_BASE must be empty or a path like /ficino/api');
+}
+
 /** Where config-time warnings go; defaults to the process logger. */
 export type ConfigLog = { warn(obj: object, msg: string): void };
 
@@ -151,6 +163,7 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     elevenlabsModelId: str(env, 'ELEVENLABS_MODEL_ID', 'eleven_turbo_v2_5'),
     elevenlabsDialogueModelId: str(env, 'ELEVENLABS_DIALOGUE_MODEL_ID', 'eleven_v3'),
     signedUrlKey: str(env, 'SIGNED_URL_KEY', '').trim(),
+    publicApiBase: publicApiBase(str(env, 'PUBLIC_API_BASE', '/ficino/api')),
     searchUseNormalizedPosts: parseBool(env.SEARCH_USE_NORMALIZED_POSTS, true),
     dbPoolMax: poolMax(int(env, poolVar, 20)),
     workerDbPoolMax: poolMax(int(env, workerPoolVar, 10)),

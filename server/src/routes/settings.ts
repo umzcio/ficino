@@ -161,7 +161,9 @@ export function settingsRoutes(): Hono<AppEnv> {
   });
 
   r.post('/clear-feeds', async (c) => {
-    await c.var.deps.sql`DELETE FROM feeds WHERE user_id = ${c.var.user.id}`;
+    const { sql, storage } = c.var.deps;
+    const feeds = await sql`DELETE FROM feeds WHERE user_id = ${c.var.user.id} RETURNING id`;
+    for (const f of feeds) await storage.deleteFeedMedia(String(f.id));
     await recordAudit(c, { action: 'feed.clear_all', resourceType: 'feed' });
     return c.json({ status: 'cleared' });
   });
@@ -184,17 +186,19 @@ export function settingsRoutes(): Hono<AppEnv> {
     const uid = c.var.user.id;
     const rows = await sql`SELECT id FROM papers WHERE user_id = ${uid}`;
     const paperIds = rows.map((p) => String(p.id));
-    await sql.begin(async (tx) => {
+    const feedIds = await sql.begin(async (tx) => {
       await tx`DELETE FROM alerts           WHERE user_id = ${uid}`;
       await tx`DELETE FROM persona_dms      WHERE user_id = ${uid}`;
       await tx`DELETE FROM user_posts       WHERE user_id = ${uid}`;
       await tx`DELETE FROM corpus_syntheses WHERE user_id = ${uid}`;
       await tx`DELETE FROM reading_lists    WHERE user_id = ${uid}`;
-      await tx`DELETE FROM feeds            WHERE user_id = ${uid}`;
+      const feeds = await tx`DELETE FROM feeds WHERE user_id = ${uid} RETURNING id`;
       await tx`DELETE FROM papers           WHERE user_id = ${uid}`;
       await tx`DELETE FROM tags             WHERE user_id = ${uid}`;
+      return feeds.map((f) => String(f.id));
     });
     for (const id of paperIds) await storage.deletePaperArtifacts(id);
+    for (const id of feedIds) await storage.deleteFeedMedia(id);
     await recordAudit(c, {
       action: 'account.clear_all',
       resourceType: 'account',
@@ -208,11 +212,13 @@ export function settingsRoutes(): Hono<AppEnv> {
     const uid = c.var.user.id;
     const rows = await sql`SELECT id FROM papers WHERE user_id = ${uid}`;
     const paperIds = rows.map((p) => String(p.id));
-    await sql.begin(async (tx) => {
+    const feedIds = await sql.begin(async (tx) => {
       await tx`DELETE FROM papers WHERE user_id = ${uid}`;
-      await tx`DELETE FROM feeds WHERE user_id = ${uid}`;
+      const feeds = await tx`DELETE FROM feeds WHERE user_id = ${uid} RETURNING id`;
+      return feeds.map((f) => String(f.id));
     });
     for (const id of paperIds) await storage.deletePaperArtifacts(id);
+    for (const id of feedIds) await storage.deleteFeedMedia(id);
     await recordAudit(c, {
       action: 'paper.clear_all',
       resourceType: 'paper',

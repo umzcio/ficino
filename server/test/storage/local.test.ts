@@ -168,6 +168,17 @@ describe('media', () => {
     expect(await exists(join(dirs.mediaDir, 'feeds', other))).toBe(true);
     await expect(st.deleteFeedMedia(FEED)).resolves.toBeUndefined();
   });
+
+  it('deleteFeedMedia on a non-UUID id resolves and removes nothing (deliberate change 9)', async () => {
+    await st.saveAudio(FEED, 0, Buffer.from('a'));
+    await mkdir(join(dirs.mediaDir, 'feeds', 'nope'), { recursive: true });
+    await writeFile(join(dirs.mediaDir, 'feeds', 'nope', 'x'), 'x');
+    for (const bad of ['nope', '', '..', '../feeds', `${FEED}/..`]) {
+      await expect(st.deleteFeedMedia(bad), bad).resolves.toBeUndefined();
+    }
+    expect(await exists(join(dirs.mediaDir, 'feeds', 'nope', 'x'))).toBe(true);
+    expect(await exists(join(dirs.mediaDir, 'feeds', FEED, 'audio', 'post_0.mp3'))).toBe(true);
+  });
 });
 
 describe('ids', () => {
@@ -183,7 +194,6 @@ describe('ids', () => {
     await expect(st.savePodcastEpisode(bad, Buffer.from('x'))).rejects.toThrow('invalid id');
     expect(() => st.audioUrl(bad, 0)).toThrow('invalid id');
     expect(() => st.podcastEpisodeUrl(bad)).toThrow('invalid id');
-    await expect(st.deleteFeedMedia(bad)).rejects.toThrow('invalid id');
   });
 
   it('takes injected dirs, not settings (test_local_storage_takes_injected_dirs_not_settings)', async () => {

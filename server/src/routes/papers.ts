@@ -174,8 +174,9 @@ export function papersRoutes(): Hono<AppEnv> {
       const [{ n }] = await sql`
         SELECT COUNT(*)::int AS n FROM papers WHERE corpus_id = ${corpusId} AND user_id = ${userId}`;
       if (n === 0) {
-        await sql`DELETE FROM feeds WHERE corpus_id = ${corpusId} AND user_id = ${userId}`;
+        const feeds = await sql`DELETE FROM feeds WHERE corpus_id = ${corpusId} AND user_id = ${userId} RETURNING id`;
         logger.info({ corpus_id: corpusId }, 'workspace_feeds_cleared');
+        for (const f of feeds) await storage.deleteFeedMedia(String(f.id));
       }
     }
 
