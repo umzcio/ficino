@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { chmod, chown, copyFile, lstat, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
+import { UUID_PATTERN } from '../shared/uuid.js';
 import type { StorageDirs } from '../storage/local.js';
 import type { RestoreDb } from './cleanup.js';
 import { RestoreError } from './errors.js';
@@ -29,9 +30,9 @@ export type FileCopyPlan = {
   missing: { kind: string; id: string; expected: string }[];
 };
 
-// Lowercase only: uuid::text is lowercase, and the archive's keys were built from it. A key with any other spelling
-// is not one the TS would ever read.
-const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+// Lowercase ids only (`UUID_PATTERN` is lowercase and these regexes take no `i` flag): uuid::text is lowercase and the
+// archive's keys were built from it, so a key with any other spelling names no restored row.
+const UUID = UUID_PATTERN;
 const USER_PREFIX_RE = new RegExp(`^${UUID}/`);
 const PDF_RE = new RegExp(`^(${UUID})\\.pdf$`);
 const FIGURE_RE = new RegExp(`^(${UUID})/figures/([^/]+)$`);
