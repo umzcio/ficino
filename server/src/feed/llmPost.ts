@@ -89,10 +89,40 @@ export function parsePostJson(text: string): unknown {
   return { post_type: 'post', content };
 }
 
+const isPlainObject = (v: unknown): v is Post => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A reply with no content or thread_posts of its own that wraps one post as {"posts": [post, ...]} (first element a
+ * plain object) or {"post": post} yields that post; anything else is returned as is. Local models produced
+ * {"posts": [{"text", "type"}]}, the shape the Python-era system preamble prescribed, so an unwrapped post without
+ * content takes a non-empty string `text` as its content. validatePostShape still judges the result.
+ */
+export function unwrapPostWrapper(parsed: Post, logger?: Pick<Logger, 'warn'>): Post {
+  if (!falsy(parsed.content) || !falsy(parsed.thread_posts)) return parsed;
+  let wrapper: 'posts' | 'post';
+  let count: number;
+  let inner: Post;
+  const list = parsed.posts;
+  if (Array.isArray(list) && isPlainObject(list[0])) {
+    [wrapper, count, inner] = ['posts', list.length, list[0]];
+  } else if (isPlainObject(parsed.post)) {
+    [wrapper, count, inner] = ['post', 1, parsed.post];
+  } else {
+    return parsed;
+  }
+  const textAsContent = falsy(inner.content) && typeof inner.text === 'string' && pyStrip(inner.text) !== '';
+  if (textAsContent) {
+    const { text, ...rest } = inner;
+    inner = { content: text, ...rest };
+  }
+  logger?.warn({ wrapper, count, text_as_content: textAsContent }, 'persona_post_unwrapped');
+  return inner;
+}
+
 export async function generatePersonaPost(
   p: ProviderConfig,
   deps: ProviderDeps,
-  req: { system: string; user: string; temperature: number; signal?: AbortSignal },
+  req: { system: string; user: string; temperature: number; signal?: AbortSignal; logger?: Pick<Logger, 'warn'> },
 ): Promise<Post> {
   const text = await generateText(p, deps, {
     system: req.system,
@@ -102,10 +132,10 @@ export async function generatePersonaPost(
     signal: req.signal,
   });
   const parsed = parsePostJson(text);
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (!isPlainObject(parsed)) {
     throw new TypeError('persona_post_not_an_object');
   }
-  return parsed as Post;
+  return unwrapPostWrapper(parsed, req.logger);
 }
 
 export type ContradictionLabel = 'supports' | 'contradicts' | 'extends';

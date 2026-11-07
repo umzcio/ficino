@@ -86,6 +86,7 @@ export async function regeneratePost(
     user: userPrompt,
     temperature: personaTemp !== null ? personaTemp : temperature,
     signal,
+    logger: log,
   });
   const post = finishRegeneratedPost(rng, raw, {
     personaKey,
