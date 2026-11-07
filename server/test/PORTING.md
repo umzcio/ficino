@@ -121,10 +121,10 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_csrf.py::test_csrf_required_when_auth_basic — plan01/T5
 - [x] api/tests/test_csrf.py::test_csrf_exempt_login — plan01/T5
 - [x] api/tests/test_csrf.py::test_csrf_accepts_matching_cookie_and_header — plan01/T5
-- [ ] api/tests/test_feed_audio_rate_limit.py::test_audio_dispatch_for_failed_feed_is_charged_and_dispatched — plan05
-- [ ] api/tests/test_feed_audio_rate_limit.py::test_audio_dispatch_over_limit_429s_without_dispatch — plan05
-- [ ] api/tests/test_feed_audio_rate_limit.py::test_generating_ready_early_returns_never_charge_budget — plan05
-- [ ] api/tests/test_feed_audio_rate_limit.py::test_podcast_dispatch_shares_the_audio_budget — plan05
+- [x] api/tests/test_feed_audio_rate_limit.py::test_audio_dispatch_for_failed_feed_is_charged_and_dispatched — plan05/T8 (routes/feed-audio.test.ts: a failed status dispatches and is charged once, on both routes)
+- [x] api/tests/test_feed_audio_rate_limit.py::test_audio_dispatch_over_limit_429s_without_dispatch — plan05/T8 (routes/feed-audio.test.ts: the audio bucket: the next dispatch is 429 and sends no job; the counter is INCR-first)
+- [x] api/tests/test_feed_audio_rate_limit.py::test_generating_ready_early_returns_never_charge_budget — plan05/T8 (routes/feed-audio.test.ts: ready and fresh generating never charge; a dispatch still succeeds; a stale claim is charged once, deliberate change 13)
+- [x] api/tests/test_feed_audio_rate_limit.py::test_podcast_dispatch_shares_the_audio_budget — plan05/T8 (routes/feed-audio.test.ts: the audio bucket is shared: audio then podcast is 429, and the reverse)
 - [x] api/tests/test_bookmarks.py::test_create_bookmark_returns_id_and_persists — plan01/T10
 - [x] api/tests/test_bookmarks.py::test_create_bookmark_duplicate_is_idempotent — plan01/T10
 - [x] api/tests/test_bookmarks.py::test_list_bookmarks_scoped_to_caller — plan01/T10

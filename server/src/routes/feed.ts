@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import type { Context } from 'hono';
 import type { AppDeps, AppEnv } from '../app.js';
+import { reclaimMinutes, type MediaColumn } from '../audio/feedAudio.js';
 import { recordAudit } from '../audit.js';
 import { requireUser } from '../auth/currentUser.js';
 import { feedStatusFromJob } from '../feed/status.js';
 import { HttpError } from '../http/errors.js';
-import { userRateLimit } from '../http/rateLimit.js';
+import { chargeUserRateLimit, userRateLimit } from '../http/rateLimit.js';
 import { toPydanticIso } from '../db/time.js';
 import { body, params, pyBool, pyInt, pyUuid, query } from '../http/validate.js';
 import { LIMITS } from '../shared/constants.js';
@@ -114,6 +116,57 @@ async function hydrateFigureUrls(
   }
 }
 
+/** The two media dispatch routes differ only in these. Column names come from here, never from input. */
+const MEDIA_DISPATCH = {
+  audio: {
+    status: 'audio_status',
+    claimedAt: 'audio_claimed_at',
+    queue: 'generate_audio_for_feed',
+    dispatched: 'feed_audio_dispatched',
+    staleClaim: 'feed_audio_stale_claim',
+  },
+  podcast: {
+    status: 'podcast_status',
+    claimedAt: 'podcast_claimed_at',
+    queue: 'generate_podcast_for_feed',
+    dispatched: 'feed_podcast_dispatched',
+    staleClaim: 'feed_podcast_stale_claim',
+  },
+} as const;
+
+/**
+ * POST /feed/{id}/audio|podcast. Idempotent on `ready` and a fresh `generating` claim (no charge). A `generating`
+ * row whose claim is past the reclaim window (its job died before its catch ran; the audio queues never retry) is
+ * charged and dispatched like NULL or `failed` (deliberate change 13); `stale` is the handler's claim predicate, so
+ * the new job's claim takes the row over. The API never writes the status column. No audit, as in Python.
+ */
+async function dispatchMedia(c: Context<AppEnv>, column: MediaColumn) {
+  const { sql, queue, logger, config } = c.var.deps;
+  if (!config.elevenlabsApiKey) throw new HttpError(501, 'Audio TTS not configured');
+  const m = MEDIA_DISPATCH[column];
+  const feedId = c.req.param('feed_id')!;
+  const minutes = reclaimMinutes(config.jobTimeLimitSec);
+  const [row] = isUuid(feedId)
+    ? await sql`
+        SELECT ${sql(m.status)} AS status, ${sql(m.claimedAt)} AS claimed_at,
+               (${sql(m.status)} = 'generating'
+                AND (${sql(m.claimedAt)} IS NULL
+                     OR ${sql(m.claimedAt)} < NOW() - make_interval(mins => ${minutes}::int))) AS stale
+        FROM feeds WHERE id = ${feedId} AND user_id = ${c.var.user.id}`
+    : [];
+  if (!row) throw new HttpError(404, 'Feed not found');
+
+  const current = row.status as string | null;
+  if (current === 'ready' || (current === 'generating' && !row.stale)) return c.json({ status: current }, 202);
+  if (row.stale) logger.warn({ feed_id: feedId, claimed_at: row.claimed_at ?? null }, m.staleClaim);
+
+  // Charged only here, so the idempotent answers above never spend the budget. One bucket for both routes.
+  await chargeUserRateLimit(c, 'audio');
+  const taskId = await queue.send(m.queue, { feed_id: feedId });
+  logger.info({ feed_id: feedId, task_id: taskId }, m.dispatched);
+  return c.json({ status: 'generating', task_id: taskId }, 202);
+}
+
 export function feedRoutes(): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.use('*', requireUser);
@@ -197,6 +250,9 @@ export function feedRoutes(): Hono<AppEnv> {
     }
     return c.json(feedFromRow(row, posts, { podcastAudioUrl }));
   });
+
+  r.post('/:feed_id/audio', (c) => dispatchMedia(c, 'audio'));
+  r.post('/:feed_id/podcast', (c) => dispatchMedia(c, 'podcast'));
 
   r.delete('/:feed_id/posts/:post_index', params(postParams), async (c) => {
     const { sql, logger } = c.var.deps;

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import pino from 'pino';
+import pino, { type Logger } from 'pino';
 import type { ProviderDeps } from '../../src/providers/deps.js';
 import type { Rng } from '../../src/shared/random.js';
 import { createApp, type AppEnv } from '../../src/app.js';
@@ -28,7 +28,7 @@ export function testStorageDirs() {
 
 export const CSRF_TEST_TOKEN = 'test-csrf-token-fixture';
 
-/** App over the test database with a silent logger. Defaults to ENVIRONMENT=development (loadConfig's default). */
+/** App over the test database with a silent logger (or `opts.logger`). Defaults to ENVIRONMENT=development (loadConfig's default). */
 export function testApp(
   opts: {
     user?: AuthUser;
@@ -38,6 +38,7 @@ export function testApp(
     rng?: Rng;
     queue?: JobQueue;
     sql?: Sql;
+    logger?: Logger;
   } = {},
 ): Hono<AppEnv> {
   const config: Config = {
@@ -45,7 +46,7 @@ export function testApp(
     ...testStorageDirs(),
     ...opts.config,
   };
-  const logger = pino({ level: 'silent' });
+  const logger = opts.logger ?? pino({ level: 'silent' });
   const signingKey = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
   const storage = new LocalStorage({ ...testStorageDirs(), ...opts.config }, signingKey, logger);
   return createApp({
