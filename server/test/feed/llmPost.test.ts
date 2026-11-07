@@ -51,6 +51,37 @@ describe('validatePostShape', () => {
     expect(MAX_CONTENT_CHARS).toBe(2000);
     expect([...VALID_POST_TYPES].sort()).toEqual(['figure', 'post', 'quote', 'reply', 'thread']);
   });
+  it('gives a thread that follows its prompt (thread_posts, no content) the joined thread as content', () => {
+    const log = logger();
+    const post = validatePostShape(
+      { post_type: 'thread', persona: 'skeptic', thread_count: 2, thread_posts: ['Hook.', 'Point.'] },
+      { personaKey: 'skeptic', logger: log },
+    );
+    expect(post.post_type).toBe('thread');
+    expect(post.content).toBe('Hook.\n\nPoint.');
+    expect(post.thread_posts).toEqual(['Hook.', 'Point.']);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+  it("keeps a thread's own content", () => {
+    const post = validatePostShape(
+      { post_type: 'thread', persona: 'skeptic', content: 'Own.', thread_posts: ['Hook.', 'Point.'] },
+      { personaKey: 'skeptic', logger: logger() },
+    );
+    expect(post.content).toBe('Own.');
+  });
+  it.each([[[]], [['ok', '  ']], [[1, 2]], [null]])(
+    'still rejects a thread with no content and unusable thread_posts %j',
+    (thread_posts) => {
+      expect(() =>
+        validatePostShape({ post_type: 'thread', persona: 'skeptic', thread_posts }, { personaKey: 'skeptic', logger: logger() }),
+      ).toThrow('persona_post_missing_content');
+    },
+  );
+  it('does not borrow thread_posts for a non-thread post with no content', () => {
+    expect(() =>
+      validatePostShape({ post_type: 'post', persona: 'skeptic', thread_posts: ['a'] }, { personaKey: 'skeptic', logger: logger() }),
+    ).toThrow('persona_post_missing_content');
+  });
 });
 
 describe('generatePersonaPost', () => {

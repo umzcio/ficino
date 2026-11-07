@@ -13,6 +13,18 @@ export function personaKeyOf(v: unknown): string {
   return pyTruthy(v) ? pyStr(v) : '';
 }
 
+/** True when `content` is the thread's own parts joined by blank lines, whole or cut with a trailing '…'. */
+function contentIsJoinedThread(content: string, threadPosts: unknown, parts: string[]): boolean {
+  if (parts.length === 0) return false;
+  const candidates = [parts.join('\n\n')];
+  if (Array.isArray(threadPosts) && threadPosts.every((x) => typeof x === 'string')) {
+    candidates.push(pyStrip((threadPosts as string[]).join('\n\n')));
+  }
+  return candidates.some(
+    (j) => content === j || (content.endsWith('…') && content.length > 1 && j.startsWith(pyStrip(content.slice(0, -1)))),
+  );
+}
+
 /**
  * `_post_to_speech_text`: the text handed to ElevenLabs, or null for a deleted or empty post. The content and each
  * non-blank string thread part, stripped and joined by blank lines, after a `"<name> says: "` speaker cue. Over the
@@ -27,15 +39,18 @@ export function postToSpeechText(post: Post, displayName: string): string | null
   const content = pyStrip(raw);
   if (!content) return null;
 
-  const pieces = [content];
+  const parts: string[] = [];
   const threadPosts = pyTruthy(post.thread_posts) ? post.thread_posts : [];
   if (Array.isArray(threadPosts)) {
     for (const sub of threadPosts) {
       if (typeof sub !== 'string') continue;
       const part = pyStrip(sub);
-      if (part) pieces.push(part);
+      if (part) parts.push(part);
     }
   }
+  // validatePostShape gives a thread without content its joined thread_posts as content (cut at MAX_CONTENT_CHARS
+  // plus '…' when long); speaking content and the parts would then read the thread twice, so speak the parts only.
+  const pieces = contentIsJoinedThread(content, threadPosts, parts) ? parts : [content, ...parts];
 
   const body = pieces.join('\n\n');
   const prefix = displayName ? `${displayName} says: ` : '';
