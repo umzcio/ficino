@@ -9,13 +9,24 @@ const FILE_RE = /^\d{4}_.*\.sql$/;
 // src/db -> server/migrations; dist/db -> /app/migrations
 const DEFAULT_DIR = fileURLToPath(new URL('../../migrations', import.meta.url));
 
+async function migrationFiles(dir: string): Promise<string[]> {
+  return (await readdir(dir)).filter((f) => FILE_RE.test(f)).sort();
+}
+
+const versionOf = (file: string): string => file.slice(0, 4);
+
+/** The sorted 4-character versions `migrate()` records for `dir` (one per migration file). */
+export async function migrationVersions(dir: string = DEFAULT_DIR): Promise<string[]> {
+  return (await migrationFiles(dir)).map(versionOf);
+}
+
 /** Applies pending migrations in name order and returns the versions applied. */
 export async function migrate(sql: Sql, dir: string = DEFAULT_DIR): Promise<string[]> {
   const max = sql.options.max;
   if (typeof max === 'number' && max < 2) {
     throw new Error(`migrate needs a pool of at least 2 connections (got ${max})`);
   }
-  const files = (await readdir(dir)).filter((f) => FILE_RE.test(f)).sort();
+  const files = await migrationFiles(dir);
   const applied: string[] = [];
   // Advisory locks are per-session: hold one reserved connection for the whole run,
   // while each file's transaction uses another pool connection (so max must be >= 2).
@@ -30,7 +41,7 @@ export async function migrate(sql: Sql, dir: string = DEFAULT_DIR): Promise<stri
       )`;
       const done = new Set((await conn`SELECT version FROM schema_migrations`).map((r) => r.version as string));
       for (const file of files) {
-        const version = file.slice(0, 4);
+        const version = versionOf(file);
         if (done.has(version)) continue;
         const text = await readFile(join(dir, file), 'utf8');
         await sql.begin(async (tx) => {
