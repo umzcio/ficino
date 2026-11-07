@@ -178,3 +178,30 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Reading-list ordering goldens
+
+`reading_list_ordering.py` runs in the `ficino-worker` image. It imports `tasks.reading_list_tasks` and writes
+`reading-list-ordering.json` with two sections:
+
+- `parse`: `_parse_ordering_json(text)` over fixed texts (bare arrays, wrapper objects, fences, prose, garbage).
+- `runs`: the real `propose_ordering.run(paper_ids, list_id, user_id=None)` per case. `fetch` answers the case's rows
+  in case order, `execute_in_transaction` records its statements (`persisted` is the UPDATE's `paper_sequence`,
+  `json.loads` of its rationale and the chapter insert's ids), `apply_provider_settings` is a no-op,
+  `claude_client.generate_text_sync` records `(system, user, kwargs)` and returns the case's raw text, `time.time`
+  is fixed (so `duration_ms` is 0), the module logger records `(level, event, kwargs)` (the mismatch event's
+  `missing` and `extra` are sorted, since set order follows string hashing) and the task's `retry` returns `exc`.
+  A raise is recorded as `result: {"raises": "<Type>: <str(exc)>"}`.
+
+`test/readingLists/ordering.test.ts` pins `src/readingLists/ordering.ts` to it. The sort-error cases name the pair
+CPython 3.11's `list.sort` compares (the image's version); regenerate only on a 3.11 or 3.12 image.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/reading_list_ordering.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
