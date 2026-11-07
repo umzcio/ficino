@@ -1,5 +1,5 @@
 // Cross-service constants (port of shared/ficino_shared/constants.py).
-// CHAPTER_INSERT_SQL is intentionally not ported here (plan 05).
+// CHAPTER_INSERT_SQL lives in readingLists/chapters.ts (insertChapters), shared by the routes and the worker.
 
 export const STUB_USER_ID = '00000000-0000-0000-0000-000000000000';
 export const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';

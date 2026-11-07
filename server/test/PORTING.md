@@ -48,16 +48,16 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_rate_limit_config.py::test_generation_limit_per_day_removed — plan01/T7
 - [x] api/tests/test_audit_coverage.py::test_clear_all_feeds_writes_audit_row — plan01/T9
 - [x] api/tests/test_audit_coverage.py::test_delete_bookmark_by_post_writes_audit_row — plan01/T10
-- [ ] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — plan02, plan03, plan04, plan05 (remaining per-router halves; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts) ; feed half (feed.post.delete / feed.post.regenerate audit rows) covered by plan03/T13 (feed-read.test.ts) ; plan04 half (persona_dm.delete_message / persona_dm.clear, reply.delete_message, user_post.delete audit rows) covered by plan04/T4 (personas.test.ts), plan04/T5 (replies-read.test.ts) and plan04/T10 (user-posts.test.ts); still open for plan05
-- [ ] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller — plan05
-- [ ] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user — plan05
-- [ ] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace — plan05
-- [ ] api/tests/test_reading_lists.py::test_reorder_updates_paper_sequence — plan05
-- [ ] api/tests/test_reading_lists.py::test_reorder_cross_user_returns_404 — plan05
-- [ ] api/tests/test_reading_lists.py::test_apply_ordering_rejects_foreign_paper — plan05
-- [ ] api/tests/test_reading_lists.py::test_apply_ordering_applies_valid_permutation — plan05
-- [ ] api/tests/test_reading_lists.py::test_delete_reading_list_removes_row — plan05
-- [ ] api/tests/test_reading_lists.py::test_delete_reading_list_cross_user_returns_404 — plan05
+- [x] api/tests/test_audit_coverage.py::test_bp10_gap_handlers_call_record_audit — plan02, plan03, plan04, plan05 (remaining per-router halves; basic-auth audit covered in test/audit.test.ts, plan01/T7) ; workspaces.delete half covered by plan01/T8 audit-row test ; settings half (4 clear-* handlers) covered by plan01/T9 audit-row tests ; likes.delete_like half covered by plan01/T10 audit-row test (likes.test.ts) ; feed half (feed.post.delete / feed.post.regenerate audit rows) covered by plan03/T13 (feed-read.test.ts) ; plan04 half (persona_dm.delete_message / persona_dm.clear, reply.delete_message, user_post.delete audit rows) covered by plan04/T4 (personas.test.ts), plan04/T5 (replies-read.test.ts) and plan04/T10 (user-posts.test.ts) ; plan05 half (reading_list.delete audit row) covered by plan05/T2 (reading-lists.test.ts: 204, an audit row, chapters gone, the chapter feed kept)
+- [x] api/tests/test_reading_lists.py::test_list_reading_lists_scoped_to_caller — plan05/T2 (reading-lists.test.ts: lists only the caller's lists, newest first, with int counts and Z timestamps)
+- [x] api/tests/test_reading_lists.py::test_get_reading_list_rejects_cross_user — plan05/T2 (reading-lists.test.ts: is 404 for another user's list and for a non-uuid id)
+- [x] api/tests/test_reading_lists.py::test_list_reading_lists_filter_by_workspace — plan05/T2 (reading-lists.test.ts: filters by workspace_id; an empty filter lists all; a non-uuid filter is [])
+- [x] api/tests/test_reading_lists.py::test_reorder_updates_paper_sequence — plan05/T2 (reading-lists.test.ts: reorder updates paper_sequence)
+- [x] api/tests/test_reading_lists.py::test_reorder_cross_user_returns_404 — plan05/T2 (reading-lists.test.ts: reorder of another user's list is 404 Reading list not found)
+- [x] api/tests/test_reading_lists.py::test_apply_ordering_rejects_foreign_paper — plan05/T2 (reading-lists.test.ts: apply-ordering: a foreign paper id is 400 and nothing changes)
+- [x] api/tests/test_reading_lists.py::test_apply_ordering_applies_valid_permutation — plan05/T2 (reading-lists.test.ts: applies a valid permutation: rationale keeps paper_id only, every chapter rebuilt)
+- [x] api/tests/test_reading_lists.py::test_delete_reading_list_removes_row — plan05/T2 (reading-lists.test.ts: 204, an audit row, chapters gone, the chapter feed kept)
+- [x] api/tests/test_reading_lists.py::test_delete_reading_list_cross_user_returns_404 — plan05/T2 (reading-lists.test.ts: another user's list and a non-uuid id are 404 and nothing is deleted)
 - [x] api/tests/test_tags.py::test_create_tag_persists — plan01/T11
 - [x] api/tests/test_tags.py::test_create_tag_is_idempotent — plan01/T11
 - [x] api/tests/test_tags.py::test_create_tag_rejects_empty_name — plan01/T11
@@ -83,7 +83,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_feed_figure_hydration.py::test_storage_error_keeps_persisted_url — plan03/T13
 - [x] api/tests/test_feed_figure_hydration.py::test_no_figure_posts_no_signing — plan03/T13
 - [x] shared/tests/test_constants.py::test_sentinel_ids_are_stable — plan01/T3
-- [ ] shared/tests/test_constants.py::test_chapter_sql_encodes_first_unlocked — plan 05 (CHAPTER_INSERT_SQL moves to the reading-lists slice)
+- [x] shared/tests/test_constants.py::test_chapter_sql_encodes_first_unlocked — plan05/T2 (readingLists/chapters.test.ts: one chapter per paper, 0-based, the first unlocked and the rest locked; against Postgres instead of a string match)
 - [x] api/tests/test_auth_scoping.py::test_list_papers_returns_only_own_papers — plan02/T5
 - [x] api/tests/test_auth_scoping.py::test_list_messages_papers_scoped — plan04/T8 (messages.test.ts: GET /messages/papers is scoped to the caller)
 - [x] api/tests/test_auth_scoping.py::test_list_messages_groups_scoped — plan04/T8 (messages.test.ts: GET /groups lists only the callers, with counts and preview)
@@ -110,10 +110,10 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_feed_posts_search.py::test_search_respects_legacy_flag_toggle — plan03/T14
 - [x] api/tests/test_idor_followups.py::test_assign_tag_rejects_cross_user_paper — plan01/T11
 - [x] api/tests/test_idor_followups.py::test_upload_paper_rejects_cross_user_workspace — plan02/T5
-- [ ] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_paper_ids — plan05
-- [ ] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_corpus_id — plan05
-- [ ] api/tests/test_idor_followups.py::test_apply_ordering_rejects_foreign_paper_injection — plan05
-- [ ] api/tests/test_idor_followups.py::test_apply_ordering_accepts_valid_permutation — plan05
+- [x] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_paper_ids — plan05/T2 (reading-lists.test.ts: another user's paper id is 404 One or more papers not found and creates nothing)
+- [x] api/tests/test_idor_followups.py::test_create_reading_list_rejects_cross_user_corpus_id — plan05/T2 (reading-lists.test.ts: another user's corpus is 404 Workspace not found; so is a non-uuid corpus)
+- [x] api/tests/test_idor_followups.py::test_apply_ordering_rejects_foreign_paper_injection — plan05/T2 (reading-lists.test.ts: apply-ordering: a foreign paper id is 400 and nothing changes)
+- [x] api/tests/test_idor_followups.py::test_apply_ordering_accepts_valid_permutation — plan05/T2 (reading-lists.test.ts: applies a valid permutation: rationale keeps paper_id only, every chapter rebuilt)
 - [x] api/tests/test_shared_shims.py::test_sanitize_shim_is_shared_module — n/a: Python re-export shims; TS has a single module (src/shared/)
 - [x] api/tests/test_shared_shims.py::test_signed_url_shim_is_shared_module — n/a: Python re-export shims; TS has a single module (src/shared/)
 - [x] api/tests/test_csrf.py::test_csrf_enforced_in_auth_none — plan01/T5
@@ -198,9 +198,9 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] api/tests/test_wave3_correctness.py::test_paper_summary_dispatch_path_charges_rate_limit — plan04/T8 (messages.test.ts: a complete row read 3 times under summary:1 is never 429; the second dispatch is)
 - [x] api/tests/test_wave3_correctness.py::test_apa_format_exactly_20_authors_lists_all_20 — plan01/T11
 - [x] api/tests/test_wave3_correctness.py::test_apa_format_21_authors_first_19_then_ellipsis_then_true_last — plan01/T11
-- [ ] api/tests/test_wave3_correctness.py::test_reorder_reading_list_rejects_duplicate_paper_ids — plan05
-- [ ] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_rejects_duplicate_paper_ids — plan05
-- [ ] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_malformed_body_returns_422_not_500 — plan05
+- [x] api/tests/test_wave3_correctness.py::test_reorder_reading_list_rejects_duplicate_paper_ids — plan05/T2 (reading-lists.test.ts: reorder: a duplicate is 422 with a plain detail string)
+- [x] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_rejects_duplicate_paper_ids — plan05/T2 (reading-lists.test.ts: a duplicate is 422 Duplicate paper IDs in ordering)
+- [x] api/tests/test_wave3_correctness.py::test_apply_ai_ordering_malformed_body_returns_422_not_500 — plan05/T2 (reading-lists.test.ts: a malformed body is a 422 validation error, not a 500)
 - [x] api/tests/test_public_deployment.py::test_auth_provider_exposes_public_deployment — plan01/T9
 - [x] api/tests/test_public_deployment.py::test_auth_provider_defaults_public_deployment_false — plan01/T9
 - [x] api/tests/test_public_deployment.py::test_public_deployment_drops_provider_overrides — plan01/T9
