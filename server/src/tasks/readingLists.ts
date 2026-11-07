@@ -196,9 +196,11 @@ export async function generateChapter(
     await assertEmbedModelScope(sql, cumulative, embedModelId(providers), log);
 
     // Retrieval from the cumulative papers only, persona by persona (no boost, exclusions or contradictions).
+    // Deliberate change 24: an empty scope retrieves nothing. retrieveChunks reads an empty paperIds as "no paper
+    // filter", so Python searched every user's chunks here.
     const rctx: RetrievalCtx = { sql, config, providers, deps: deps.providers, logger: log, signal };
     const allChunks = new Map<string, Chunk[]>();
-    for (const key of [...personas.keys()].filter((k) => enabled.has(k))) {
+    for (const key of [...personas.keys()].filter((k) => enabled.has(k) && cumulative.length > 0)) {
       allChunks.set(key, await retrieveForPersona(rctx, personas, { personaKey: key, paperIds: cumulative, topK: 10 }));
     }
 

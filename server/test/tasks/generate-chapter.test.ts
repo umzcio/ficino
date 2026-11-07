@@ -234,6 +234,20 @@ describe('generate_chapter', () => {
     expect(logged(h.lines, 'chapter_scope')[0]).toMatchObject({ chapter_papers: 1, cumulative_papers: 2 });
   });
 
+  it("deliberate change 24: a chapter with no papers retrieves nothing, never every user's chunks", async () => {
+    await setSettings(s.user_a, simple(2));
+    const listId = await seedList(s.user_a, []);
+    await sql`
+      INSERT INTO reading_list_chapters (reading_list_id, chapter_index, paper_ids, status)
+      VALUES (${listId}, 0, '{}'::uuid[], 'unlocked')`;
+    const h = harness();
+    const result = await h.run({ reading_list_id: listId, chapter_index: 0, user_id: s.user_a });
+    expect(result).toMatchObject({ status: 'complete', post_count: 0 });
+    expect(h.infos).toHaveLength(0);
+    expect((await feedRow(result.feed_id))!.posts).toEqual([]);
+    expect(logged(h.lines, 'chapter_scope')[0]).toMatchObject({ chapter_papers: 0, cumulative_papers: 0 });
+  });
+
   it("the LLM call carries the owner's stored model and temperature, never another user's", async () => {
     await setSettings(s.user_a, simple(1, { ollama_llm_model: 'owner-model', persona_temperature: 0.42 }));
     await setSettings(s.user_b, simple(1, { ollama_llm_model: 'other-model' }));

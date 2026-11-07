@@ -115,6 +115,11 @@ Changes 18 to 23 came from the final review's fix wave.
 23. **`generate_corpus_synthesis`'s idempotent skip heals a `generating` row** (`status = 'complete'`,
     `task_id = NULL`), so a restored row whose `messages` is a non-empty non-array (a double-encoded string) no
     longer loops through the group-chat stuck check, charging `summary` on every poll. `tasks/summary.test.ts`.
+24. **A chapter with no papers retrieves nothing** (controller fix after the final review). `retrieveChunks` reads an
+    empty `paperIds` as "no paper filter" and has no user filter, so Python's `generate_chapter` on a chapter whose
+    cumulative scope was empty searched every user's chunks. The handler now skips retrieval for an empty scope and
+    completes with zero posts. `generate_feed`, `regenerate_post`, the Archivist and the podcast already guarded
+    this. `tasks/generate-chapter.test.ts`.
 
 **Non-UUID ids.** As in plan 04, a path or body id that cannot be a UUID answers the route's own 404 (or the empty
 shape) where Python returned 500 on the cast. A 32-hex unhyphenated or braced id, which Postgres accepts, is also 404.
