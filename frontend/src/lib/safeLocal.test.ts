@@ -1,4 +1,4 @@
-// R10 wave-4 FE-8: shared-origin storage guard. The umzcaio deployment puts
+// R10 wave-4 FE-8: shared-origin storage guard. The <host> deployment puts
 // every subpath app on one origin sharing one ~5MB localStorage bucket — a
 // full bucket makes even a tiny setItem in an unrelated app throw
 // QuotaExceededError. safeLocal must swallow get/set/remove failures instead

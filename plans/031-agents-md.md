@@ -64,7 +64,7 @@ This repo is heavily agent-driven (`.agents/skills/`, `plans/`, `review/`, ~20 a
 
 ### Step 1: Write AGENTS.md
 
-Create `/projects/ficino/AGENTS.md` with these sections, concise (target ≤ 80 lines; commands and rules, not essays):
+Create `<repo>/AGENTS.md` with these sections, concise (target ≤ 80 lines; commands and rules, not essays):
 
 1. **Project** — two sentences: what Ficino is (link README.md), the two deploy targets (self-host compose / SaaS Railway+Supabase).
 2. **Layout** — one line each: `frontend/` (React+Vite+TS), `api/` (FastAPI), `worker/` (Celery), `shared/` (editable package used by both), `infra/postgres/` (schema), `tests/e2e/` (Playwright), `plans/` (advisor execution plans).

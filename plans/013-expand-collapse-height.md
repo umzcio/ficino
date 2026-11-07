@@ -181,8 +181,8 @@ under `prefers-reduced-motion`, so this is belt-and-braces and intent-documentin
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all must pass.
-- **Feel check**: run `cd /projects/ficino/frontend && npm run dev` (app may be
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all must pass.
+- **Feel check**: run `cd <repo>/frontend && npm run dev` (app may be
   under base path `/ficino`), then:
   - Feed: click "N past feeds" — the list unfolds over 200ms and the ComposeBox /
     feed below glide down with it instead of jumping. Click again — it folds back

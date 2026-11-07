@@ -79,7 +79,7 @@ If plan 010 has already been executed and the matching token exists in
 1. In `frontend/src/components/Listen/ListenView.tsx`, replace the class
    string at line 758 with the target string above.
 2. Replace the identical class string at line 766 with the target string.
-3. Run `cd /projects/ficino/frontend && npm run build`. If the arbitrary
+3. Run `cd <repo>/frontend && npm run build`. If the arbitrary
    variant fails to compile, apply the documented fallback (class
    `listen-transport` on both buttons + the named rule in
    `frontend/src/index.css`) and note the substitution in your report.
@@ -98,9 +98,9 @@ If plan 010 has already been executed and the matching token exists in
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build`
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build`
   — all must pass; the build verifies the arbitrary-variant syntax compiles.
-- **Feel check**: run the dev server (`cd /projects/ficino/frontend && npm run dev`;
+- **Feel check**: run the dev server (`cd <repo>/frontend && npm run dev`;
   the app may be under base path `/ficino`), open Listen, and confirm:
   - On a desktop pointer: hovering Play/Pause still grows the button to
     scale(1.05); pressing it dips to scale(0.97) in 100ms and springs back on

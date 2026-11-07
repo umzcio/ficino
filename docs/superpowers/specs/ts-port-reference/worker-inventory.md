@@ -1,6 +1,6 @@
 # Ficino worker inventory (for the TypeScript / pg-boss port)
 
-Snapshot: `/projects/ficino` @ `dfedb2b` (2026-10-29). Scope: `worker/` (celery_app, tasks/, lib/, tests/, Dockerfile, requirements*) and `shared/ficino_shared/`. All refs are `path:line`. I only read files here; nothing in the repo was modified.
+Snapshot: `<repo>` @ `dfedb2b` (2026-10-29). Scope: `worker/` (celery_app, tasks/, lib/, tests/, Dockerfile, requirements*) and `shared/ficino_shared/`. All refs are `path:line`. I only read files here; nothing in the repo was modified.
 
 Size: about 11.5k lines total. Tasks are about 3.9k lines, lib about 4.3k, shared about 1k, tests about 1.4k.
 

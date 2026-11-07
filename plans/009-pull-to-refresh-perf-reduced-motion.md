@@ -212,8 +212,8 @@ import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all three must pass.
-- **Feel check**: run `cd /projects/ficino/frontend && npm run dev`, open
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all three must pass.
+- **Feel check**: run `cd <repo>/frontend && npm run dev`, open
   the app (it may be served under the base path `/ficino`) on a mobile
   viewport (DevTools device toolbar), go to the feed at scrollY 0, and
   pull down:

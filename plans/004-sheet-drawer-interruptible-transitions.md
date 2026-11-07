@@ -208,8 +208,8 @@ Every internal `onClose` call becomes `requestClose`: backdrop onClick (line 61)
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`). Note: Tailwind only emits classes it sees literally in source — every class above is a complete literal string, so `duration-[250ms]`, `duration-[200ms]`, `duration-[160ms]`, `ease-[cubic-bezier(0.32,0.72,0,1)]`, `starting:translate-y-full`, `starting:translate-x-[-100%]`, `translate-y-full`, `translate-x-[-100%]`, `translate-y-0`, `translate-x-0` must appear verbatim as written.
-- **Feel check**: `cd /projects/ficino/frontend && npm run dev` (app may be served under base path `/ficino`), mobile viewport or touch emulation:
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`). Note: Tailwind only emits classes it sees literally in source — every class above is a complete literal string, so `duration-[250ms]`, `duration-[200ms]`, `duration-[160ms]`, `ease-[cubic-bezier(0.32,0.72,0,1)]`, `starting:translate-y-full`, `starting:translate-x-[-100%]`, `translate-y-full`, `translate-x-[-100%]`, `translate-y-0`, `translate-x-0` must appear verbatim as written.
+- **Feel check**: `cd <repo>/frontend && npm run dev` (app may be served under base path `/ficino`), mobile viewport or touch emulation:
   - Open the workspace sheet (long-press Home) — it slides up over 250ms with the drawer curve; the backdrop fades in over 200ms.
   - Close it via backdrop tap, X button, and selecting a workspace — each time the sheet slides back down over 200ms and the backdrop fades out **before** the overlay disappears; no teleport.
   - Open the sheet and immediately tap the backdrop mid-entry — the surface reverses direction from its current position instead of restarting from zero (transitions retarget; the old keyframes could not).

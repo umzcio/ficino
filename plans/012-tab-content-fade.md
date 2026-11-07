@@ -228,8 +228,8 @@ is the entire budget this interaction earns.
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all must pass.
-- **Feel check**: run `cd /projects/ficino/frontend && npm run dev` (app may be
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all must pass.
+- **Feel check**: run `cd <repo>/frontend && npm run dev` (app may be
   under base path `/ficino`), then:
   - Click through the four Feed tabs: content fades in over ~120–150ms on every
     switch; there is no horizontal movement of the content.

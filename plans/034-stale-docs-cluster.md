@@ -27,7 +27,7 @@ Actively-wrong docs are worse than missing ones. Four stale spots: `docs/TEST_PL
 
 ## Current state
 
-- `docs/TEST_PLAN.md:4` — App URL `https://umzcaio.ito.umt.edu/ficino` (superseded by ficino.app / localhost:3000/ficino). Lines 8-11 describe already-done setup. Its manual-checklist role is now filled by the e2e specs in `tests/e2e/`.
+- `docs/TEST_PLAN.md:4` — App URL `https://<host>/ficino` (superseded by ficino.app / localhost:3000/ficino). Lines 8-11 describe already-done setup. Its manual-checklist role is now filled by the e2e specs in `tests/e2e/`.
 - `FEATURES.md:177` — "Operator script at `/tmp/set-my-password.sh` hits Supabase's admin API to rewrite a user's password directly".
 - `.env.example:35` — "See docs/deployment.md (TODO)." — that file has never existed; the real runbook is `docs/saas-deploy.md`.
 - `README.md:354-378` — Development section covers only api/worker pytest + the `pip install ./shared` prerequisite.

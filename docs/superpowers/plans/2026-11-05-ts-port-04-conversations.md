@@ -53,7 +53,7 @@ string, number, branch and SQL statement this plan doesn't pin. Read it. The Pyt
 
 ## Global Constraints
 
-- **Workspace.** Work on branch `ts-port/04-conversations` in a worktree at `/projects/ficino-ts-port-04`, based on
+- **Workspace.** Work on branch `ts-port/04-conversations` in a worktree at `<worktree>`, based on
   local `main` (`1212588` or later). Never modify `api/`, `worker/`, `shared/`, `frontend/` or `tests/e2e/`. You may
   read them, and you may run them inside the `ficino-api` and `ficino-worker` images to make goldens (see
   `server/test/fixtures/goldens/gen/README.md`). Run `npm ci` in `server/` first.

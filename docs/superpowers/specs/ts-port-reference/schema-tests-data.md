@@ -1,6 +1,6 @@
 # Ficino TS port: schema, data restore, tests, deploy
 
-Research date 2026-10-29. Read-only on `/projects/ficino` and `<archive-root>`.
+Research date 2026-10-29. Read-only on `<repo>` and `<archive-root>`.
 **Verified, not just read:** I loaded `init.sql` into a throwaway `pgvector/pgvector:pg16` container
 (`--network none`, tmpfs, removed afterwards). I loaded the prod `schema.sql` into a second DB in
 the same container and diffed the two catalogs. I restored the prod public COPY data into the
@@ -8,7 +8,7 @@ init.sql schema and test-ran a re-key to the stub user. Scratch artifacts are in
 `<scratch>/ficino-port/work/`: `init.cat` and `prod.cat` (the catalog dumps) and
 `rekey-test.sql`. None of them contain secrets.
 
-Abbreviations: **I** = `/projects/ficino/infra/postgres/init.sql`.
+Abbreviations: **I** = `<repo>/infra/postgres/init.sql`.
 **P** = `<archive>/db/schema.sql`.
 **D** = `.../db/data.sql`. **A** = `<archive>/`.
 
@@ -157,11 +157,11 @@ The auth.* blocks (users 1, identities 1, sessions 3, refresh_tokens 5, mfa_amr_
 |---|---|---|
 | papers.file_path | `<uid>/<paper_id>.pdf` (Supabase key) | `storage/papers/<uid>/<paper_id>.pdf` |
 | figures.image_path | `<uid>/<paper_id>/figures/fig_p<page>_<n>.png` | `storage/papers/<uid>/<paper_id>/figures/fig_p…png` (31) |
-| feeds.posts[*].audio_key | `<uid>/feeds/<feed_id>/audio/post_<i>.mp3` | 38 files under `feeds/{03f9ba14,540610a4}/audio/` |
-| feeds.podcast_segments[*].audio_key | `<uid>/feeds/03f9ba14…/podcast/seg_<n>.mp3` (legacy stitched segments) | 16 seg files; `540610a4…/podcast/episode.mp3` (1, single-file episode) |
+| feeds.posts[*].audio_key | `<uid>/feeds/<feed_id>/audio/post_<i>.mp3` | 38 files under `feeds/{<feed-a>,<feed-b>}/audio/` |
+| feeds.podcast_segments[*].audio_key | `<uid>/feeds/<feed-a>…/podcast/seg_<n>.mp3` (legacy stitched segments) | 16 seg files; `<feed-b>…/podcast/episode.mp3` (1, single-file episode) |
 | feeds.posts / feed_posts.data `figure_url` | **stale Supabase signed URLs with tokens** (6 rows in feeds, 9 in feed_posts) | — |
 
-File counts: 7 PDFs (**one orphan**, `96b20fe8….pdf`, with no papers row), 31 PNGs and 55 MP3s, 93 in total.
+File counts: 7 PDFs (**one orphan**, `<orphan-pdf>….pdf`, with no papers row), 31 PNGs and 55 MP3s, 93 in total.
 Supabase key builders are in `shared/ficino_shared/storage/supabase.py:45-61`.
 
 ### What the self-host local provider expects
@@ -190,13 +190,13 @@ Supabase key builders are in `shared/ficino_shared/storage/supabase.py:45-61`.
    - Strip `figure_url` from JSON if you want no stale Supabase URLs.
 7. Optional cosmetic step: `papers.file_path = '/app/uploads/'||id||'.pdf'` and `figures.image_path = '/app/figures/'||paper_id||'/'||basename`.
 8. Copy files:
-   - `storage/papers/<uid>/<pid>.pdf → $UPLOAD_DIR/<pid>.pdf` (6 files; skip `96b20fe8`)
+   - `storage/papers/<uid>/<pid>.pdf → $UPLOAD_DIR/<pid>.pdf` (6 files; skip `<orphan-pdf>`)
    - `storage/papers/<uid>/<pid>/figures/*.png → $FIGURES_DIR/<pid>/` (31 files)
    - chown to 10001
    - Verify md5 against `storage-manifest.json`.
-9. **Run `backfill_feed_posts.py`** (or its TS equivalent). The prod index had drifted: `feeds.posts` holds **156** posts but `feed_posts` has only **108** rows. Feeds `1af67bfb`, `d395f1a9` and `d4909614` are missing entirely (12 each) and `85d56957` has 3 of 15. Search under `SEARCH_USE_NORMALIZED_POSTS=true` (the default) misses those 48 posts.
+9. **Run `backfill_feed_posts.py`** (or its TS equivalent). The prod index had drifted: `feeds.posts` holds **156** posts but `feed_posts` has only **108** rows. Feeds `<feed-c>`, `<feed-d>` and `<feed-e>` are missing entirely (12 each) and `<feed-f>` has 3 of 15. Search under `SEARCH_USE_NORMALIZED_POSTS=true` (the default) misses those 48 posts.
 10. Embeddings: keep `EMBED_PROVIDER=voyage`, `VOYAGE_EMBED_MODEL=voyage-4-large`, or re-embed every chunk with the new provider (see above).
-11. Audio: either implement local audio storage and copy the 55 MP3s, or NULL out `audio_status`/`podcast_status` on feeds `03f9ba14` and `540610a4`.
+11. Audio: either implement local audio storage and copy the 55 MP3s, or NULL out `audio_status`/`podcast_status` on feeds `<feed-a>` and `<feed-b>`.
 
 ---
 
@@ -231,7 +231,7 @@ What the worker tests pin:
 - Chapter post validation, reading-list atomic persist, auto-tagging, stale-paper query.
 - Podcast settings, LLM empty-response guard, env hygiene, persona helpers, event-loop helper.
 
-### Playwright e2e (`/projects/ficino/tests/e2e`)
+### Playwright e2e (`<repo>/tests/e2e`)
 - Specs: r2_sections_{1_3,4_7,8_10,11_13,14_16,17_18}, review, round9_core_flows, wave4_group_chat, aug/augment. About 135 `test(` calls in total. `SKIPS.md` is the skip inventory.
 - `playwright.config.ts`: `baseURL = E2E_BASE_URL || 'http://localhost:3000/ficino'` (:15), workers 1, timeout 60s, globalSetup `helpers/globalSetup.ts`. Projects are desktop 1280x800, mobile 390x844, and **`ci`**: desktop, minus `round9_core_flows` and `wave4_group_chat` (`testIgnore`), minus `grepInvert /R2-S16-09/` (:45-49). These need a real LLM or embeddings.
 - `globalSetup.ts`: mkdirs `tests/screenshots`, then calls `ensureFeedFixtures()`.

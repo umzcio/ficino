@@ -33,7 +33,7 @@
 - [ ] **Step 1: Branch**
 
 ```bash
-cd /projects/ficino && git checkout -b r10/wave2-shared
+cd <repo> && git checkout -b r10/wave2-shared
 ```
 
 - [ ] **Step 2: Write the package skeleton**
@@ -115,7 +115,7 @@ def test_chapter_sql_encodes_first_unlocked():
 - [ ] **Step 3: Install and run**
 
 ```bash
-cd /projects/ficino/shared && pip install -e . -q && python -m pytest tests/ -q
+cd <repo>/shared && pip install -e . -q && python -m pytest tests/ -q
 ```
 Expected: 2 passed.
 
@@ -402,7 +402,7 @@ Note on the last test: `reset_baseline_for_tests()` snapshots (or clears so the 
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /projects/ficino/shared && python -m pytest tests/test_settings_schema.py -q
+cd <repo>/shared && python -m pytest tests/test_settings_schema.py -q
 ```
 Expected: FAIL (module doesn't exist).
 
@@ -420,7 +420,7 @@ Update the mirror comments: the api file's "Mirror: worker/lib/settings.py" note
 - [ ] **Step 4: Run to verify pass**
 
 ```bash
-cd /projects/ficino/shared && python -m pytest tests/ -q
+cd <repo>/shared && python -m pytest tests/ -q
 ```
 Expected: all shared tests green (~11).
 
@@ -663,7 +663,7 @@ Note the traversal vector is the `paper_id` component (filename is already basen
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /projects/ficino/shared && python -m pytest tests/test_storage_local.py -q
+cd <repo>/shared && python -m pytest tests/test_storage_local.py -q
 ```
 Expected: FAIL (no storage package).
 

@@ -197,8 +197,8 @@ extra to do.
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all three must pass. Plus the step-5 grep returning zero matches.
-- **Feel check**: run `cd /projects/ficino/frontend && npm run dev`, open
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all three must pass. Plus the step-5 grep returning zero matches.
+- **Feel check**: run `cd <repo>/frontend && npm run dev`, open
   the app (it may be served under the base path `/ficino`) on a mobile
   viewport:
   - Swipe a feed row left/right and release short of the threshold: the
