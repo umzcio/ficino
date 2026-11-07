@@ -31,7 +31,12 @@ export async function seedSamplePaper(
   opts: { pdfPath?: string; timeoutMs?: number } = {},
 ): Promise<string> {
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-  const timeoutMs = opts.timeoutMs ?? 300_000
+  // Ingestion ends with figure detection: every page goes to the vision model at once
+  // (up to 4 in flight), each with the worker's 300 s request timeout. qwen3-vl thinks
+  // even with think:false, and on the sample's chart page that alone takes about 165 s,
+  // so a run can legitimately need the full 300 s plus the steps before it. Wait past
+  // the worker's own bound instead of racing it.
+  const timeoutMs = opts.timeoutMs ?? 600_000
   const ctx = await request.newContext({ ignoreHTTPSErrors: true })
   try {
     // A GET sets the double-submit CSRF cookie that the upload must echo.
