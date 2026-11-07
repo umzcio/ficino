@@ -13,14 +13,14 @@
 <p align="center">
   <strong>AI-powered academic discourse engine</strong><br/>
   Transform dense research papers into a simulated social media feed where AI personas debate the findings.<br/><br/>
-  <a href="https://ficino.app">ficino.app</a> · <a href="https://docs.ficino.ai">Docs</a> · <a href="https://github.com/umzcio/ficino/blob/main/FEATURES.md">Roadmap</a>
+  <a href="https://docs.ficino.ai">Docs</a> · <a href="https://github.com/umzcio/ficino/blob/main/FEATURES.md">Roadmap</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-beta-c8a96e?style=flat-square" alt="Beta" />
   <img src="https://img.shields.io/badge/license-AGPL--v3-c8a96e?style=flat-square" alt="AGPL v3" />
-  <img src="https://img.shields.io/badge/stack-React%20%7C%20FastAPI%20%7C%20Celery%20%7C%20pgvector-4a9eff?style=flat-square" alt="Stack" />
-  <img src="https://img.shields.io/badge/LLM-Claude%20%7C%20OpenAI%20%7C%20Ollama-34d399?style=flat-square" alt="LLM" />
+  <img src="https://img.shields.io/badge/stack-React%20%7C%20Node%20%2F%20Hono%20%7C%20pg--boss%20%7C%20Postgres%20%2B%20pgvector-4a9eff?style=flat-square" alt="Stack" />
+  <img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20Claude-34d399?style=flat-square" alt="LLM" />
 </p>
 
 ---
@@ -44,8 +44,8 @@ Upload PDFs --> Ingest & Chunk --> AI Personas Debate --> You Learn by Scrolling
 ```
 
 1. **Upload papers**: drag-drop PDFs into your corpus
-2. **Automatic ingestion**: extracts text (PyMuPDF or Vision fallback for tricky PDFs), detects sections, chunks intelligently, generates a per-chunk contextual prefix, then embeds. Figures are detected per-page by Claude Sonnet vision — only *scientific* figures (charts, diagrams, photographs) are kept, each tagged with a caption, figure number, data claim, and type
-3. **Generate feed**: six AI personas retrieve relevant chunks via hybrid search (vector + BM25, with an optional cross-encoder reranker as stage 3), and generate a Twitter/X-style discourse feed. Figures are only offered to personas whose `allowed_figure_types` cover the figure's type — so Methods Skeptic never critiques a UI icon
+2. **Automatic ingestion**: extracts text (MuPDF, or a vision-model fallback for tricky PDFs), detects sections, chunks intelligently, optionally generates a per-chunk contextual prefix, then embeds. Figures are detected per page by a vision model (local Ollama or Claude) — only *scientific* figures (charts, diagrams, photographs) are kept, each tagged with a caption, figure number, data claim, and type
+3. **Generate feed**: six AI personas retrieve relevant chunks via hybrid search (vector + keyword, with an optional hosted reranker as stage 3), and generate a Twitter/X-style discourse feed. Figures are only offered to personas whose `allowed_figure_types` cover the figure's type — so Methods Skeptic never critiques a UI icon
 4. **Cross-paper RAG**: personas argue *across* papers, detecting contradictions and agreements
 5. **Interact**: reply to personas, bookmark posts, explore paper summaries, trace claims back to source chunks
 
@@ -132,17 +132,17 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 - **Requires `ELEVENLABS_API_KEY`** (feed audio works on any tier; podcast mode needs v3 access)
 
 ### Configuration
-- **LLM provider switching**: toggle between Ollama (local, free) and Claude/OpenAI APIs
+- **LLM provider switching**: toggle between Ollama (local, free) and Claude; embeddings from Ollama, Voyage or OpenAI
 - **Model selection**: pick from installed Ollama models via dropdown
 - **Persona controls**: enable/disable personas, adjust temperature, tune post type weights — personas stored in DB, zero-code to add new ones
-- **Paper processing**: extraction mode (auto/PyMuPDF/vision), chunk size, display options
+- **Paper processing**: extraction mode (auto/MuPDF text/vision), chunk size, display options
 - **Light/dark mode**: instant theme switching with font size and post spacing controls
 
 ### Authentication
-- **Pluggable**: `AUTH_PROVIDER=none` (default, no login), `basic` (email/password), or `supabase` (JWT)
-- **Self-hosted**: `none` for single-user, `basic` for multi-user with bcrypt + Redis sessions
-- **SaaS**: `supabase` powers ficino.app — Supabase Auth with ES256 JWT verification via JWKS, Cloudflare Turnstile captcha on every auth action, OTP-code password recovery (survives Microsoft Safe Links pre-fetch), Sign Out button in Settings
-- **One env change**: switch providers without code changes
+- **Two providers**: `AUTH_PROVIDER=none` (the default: a single owner, no login) or `basic` (email/password accounts)
+- **Basic auth**: bcrypt password hashes, sessions stored in Postgres (HTTP-only cookie, 7-day sliding expiry); the first account may always register, later ones only with `ALLOW_REGISTRATION=true`
+- **CSRF**: double-submit cookie on every state-changing request except login and registration; rejections are logged (`csrf_rejected`)
+- **Rate limits**: per-user daily budgets kept in Postgres under `basic` (uploads, generations, posts, summaries, replies, DMs, audio)
 
 ### PWA + Offline Mode
 - **Installable**: add to home screen on iOS/Android, standalone fullscreen app — no App Store
@@ -166,18 +166,17 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | React + Vite + TypeScript + TailwindCSS v4 + PWA (Workbox + IndexedDB) + `@use-gesture/react` |
-| **Backend API** | FastAPI (Python 3.11+), async, raw SQL with asyncpg |
-| **Workers** | Celery + Redis (ingestion, feed generation, alerts) |
-| **Database** | PostgreSQL + pgvector (hybrid vector + BM25 search) — self-host: local Postgres; SaaS: Supabase |
-| **Auth** | Pluggable: `none` / `basic` (bcrypt + Redis sessions) / `supabase` (ES256 JWT via JWKS) |
-| **LLM** | Anthropic Claude, OpenAI, or Ollama (env-driven defaults; no hardcoded provider) |
-| **Embeddings** | voyage-3 (SaaS default), text-embedding-3-small (OpenAI), or bge-m3 (1024d, Ollama) |
-| **PDF Processing** | PyMuPDF + Vision fallback (Claude Sonnet or local multimodal model) |
-| **Object Storage** | Local disk (self-host) or Supabase Storage with RLS (SaaS) |
-| **Audio (optional)** | ElevenLabs — turbo v2.5 for per-post feed TTS, v3 Dialogue Mode for NotebookLM-style podcast episodes |
-| **Bot Protection** | Cloudflare Turnstile (SaaS) — site key baked into frontend, secret on Supabase |
-| **Deployment** | Docker Compose (self-host) or Railway + Supabase + Cloudflare (SaaS at ficino.app) |
+| **Frontend** | React + Vite + TypeScript + TailwindCSS v4 + PWA (Workbox + IndexedDB) + `@use-gesture/react`, served by nginx |
+| **Backend API** | Node.js + TypeScript (strict ESM) + Hono, raw SQL with postgres.js, zod validation |
+| **Worker** | The same server image running pg-boss queues: ingestion, feed generation, summaries, alerts, audio, and the daily crons |
+| **Database** | PostgreSQL 18 + pgvector: data, job queues (pg-boss), sessions and rate limits all live in Postgres |
+| **Auth** | `none` (single owner, no login) or `basic` (email/password, bcrypt, sessions in Postgres) |
+| **LLM** | Ollama (local) or Anthropic Claude; env-driven defaults, per-user overrides in Settings |
+| **Embeddings** | Ollama (`qwen3-embedding`, the default), Voyage, or OpenAI, all at 1024 dimensions |
+| **PDF Processing** | MuPDF (WASM) text extraction with a vision-model fallback; figures found by a vision model (Ollama or Claude) |
+| **Object Storage** | Local disk volumes, served through signed URLs (figures, feed audio, podcasts) |
+| **Audio (optional)** | ElevenLabs: turbo v2.5 for per-post feed TTS, v3 Dialogue Mode for NotebookLM-style podcast episodes |
+| **Deployment** | Docker Compose (self-host), on loopback or as its own tailnet node |
 
 ---
 
@@ -185,82 +184,80 @@ Each persona can be enabled/disabled and configured via Settings. You can reply 
 
 ```
                     +------------------+
-                    |    Browser       |
+                    |     Browser      |
                     |  React + Vite    |
                     +--------+---------+
                              |
                     +--------+---------+
-                    |   Nginx Proxy    |
-                    +--------+---------+
-                             |
-              +--------------+--------------+
-              |                             |
-     +--------+---------+         +--------+---------+
-     |   FastAPI (API)   |         |  Celery Worker   |
-     |   /papers         |         |  ingestion       |
-     |   /feed           |         |  persona gen     |
-     |   /messages       |         |  alerts          |
-     |   /replies        |         |  summaries       |
-     +--------+---------+         +--------+---------+
-              |                             |
-              +--------------+--------------+
-                             |
-              +--------------+--------------+
-              |                             |
-     +--------+---------+         +--------+---------+
-     |   PostgreSQL      |         |     Redis        |
-     |   + pgvector      |         |   (job queue)    |
-     +-------------------+         +------------------+
-                                            |
-                                   +--------+---------+
-                                   |     Ollama       |
-                                   |  (host, local)   |
-                                   +------------------+
+                    |  web (nginx)     |
+                    |  /ficino/  SPA   |
+                    |  /ficino/api/ ---+------+
+                    +------------------+      |
+                                              v
+     +-------------------+         +-------------------+
+     |  worker (Node)    |         |   api (Node/Hono) |
+     |  pg-boss queues:  |         |   /papers /feed   |
+     |  ingestion, feed, |         |   /messages       |
+     |  summaries, audio,|         |   /replies /media |
+     |  alerts, crons    |         |   ...             |
+     +---------+---------+         +---------+---------+
+               |                             |
+               +--------------+--------------+
+               |              |              |
+     +---------+---------+    |    +---------+---------+
+     |  PostgreSQL 18    |    |    |  Volumes          |
+     |  + pgvector       |    |    |  uploads, figures,|
+     |  data, jobs,      |    |    |  media (shared by |
+     |  sessions, limits |    |    |  api and worker)  |
+     +-------------------+    |    +-------------------+
+                              v
+                   +----------------------+
+                   |  Providers           |
+                   |  Ollama / Anthropic  |
+                   |  Voyage / OpenAI     |
+                   |  ElevenLabs (audio)  |
+                   +----------------------+
 ```
+
+The api and the worker run from one image (`ficino-server:local`) and share the database, the signing key and the
+storage volumes: the api writes an uploaded PDF, the worker reads it.
 
 ---
 
 ## Quick Start
 
-Ficino ships two deploy targets from a single codebase:
-
-### Option A — Use the hosted SaaS
-
-Head to **[ficino.app](https://ficino.app)**, create an account, and upload your first PDF. No install required.
-Campus-friendly: email/password with Supabase Auth, Turnstile captcha, and OTP-code password recovery that survives corporate link scanners.
-
-### Option B — Self-host with Docker
-
-Best for labs, classrooms, or anyone who wants their corpus to stay on-prem.
+Ficino is self-hosted. (The hosted service was shut down in October 2026.)
 
 **Prerequisites:**
-- Docker & Docker Compose
-- Either an LLM API key (Anthropic or OpenAI) *or* a local Ollama install with at least one LLM and embedding model:
+- Docker with Docker Compose v2
+- Either an Anthropic API key *or* a local Ollama with an LLM, an embedding model and a vision model:
   ```bash
-  ollama pull qwen3.5
-  ollama pull bge-m3
-  ollama pull gemma4  # optional, for vision fallback
+  ollama pull qwen3.8:27b
+  ollama pull qwen3-embedding
+  ollama pull qwen3-vl:32b   # vision fallback and figure detection
   ```
 
 **Setup:**
 ```bash
-# Clone the repo
 git clone https://github.com/umzcio/ficino.git
 cd ficino
 
-# Configure environment
+# Configure: set POSTGRES_PASSWORD (and the same password in DATABASE_URL), SIGNED_URL_KEY,
+# CORS_ORIGINS, AUTH_PROVIDER and your providers. Every variable is documented in the file.
 cp .env.example .env
-# Edit .env — pick your LLM provider, set AUTH_PROVIDER=none|basic, etc.
 
-# Launch
-docker compose up -d
+# Reach the web service on this machine only (127.0.0.1:8080)
+cp deploy/loopback/docker-compose.override.example.yml docker-compose.override.yml
 
-# Access at http://localhost:3000/ficino/
+docker compose up -d --build
 ```
 
-All five services (frontend, api, worker, postgres, redis) start automatically with health checks.
+Browse `http://localhost:8080/ficino/` (use `localhost`, not `127.0.0.1`: production cookies are `Secure`, and
+browsers accept them over plain http on `localhost` only).
 
-See [docs.ficino.ai](https://docs.ficino.ai) for the full self-host guide and the Railway + Supabase SaaS deploy walkthrough.
+The base `docker-compose.yml` publishes no port; the override decides how the stack is reached. The alternative to
+the loopback override is `deploy/tailnet/`, which runs Ficino as its own Tailscale node behind an owner-only gate.
+See [deploy/README.md](deploy/README.md) for how the files layer and where secrets go.
 
 ---
 
@@ -270,20 +267,23 @@ See [docs.ficino.ai](https://docs.ficino.ai) for the full self-host guide and th
 PDF Upload
     |
     v
-PyMuPDF Text Extraction (with smart heading detection)
+MuPDF Text Extraction (with smart heading detection)
     |
     v
 Quality Check (symbol density, word length, encoding artifacts)
     |
-    +-- PASS --> Section-Aware Chunking --> Embeddings --> pgvector
+    +-- PASS --> continue
     |
-    +-- FAIL --> Vision Fallback (gemma4 page-by-page) --> Chunking --> pgvector
-    |
-    v
-Metadata Extraction (title, authors, year, DOI via LLM)
+    +-- FAIL --> Vision Fallback (page by page)
     |
     v
-Figure Extraction (PyMuPDF bitmap + Vision descriptions)
+Metadata + Auto-tags (title, authors, year, DOI via LLM)
+    |
+    v
+Section-Aware Chunking --> Contextual Prefixes (optional) --> Embeddings --> pgvector
+    |
+    v
+Figure Detection (vision model, scientific figures only)
     |
     v
 Contradiction Alert Check (async, against existing corpus)
@@ -293,20 +293,14 @@ Contradiction Alert Check (async, against existing corpus)
 
 ## Hybrid Search
 
-Retrieval uses pgvector cosine similarity blended with PostgreSQL tsvector BM25:
+Retrieval runs in two stages inside Postgres: a pgvector (HNSW) nearest-neighbour leg and a tsvector keyword leg
+each fetch a candidate pool, then the candidates are fused with a weighted score (0.7 vector + 0.3 keyword by
+default; `RETRIEVAL_VECTOR_WEIGHT`, `RETRIEVAL_KEYWORD_WEIGHT`). An optional third stage reranks the pool with
+Voyage or Cohere (`RERANK_PROVIDER`).
 
-```sql
-SELECT *,
-  (1 - (embedding <=> query_embedding)) * 0.7 +
-  ts_rank(search_vector, plainto_tsquery('english', query)) * 0.3 AS score
-FROM chunks
-WHERE search_vector @@ plainto_tsquery('english', query)
-   OR (embedding <=> query_embedding) < 0.8
-ORDER BY score DESC
-LIMIT 20;
-```
-
-Author names, paper titles, and technical terms hit via BM25. Semantic similarity handles conceptual retrieval. Both paths run in a single query.
+Author names, paper titles, and technical terms hit via the keyword leg. Semantic similarity handles conceptual
+retrieval. Only chunks embedded with the configured embedding model are searched, so after changing the embedding
+model run the re-embed (see [server/README.md](server/README.md)).
 
 ---
 
@@ -314,26 +308,17 @@ Author names, paper titles, and technical terms hit via BM25. Semantic similarit
 
 ```
 ficino/
-├── docker-compose.yml
-├── .env.example
-├── frontend/              # React + Vite + TypeScript
-│   ├── src/
-│   │   ├── components/    # Feed, Messages, Explore, Settings, Alerts, Bookmarks
-│   │   ├── hooks/         # useCorpus, useFeed, useBookmarks, useWorkspaces, useAlerts, useSettings
-│   │   └── lib/           # api.ts, offline-db.ts, offline-cache.ts, workspace-download.ts, pwa.ts
-│   └── Dockerfile
-├── api/                   # FastAPI
-│   ├── routers/           # papers, feed, messages, replies, tags, workspaces, alerts, bookmarks, settings
-│   ├── models/            # Pydantic v2 models
-│   ├── services/          # Business logic stubs
-│   └── Dockerfile
-├── worker/                # Celery
-│   ├── tasks/             # ingestion, persona, summary, alert tasks
-│   ├── lib/               # extractor, chunker, embedder, retrieval, persona, LLM client
-│   └── Dockerfile
-└── infra/
-    └── postgres/          # init.sql is the full schema (pgvector + tsvector);
-                           # add_*.sql are the upgrade path for older volumes
+├── docker-compose.yml        # the generic stack: postgres, api, worker, web (no published ports)
+├── docker-compose.e2e.yml    # the throwaway loopback stack for the Playwright gate (project ficino-e2e)
+├── .env.example              # every server setting, documented
+├── frontend/                 # React + Vite + TypeScript (the web image: the build behind nginx)
+├── server/                   # the backend: api, worker, migrations, restore and re-embed CLIs
+│   ├── src/                  # api/, worker/, routes/, tasks/, feed/, ingest/, providers/, restore/, ...
+│   ├── migrations/           # numbered SQL migrations (0001_baseline.sql, ...)
+│   └── test/                 # vitest suite against a throwaway Postgres
+├── deploy/                   # override examples (loopback, tailnet), the tailnet web nginx, deploy checks
+├── tests/e2e/                # Playwright specs and the skip inventory (SKIPS.md)
+└── scripts/                  # e2e-stack.sh: drives the e2e stack
 ```
 
 ---
@@ -346,7 +331,9 @@ ficino/
 
 **Why pgvector with hybrid search?** Keeps everything in one database, one query language. At our scale (~4,000 vectors), pgvector handles this trivially. Hybrid search catches both semantic similarity and exact term matches (author names, technical vocabulary).
 
-**Why pluggable LLM providers?** No hardcoded vendor. Env-driven defaults (`LLM_PROVIDER`, `EMBED_PROVIDER`, `VISION_PROVIDER`) let you run fully local on Ollama for zero-cost development, or point at Anthropic/OpenAI in production. The hosted SaaS ships Claude + Voyage by default; the Docker Compose bundle defaults to Ollama so `docker compose up -d` works offline.
+**Why everything in Postgres?** Jobs (pg-boss), sessions and rate limits share the one database, so the stack is four containers with no broker or cache to run, back up or keep in sync.
+
+**Why pluggable LLM providers?** No hardcoded vendor. Env-driven defaults (`LLM_PROVIDER`, `EMBED_PROVIDER`, `VISION_PROVIDER`) let you run fully local on Ollama at zero cost, or point at Anthropic (and Voyage or OpenAI embeddings) instead. The compose defaults use Ollama.
 
 **Why section-aware chunking?** A methods chunk retrieved alongside a findings chunk creates confused personas. Section labels mean personas can focus on their domain: methodology critiques come from methods chunks, hype posts come from findings chunks.
 
@@ -354,37 +341,25 @@ ficino/
 
 ## Development
 
-The `api` and `worker` test suites hit a real Postgres (rolled back per-test
-via transactions), so they're normally run inside the running containers:
+Node ≥ 22.18 on the host (the images use Node 24) and Docker.
 
 ```bash
-docker exec ficino-api sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest tests/ -q"
-docker exec ficino-worker sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest tests/ -q"
+# Server: typecheck, then the full suite (it starts and removes its own throwaway Postgres)
+cd server && npm ci && npm run typecheck && npm test && npm run build
+
+# Frontend
+cd frontend && npm ci && npx tsc -b && npm test && npm run build
+
+# Deploy checks (repo root): render every compose layer, run the web nginx template in throwaway containers
+npm ci && npm run test:deploy
+
+# e2e: a throwaway loopback stack (project ficino-e2e), then the Playwright gate
+scripts/e2e-stack.sh up && scripts/e2e-stack.sh ci; scripts/e2e-stack.sh down
 ```
 
-(The containers run as uid 10001, so the `--user` and `python -m pytest`
-are required.)
-
-**Bare-metal (host venv, no container):** both suites import `ficino_shared`
-(the `shared/` package used by both api and worker for settings-schema,
-sanitize, and signed-URL code — see Project Structure below). It's not on
-`requirements.txt`/`requirements-dev.txt` because it's a local editable
-package, not a PyPI dependency. Install it once per venv before running
-either suite locally:
-
-```bash
-pip install ./shared
-pip install -r api/requirements-dev.txt      # or worker/requirements-dev.txt
-```
-
-Skipping this step fails collection with `ModuleNotFoundError:
-ficino_shared` (or `asyncpg`/`celery`/etc. if the service requirements
-weren't installed either) rather than a test failure.
-
-**Frontend gates:** `cd frontend && npm run lint && npm test && npm run build`.
-**e2e:** `npx playwright test` from the repo root — needs the dev stack at
-`localhost:3000/ficino` and hits a shared dev database.
-
+The full e2e suite (desktop + mobile, real local models) is `scripts/e2e-stack.sh up --ollama` followed by
+`scripts/e2e-stack.sh full`; see [tests/e2e/SKIPS.md](tests/e2e/SKIPS.md). Backend details, the environment
+variables, migrations, the restore runbook and the re-embed are in [server/README.md](server/README.md).
 Agent-facing command reference: [AGENTS.md](AGENTS.md).
 
 ---
@@ -396,15 +371,12 @@ See [FEATURES.md](FEATURES.md) for the full feature backlog, including:
 - Custom personas (user-created, one INSERT to the DB)
 - Export feed (markdown/PDF for dissertation use)
 - Citation graph (visual map of inter-paper citations)
-- Production hardening for ficino.app deployment
 
 ---
 
 ## License
 
 [AGPL v3](LICENSE) — open source, self-host freely. If you run it as a service, you must open-source your changes.
-
-Hosted SaaS live at [ficino.app](https://ficino.app) — sign up with email, no install required.
 
 ---
 

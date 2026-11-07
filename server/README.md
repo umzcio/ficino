@@ -1,8 +1,35 @@
 # ficino-server
 
-The TypeScript port of Ficino's backend (Hono + postgres.js + zod). It serves the same wire contract as the
-Python FastAPI service, so the React frontend works unchanged. The Python `api/` and `worker/` services remain
-in place and keep running until the cutover plan; nothing here replaces them yet.
+Ficino's backend: Node + TypeScript (strict ESM), Hono, postgres.js, zod and pg-boss. One image runs as two
+processes, the **api** (HTTP) and the **worker** (background jobs and crons), over PostgreSQL 18 + pgvector. It is the
+only backend: the original Python services were ported here and removed at the git tag `python-final`. The wire
+contract they served (`docs/superpowers/specs/ts-port-reference/api-contract.md`) is unchanged, so the React frontend
+runs as it was.
+
+## Layout
+
+| Path | What lives there |
+| --- | --- |
+| `src/api/main.ts`, `src/app.ts` | API entry and the Hono app (middleware order, router mounts) |
+| `src/worker/main.ts`, `src/worker/handlers.ts` | Worker entry: migrations, pg-boss, the cron schedules, one handler per queue |
+| `src/routes/` | One router per API surface (`/papers`, `/feed`, `/messages`, `/replies`, `/settings`, ...) |
+| `src/auth/`, `src/http/` | `none`/`basic` auth, Postgres sessions; CSRF, rate limits, security headers, validation |
+| `src/tasks/`, `src/feed/`, `src/ingest/`, `src/conversations/`, `src/readingLists/`, `src/audio/` | Job bodies and the logic behind them |
+| `src/providers/` | Ollama, Anthropic, Voyage, OpenAI, Cohere and ElevenLabs clients; per-user provider settings |
+| `src/storage/local.ts` | Local storage (`UPLOAD_DIR`, `FIGURES_DIR`, `MEDIA_DIR`) and signed URLs |
+| `src/db/` | Pool, migration runner, `migrate-cli.ts`, `reembed-cli.ts` |
+| `src/restore/` | The archive restore (`db`, `files`, `verify`) |
+| `migrations/` | Numbered SQL migrations |
+| `scripts/` | Manual smokes against real providers (not part of CI) |
+| `test/` | The vitest suite and its fixtures |
+
+## Environment
+
+Every setting is documented in the repo root's `.env.example`, which the compose stack reads as `.env`. The tables in
+the sections below add detail per area. Provider settings (`LLM_PROVIDER`, `EMBED_PROVIDER`, the model names and keys)
+are defaults that each user can override in Settings unless `PUBLIC_DEPLOYMENT=true`. Boolean variables accept
+`1/0`, `t/f`, `true/false`, `y/n`, `yes/no` and `on/off` (any case; unset or blank means the default); anything else
+stops the process at boot rather than falling back.
 
 ## Commands
 
@@ -11,15 +38,74 @@ Run from `server/` (Node >= 22.18; the image uses Node 24).
 | Command | What it does |
 | --- | --- |
 | `npm run dev:api` | Starts the API with file watching (`DATABASE_URL` required; `PORT`, default 8000; binds to 127.0.0.1 unless `API_HOST` is set) |
+| `npm run dev:worker` | Starts the worker with file watching |
 | `npm test` | Runs the vitest suite against a throwaway Postgres |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run dev:worker` | Starts the ingestion worker with file watching |
+| `npm run build` | Emits `dist/` (entries: `dist/api/main.js`, `dist/worker/main.js`, `dist/db/migrate-cli.js`, `dist/db/reembed-cli.js`, `dist/restore/cli.js`; `src/` only, never `test/` or `scripts/`) |
 | `npm run worker` | Runs the built worker (`node dist/worker/main.js`; needs `npm run build`) |
-| `npm run build` | Emits `dist/` (entries: `dist/api/main.js`, `dist/worker/main.js`; `src/` only, never `test/` or `scripts/`) |
-| `npm run migrate` | Applies `migrations/NNNN_*.sql` to `DATABASE_URL` (the API also migrates on startup) |
+| `npm run migrate` | Applies `migrations/NNNN_*.sql` to `DATABASE_URL` |
+| `npm run reembed` | Re-embeds a user's chunks with their current embedding model (below) |
+| `npm run restore -- <db\|files\|verify> ...` | The archive restore (below) |
 
-The container image is built from `server/Dockerfile` and listens on 8000 inside the container (`API_HOST=0.0.0.0` is set in the image only).
-The image also sets `ENVIRONMENT=production` so a bare `docker run` fails closed (no dev CORS; `SIGNED_URL_KEY` required). For a local `docker run`, pass `-e ENVIRONMENT=development` to get dev CORS.
+The `npm run` scripts that start from `src/` use `tsx`, a dev dependency. The image keeps production dependencies only,
+so inside a container run the built files instead: `node dist/db/migrate-cli.js`, `node dist/db/reembed-cli.js`,
+`node dist/restore/cli.js`.
+
+The container image is built from `server/Dockerfile` and listens on 8000 inside the container (`API_HOST=0.0.0.0` is
+set in the image only). Its `HEALTHCHECK` probes `/health` every 10 s with a 30 s start period. The image also sets
+`ENVIRONMENT=production` so a bare `docker run` fails closed (no dev CORS; `SIGNED_URL_KEY` required). For a local
+`docker run`, pass `-e ENVIRONMENT=development` to get dev CORS.
+
+## Migrations
+
+`migrations/NNNN_name.sql` files are applied in order by `src/db/migrate.ts`, each in its own transaction, and recorded
+in `schema_migrations`. The api and the worker both migrate at boot; `node dist/db/migrate-cli.js` (or
+`npm run migrate`) does it on its own. Add a new numbered file for a schema change; never edit one that has been
+applied. Keep the schema restore-compatible: the restore loads data only, into a schema this runner created, so status
+columns carry no CHECK or enum constraints and `chunks.embedding` stays `vector(1024)`.
+
+## Restoring an archive
+
+A restore brings a `pg_dump` data archive and its storage objects into a fresh stack, re-keyed to the single stub user
+of `AUTH_PROVIDER=none`. It runs before the api and the worker ever start, from the server image with
+`docker compose run --rm --no-deps`. `<archive>` is the archive directory on the host, mounted read-only at `/archive`;
+`<id>` values are embedding-model ids in the form `provider:model@dimension`.
+
+1. Start only the database: `docker compose up -d postgres`.
+2. Migrate: `docker compose run --rm --no-deps api node dist/db/migrate-cli.js`.
+3. Load the data (add `--dry-run` first to see the report without a commit):
+   `docker compose run --rm --no-deps --user 0 -v <archive>:/archive:ro api node dist/restore/cli.js db --dump /archive/db/data.sql --source-embed-model <id>`
+   (`<id>`: the model that made the archived vectors; it is never guessed).
+4. Copy the files into the volumes and hand them to the image's user:
+   `docker compose run --rm --no-deps --user 0 -v <archive>:/archive:ro api node dist/restore/cli.js files --bucket /archive/storage/<bucket> --manifest /archive/storage-manifest.json --chown 10001:10001`
+5. Re-embed with the configured model: `docker compose run --rm --no-deps worker node dist/db/reembed-cli.js`.
+6. Verify: `docker compose run --rm --no-deps api node dist/restore/cli.js verify --embed-model <id> --owner 10001:10001`
+   (`<id>`: the model the stack now embeds with).
+7. Start the api and the worker: `docker compose up -d`.
+
+`--user 0` is there because the archive may be readable by root only and `files` must `chown` what it writes.
+The `restore` and `reembed` commands print exactly one JSON object on stdout (redirect it to keep the report) and logs to stderr; it exits
+1 on any error or failed check. What `db` does, in one transaction: refuse a non-empty database (an untouched stub
+user and empty `Default` workspace created by an early api boot are replaced), load the data with foreign-key
+triggers off (`session_replication_role = replica`), re-key the archived owner to the stub user, clean the rows (TS
+storage paths, legacy media keys and stitched podcasts, stuck statuses, double-encoded jsonb arrays, chunk provenance
+tags, a rebuilt `feed_posts`), then
+check every foreign key from the catalog and that no old id remains anywhere. `files` copies only objects that a
+restored row points at, checks each against the manifest's checksum before copying anything, and skips (with a
+reason) orphans, legacy podcast segments and unsafe keys.
+
+## Re-embedding after an embedding-model change
+
+Retrieval only reads chunks whose `metadata.embed_model` equals the configured model, so after changing the embedding
+provider or model, re-embed:
+
+- compose stack: `docker compose run --rm --no-deps worker node dist/db/reembed-cli.js [--user <uuid>]`
+- source checkout: `npm run reembed -- [--user <uuid>]`
+
+The default user is the stub user. It works in batches; each batch writes the new vectors and the new `embed_model`
+tag in the same `UPDATE`, so an interrupted run leaves the finished batches consistent and a rerun does the rest. The
+first SIGINT/SIGTERM stops the run and discards only the batch in flight; a second one kills it. It exits 0 only when
+no chunk is left on another model.
 
 ## Worker
 
@@ -30,6 +116,9 @@ processes need the same `DATABASE_URL`, the same `SIGNED_URL_KEY` (or `ENVIRONME
 volumes for `UPLOAD_DIR`, `FIGURES_DIR` and `MEDIA_DIR`: the API writes the uploaded PDF and the worker reads it.
 The mupdf `.wasm` ships in the image through `node_modules/mupdf` (production dependencies are kept); the Dockerfile
 fails the build if it is missing.
+Two crons run in the worker (UTC): `check_stale_papers` daily at 03:00 and `prune_expired` hourly (expired sessions,
+rate-limit windows and old job progress). SIGTERM gives pg-boss 30 s to stop and aborted handlers up to 10 s more to
+write, so compose's `stop_grace_period` for the worker is 45 s.
 
 ### Environment variables added by plan 02
 
@@ -153,21 +242,13 @@ on 127.0.0.1 only (never 0.0.0.0), migrates it, and removes it afterwards. Each 
 
 ### Goldens
 
-Ingestion output is pinned to files produced by the Python worker, under `test/fixtures/goldens/`: the PyMuPDF text,
+Ingestion output is pinned to files that the Python worker produced, under `test/fixtures/goldens/`: the PyMuPDF text,
 page text and 150 dpi raster probes of `test/fixtures/sample.pdf`; the chunker and quality-check cases; the metadata and
-contextualizer prompts. To regenerate them, build the fixture with `npx tsx test/fixtures/build-sample-pdf.ts`, then run
-the scripts in `test/fixtures/goldens/gen/` inside the `ficino-worker` image as described in
-`test/fixtures/goldens/gen/README.md` (no network, goldens dir temporarily writable for uid 10001). Review the diff
-before committing: a changed golden means the TS output no longer matches Python. The `gen/*.py` scripts are deleted
-with `worker/` at the cutover.
+contextualizer prompts. They are frozen; a changed golden is a deliberate behaviour change. Their provenance and how to
+recover the generators from the `python-final` tag are in `test/fixtures/goldens/README.md`.
 
 ## Porting convention
 
-`test/PORTING.md` lists every Python test in `api/tests` and `shared/tests`, one line each.
-
-- Ported: tick the box and append ` — plan01/T<N>`.
-- Not applicable: tick it and append ` — n/a: <reason>`.
-- Owned by a later plan: leave unticked and append ` — plan0X`.
-
-Wire literals (paths, status codes, `detail` strings) are copied exactly from the contract in
-`docs/superpowers/specs/ts-port-reference/api-contract.md`.
+`test/PORTING.md` is the closed ledger of every Python test (api, shared and worker), one line each: ported with the
+plan and task that did it, or `n/a` with a reason. No line is open. Wire literals (paths, status codes, `detail`
+strings) are copied exactly from the contract in `docs/superpowers/specs/ts-port-reference/api-contract.md`.

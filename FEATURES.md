@@ -1,31 +1,25 @@
 # Ficino — Product Roadmap
 
-Ficino ships to **two deploy targets from a single codebase**:
+Ficino is **self-hosted**: `docker compose up` runs it on a laptop, home
+server, or university VM, reached on loopback or as its own tailnet node
+(see `deploy/README.md`). Defaults lean on Ollama for free local
+inference. The PWA gives mobile access to the user's own instance. No
+account, no billing, AGPL license.
 
-- **Self-host** via `docker compose up` — runs on a laptop, home server, or
-  university VM. Defaults lean on Ollama for free local inference. The
-  PWA gives mobile access to the user's own instance. No account, no
-  SaaS billing, AGPL license.
-- **SaaS** at **[ficino.app](https://ficino.app)** — hosted on Railway
-  (api, worker, frontend, Redis) backed by Supabase (Postgres + pgvector,
-  Auth, object storage). Anthropic Claude + Voyage embeddings behind the
-  scenes. Cloudflare Turnstile on every auth surface. Invite-only in
-  beta. See `docs/saas-deploy.md` for the operator runbook.
-
-Self-host is unchanged by the SaaS deploy. Every change gates the
-SaaS-specific behaviour behind an env flag (`PUBLIC_DEPLOYMENT`,
-`STORAGE_PROVIDER`, `AUTH_PROVIDER`).
+The backend is one TypeScript server (Node + Hono) running as an api and a
+worker over PostgreSQL + pgvector; jobs, sessions and rate limits live in
+Postgres too. The hosted service (ficino.app) was shut down in October 2026.
 
 ---
 
 ## Shipped
 
-Everything below is live in production.
+Everything below ships in the self-hosted stack.
 
 ### Core Platform
 | Feature | Description |
 |---------|-------------|
-| **Paper ingestion** | Upload PDFs → text extraction (PyMuPDF by default; optional Marker if the operator installs `marker-pdf`; vision fallback on quality-check failure) → quality check → section-aware chunking → contextual prefixing → embedding → pgvector storage |
+| **Paper ingestion** | Upload PDFs → text extraction (MuPDF by default; vision fallback on quality-check failure) → quality check → section-aware chunking → contextual prefixing → embedding → pgvector storage |
 | **Feed generation** | Six AI personas retrieve relevant chunks via hybrid search and generate a Twitter/X-style discourse feed with posts, threads, quotes, replies, and figure analysis. A seventh reply-only persona (The Archivist) is gated out of feed authoring via a `feed_eligible` flag |
 | **Append mode** | "Generate more posts" adds to the current feed. New posts can quote/reply to existing ones. Feed ID preserved for bookmarks and annotations |
 | **Feed history** | Browse and reload past feed generations per workspace |
@@ -45,14 +39,14 @@ Everything below is live in production.
 | Feature | Description |
 |---------|-------------|
 | **Hybrid search** | Two-stage: HNSW vector nearest-neighbor prunes to a candidate pool, then a weighted (0.7 vector + 0.3 BM25) re-ranker produces the final top-k. See [architecture/hybrid-search](https://docs.ficino.ai/architecture/hybrid-search) |
-| **Cross-encoder reranker** | Optional stage-3 reranker over the hybrid candidate pool. Providers: `local` (BGE-reranker-v2-m3), `voyage` (rerank-2-lite/rerank-2), `cohere` (rerank-v3.5), or `none` to disable. Provider abstraction mirrors the embedder pattern; degrades gracefully to hybrid-only on rerank failure |
-| **Contextual retrieval** | Anthropic-style per-chunk contextual prefix generated at ingest time and prepended before embedding. Providers: `anthropic` (Claude Haiku with ephemeral prompt caching — the paper is cached once, per-chunk calls are cents), `ollama` (local qwen3.5 fallback), or `none`. Prefix persisted on `chunks.contextual_prefix` so re-embedding doesn't require a second LLM pass |
+| **Cross-encoder reranker** | Optional stage-3 reranker over the hybrid candidate pool. Providers: `voyage` (rerank-2-lite/rerank-2), `cohere` (rerank-v3.5), or `none` (the default; `local` is accepted and passes through). Provider abstraction mirrors the embedder pattern; degrades gracefully to hybrid-only on rerank failure |
+| **Contextual retrieval** | Anthropic-style per-chunk contextual prefix generated at ingest time and prepended before embedding. Providers: `anthropic` (Claude Haiku with ephemeral prompt caching — the paper is cached once, per-chunk calls are cents), `ollama` (local model), or `none` (the default). Prefix persisted on `chunks.contextual_prefix` so re-embedding doesn't require a second LLM pass |
 | **Persona-tuned retrieval** | Each persona has its own retrieval query emphasizing the sections it cares about (methodology for Skeptic, findings for Hype, etc.), stored on the personas table and hot-editable |
 
 ### Figure Pipeline (VLM-based)
 | Feature | Description |
 |---------|-------------|
-| **Scientific-figure detection** | Each PDF page is rendered and handed to Claude Sonnet vision (or a local VLM) with a structured prompt that returns a typed list of scientific figures. Non-scientific bitmaps (UI glyphs, publisher logos, running-header icons, decorative marks) are silently filtered at detection time — they never reach storage |
+| **Scientific-figure detection** | Each PDF page is rendered and handed to a vision model (a local Ollama VLM by default, or Claude) with a structured prompt that returns a typed list of scientific figures. Non-scientific bitmaps (UI glyphs, publisher logos, running-header icons, decorative marks) are silently filtered at detection time — they never reach storage |
 | **Typed figures** | Every figure has a `figure_type` enum (chart_bar, chart_line, chart_scatter, diagram, schematic, flowchart, algorithm, photograph, map, micrograph, anatomical, table_image, other), caption text, figure_number ("5", "5a", "S3"), a data_claim ("what the paper uses this figure to show"), and the first referenced paragraph. Plus bbox + detector confidence |
 | **Persona-typed figure routing** | Every persona declares `allowed_figure_types` on its row. Figure-post slots only pick from the intersection of (paper's figures) × (persona's allowed types) — so Methods Skeptic never gets a UI icon to critique and the Hype persona never tries statistics on a photograph. Personas with no eligible figure on the paper skip the slot rather than force-fit |
 | **Grounded figure prompts** | Persona figure-post prompts receive the caption, figure_number, data_claim, and referenced paragraph as fenced grounding context. Posts are evaluated against what the paper says the figure shows, not a blind vision description |
@@ -100,7 +94,7 @@ Everything below is live in production.
 | **Contradiction alerts** | Triggered when a new paper contradicts findings in an existing corpus paper |
 | **Disagreement spikes** | Flagged when feed generation produces unusual debate volume |
 | **Reading gap nudges** | Prompted when you've debated a paper in feeds but never read its summary |
-| **Stale corpus** | Nudges for papers sitting without generating any discourse. Checked daily via a scheduled Celery beat task (03:00 UTC) |
+| **Stale corpus** | Nudges for papers sitting without generating any discourse. Checked daily by a pg-boss cron in the worker (03:00 UTC) |
 
 ### Organization
 | Feature | Description |
@@ -128,7 +122,7 @@ Everything below is live in production.
 ### Post-Generation Quality Gate
 | Feature | Description |
 |---------|-------------|
-| **Hard-fail on unparseable output** | `_parse_post_json` and `validate_post_shape` raise on empty or excessively-long LLM output instead of persisting `[generation produced no text]` placeholder strings. The feed-generation loop catches the raise and drops the slot — a research feed never ships apology text as a "post" |
+| **Hard-fail on unparseable output** | `parsePostJson` and `validatePostShape` raise on empty or excessively-long LLM output instead of persisting `[generation produced no text]` placeholder strings. The feed-generation loop catches the raise and drops the slot — a research feed never ships apology text as a "post" |
 
 ### Configuration & Display
 | Feature | Description |
@@ -136,10 +130,10 @@ Everything below is live in production.
 | **Light/dark mode** | Instant theme switching via CSS custom properties. Warm white light palette with adjusted gold accent |
 | **Font size** | Small, normal, large — applies via root font-size |
 | **Post spacing** | Compact, comfortable — adjusts article padding |
-| **LLM provider** | Toggle between Ollama (local, free) and Claude/OpenAI APIs. **SaaS users can't change this** — `PUBLIC_DEPLOYMENT=true` swaps the provider controls for a "Managed by Ficino" panel and the settings-update endpoint silently drops any provider-override write. Operator env (Railway variables) is the single source of truth on hosted deploys |
+| **LLM provider** | Toggle between Ollama (local, free) and Claude; embeddings from Ollama, Voyage or OpenAI. With `PUBLIC_DEPLOYMENT=true` users can't change this: the provider controls become a "Managed by Ficino" panel and the settings-update endpoint drops any provider-override write, so the operator's env is the single source of truth |
 | **Model selection** | Pick from installed Ollama models via dropdown (self-host only) |
 | **Persona controls** | Enable/disable personas, adjust temperature, tune post type weights |
-| **Paper processing** | Extraction mode (auto/PyMuPDF/vision), chunk size |
+| **Paper processing** | Extraction mode (auto/MuPDF text/vision), chunk size |
 
 ### Tab-Specific Feed Generation
 | Feature | Description |
@@ -158,7 +152,7 @@ Everything below is live in production.
 ### Listen Mode (Audio)
 | Feature | Description |
 |---------|-------------|
-| **Feed audio** | On-demand ElevenLabs TTS renders each non-deleted post as its own mp3 using the persona's dedicated voice (turbo v2.5 model). Claim-then-render Celery task keyed on `feeds.audio_status` so two click-happy users can't trigger duplicate spend. Per-post `audio_key` persisted into `posts[*]` JSONB; signed URLs hydrated at GET time with a 24h TTL |
+| **Feed audio** | On-demand ElevenLabs TTS renders each non-deleted post as its own mp3 using the persona's dedicated voice (turbo v2.5 model). Claim-then-render worker job keyed on `feeds.audio_status` so two click-happy users can't trigger duplicate spend. Per-post `audio_key` persisted into `posts[*]` JSONB; files on the local `MEDIA_DIR` volume, served by the api at `/media` through signed URLs hydrated at GET time with a 24h TTL (byte ranges supported) |
 | **Podcast mode** | NotebookLM-style two-host dialogue episode grounded in the same retrieved chunks the feed uses. Producer pulls ~30 chunks via the existing hybrid pipeline across every `posts[*].sources[*].paper_id`, scripts 8–12 turns of natural dialogue (short reactions, variable lengths, audio tags like `[laughs]` / `[sighs]`), then renders the whole thing as ONE continuous mp3 via ElevenLabs `/v1/text-to-dialogue` (Eleven v3 Dialogue Mode). Cross-speaker prosody and interruptions come from the model — no stitched clips |
 | **Persona voices** | Seven preset ElevenLabs first-gen voices mapped 1:1 to personas by gender, tone, and age (Paul=warm mature male for Practitioner, George=British narrator for AI Breakthroughs, etc.). Two additional host voices (Drew + Tyler) reserved for podcast mode. Voice map is code-level, not user-editable — a persona's voice is part of its identity |
 | **Fallback script** | If the LLM call or JSON parse fails, the producer emits a deterministic host_a/host_b script derived from feed stats + the first chunk per paper. User always gets a playable episode rather than a dead play button |
@@ -169,15 +163,11 @@ Everything below is live in production.
 ### Authentication
 | Feature | Description |
 |---------|-------------|
-| **Pluggable providers** | `AUTH_PROVIDER` env var selects auth mode: `none` (no login, self-hosted default), `basic` (email/password), `supabase` (JWT for production). Switch with one env change, no code changes |
-| **Basic auth** | bcrypt password hashing, Redis session storage (7-day sliding TTL), HTTP-only cookies. First user registration auto-allowed, subsequent controlled by `ALLOW_REGISTRATION` |
-| **Supabase auth** | JWT verification via JWKS endpoint (supports ES256/RS256 asymmetric keys as well as legacy HS256 HMAC). Users auto-created in local DB on first login; a Default workspace is seeded alongside so the app has somewhere to put their first paper. Frontend uses `@supabase/supabase-js` for auth flows |
-| **Cloudflare Turnstile captcha** | On Supabase deploys, every authenticator call (sign-in, sign-up, password reset, OTP verify) routes a Turnstile token through `options.captchaToken`. Site key in `VITE_TURNSTILE_SITE_KEY`, secret in the Supabase dashboard. Self-host leaves the site key unset → widget silently no-ops |
-| **OTP-code password recovery** | Reset password email includes `{{ .Token }}` so the user can type the code into an in-app form instead of clicking a link. Defends against corporate link scanners (Microsoft ATP Safe Links, Google pre-fetch) that burn single-use reset tokens before the recipient can click. Flow: "Forgot password?" → email lands with code → Login page `verify-code` mode takes email + code + new password → `verifyOtp({type:'recovery'})` then `updateUser({password})` |
-| **Admin-set password override** | Operator sets a user's password directly via the Supabase dashboard or Admin API with the service-role key — bypasses email entirely when corporate scanners break the normal flow. Procedure: [docs/saas-deploy.md](docs/saas-deploy.md#5f-admin-password-override) §5f |
+| **Two providers** | `AUTH_PROVIDER` selects the mode: `none` (no login, a single owner; the default) or `basic` (email/password). Switch with one env change, no code changes |
+| **Basic auth** | bcrypt password hashing, sessions stored in Postgres (7-day sliding expiry, expired rows pruned hourly by a pg-boss cron), HTTP-only cookies. The first user may always register, and that first registration is serialized under a Postgres advisory lock so two simultaneous sign-ups can't both become "first"; later registrations need `ALLOW_REGISTRATION=true` |
 | **Sign out** | Settings → Account → Session panel. Shows the signed-in email + a Sign Out button; also clears per-browser IndexedDB so the next user on the device doesn't see a previous session's cached data |
-| **Auth abstraction** | Single `get_current_user` FastAPI dependency replaces all user identity logic. Routes never know which provider is active. Frontend discovers provider + deploy mode via `GET /auth/provider` |
-| **CSRF posture** | Double-submit cookie under `none` / `basic` providers. Skipped entirely under `supabase` — the Authorization-header-bearer flow is structurally immune to CSRF (no auto-attached credential a cross-origin page could exploit) |
+| **Auth abstraction** | One `requireUser` middleware resolves the user for every protected router. Routes never know which provider is active. Frontend discovers provider + deploy mode via `GET /auth/provider` |
+| **CSRF posture** | Double-submit cookie on every state-changing request except login and registration. Rejections are logged (`csrf_rejected`, with which half was missing, never the token) |
 
 ### PWA + Offline Mode
 | Feature | Description |
@@ -217,21 +207,13 @@ User-created personas with custom name, handle, color, system prompt, and retrie
 
 ## Distribution Model
 
-Ficino ships to **two deploy targets from a single codebase**:
-
-**Self-host** — same model as Ollama / Immich / Paperless-ngx.
-- `git clone && docker compose up` is the install
+Self-host only — same model as Ollama / Immich / Paperless-ngx.
+- `git clone`, fill `.env`, pick an override (`deploy/loopback/` or `deploy/tailnet/`), `docker compose up -d --build`
 - Runs on a laptop, home server, or university VM
-- Defaults to Ollama for free local inference (`AUTH_PROVIDER=none`, `STORAGE_PROVIDER=local`)
+- Defaults to Ollama for free local inference (`AUTH_PROVIDER=none`, local storage volumes)
 - The PWA gives mobile access to the user's own instance
 - Users bring (or omit) their own API keys for Claude / Voyage / etc. via the Settings → AI panel
 - AGPL license: self-host freely, cloud providers must open-source their changes
-
-**SaaS** — hosted at [ficino.app](https://ficino.app).
-- Railway (api + worker + frontend + managed Redis) + Supabase (Postgres/pgvector, Auth, object storage) + Cloudflare (DNS + Turnstile captcha) + Mailgun (SMTP)
-- Invite-only beta; sign-ups disabled in Supabase Auth until we're ready for wider access
-- Operator env controls everything provider-side — users only see their content, not the LLM plumbing (`PUBLIC_DEPLOYMENT=true`)
-- Same codebase, gated behind env flags. Anyone can stand up their own instance via `docs/saas-deploy.md`
 
 ---
 
@@ -259,18 +241,18 @@ Visual map of how papers in your corpus cite each other. Surfaces structural rel
 
 ---
 
-## Production
-
-Required for ficino.app public deployment.
+## Operations
 
 | Item | Status |
 |------|--------|
-| Auth & user management | **Shipped** — pluggable AUTH_PROVIDER (none/basic/supabase), Turnstile captcha, OTP-code password recovery |
-| Rate limiting & cost controls | **Shipped** — Redis-based per-user rate limits on uploads (50/day), feed generation (20/day), user posts (30/day). Configurable via env. Skipped for AUTH_PROVIDER=none |
+| Auth & user management | **Shipped** — `AUTH_PROVIDER` none/basic, Postgres sessions, serialized first registration |
+| Rate limiting & cost controls | **Shipped** — per-user daily budgets in Postgres (uploads 50, feed generations 20, user posts 30, summaries 30, replies 60, persona DMs 60, audio 20; each configurable via `RATE_LIMIT_*`). Skipped for `AUTH_PROVIDER=none`. Expired windows pruned hourly |
 | Retrieval debug view (dev only) | **Shipped** — three-dots menu → Debug view (dev builds only) |
-| Logging & error tracking | Deferred — structlog in place for container logs. Will pick a service (Sentry, Betterstack, Axiom) once beta-tester volume warrants it |
-| Connection pooling optimization | **Shipped** — env-configurable pool sizes (`DB_POOL_MIN_SIZE` / `DB_POOL_MAX_SIZE`) on both api and worker. Railway defaults 2-8 (api) / 1-5 (worker) to fit Supabase session pooler's 15-client cap |
-| Security headers & CORS lockdown | **Shipped** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS + CSP in production, CORS locked to specific origins, CORSMiddleware moved to outermost layer so CSRF/header-middleware rejections still carry ACAO |
-| SaaS deploy (Railway + Supabase) | **Shipped** — full operator runbook at `docs/saas-deploy.md`. Three Railway services + managed Redis, one Supabase project, Cloudflare DNS + Turnstile, Mailgun SMTP. Same frontend bundle as self-host; env flags toggle the hosted behaviour |
-| Object storage backend | **Shipped** — pluggable via `STORAGE_PROVIDER=local|supabase`. Local is the self-host default (filesystem under `/app/uploads`, `/app/figures`); Supabase uses a single private bucket keyed by `{user_id}/{paper_id}.pdf` and `.../figures/{filename}.png` with signed-URL figure access (30-day TTL). Workers download PDFs to a tempfile for fitz/marker/PIL and release on cleanup |
+| Logging | **Shipped** — structured JSON logs (pino) to container stdout. An error-tracking service is deferred |
+| Connection pooling | **Shipped** — env-configurable pool sizes (`DB_POOL_MAX_SIZE`, or `API_DB_POOL_MAX_SIZE` / `WORKER_DB_POOL_MAX_SIZE` per process) |
+| Security headers & CORS lockdown | **Shipped** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS + CSP in production, CORS locked to `CORS_ORIGINS`, and CORS headers still sent on CSRF and other middleware rejections |
+| Background jobs | **Shipped** — pg-boss queues in Postgres with per-queue retries; crons for the stale-corpus check (daily 03:00 UTC) and pruning expired sessions and rate-limit windows (hourly) |
+| Object storage | **Shipped** — local volumes shared by the api and worker: PDFs under `/app/uploads`, figure crops under `/app/figures`, feed audio and podcasts under `/app/media`; figures and media are served through signed URLs (`SIGNED_URL_KEY`) |
+| Deployment | **Shipped** — generic `docker-compose.yml` (no published ports) plus a host override: loopback (`127.0.0.1:8080`) or a Tailscale sidecar with an owner-only nginx gate. See `deploy/README.md` |
+| Data restore | **Shipped** — `restore db | files | verify` and `reembed` CLIs bring an archived dump and its storage into a fresh stack. Runbook in `server/README.md` |
 | Mobile responsiveness | **Shipped** — see the Mobile section above. Dropdowns clamped, touch targets ≥44 px, safe-area insets, edge swipe-back, swipeable tabs, pull-to-refresh, swipe-to-act, keyboard-aware inputs, haptics |

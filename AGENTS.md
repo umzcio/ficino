@@ -1,41 +1,49 @@
 # AGENTS.md
 
-Map for agent-driven work in this repo — commands and rules, not essays. Detail lives in README.md and docs/.
+Map for agent-driven work in this repo — commands and rules, not essays. Detail lives in README.md, server/README.md, deploy/README.md and docs/.
 
 ## Project
 
-Ficino is an academic-paper reading app with a personalized research feed (see README.md). One codebase, two deploy targets: self-host via Docker Compose, and SaaS on Railway + Supabase (ficino.app).
+Ficino is an academic-paper reading app with a personalized research feed (see README.md). Self-host only: one Docker Compose stack (postgres, api, worker, web). The hosted service was shut down in October 2026; the Python services were removed at the git tag `python-final`.
 
 ## Layout
 
-- `frontend/` — React + Vite + TypeScript
-- `api/` — FastAPI service
-- `worker/` — Celery worker
-- `shared/` — editable local package used by both api and worker (not on PyPI)
-- `infra/postgres/` — database schema (`init.sql`) + upgrade migrations
-- `tests/e2e/` — Playwright specs
-- `plans/` — advisor execution plans
+- `frontend/` — React + Vite + TypeScript (the `web` image: the build behind nginx)
+- `server/` — the backend (Node, TypeScript, Hono, postgres.js, pg-boss): `src/api` and `src/worker` entries from one image, `migrations/`, the restore and re-embed CLIs, the vitest suite
+- `deploy/` — host override examples (`loopback/`, `tailnet/`), the tailnet web nginx template, deploy checks (`deploy/test/`)
+- `docker-compose.yml` — the generic stack (project `ficino`, no published ports); `docker-compose.e2e.yml` — the e2e stack (project `ficino-e2e`)
+- `tests/e2e/` — Playwright specs; `tests/e2e/SKIPS.md` — the skip inventory
+- `scripts/e2e-stack.sh` — drives the e2e stack
+- `docs/superpowers/` — specs, plans and the per-plan carryover records; `plans/` — advisor execution plans
 
 ## Verification gates
 
-- Frontend: `cd frontend && npm run lint && npm test && npm run build` (eslint 9, vitest, `tsc -b && vite build`; CI also runs `npx tsc -b` first).
-- API/worker tests need real Postgres + Redis and run in containers: `docker compose up -d`, then
-  `docker exec ficino-api sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest tests/ -q"` (same with `ficino-worker`). Containers run as uid 10001 — the `--user` and `python -m pytest` (not bare `pytest`) are required.
-- Bare-metal Python: `pip install ./shared` first, or collection fails with `ModuleNotFoundError: ficino_shared` (README "Testing").
-- Lint: `ruff check api/ worker/ shared/` (ruff pinned at 0.15.20 in CI).
-- e2e: `npx playwright test` from repo root. baseURL defaults to `http://localhost:3000/ficino` (override with `E2E_BASE_URL`) and assumes the dev deploy documented in README — in this checkout's compose the frontend is NOT port-published; the stack serves nginx internally (verify: `docker compose exec frontend wget -qO- http://127.0.0.1/ficino/ | head -1`). e2e hits a shared dev DB — runs accumulate junk data (known R10.5 deferral).
+- Server: `cd server && npm ci && npm run typecheck && npm test && npm run build` (Node ≥ 22.18; the suite starts and removes its own throwaway Postgres, `pgvector/pgvector:pg18` on 127.0.0.1 only).
+- Frontend: `cd frontend && npx tsc -b && npm run lint && npm test && npm run build` (as CI runs it).
+- Deploy: `npm run test:deploy` from the repo root (renders every compose layer, runs the web nginx template in throwaway `ficino-deploytest-*` containers).
+- e2e: `scripts/e2e-stack.sh up && scripts/e2e-stack.sh ci`, then `scripts/e2e-stack.sh down`. The full suite is `up --ollama` + `full`, a fresh `up` per acceptance run. Reports land in `tests/results/e2e-<ci|full>.json`; any skip not listed in `tests/e2e/SKIPS.md` is a failure.
 
 ## Schema & migrations
 
-`infra/postgres/init.sql` is the FULL schema. Any new migration must be folded into `init.sql` in the same PR; the standalone `add_*.sql` files are the upgrade path for pre-existing deployments.
+Numbered SQL files in `server/migrations/` (`NNNN_name.sql`), applied in order by the runner in `server/src/db/migrate.ts` (`npm run migrate` in a checkout, `node dist/db/migrate-cli.js` in the image; the api and worker also migrate at boot). Add a new numbered file; never edit an applied one. The archive restore is data-only into a schema the runner migrated, so keep the schema restore-compatible: no CHECK or enum constraints on status columns, `chunks.embedding` stays `vector(1024)`.
 
 ## Dependencies
 
-Runtime images and CI install from `api/requirements.lock` / `worker/requirements.lock` (uv-compiled). When floors in `requirements.txt` change, regenerate: `uv pip compile api/requirements.txt -o api/requirements.lock --python-version 3.11` (same for `worker/`). Prerequisite for any local Python run: `pip install ./shared`.
+`server/package-lock.json` is the backend lockfile (`frontend/package-lock.json` the frontend's; the root `package-lock.json` holds Playwright for e2e and the deploy checks); install with `npm ci`. The server image keeps production dependencies only, so it has no `tsx`: inside it run `node dist/...`, never `npm run <script>`.
+
+## Standing rules
+
+- jsonb writes go through `sql.json(...)`; postgres.js double-encodes `JSON.stringify`.
+- Integer route params are parsed with `pyInt`.
+- Never mount a router at `/` with `use('*', requireUser)`.
+- Never `docker compose down -v` except `docker compose -p ficino-e2e -f docker-compose.e2e.yml down -v` (what `scripts/e2e-stack.sh down` runs).
+- Every built compose service names its image (`ficino-server:local`, `ficino-web:local`; e2e `ficino-server:e2e`, `ficino-web:e2e`); compose must never default-name one.
+- Postgres is `pgvector/pgvector:pg18`; never a `-trixie` tag.
+- No `0.0.0.0` publish; tracked publishes are on `127.0.0.1` only.
 
 ## Conventions
 
-- Commits: conventional with scope — `fix(api): …`, `feat(frontend): …` (see `git log --oneline`).
+- Commits: conventional with scope — `fix(server): …`, `feat(frontend): …`, `chore(deploy): …` (see `git log --oneline`).
 - Fire-and-forget async actions get `.catch(() => {})` plus an explanatory comment; destructive/navigational ones surface an error (App.tsx:577-585).
 - Testable component logic is extracted as exported plain functions — there is no component-test library (@testing-library/react). Exemplars: `startPoll` in `frontend/src/hooks/usePollTask.ts`, helpers in `GroupChatView`.
 
@@ -43,10 +51,8 @@ Runtime images and CI install from `api/requirements.lock` / `worker/requirement
 
 Rationale for each: `FICINO_REVIEW_R10_5.md`.
 
-- api/worker LLM retry logic deliberately duplicated (comment-synced).
 - ListenView's two hand-rolled pollers are deliberate.
 - `components/_shared/Md.tsx` importing `Feed/_shared/InlineMd` across the boundary is deliberate.
-- Four dead api Settings fields (`llm_provider`, `claude_model`, `ollama_llm_model`, `anthropic_api_key`) intentionally retained, documented in-code.
 - Single-service literals (timeouts, backoff, session TTL, top_k) intentionally not consolidated.
 - PostCard/UserPostCard DangerButton/card-shell duplication not converged.
 
