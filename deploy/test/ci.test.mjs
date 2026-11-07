@@ -26,6 +26,18 @@ test('e2e runs on a runner Playwright supports and boots the TS stack', () => {
 
 test('deploy checks run in CI', () => assert.match(job('deploy'), /npm run test:deploy/));
 
+// The runner's bundled Compose v2 renders env_file differently and rejects `up --wait` on the worker.
+test('e2e and deploy install the host Compose version, checksum-verified, before using it', () => {
+  for (const n of ['e2e', 'deploy']) {
+    const b = job(n);
+    const install = b.indexOf('docker/compose/releases/download/v5.7.0/docker-compose-linux-x86_64');
+    assert.ok(install > 0, n);
+    assert.match(b, /sha256sum -c -/, n);
+    const use = n === 'e2e' ? b.indexOf('scripts/e2e-stack.sh up') : b.indexOf('npm run test:deploy');
+    assert.ok(use > install, `${n}: compose installed before use`);
+  }
+});
+
 // The Python services were removed at tag python-final; CI must not try to lint, install or test them.
 test('CI runs no Python jobs', () => {
   for (const n of ['python-lint', 'api-tests', 'worker-tests', 'shared-tests']) assert.equal(job(n), '', n);
