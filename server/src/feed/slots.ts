@@ -112,6 +112,22 @@ export function pickFigure(
   return choice(rng, eligible);
 }
 
+/**
+ * The log line for a slot `pickFigure` dropped (:688-704): no figures in scope, or none of a type the persona
+ * allows. Shared by generate_feed and generate_chapter so their event fields stay identical.
+ */
+export function logFigureSkip(log: Logger, persona: string, meta: Persona | undefined, figures: FeedFigure[]): void {
+  if (figures.length === 0) {
+    log.info({ persona }, 'figure_post_skipped_no_figures_in_paper');
+    return;
+  }
+  const types = figures.map((f) => f.figure_type).filter((t): t is string => truthy(t));
+  log.info(
+    { persona, allowed: [...new Set(meta?.allowed_figure_types ?? [])], available_types: [...new Set(types)].sort() },
+    'figure_post_skipped_no_eligible_figure',
+  );
+}
+
 /** The "PRIOR POSTS" lines build_post_prompt renders (:721-730). Soft-deleted posts are excluded. */
 export function priorPostsSummary(posts: Post[], personas: Personas): string[] {
   const out: string[] = [];

@@ -22,6 +22,7 @@ import {
   commitBudget,
   filterByBudget,
   finishPost,
+  logFigureSkip,
   paperCap,
   pickFigure,
   priorPostsSummary,
@@ -527,19 +528,7 @@ export async function generateFeed(
       const meta = personas.get(slotPersona);
       const picked = pickFigure(rng, figures, meta, postType);
       if (picked === 'skip') {
-        if (figures.length === 0) {
-          log.info({ persona: slotPersona }, 'figure_post_skipped_no_figures_in_paper');
-        } else {
-          const types = figures.map((f) => f.figure_type).filter((t): t is string => truthy(t));
-          log.info(
-            {
-              persona: slotPersona,
-              allowed: [...new Set(meta?.allowed_figure_types ?? [])],
-              available_types: [...new Set(types)].sort(),
-            },
-            'figure_post_skipped_no_eligible_figure',
-          );
-        }
+        logFigureSkip(log, slotPersona, meta, figures);
         continue;
       }
       const figure = picked;

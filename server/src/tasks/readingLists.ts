@@ -10,7 +10,7 @@ import {
 } from '../feed/personas.js';
 import { buildPostPrompt } from '../feed/prompts.js';
 import { assertEmbedModelScope, retrieveForPersona, type RetrievalCtx } from '../feed/retrieval.js';
-import { pickFigure } from '../feed/slots.js';
+import { logFigureSkip, pickFigure } from '../feed/slots.js';
 import type { Chunk, Post } from '../feed/types.js';
 import type { JobContext } from '../jobs/context.js';
 import { loadJobSettings } from '../providers/config.js';
@@ -202,15 +202,7 @@ export async function generateChapter(
       const meta = personas.get(persona);
       const picked = pickFigure(rng, figures, meta, postType);
       if (picked === 'skip') {
-        if (figures.length === 0) {
-          log.info({ persona }, 'figure_post_skipped_no_figures_in_paper');
-        } else {
-          const types = figures.map((f) => f.figure_type).filter((t): t is string => Boolean(t));
-          log.info(
-            { persona, allowed: [...new Set(meta?.allowed_figure_types ?? [])], available_types: [...new Set(types)].sort() },
-            'figure_post_skipped_no_eligible_figure',
-          );
-        }
+        logFigureSkip(log, persona, meta, figures);
         continue;
       }
       const figure = picked;

@@ -7,6 +7,7 @@ import type { Post } from '../../src/feed/types.js';
 import { makeJobContext } from '../../src/jobs/context.js';
 import { providerConfig } from '../../src/providers/config.js';
 import { embedModelId } from '../../src/providers/embed.js';
+import { STUB_USER_ID } from '../../src/shared/constants.js';
 import { uuid5 } from '../../src/shared/uuid5.js';
 import { LocalStorage } from '../../src/storage/local.js';
 import { generateChapter, type GenerateChapterData } from '../../src/tasks/readingLists.js';
@@ -18,7 +19,8 @@ import { testQueue } from '../helpers/queue.js';
 // Plan 05 Task 4: generate_chapter against the DB with fake providers. Ports
 // worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index and
 // worker/tests/test_chapter_post_validation.py::test_reading_list_tasks_imports_validator, and pins deliberate
-// changes 1 (figure slots), 2 (embed-model scope), 3 (one transaction), 4 (owner fallback) and 16 (abort).
+// changes 1 (figure slots), 2 (embed-model scope), 3 (one transaction), 4 (owner fallback, including the stub
+// user for a NULL list owner) and 16 (abort, in a slot and after the loop).
 
 const sql = testSql();
 const config = loadConfig({ OLLAMA_BASE_URL: 'http://fake-ollama:11434' });
@@ -96,11 +98,22 @@ const feedRow = async (id: string) =>
 type HarnessOpts = {
   chat?: (info: ChatInfo, n: number) => string | Promise<string>;
   controller?: AbortController;
+  /** Called synchronously with each log line as the handler writes it. */
+  onLog?: (line: Line) => void;
 };
 
 function harness(o: HarnessOpts = {}) {
   const lines: Line[] = [];
-  const logger = pino({ level: 'debug' }, { write: (x: string) => void lines.push(JSON.parse(x)) });
+  const logger = pino(
+    { level: 'debug' },
+    {
+      write: (x: string) => {
+        const line = JSON.parse(x) as Line;
+        lines.push(line);
+        o.onLog?.(line);
+      },
+    },
+  );
   const infos: ChatInfo[] = [];
   const f = fakeProviders({
     chat: (_body, info) => {
@@ -233,6 +246,22 @@ describe('generate_chapter', () => {
     const h = harness();
     const result = await h.run({ reading_list_id: listId, chapter_index: 0 });
     expect((await feedRow(result.feed_id))!.user_id).toBe(s.user_a);
+  });
+
+  it('deliberate change 4: a list with a NULL owner and no user_id runs as the stub user', async () => {
+    await sql`INSERT INTO users (id, email) VALUES (${STUB_USER_ID}, 'stub@ficino.dev') ON CONFLICT (id) DO NOTHING`;
+    await setSettings(STUB_USER_ID, simple(1, { ollama_llm_model: 'stub-model' }));
+    await setSettings(s.user_a, simple(1, { ollama_llm_model: 'owner-model' }));
+    const listId = await seedList(s.user_a, [s.paper_a]);
+    await sql`UPDATE reading_lists SET user_id = NULL WHERE id = ${listId}`;
+    const h = harness();
+    const result = await h.run({ reading_list_id: listId, chapter_index: 0 });
+    expect(result).toMatchObject({ status: 'complete', post_count: 1 });
+    // Python made the owner the string "None"; a dropped fallback would store a NULL user_id.
+    expect((await feedRow(result.feed_id))!.user_id).toBe(STUB_USER_ID);
+    expect(h.calls.filter((c) => c.kind === 'ollama-chat').map((c) => c.model)).toEqual(['stub-model']);
+    const index = await sql`SELECT user_id FROM feed_posts WHERE feed_id = ${result.feed_id}`;
+    expect(index.map((r) => r.user_id)).toEqual([STUB_USER_ID]);
   });
 
   it('a post without content is dropped (test_reading_list_tasks_imports_validator), leaving an id gap', async () => {
@@ -408,6 +437,35 @@ describe('generate_chapter', () => {
       });
       await expect(h.run({ reading_list_id: listId, chapter_index: 0, user_id: s.user_a })).rejects.toThrow();
       expect(h.infos).toHaveLength(3);
+      expect(logged(h.lines, 'chapter_post_failed')).toHaveLength(0);
+      expect(logged(h.lines, 'generate_chapter_failed')).toHaveLength(1);
+      expect(await feedRow(uuid5(`ficino:chapter:${listId}:0`))).toBeUndefined();
+      expect(await chapters(listId)).toEqual([
+        { chapter_index: 0, status: 'unlocked', feed_id: null },
+        { chapter_index: 1, status: 'locked', feed_id: null },
+      ]);
+    });
+
+    it('an abort during a last slot that never calls the LLM still commits nothing (the after-loop check)', async () => {
+      // Opener first, then 3 figure slots with no figures in scope: the last slot is dropped by the figure skip,
+      // and its log line aborts the signal. No slot throws, so only the check after the loop stops the commit.
+      await setSettings(s.user_a, simple(4, { post_type_weights: weights({ figure: 1 }) }));
+      const listId = await seedList(s.user_a, [s.paper_a, a2]);
+      const controller = new AbortController();
+      let skips = 0;
+      const h = harness({
+        controller,
+        onLog: (line) => {
+          if (line.msg === 'figure_post_skipped_no_figures_in_paper' && ++skips === 3) {
+            controller.abort(new Error('job time limit'));
+          }
+        },
+      });
+      await expect(h.run({ reading_list_id: listId, chapter_index: 0, user_id: s.user_a })).rejects.toThrow(
+        'job time limit',
+      );
+      expect(skips).toBe(3);
+      expect(h.infos).toHaveLength(1);
       expect(logged(h.lines, 'chapter_post_failed')).toHaveLength(0);
       expect(logged(h.lines, 'generate_chapter_failed')).toHaveLength(1);
       expect(await feedRow(uuid5(`ficino:chapter:${listId}:0`))).toBeUndefined();
