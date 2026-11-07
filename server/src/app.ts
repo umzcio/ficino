@@ -1,4 +1,5 @@
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { RegExpRouter } from 'hono/router/reg-exp-router';
 import { SmartRouter } from 'hono/router/smart-router';
@@ -9,7 +10,7 @@ import type { Config } from './config.js';
 import type { Sql } from './db/sql.js';
 import { basicRoutes } from './auth/basicRoutes.js';
 import { csrf } from './http/csrf.js';
-import { errorHandler } from './http/errors.js';
+import { errorHandler, HttpError } from './http/errors.js';
 import { securityHeaders } from './http/securityHeaders.js';
 import { alertsRoutes } from './routes/alerts.js';
 import { annotationsRoutes } from './routes/annotations.js';
@@ -73,6 +74,24 @@ function corsMiddleware(config: Config) {
   });
 }
 
+/** Routes that read a body under their own, larger cap (exact method and path). */
+const OWN_BODY_CAP = new Set(['POST /papers']);
+
+/**
+ * Caps every request body at MAX_JSON_BODY_KB, except on OWN_BODY_CAP routes. hono's bodyLimit rejects a declared
+ * Content-Length over the cap before reading, and counts a chunked body as it reads it, so no route that parses a
+ * body (`c.req.json()` buffers all of it) ever sees more than the cap.
+ */
+function requestBodyCap(config: Config): MiddlewareHandler {
+  const cap = bodyLimit({
+    maxSize: config.maxJsonBodyKb * 1024,
+    onError: () => {
+      throw new HttpError(413, 'Request body too large');
+    },
+  });
+  return (c, next) => (OWN_BODY_CAP.has(`${c.req.method} ${c.req.path}`) ? next() : cap(c, next));
+}
+
 /**
  * Methods (other than the request's own) that have a real route matching `path`.
  * Reads `app.routes`, which includes routes mounted via `app.route()`; middleware and
@@ -129,6 +148,7 @@ export function createApp(rawDeps: AppDeps): Hono<AppEnv> {
     c.set('deps', deps);
     await next();
   });
+  app.use('*', requestBodyCap(deps.config));
 
   app.onError(errorHandler(deps.logger));
   app.notFound((c) => {

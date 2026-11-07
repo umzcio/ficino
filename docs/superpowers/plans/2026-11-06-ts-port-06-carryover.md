@@ -101,6 +101,13 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     missing, non-finite or below-1 count is the default 12, anything else is truncated and capped at 50. One constant,
     `MAX_POSTS_PER_GENERATION` in `server/src/shared/constants.ts`, is both bounds and the setting's max. The shipped
     UI always sends 3, so nothing visible changes.
+14. **Request bodies are capped** (security review). Python set no body size limit on its JSON routes, and neither
+    did the port: every `body(schema)` route buffers the whole body before validating it, so a large body cost memory
+    in proportion to its size (only the reverse proxy's upload-sized limit stood in front). Every request body is now
+    capped at `MAX_JSON_BODY_KB` (default 1024 KiB) with hono's `bodyLimit`: a declared `Content-Length` over the cap
+    is rejected before the body is read, and a chunked body is cut off once it passes the cap. Either way the answer
+    is 413 `{"detail":"Request body too large"}`. `POST /papers` is exempt and keeps its own `MAX_UPLOAD_SIZE_MB` cap.
+    No shipped client sends a JSON body anywhere near the cap.
 
 ## 3. Rulings made during execution
 

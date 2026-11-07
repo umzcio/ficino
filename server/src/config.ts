@@ -15,6 +15,8 @@ export interface Config {
   figuresDir: string;
   mediaDir: string;
   maxUploadSizeMb: number;
+  /** `MAX_JSON_BODY_KB`: the request body cap for every route except the `POST /papers` upload (which has its own). */
+  maxJsonBodyKb: number;
   ollamaBaseUrl: string;
   elevenlabsApiKey: string;
   /** `ELEVENLABS_MODEL_ID`: the single-voice text-to-speech model (worker/lib/tts.py). */
@@ -163,6 +165,7 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     figuresDir: str(env, 'FIGURES_DIR', '/app/figures'),
     mediaDir: str(env, 'MEDIA_DIR', '/app/media'),
     maxUploadSizeMb: int(env, 'MAX_UPLOAD_SIZE_MB', 50),
+    maxJsonBodyKb: atLeastOne('MAX_JSON_BODY_KB', int(env, 'MAX_JSON_BODY_KB', 1024)),
     ollamaBaseUrl: str(env, 'OLLAMA_BASE_URL', 'http://host.docker.internal:11434'),
     elevenlabsApiKey: str(env, 'ELEVENLABS_API_KEY', ''),
     elevenlabsModelId: str(env, 'ELEVENLABS_MODEL_ID', 'eleven_turbo_v2_5'),
