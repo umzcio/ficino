@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import type { ManifestEntry } from '../../src/restore/files.js';
+
 // Synthetic stand-in for the archived SaaS data: a pg_dump-shaped text with the same quirks as the real archive
 // (auth/storage schemas, user-prefixed storage keys, stale signed URLs, a drifted feed_posts index, a legacy stitched
 // podcast, double-encoded jsonb, stuck task rows, ids inside audit_log). Every id, name and value here is invented;
@@ -23,6 +28,8 @@ export const SYN = {
   synthesisEmpty: '59000000-0000-4000-8000-000000000002',
   userPost: '58000000-0000-4000-8000-000000000001',
   readingList: '57000000-0000-4000-8000-000000000001',
+  /** Only in the synthetic storage: a PDF whose paper row no longer exists. */
+  orphanPdf: '5d000000-0000-4000-8000-0000000000ff',
 } as const;
 
 /** Appears only in the auth blocks (password hash, refresh token): a restore must never load or print it. */
@@ -490,4 +497,46 @@ export function buildSyntheticDump(opts: SyntheticDumpOptions = {}): string {
     '',
   ].join('\n');
   return head + tables(opts).map(copyBlock).join('') + tail;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Storage
+
+/** Every object key `buildSyntheticStorage` writes, relative to the bucket root (`<owner>/…`, as Supabase kept them). */
+export const SYNTHETIC_STORAGE_KEYS = {
+  pdfDefault: `${SYN.owner}/${SYN.paperDefault}.pdf`,
+  pdfOther: `${SYN.owner}/${SYN.paperOther}.pdf`,
+  /** No papers row. */
+  pdfOrphan: `${SYN.owner}/${SYN.orphanPdf}.pdf`,
+  figure: `${SYN.owner}/${SYN.paperDefault}/figures/fig_p1_1.png`,
+  /** No figures row. */
+  strayFigure: `${SYN.owner}/${SYN.paperDefault}/figures/fig_p9_9.png`,
+  audio: `${SYN.owner}/feeds/${SYN.feedPlain}/audio/post_0.mp3`,
+  /** A legacy stitched-podcast segment: never a TS media key. */
+  legacySegment: `${SYN.owner}/feeds/${SYN.feedLegacyPodcast}/podcast/seg_0.mp3`,
+  episode: `${SYN.owner}/feeds/${SYN.feedEpisode}/podcast/episode.mp3`,
+} as const;
+
+/** Deterministic, distinct bytes per object (with a NUL and high bytes, so nothing treats them as text). */
+function objectBytes(key: string): Buffer {
+  return Buffer.concat([Buffer.from(`synthetic object ${key}\n`), Buffer.from([0, 0xff, 0x80, 0x0a]), Buffer.from(key)]);
+}
+
+export const md5Hex = (bytes: Uint8Array): string => createHash('md5').update(bytes).digest('hex');
+
+/**
+ * Writes the synthetic archive's storage bucket under `root` (`<root>/<SYN.owner>/…`): both paper PDFs, an orphan
+ * PDF, the figure and a figure with no row, the plain feed's post 0 audio, a legacy podcast segment and the episode
+ * feed's `episode.mp3`. Returns the archive manifest for it, with quoted md5 etags as Supabase reported them.
+ */
+export async function buildSyntheticStorage(root: string): Promise<ManifestEntry[]> {
+  const manifest: ManifestEntry[] = [];
+  for (const key of Object.values(SYNTHETIC_STORAGE_KEYS)) {
+    const bytes = objectBytes(key);
+    const path = join(root, key);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, bytes);
+    manifest.push({ name: key, size: bytes.length, etag: `"${md5Hex(bytes)}"` });
+  }
+  return manifest;
 }
