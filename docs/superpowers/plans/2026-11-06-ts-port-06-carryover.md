@@ -9,8 +9,10 @@ controller's and live in its private runbook, so no host name, tailnet name, pat
 **Deploy files (Tasks 1-2).** The server image's `HEALTHCHECK` gained interval, timeout, start-period and retry flags.
 `docker-compose.yml` is the generic stack (project `ficino`: `postgres` on `pgvector/pgvector:pg18`, `api` and `worker`
 from one `ficino-server:local` image with shared `uploads`/`figures`/`media` volumes, `web` as `ficino-web:local`) and
-publishes nothing. `.env.example` documents every server setting in one file (`.env.secrets.example` is gone), and
-`frontend/.dockerignore` keeps host build output out of the web context. A host-only, gitignored
+publishes nothing. `.env.example` documents every server setting in one file (the usual ones first, the rest
+commented out at their defaults; `.env.secrets.example` is gone) and is read by the api and worker only;
+`postgres.env.example` holds `POSTGRES_PASSWORD`, the one setting Postgres reads. `frontend/.dockerignore` keeps host
+build output out of the web context. A host-only, gitignored
 `docker-compose.override.yml` makes the stack reachable, built from one of two tracked examples: `deploy/loopback/`
 (web on `127.0.0.1:8080`) or `deploy/tailnet/` (a Tailscale sidecar in kernel mode, Serve config in `serve.json`, and
 `web` in the sidecar's network namespace with the owner-gated nginx template in `deploy/web/tailnet/`).
@@ -68,13 +70,24 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
    `user_posts` `pending` set to `error`; `corpus_syntheses` `pending`/`generating` healed to `complete` when they
    hold messages, else set to `error`; `paper_summaries` `generating` only counted; chunks without `embed_model` tagged
    with the source model; `feed_posts` rebuilt from the cleaned posts; any remaining jsonb shape violation aborts.
+7. **Postgres reads only `postgres.env`** (final review). The plan gave `postgres` the project `.env`, which carries
+   `SIGNED_URL_KEY`, the provider and ElevenLabs keys and the database URL; the base now gives it only
+   `postgres.env` (`POSTGRES_PASSWORD`, from `postgres.env.example`), and `.env` reaches the api and worker only.
+8. **`restore files` never overwrites a file in place** (final review). A target with the planned bytes is kept as
+   `already in place`; one with other bytes (or that is not a regular file) is kept as `target differs` and named on
+   stderr, so a re-run after the api regenerated media leaves the new render alone. `--force` replaces differing
+   targets. The copy is now checked against the manifest size (and md5) rather than the source's size at copy time.
+9. **The dump parser is stricter** (final review). A `COPY … FROM stdin` header with trailing whitespace is read; any
+   other `COPY … FROM stdin` line it cannot read throws, and so does a `\.` outside a block (a header it missed).
+10. **`scripts/e2e-stack.sh ci|full` check the port** (final review): they refuse to run unless the running
+    `ficino-e2e-web` publishes `127.0.0.1:$FICINO_E2E_PORT`, so the suite can never be aimed at another stack.
 
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the
   repo, so the checks render the same from any shell or directory. The postgres healthcheck allows 10 retries (a
-  first-boot initdb can be slow). `.env.example` leaves `POSTGRES_PASSWORD` and `SIGNED_URL_KEY` empty so an
-  unedited copy fails closed.
+  first-boot initdb can be slow). `.env.example` leaves `SIGNED_URL_KEY` (and `postgres.env.example`
+  `POSTGRES_PASSWORD`) empty so an unedited copy fails closed.
 - **Task 2.** The nginx template gained one fail-closed line beyond the plan's text: with the owner login unset, a
   request whose header was the literal placeholder got through, so the template now refers to the login in a way that
   makes nginx refuse to start when it is unrendered. The web service's networks are cleared with `!reset {}`.
@@ -103,6 +116,13 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
 - **Task 14.** Archive ids in the reference docs became `<feed-a>`..`<feed-f>` and `<orphan-pdf>` (the plan named
   placeholders for two feeds; the doc had six); the docs site link stays in `README.md` while the hosted-service links
   are gone; frontend lint is listed as CI runs it, though the eslint config is a known deferred minor.
+- **Final review.** Deliberate changes 7-10 above. The tailnet override keeps its own `postgres.env` entry (the host
+  points it outside the repo; the base's `./postgres.env` then stays absent). The commented defaults in `.env.example`
+  keep their notes on separate lines, because compose reads `KEY=  # note` as the value `# note`; a deploy check now
+  fails if the server reads a variable the file does not list. New tests pin what mutations showed unpinned: each
+  re-embed batch is one `UPDATE` and a failed write never splits tag from vector; every source id kind (and upper
+  case) trips the remaining-id check; the owner's `audit_log.resource_id` is re-keyed; the in-transaction
+  precondition re-check; an orphan corpus holding data; the CSRF log's exact fields and empty-value presence.
 
 ## 4. Carry-item dispositions
 
@@ -136,7 +156,7 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
 | 05 | ElevenLabs voices risk and the unrun smoke | Run by the controller with the owner's new key; results below |
 | spec | PG19 re-check | pgvector has no pg19 image: stays on `pgvector/pgvector:pg18`; a later major is a dump/restore |
 | spec | Frontend dead Supabase/Turnstile/Railway code | Skipped: recorded for the frontend redo |
-| all | Deferred minors in carryovers 01-05 | Kept as listed there; none blocks. Named: the broken eslint config, `startApi`'s `undefined` spread, the SaaS `CORS_ORIGINS` code default (compose sets it), the frontend's Node 20 build image |
+| all | Deferred minors in carryovers 01-05 | Kept as listed there; none blocks. Named: the broken eslint config, `startApi`'s `undefined` spread, the SaaS `CORS_ORIGINS` code default (`.env.example` sets it; the e2e compose sets it inline), the frontend's Node 20 build image |
 
 ## 5. Acceptance gate results
 

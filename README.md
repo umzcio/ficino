@@ -344,7 +344,7 @@ ficino/
 
 ## Development
 
-Node ≥ 22.18 on the host (the images use Node 24) and Docker.
+Node ≥ 22.18 on the host (the server image uses Node 24; the web image still builds on Node 20) and Docker.
 
 ```bash
 # Server: typecheck, then the full suite (it starts and removes its own throwaway Postgres)
