@@ -5,7 +5,7 @@ import { ensureFeedFixtures } from './helpers/ensureFeed'
 // Relative to the spec file (r2_sections_1_3 convention) — an absolute
 // dev-checkout path breaks anywhere else, e.g. CI runners.
 const SCREENSHOTS = join(__dirname, '..', 'screenshots')
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3070/ficino/'
 
 // Plan 036: seed deterministic fixtures (feed posts incl. thread/figure/
 // sources variants, a complete paper, two feeds for history) instead of

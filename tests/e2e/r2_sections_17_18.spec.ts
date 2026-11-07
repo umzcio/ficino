@@ -4,7 +4,7 @@ import { join } from 'path';
 // Relative to the spec file (r2_sections_1_3 convention) — an absolute
 // dev-checkout path breaks anywhere else, e.g. CI runners.
 const SCREENSHOT_DIR = join(__dirname, '..', 'screenshots');
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino';
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3070/ficino/';
 
 // Helper: navigate and wait for React to render
 async function gotoAndWait(page: import('@playwright/test').Page) {

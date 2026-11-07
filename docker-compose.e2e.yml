@@ -1,0 +1,112 @@
+# Ficino: the loopback e2e stack (project ficino-e2e) for the Playwright gate.
+#
+# THROWAWAY. It runs the TS server, a worker and the stock frontend against a fresh Postgres, with
+# the dummy settings below (no env file, no secrets, no API keys) and every provider pointed at a
+# dead Ollama unless E2E_OLLAMA_BASE_URL says otherwise. Never point it at real data: the suite
+# seeds fixtures, creates and deletes workspaces and uploads papers.
+#
+# Drive it only through scripts/e2e-stack.sh (up [--ollama] | ci | full | down | logs), and always
+# tear it down afterwards with `scripts/e2e-stack.sh down`, which also drops its volumes.
+#
+# Names never collide with the production stack (docker-compose.yml): every container is
+# ficino-e2e-*, images are tagged :e2e, and the network is the project's own default network.
+# Only web is published, on 127.0.0.1:${FICINO_E2E_PORT:-3070}. Browse http://localhost:<port>/ficino/
+# (localhost, not 127.0.0.1: ENVIRONMENT=test sets Secure cookies, which Chromium accepts over
+# plain http on localhost only).
+name: ficino-e2e
+
+x-server: &server
+  image: ficino-server:e2e
+  restart: "no"
+  # Dummy values only, and the whole configuration: nothing is read from an env file.
+  # ENVIRONMENT=test keeps the cookies Secure (see the header). No model names: a run against a real
+  # Ollama uses the server defaults.
+  environment:
+    DATABASE_URL: postgresql://ficino:ficino@postgres:5432/ficino
+    LLM_PROVIDER: ollama
+    EMBED_PROVIDER: ollama
+    VISION_PROVIDER: ollama
+    FIGURE_DETECT_PROVIDER: ollama
+    EMBED_DIM: "1024"
+    AUTH_PROVIDER: none
+    PUBLIC_DEPLOYMENT: "false"
+    ENVIRONMENT: test
+    MAX_UPLOAD_SIZE_MB: "50"
+    # 127.0.0.1:9 is the container's own loopback, where nothing listens: every provider call is
+    # refused at once. (A closed port on the host gateway can be silently dropped by a host
+    # firewall, and each call would then wait out its own timeout.)
+    OLLAMA_BASE_URL: "${E2E_OLLAMA_BASE_URL:-http://127.0.0.1:9}"
+    CORS_ORIGINS: "http://localhost:${FICINO_E2E_PORT:-3070}"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    postgres:
+      condition: service_healthy
+  volumes:
+    - uploads:/app/uploads
+    - figures:/app/figures
+    - media:/app/media
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: ficino-e2e-postgres
+    restart: "no"
+    # Throwaway credentials; they match DATABASE_URL above and the harness's psql defaults.
+    environment:
+      POSTGRES_USER: ficino
+      POSTGRES_PASSWORD: ficino
+      POSTGRES_DB: ficino
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ficino -d ficino"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # pg18 images keep PGDATA under /var/lib/postgresql/<major>/docker; mount the parent.
+    volumes:
+      - pgdata:/var/lib/postgresql
+
+  api:
+    <<: *server
+    build: ./server
+    container_name: ficino-e2e-api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    stop_grace_period: 20s
+    # The stock frontend nginx proxies /ficino/api/ to http://ficino-api:8000/.
+    networks:
+      default:
+        aliases:
+          - ficino-api
+
+  worker:
+    <<: *server
+    # Same image as the api (built by the api service); never pulled.
+    pull_policy: never
+    container_name: ficino-e2e-worker
+    command: ["node", "dist/worker/main.js"]
+    # The image's HEALTHCHECK probes the api port, which the worker does not serve.
+    healthcheck:
+      disable: true
+    stop_grace_period: 45s
+
+  web:
+    build: ./frontend
+    image: ficino-web:e2e
+    container_name: ficino-e2e-web
+    restart: "no"
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FICINO_E2E_PORT:-3070}:80"
+
+volumes:
+  pgdata:
+  uploads:
+  figures:
+  media:

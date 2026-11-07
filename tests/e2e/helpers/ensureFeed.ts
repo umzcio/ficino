@@ -39,16 +39,16 @@
  *
  * Plan 037 compatibility: the psql/api targets are parameterized via env so
  * the same helper can run against a scratch stack:
- *   E2E_PSQL_CONTAINER (default ficino-postgres), E2E_PSQL_USER (ficino),
- *   E2E_PSQL_DB (ficino), E2E_API_CONTAINER (ficino-api),
+ *   E2E_PSQL_CONTAINER (default ficino-e2e-postgres), E2E_PSQL_USER (ficino),
+ *   E2E_PSQL_DB (ficino), E2E_API_CONTAINER (ficino-e2e-api),
  *   E2E_FIGURES_DIR (/app/figures)
  */
 import { execFileSync } from 'node:child_process'
 
-const PSQL_CONTAINER = process.env.E2E_PSQL_CONTAINER || 'ficino-postgres'
+const PSQL_CONTAINER = process.env.E2E_PSQL_CONTAINER || 'ficino-e2e-postgres'
 const PSQL_USER = process.env.E2E_PSQL_USER || 'ficino'
 const PSQL_DB = process.env.E2E_PSQL_DB || 'ficino'
-const API_CONTAINER = process.env.E2E_API_CONTAINER || 'ficino-api'
+const API_CONTAINER = process.env.E2E_API_CONTAINER || 'ficino-e2e-api'
 const FIGURES_DIR = process.env.E2E_FIGURES_DIR || '/app/figures'
 
 /** Reserved fixture uuid namespace — do not reuse outside this helper. */
