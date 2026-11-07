@@ -152,7 +152,9 @@ jobs:
       - run: cd frontend && npm run build
 
   e2e:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest now resolves to 26.04, and Playwright 1.59 has no chromium build for it
+    # (`npx playwright install --with-deps chromium` fails there).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
@@ -161,53 +163,23 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
-      # Shape A (plan 037): boot the full compose stack. .env.ci holds
-      # CI-safe dummy values (no secrets); .env.secrets must merely EXIST
-      # because docker-compose.yml lists it as an env_file.
-      - name: Prepare CI env
-        run: |
-          cp .env.ci .env
-          touch .env.secrets
-          # tests/screenshots/ is gitignored; globalSetup also mkdirs it,
-          # but create it here so even a globalSetup failure leaves the
-          # artifact-upload path intact.
-          mkdir -p tests/screenshots
-      # --build: GH runners start with no images. init.sql loads
-      # automatically via docker-entrypoint-initdb.d on the fresh postgres
-      # volume (plan 022: it is the FULL schema) — do NOT re-apply it.
-      - name: Boot the stack
-        run: docker compose up -d --build --wait
-      # The api image has no /app/uploads or /app/figures dirs, so Docker
-      # creates the fresh named-volume mount points root:root while the
-      # container runs as uid 10001 — neither the plan-036 fixture helper
-      # nor any upload path can write until they're handed over. (A proper
-      # fix belongs in api/Dockerfile; production code is out of plan 037's
-      # scope.)
-      - name: Chown writable volume dirs
-        run: docker exec -u root ficino-api chown ficino:ficino /app/uploads /app/figures
-      # This checkout's compose deliberately does NOT publish the frontend
-      # port. Run a throwaway container from the same image with port 3000
-      # published (same pattern as the local rehearsal's ficino-e2e-fe);
-      # nginx inside it proxies /ficino/api/ to ficino-api over the compose
-      # network.
-      - name: Publish the frontend
-        run: |
-          FE_IMAGE=$(docker compose images -q frontend)
-          docker run -d --name ficino-e2e-fe --network ficino-network -p 3000:80 "$FE_IMAGE"
-          for i in $(seq 1 30); do
-            curl -sf -o /dev/null http://localhost:3000/ficino/ && exit 0
-            sleep 2
-          done
-          echo "frontend never came up" >&2
-          exit 1
+      # tests/screenshots/ and tests/results/ are gitignored; create them up front so the artifact
+      # upload and the stack log below have somewhere to go even when the stack never boots.
+      - run: mkdir -p tests/screenshots tests/results
+      # The throwaway loopback stack (docker-compose.e2e.yml, project ficino-e2e): builds the server and
+      # web images (runners start with none), waits for every healthcheck, then for the web on
+      # http://localhost:3070/ficino/. Providers point at a dead Ollama, so model calls fail at once.
+      - name: Boot the TS stack
+        run: scripts/e2e-stack.sh up
       - run: npx playwright install --with-deps chromium
-      # The `ci` project (playwright.config.ts) is the fixture-runnable
-      # desktop subset; globalSetup seeds the plan-036 fixtures first.
-      # Trailing slash on the base URL is required.
+      # The `ci` project (playwright.config.ts) is the fixture-runnable desktop subset; globalSetup
+      # seeds the fixtures first. The script exports the base URL and the e2e container names and
+      # writes the JSON report to tests/results/e2e-ci.json.
       - name: Run e2e gate
-        run: npx playwright test --project=ci
-        env:
-          E2E_BASE_URL: http://localhost:3000/ficino/
+        run: scripts/e2e-stack.sh ci
+      - name: Collect stack logs
+        if: failure()
+        run: scripts/e2e-stack.sh logs > tests/results/stack.log 2>&1
       - name: Upload e2e artifacts
         if: failure()
         uses: actions/upload-artifact@v4
@@ -217,3 +189,21 @@ jobs:
             tests/results/
             tests/screenshots/
           if-no-files-found: ignore
+      - name: Tear down the stack
+        if: always()
+        run: scripts/e2e-stack.sh down
+
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The compose checks render with `docker compose config --no-env-resolution` and fail with a
+      # clear message on a Compose without it. The ubuntu-24.04 image ships Compose v2.38, which has it;
+      # print the version so a runner-image change that drops it is easy to spot.
+      - run: docker compose version
+      # Node built-ins only (no npm ci). Renders the compose files and runs throwaway containers
+      # (nginx, a node stub, curl) on an internal network with no published port; the tests remove them.
+      - run: npm run test:deploy
