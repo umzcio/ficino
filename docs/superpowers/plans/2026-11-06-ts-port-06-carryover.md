@@ -81,6 +81,19 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
    other `COPY … FROM stdin` line it cannot read throws, and so does a `\.` outside a block (a header it missed).
 10. **`scripts/e2e-stack.sh ci|full` check the port** (final review): they refuse to run unless the running
     `ficino-e2e-web` publishes `127.0.0.1:$FICINO_E2E_PORT`, so the suite can never be aimed at another stack.
+11. **The persona system preamble no longer prescribes a `{"posts": [...]}` reply** (found in production right after
+    the cutover). The Python preamble said `Your output is JSON: {"posts": [{"text": ..., "type": ...}]}`, which
+    contradicts every user prompt's single-object format. Anthropic followed the user prompt; the default local model
+    followed the preamble about half the time, and those posts were dropped (`persona_post_missing_content`). The
+    sentence now reads `Your output is a single JSON object in exactly the format the request specifies.`, the one
+    deliberate divergence from the Python constant (recorded in `server/test/helpers/preamble.ts`; this resolves the
+    worker inventory's W §9.8 note). A reply that still arrives wrapped (`{"posts": [post, ...]}` or `{"post": post}`,
+    first element a plain object) is unwrapped with a `persona_post_unwrapped` warning, and inside an unwrapped post
+    a non-empty `text` stands in for a missing or falsy `content`.
+12. **A thread that follows its prompt is kept.** The thread prompt asks for `thread_posts` and no `content`, but
+    validation required `content` (Python too), so such threads were dropped. A thread with a usable `thread_posts`
+    list and no `content` now gets the joined thread as its `content` (the feed search text; the UI renders
+    `thread_posts`).
 
 ## 3. Rulings made during execution
 
@@ -167,18 +180,33 @@ the same as a failed test. The first CI run on the pushed `main` is recorded out
 
 | Run | Total | Passed | Skipped | Failed | Flaky | Unlisted skips | Duration |
 |---|---|---|---|---|---|---|---|
-| `ci`, before the restore | pending | | | | | | |
-| full 1, before the restore | pending | | | | | | |
-| full 2, before the restore | pending | | | | | | |
-| full 3, before the restore | pending | | | | | | |
-| `ci`, after the cutover | pending | | | | | | |
-| full 1, after the cutover | pending | | | | | | |
-| full 2, after the cutover | pending | | | | | | |
-| full 3, after the cutover | pending | | | | | | |
+| `ci`, before the restore | 124 | 120 | 4 | 0 | 0 | 0 | 4.2 min |
+| full 1, before the restore | 256 | 225 | 31 | 0 | 0 | 0 | 12.6 min |
+| full 2, before the restore | 256 | 225 | 31 | 0 | 0 | 0 | 13.1 min |
+| full 3, before the restore | 256 | 225 | 31 | 0 | 0 | 0 | 12.5 min |
+| `ci`, after the cutover | 124 | 120 | 4 | 0 | 0 | 0 | 4.2 min |
+| full 1, after the cutover | 256 | 225 | 31 | 0 | 0 | 0 | 13.0 min |
+| full 2, after the cutover | 256 | 225 | 31 | 0 | 0 | 0 | 12.8 min |
+| full 3, after the cutover | 256 | 224 | 31 | 1 | 0 | 0 | 13.6 min |
+
+Before the three counted full runs, a first full run failed 4 tests (W4-01 on desktop, R2 Section 5.1-5.3 on mobile).
+Both were test assumptions, not product bugs: the group-chat modal labels a paper by its metadata title when the
+local model extracts one (the spec picked papers by filename), and the mobile feed virtualizes posts, so the figure
+post was not mounted below the fold. The sample-paper seed also raced figure detection on the local vision model
+(up to the worker's 300 s per page). One test-only commit fixed all three; the skip set was identical in every run.
+
+The after-cutover runs include the two feed fixes (deliberate changes 11 and 12), merged after the restore. The one
+failure in after-cutover full 3 (AUG-12 on mobile, a test timeout with a blank page) was the browser, not the app:
+`index.html` loads the Google Fonts stylesheet render-blocking before the module script, the request to Google hung,
+so the app's script never ran; the trace shows the font request pending and the lazy chunks never requested, and the
+web's nginx never received them. The runbook needs one green after-cutover full run; runs 1 and 2 are.
 
 ## 6. ElevenLabs smoke
 
 Filled by the controller (`server/scripts/elevenlabs-audio-smoke.ts` with the owner's key; never the key itself).
+
+Not run at the cutover: the owner adds the new ElevenLabs key later. Until then podcast and feed audio fail
+cleanly; after the key is added, the api and worker are recreated and this smoke fills the table.
 
 | Item | Result |
 | --- | --- |
@@ -205,5 +233,17 @@ Filled by the controller (`server/scripts/elevenlabs-audio-smoke.ts` with the ow
 - **`worker_thread` extraction.** Synchronous MuPDF extraction has no hard time limit; the feed rework's extractor
   should run off the main thread.
 - **The soft-limit slice.** A soft-limit abort still discards the partial feed slice.
+- **The rest of the preamble still contradicts the per-type prompts.** It says threads use `[1/n]` numbering (the
+  thread prompt says not to number) and quotes carry `"quoting": "@handle"` (the quote prompt asks for
+  `quoting_handle`). Neither drops posts today; the feed rework should give the preamble and the per-type formats one
+  source.
+- **Figure detection on the local vision model is slow.** It ignores `think: false`, and the requests have no output
+  cap, so a chart-heavy page can take minutes and hit the 300 s per-page timeout (the sample paper takes 3-5 GPU
+  minutes). Capping `num_predict` is a product call for the feed rework.
+- **Joined thread content is cut at 2000 characters.** A long thread's search text (`feed_posts`) loses its tail and
+  logs `post_shape_content_truncated`; the thread itself renders and is spoken in full.
+- **Google Fonts blocks the first paint.** `frontend/index.html` loads the Cormorant Garamond stylesheet from
+  Google render-blocking, before the app's module script; when that request hangs the app stays blank. Self-host the
+  font or load the stylesheet non-blocking in the frontend redo.
 - **Plan 05's frontend-redo list** (`2026-11-06-ts-port-05-carryover.md`, "Carry into the frontend redo") carries over
   unchanged.
