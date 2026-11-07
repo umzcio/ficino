@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { MiddlewareHandler } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
+import type { Logger } from 'pino';
 import type { Config } from '../config.js';
 
 export const CSRF_COOKIE_NAME = 'ficino_csrf';
@@ -15,8 +16,11 @@ function safeEqual(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-/** Double-submit cookie CSRF (C §2.2). Runs before routing, so 404 paths are covered too. */
-export function csrf(config: Config): MiddlewareHandler {
+/**
+ * Double-submit cookie CSRF (C §2.2). Runs before routing, so 404 paths are covered too.
+ * A rejection is logged as `csrf_rejected` with which half was present, never the token values.
+ */
+export function csrf(config: Config, logger: Logger): MiddlewareHandler {
   return async (c, next) => {
     const method = c.req.method.toUpperCase();
     const cookie = getCookie(c, CSRF_COOKIE_NAME);
@@ -24,6 +28,11 @@ export function csrf(config: Config): MiddlewareHandler {
     if (PROTECTED.has(method) && !EXEMPT_PATHS.has(c.req.path)) {
       const header = c.req.header(CSRF_HEADER_NAME);
       if (!cookie || !header || !safeEqual(cookie, header)) {
+        // Presence matches the check above: an empty cookie or header counts as missing.
+        logger.warn(
+          { method, path: c.req.path, has_cookie: Boolean(cookie), has_header: Boolean(header) },
+          'csrf_rejected',
+        );
         return new Response('{"detail":"CSRF validation failed"}', {
           status: 403,
           headers: { 'content-type': 'application/json' },

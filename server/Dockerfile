@@ -24,6 +24,6 @@ ENV ENVIRONMENT=production
 ENV API_HOST=0.0.0.0
 USER ficino
 EXPOSE 8000
-HEALTHCHECK CMD wget -qO- http://127.0.0.1:8000/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 CMD wget -qO- http://127.0.0.1:8000/health || exit 1
 # The API is the default. The worker runs from the same image: override with `node dist/worker/main.js`.
 CMD ["node","dist/api/main.js"]

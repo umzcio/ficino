@@ -1,0 +1,55 @@
+# Ficino web on its own tailnet node. Rendered over conf.d/default.conf by the nginx
+# image (envsubst). Serve is the only way in: listen on loopback, sidecar in kernel mode.
+map $http_tailscale_user_login $ficino_owner_ok {
+    default 0;
+    ""      0;
+    "${FICINO_OWNER_LOGIN}" 1;
+}
+
+server {
+    listen 127.0.0.1:80;
+    root /usr/share/nginx/html;
+    index index.html;
+    absolute_redirect off;
+
+    # Serve proxies from 127.0.0.1 and puts the tailnet peer in X-Forwarded-For.
+    set_real_ip_from 127.0.0.1;
+    real_ip_header X-Forwarded-For;
+
+    include /etc/nginx/conf.d/security-headers.conf;
+
+    # Fail closed when FICINO_OWNER_LOGIN is unset: envsubst then leaves the placeholder as
+    # written, nginx reads it here as an unknown variable and refuses to start, instead of
+    # admitting a header equal to the placeholder through the map above.
+    set $ficino_owner_configured "${FICINO_OWNER_LOGIN}";
+
+    if ($ficino_owner_ok = 0) { return 403; }
+
+    location = / { return 302 /ficino/; }
+    location = /ficino { return 301 /ficino/; }
+
+    location /ficino/ {
+        alias /usr/share/nginx/html/;
+        try_files $uri $uri/ /ficino/index.html;
+        location ~ sw\.js$ {
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+            add_header Service-Worker-Allowed "/ficino/";
+            include /etc/nginx/conf.d/security-headers.conf;
+        }
+    }
+
+    location /ficino/api/ {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $ficino_api ficino-api:8000;
+        rewrite ^/ficino/api(/.*)$ $1 break;
+        proxy_pass http://$ficino_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        client_max_body_size 50M;
+    }
+}

@@ -259,8 +259,8 @@ that global rule.
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all must pass.
-- **Feel check**: run `cd /projects/ficino/frontend && npm run dev` (app may be
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all must pass.
+- **Feel check**: run `cd <repo>/frontend && npm run dev` (app may be
   under base path `/ficino`), then:
   - Trigger a workspace download (Storage settings → download a workspace): the
     backdrop fades in over 200ms while the dialog scales 0.97 → 1 from center —

@@ -12,6 +12,12 @@ import { createSession, deleteSession, SESSION_TTL_SECONDS } from './sessions.js
 
 const PG_UNIQUE_VIOLATION = '23505';
 
+/**
+ * Transaction-scoped advisory lock that serializes `/auth/register`, so two simultaneous first
+ * registrations cannot both see an empty users table. Distinct from migrate.ts's 727274.
+ */
+export const REGISTER_LOCK_KEY = 727275;
+
 // Login does not bound the password so older accounts can still authenticate.
 const loginBody = z.object({ email: z.string(), password: z.string() });
 
@@ -42,23 +48,27 @@ export function basicRoutes(): Hono<AppEnv> {
     const { sql, config } = c.var.deps;
     const { email, password } = c.req.valid('json');
 
-    const [{ n }] = await sql`SELECT COUNT(*)::int AS n FROM users`;
-    if (n > 0 && !config.allowRegistration) throw new HttpError(403, 'Registration is disabled');
-
-    const [existing] = await sql`SELECT id FROM users WHERE email = ${email}`;
-    if (existing) throw new HttpError(409, 'Email already registered');
-
-    const passwordHash = await hashPassword(password);
     let userId: string;
     try {
+      // The count, the email check and both inserts run under one lock (Python left a window here
+      // in which two first registrations both saw zero users). The hash is computed inside it so a
+      // refused request costs no bcrypt, as before.
       userId = await sql.begin(async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(${REGISTER_LOCK_KEY})`;
+        const [{ n }] = await tx`SELECT COUNT(*)::int AS n FROM users`;
+        if (n > 0 && !config.allowRegistration) throw new HttpError(403, 'Registration is disabled');
+
+        const [existing] = await tx`SELECT id FROM users WHERE email = ${email}`;
+        if (existing) throw new HttpError(409, 'Email already registered');
+
+        const passwordHash = await hashPassword(password);
         const [row] = await tx`
           INSERT INTO users (email, password_hash) VALUES (${email}, ${passwordHash}) RETURNING id`;
         await tx`INSERT INTO corpora (user_id, name) VALUES (${row.id}, 'Default')`;
         return String(row.id);
       });
     } catch (e) {
-      // Lost a race with a concurrent registration of the same email.
+      // A unique violation the lock did not prevent (e.g. a row written outside this route).
       if ((e as { code?: string }).code === PG_UNIQUE_VIOLATION) {
         throw new HttpError(409, 'Email already registered');
       }

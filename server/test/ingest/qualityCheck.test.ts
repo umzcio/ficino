@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { checkExtractionQuality } from '../../src/ingest/qualityCheck.js';
 
-// Goldens come from worker/lib/quality_check.py in the ficino-worker image; see test/fixtures/goldens/gen/README.md.
+// Goldens come from worker/lib/quality_check.py; see test/fixtures/goldens/README.md (tag `python-final`).
 const golden = JSON.parse(
   readFileSync(new URL('../fixtures/goldens/quality.json', import.meta.url), 'utf8'),
 ) as { text: string; ok: boolean; reason: string }[];

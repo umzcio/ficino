@@ -89,9 +89,9 @@ If plan 010 has already been executed and the matching token exists in
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build`
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build`
   — all must pass.
-- **Feel check**: run the dev server (`cd /projects/ficino/frontend && npm run dev`;
+- **Feel check**: run the dev server (`cd <repo>/frontend && npm run dev`;
   the app may be under base path `/ficino`), find any `Toggle` (Settings
   uses them), and confirm:
   - The knob lands in pixel-identical positions on and off — screenshot both

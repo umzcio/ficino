@@ -1,5 +1,6 @@
 // Port of worker/tasks/persona_tasks.py generate_feed and its helpers (W §6).
 import type { Logger } from 'pino';
+import type postgres from 'postgres';
 import type { Sql } from '../db/sql.js';
 import { classifyContradiction, generatePersonaPost } from '../feed/llmPost.js';
 import {
@@ -179,7 +180,7 @@ export async function detectContradictions(
  * columns are computed here; `data` is each element of the slice's jsonb array, so it is stored as an object.
  */
 export async function writeFeedPostsIndex(
-  sql: Sql,
+  sql: Sql | postgres.TransactionSql | postgres.ReservedSql,
   feedId: string,
   posts: Post[],
   baseIndex: number,

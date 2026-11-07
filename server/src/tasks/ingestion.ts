@@ -4,6 +4,7 @@ import type { Logger } from 'pino';
 import type { Sql } from '../db/sql.js';
 import { chunkMarkdown } from '../ingest/chunker.js';
 import { generateContexts } from '../ingest/contextualize.js';
+import { chunkEmbedText } from '../ingest/embedText.js';
 import { extractFigures } from '../ingest/figures.js';
 import { extractMetadata } from '../ingest/metadata.js';
 import { closePdf, extractTextMarkdown, openPdf, type PdfDoc } from '../ingest/pdf.js';
@@ -14,7 +15,7 @@ import { loadJobSettings } from '../providers/config.js';
 import { embedModelId, embedTexts, EmbeddingUnavailableError } from '../providers/embed.js';
 import { extractWithVision, isVisionAvailable } from '../providers/vision.js';
 import { STUB_USER_ID } from '../shared/constants.js';
-import { pyRound, pySlice, pyStrip } from '../shared/pystr.js';
+import { pyRound, pySlice } from '../shared/pystr.js';
 import { isUuid } from '../shared/uuid.js';
 import type { WorkerDeps } from '../worker/handlers.js';
 
@@ -176,9 +177,7 @@ export async function processPaper(
     step('embedding');
     let embeddings: number[][] = [];
     if (prefixed.length > 0) {
-      const texts = prefixed.map((c) =>
-        c.contextual_prefix ? pyStrip(`${c.contextual_prefix}\n\n${c.content}`) : c.content,
-      );
+      const texts = prefixed.map((c) => chunkEmbedText(c));
       try {
         embeddings = await embedTexts(p, deps.providers, texts, { inputType: 'document', signal });
       } catch (e) {

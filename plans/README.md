@@ -113,4 +113,4 @@ Written against commit `18cc791` by the `improve-animations` audit. Each plan is
 
 ## Verification
 
-Every plan's Mechanical gate: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` (build runs `tsc -b && vite build`). Every plan also has a feel check — run `npm run dev` (app may be served under base path `/ficino`) and use DevTools' Animations panel at 10% playback plus the Rendering panel's `prefers-reduced-motion` toggle.
+Every plan's Mechanical gate: `cd <repo>/frontend && npm run lint && npm test && npm run build` (build runs `tsc -b && vite build`). Every plan also has a feel check — run `npm run dev` (app may be served under base path `/ficino`) and use DevTools' Animations panel at 10% playback plus the Rendering panel's `prefers-reduced-motion` toggle.

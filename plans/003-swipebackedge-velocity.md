@@ -72,8 +72,8 @@ const bind = useDrag(
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`).
-- **Feel check**: `cd /projects/ficino/frontend && npm run dev` (app may be served under base path `/ficino`), on a touch device or DevTools touch emulation, in any detail view with the edge strip:
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`).
+- **Feel check**: `cd <repo>/frontend && npm run dev` (app may be served under base path `/ficino`), on a touch device or DevTools touch emulation, in any detail view with the edge strip:
   - A slow drag right past 100px still pops back (unchanged).
   - A fast short flick right (~30–60px) from the left edge now pops back — matches iOS muscle memory.
   - A slow short drag right (<100px, slow release) does nothing.

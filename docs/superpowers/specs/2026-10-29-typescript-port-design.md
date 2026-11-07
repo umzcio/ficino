@@ -91,7 +91,7 @@ deliberate change.
   `/app/figures`, user `ficino` uid 10001). The TS images keep those names and tools, or the `E2E_*`
   overrides get used.
 - The Python code stays in the repo and runnable until the cutover plan deletes it.
-- Exposure rules in `/projects/AGENTS.md` and `<infra>/README.md` apply to anything that listens.
+- Exposure rules in `<host notes>` and `<infra>/README.md` apply to anything that listens.
 
 ## Roadmap (one implementation plan per slice; each ends with working, tested software)
 

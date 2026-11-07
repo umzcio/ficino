@@ -14,7 +14,7 @@ import {
 } from '../../src/ingest/pdf.js';
 
 // Goldens come from worker/lib/pdf_extractor.py run on sample.pdf inside the ficino-worker image
-// (PyMuPDF 1.28.0); see test/fixtures/goldens/gen/README.md.
+// (PyMuPDF 1.28.0); see test/fixtures/goldens/README.md (tag `python-final`).
 const fixture = (name: string): string => new URL(`../fixtures/${name}`, import.meta.url).pathname;
 const SAMPLE = new Uint8Array(readFileSync(fixture('sample.pdf')));
 const GOLDEN_MD = readFileSync(fixture('goldens/sample.pymupdf.md'), 'utf8');

@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 import { join } from 'path'
 
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3070/ficino/'
 // Relative to the spec file (r2_sections_1_3 convention) — an absolute
 // dev-checkout path breaks anywhere else, e.g. CI runners.
 const SHOTS = join(__dirname, '..', 'screenshots')

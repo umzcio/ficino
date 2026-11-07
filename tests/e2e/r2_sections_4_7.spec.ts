@@ -5,7 +5,7 @@ import { ensureFeedFixtures } from './helpers/ensureFeed'
 // Relative to the spec file (r2_sections_1_3 convention) — an absolute
 // dev-checkout path breaks anywhere else, e.g. CI runners.
 const SCREENSHOTS = join(__dirname, '..', 'screenshots')
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3070/ficino/'
 
 // Plan 036: seed deterministic fixtures (feed posts incl. thread/figure/
 // sources variants, a complete paper, two feeds for history) instead of
@@ -30,6 +30,24 @@ async function loadFeedAndDetectPosts(page: import('@playwright/test').Page): Pr
   // Check if any <article> feed posts exist (BUG-005 fix verification)
   const articleCount = await page.locator('article').count()
   return articleCount > 0
+}
+
+/**
+ * The feed is virtualized (react-virtuoso on window scroll): only posts near
+ * the viewport are in the DOM. The fixture figure post is the third post, so
+ * on the 390x844 mobile viewport it sits below the fold and is not rendered
+ * until the user scrolls. Scroll down like a reader until `target` mounts or
+ * the page stops growing; the caller's assertions then run as before.
+ */
+async function scrollFeedUntilRendered(page: import('@playwright/test').Page, target: import('@playwright/test').Locator) {
+  for (let i = 0; i < 12 && (await target.count()) === 0; i++) {
+    const atBottom = await page.evaluate(() => {
+      window.scrollBy(0, Math.floor(window.innerHeight * 0.6))
+      return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1
+    })
+    await page.waitForTimeout(300)
+    if (atBottom && (await target.count()) === 0) break
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -104,6 +122,7 @@ test.describe('R2 Section 5: Figure Posts & Lightbox', () => {
     expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const figureLabel = page.locator('span', { hasText: 'EXTRACTED FIGURE' }).first()
+    await scrollFeedUntilRendered(page, figureLabel)
     await expect(figureLabel, 'fixture feed must contain a figure post').toBeVisible()
 
     // FIGURE badge in header
@@ -126,6 +145,7 @@ test.describe('R2 Section 5: Figure Posts & Lightbox', () => {
     expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const figureContainer = page.locator('.cursor-zoom-in').first()
+    await scrollFeedUntilRendered(page, figureContainer)
     await expect(figureContainer, 'fixture feed must contain a figure post').toBeVisible()
 
     // Open lightbox
@@ -163,6 +183,7 @@ test.describe('R2 Section 5: Figure Posts & Lightbox', () => {
     expect(hasPosts, 'fixture feed must render posts (seeded by beforeAll)').toBe(true)
 
     const figureContainer = page.locator('.cursor-zoom-in').first()
+    await scrollFeedUntilRendered(page, figureContainer)
     await expect(figureContainer, 'fixture feed must contain a figure post').toBeVisible()
 
     // Open lightbox

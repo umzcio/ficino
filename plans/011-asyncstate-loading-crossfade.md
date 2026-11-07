@@ -337,8 +337,8 @@ export function FadeIn({ children, className }: {
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all three must pass.
-- **Feel check**: run `cd /projects/ficino/frontend && npm run dev`, open
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all three must pass.
+- **Feel check**: run `cd <repo>/frontend && npm run dev`, open
   the app (it may be served under the base path `/ficino`), and for each
   touched view (Messages inbox, Reading Lists, Alerts, a reading-list
   detail, the main feed, the corpus panel in the sidebar/drawer):

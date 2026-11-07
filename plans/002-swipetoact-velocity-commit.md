@@ -119,8 +119,8 @@ const bind = useDrag(
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`).
-- **Feel check**: `cd /projects/ficino/frontend && npm run dev` (app may be served under base path `/ficino`), on a touch device or DevTools touch emulation, on a feed row:
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`).
+- **Feel check**: `cd <repo>/frontend && npm run dev` (app may be served under base path `/ficino`), on a touch device or DevTools touch emulation, on a feed row:
   - A slow drag past 80px still commits (unchanged behavior).
   - A fast short flick (~30–60px travel) now commits — the gutter flashes and the action (Like/Reply) fires.
   - A slow short drag (<80px, slow release) still snaps back with no action.

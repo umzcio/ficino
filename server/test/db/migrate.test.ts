@@ -2,7 +2,7 @@ import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { migrate } from '../../src/db/migrate.js';
+import { migrate, migrationVersions } from '../../src/db/migrate.js';
 import { createSql, type Sql } from '../../src/db/sql.js';
 import { createScratchDb } from '../helpers/db.js';
 
@@ -125,4 +125,19 @@ it('a failed unlock does not mask the migration error', async () => {
     await s.end({ timeout: 1 }).catch(() => undefined);
     await db.drop();
   }
+});
+
+it('migrationVersions lists the sorted versions migrate() records', async () => {
+  expect(await migrationVersions()).toEqual(VERSIONS);
+  const rows = await sql`SELECT version FROM schema_migrations ORDER BY 1`;
+  expect(rows.map((r) => r.version)).toEqual(await migrationVersions());
+});
+
+it('migrationVersions reads the given directory and ignores other files', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mig-'));
+  await writeFile(join(dir, '0002_b.sql'), 'SELECT 1;');
+  await writeFile(join(dir, '0001_a.sql'), 'SELECT 1;');
+  await writeFile(join(dir, 'README.md'), 'not a migration');
+  await writeFile(join(dir, '12_short.sql'), 'SELECT 1;');
+  expect(await migrationVersions(dir)).toEqual(['0001', '0002']);
 });

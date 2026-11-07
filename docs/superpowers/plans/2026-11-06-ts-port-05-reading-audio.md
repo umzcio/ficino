@@ -58,7 +58,7 @@ pin. Read it. The Python sources are:
 
 ## Global Constraints
 
-- **Workspace.** Work on branch `ts-port/05-reading-audio` in the worktree `/projects/ficino-ts-port-05`, based on
+- **Workspace.** Work on branch `ts-port/05-reading-audio` in the worktree `<worktree>`, based on
   plan 04's head (`56e7fc6` or later). Never modify `api/`, `worker/`, `shared/`, `frontend/` or `tests/e2e/`. You
   may read them and run them inside the `ficino-api` and `ficino-worker` images to make goldens (see
   `server/test/fixtures/goldens/gen/README.md`). Run `npm ci` in `server/` first. Baseline before Task 1:

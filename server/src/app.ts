@@ -114,7 +114,7 @@ export function createApp(rawDeps: AppDeps): Hono<AppEnv> {
 
   // Outermost first (C §2.1): CORS wraps CSRF so 403s still carry ACAO; headers are innermost.
   app.use('*', corsMiddleware(deps.config));
-  app.use('*', csrf(deps.config));
+  app.use('*', csrf(deps.config, deps.logger));
   app.use('*', securityHeaders(deps.config));
   // Innermost: Hono's compose rethrows non-Error throws past onError (and past the header
   // middleware above), so wrap them here to route them through the normal 500 path.

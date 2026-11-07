@@ -118,8 +118,8 @@ Exact values, and where they come from:
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`; the `as CSSProperties` cast is what keeps `tsc` happy on the `--action-color` custom property).
-- **Feel check**: `cd /projects/ficino/frontend && npm run dev`, open the app (may be served under base path `/ficino`), and confirm:
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build` — all must pass (build runs `tsc -b && vite build`; the `as CSSProperties` cast is what keeps `tsc` happy on the `--action-color` custom property).
+- **Feel check**: `cd <repo>/frontend && npm run dev`, open the app (may be served under base path `/ficino`), and confirm:
   - Hovering Reply/Zap/Like/Bookmark tints the icon+count in the action color and shows an 8% tinted pill background — with zero React re-renders (verify with React DevTools Profiler: hover produces no render; only the like/bookmark toggle does).
   - Pressing a button visibly scales it to 0.97 for ~100ms and snaps back.
   - Toggling Like still turns the button pink with the filled heart (`fill` logic untouched).

@@ -103,10 +103,10 @@ If plan 010 has already been executed and the matching token exists in
 
 ## Verification
 
-- **Mechanical**: `cd /projects/ficino/frontend && npm run lint && npm test && npm run build`
+- **Mechanical**: `cd <repo>/frontend && npm run lint && npm test && npm run build`
   — all must pass (the build also proves the arbitrary
   `transition-[color,border-color]` syntax compiles).
-- **Feel check**: run the dev server (`cd /projects/ficino/frontend && npm run dev`;
+- **Feel check**: run the dev server (`cd <repo>/frontend && npm run dev`;
   the app may be under base path `/ficino`) and confirm:
   - Persona tabs, Feed tabs, Inbox tabs, and Settings tabs: active color and
     underline fade in at 150ms exactly as before; the bold weight change is

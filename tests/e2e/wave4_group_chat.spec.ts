@@ -1,7 +1,7 @@
-import { test, expect, Page, APIRequestContext } from '@playwright/test'
+import { test, expect, Page, APIRequestContext, Locator } from '@playwright/test'
 import { join } from 'path'
 
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000/ficino'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3070/ficino/'
 // Relative to the spec file (r2_sections_1_3 convention) — an absolute
 // dev-checkout path breaks anywhere else, e.g. CI runners.
 const SHOTS = join(__dirname, '..', 'screenshots')
@@ -92,6 +92,29 @@ async function uploadAndWaitComplete(
   return newPaper
 }
 
+// The modal labels each paper `title || filename` (NewGroupChatModal), and
+// ingestion sets `title` from the metadata LLM's reading of the PDF text
+// (server/src/ingest/metadata.ts, same prompt and parsing as the Python
+// extractor it replaced). For these one-line
+// PDFs the model sometimes calls the line a title and sometimes returns
+// null, so the label is either the filename or that line. Find the checkbox
+// by the label the API reports for this paper id. Two papers can share a
+// label (desktop and mobile both upload "paper A"), so pick ours among them
+// by the modal's order: complete papers in this workspace, uploaded_at DESC.
+async function paperCheckbox(dialog: Locator, request: APIRequestContext, paperId: string): Promise<Locator> {
+  const r = await request.get(`${BASE}/api/papers`, { ignoreHTTPSErrors: true })
+  expect(r.ok(), 'GET /api/papers failed').toBe(true)
+  const all: any[] = await r.json()
+  const mine = all.find(p => p.id === paperId)
+  expect(mine, `paper ${paperId} missing from /api/papers`).toBeTruthy()
+  const label: string = mine.title || mine.filename
+  const sameLabel = all.filter(p =>
+    p.status === 'complete' && p.corpus_id === mine.corpus_id && (p.title || p.filename) === label)
+  const boxes = dialog.getByRole('checkbox', { name: label, exact: true })
+  await expect(boxes, `the modal must list paper ${paperId} as "${label}"`).toHaveCount(sameLabel.length)
+  return boxes.nth(sameLabel.findIndex(p => p.id === paperId))
+}
+
 test.describe('WAVE 4 — group chat creation', () => {
   test('W4-01 create a group chat via the New Group Chat modal (FE-4)', async ({ page, context }) => {
     // Two uploads + 60s-each completion polling + up to 90s of synthesis
@@ -120,8 +143,8 @@ test.describe('WAVE 4 — group chat creation', () => {
     const groupName = `W4 smoke synthesis ${Date.now()}`
     await dialog.getByLabel('Name').fill(groupName)
 
-    await dialog.getByText(paperA.filename).click()
-    await dialog.getByText(paperB.filename).click()
+    await (await paperCheckbox(dialog, context.request, paperA.id)).check()
+    await (await paperCheckbox(dialog, context.request, paperB.id)).check()
     await expect(dialog.getByText('2 selected')).toBeVisible()
 
     const createButton = dialog.getByRole('button', { name: 'Create' })
@@ -134,6 +157,8 @@ test.describe('WAVE 4 — group chat creation', () => {
       createButton.click(),
     ])
     expect(createResp.status(), 'POST /api/messages/groups did not return a 2xx/202').toBeLessThan(300)
+    // The modal must have sent exactly the two papers this test uploaded.
+    expect([...createResp.request().postDataJSON().paper_ids].sort()).toEqual([paperA.id, paperB.id].sort())
     const createBody = await createResp.json()
     console.log(`W4-01: created group chat synthesis_id=${createBody.synthesis_id} task=${createBody.task_id}`)
     expect(createBody.synthesis_id).toBeTruthy()

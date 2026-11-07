@@ -1,6 +1,6 @@
 # Ficino API contract inventory (Python FastAPI -> TS/Hono port)
 
-Source: `/projects/ficino/api` + `/projects/ficino/shared/ficino_shared` at `main@dfedb2b` (2026-10-29).
+Source: `<repo>/api` + `<repo>/shared/ficino_shared` at `main@dfedb2b` (2026-10-29).
 All refs are `file:line`, relative to `api/` unless prefixed. Read-only survey; nothing in the repo was changed.
 
 ---

@@ -1,7 +1,87 @@
+# Ficino: the TypeScript server stack (postgres, api, worker, web).
+#
+# Generic on purpose: this file publishes no port and names no host. Reach the web service
+# through an override (see deploy/README.md): copy one of the deploy/*/docker-compose.override.example.yml
+# files to docker-compose.override.yml, which compose layers on top of this file automatically.
+#
+# Configuration comes from .env (copy .env.example), which only the api and worker read. The server
+# image fails closed: it runs with ENVIRONMENT=production, and in production the api and worker refuse
+# to start without SIGNED_URL_KEY. Postgres reads only postgres.env (copy postgres.env.example) and
+# initialises only with POSTGRES_PASSWORD set there.
+name: ficino
+
+x-server: &server
+  image: ficino-server:local
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    postgres:
+      condition: service_healthy
+  # One volume per directory; the api and the worker read and write the same files.
+  volumes:
+    - uploads:/app/uploads
+    - figures:/app/figures
+    - media:/app/media
+  networks:
+    - ficino-network
+
 services:
-  frontend:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: ficino-postgres
+    restart: unless-stopped
+    # The password comes only from postgres.env (POSTGRES_PASSWORD), never from interpolation, and
+    # never from .env: that file holds the app's secrets, which Postgres has no use for. It is read
+    # when Postgres initialises an empty volume; rotating it later also needs ALTER USER.
+    env_file:
+      - path: postgres.env
+        required: false
+    environment:
+      POSTGRES_USER: ficino
+      POSTGRES_DB: ficino
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ficino -d ficino"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # pg18 images keep PGDATA under /var/lib/postgresql/<major>/docker; mount the parent.
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks:
+      - ficino-network
+
+  api:
+    <<: *server
+    build: ./server
+    container_name: ficino-api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    stop_grace_period: 20s
+
+  worker:
+    <<: *server
+    # Same image as the api (built by the api service); never pulled.
+    pull_policy: never
+    container_name: ficino-worker
+    command: ["node", "dist/worker/main.js"]
+    # The image's HEALTHCHECK probes the api port, which the worker does not serve.
+    healthcheck:
+      disable: true
+    # close() gives pg-boss 30 s to stop gracefully, then up to 10 s for aborted handlers' writes.
+    stop_grace_period: 45s
+
+  web:
     build: ./frontend
-    container_name: ficino-frontend
+    image: ficino-web:local
+    container_name: ficino-web
     restart: unless-stopped
     depends_on:
       api:
@@ -9,107 +89,11 @@ services:
     networks:
       - ficino-network
 
-  api:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    container_name: ficino-api
-    restart: unless-stopped
-    env_file:
-      - .env
-      - .env.secrets
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    volumes:
-      - paper_uploads:/app/uploads
-      - figure_images:/app/figures
-    networks:
-      - ficino-network
-
-  worker:
-    build:
-      context: .
-      dockerfile: worker/Dockerfile
-    container_name: ficino-worker
-    restart: unless-stopped
-    env_file:
-      - .env
-      - .env.secrets
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - paper_uploads:/app/uploads
-      - figure_images:/app/figures
-    networks:
-      - ficino-network
-
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: ficino-postgres
-    restart: unless-stopped
-    # Credentials come from POSTGRES_PASSWORD in .env; the default falls back
-    # to "ficino" so a fresh checkout still boots. POSTGRES_PASSWORD is only
-    # honored when Postgres initializes a fresh volume — on existing volumes
-    # it's a no-op, so live rotation requires ALTER USER in addition.
-    environment:
-      POSTGRES_USER: ficino
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ficino}
-      POSTGRES_DB: ficino
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ficino"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      # init.sql is the FULL schema (all migrations folded in). initdb runs
-      # only on an EMPTY volume — existing deployments keep their schema and
-      # upgrade via the standalone infra/postgres/add_*.sql files.
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - ficino-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: ficino-redis
-    restart: unless-stopped
-    # --requirepass is read every boot; unlike Postgres, Redis doesn't
-    # persist users in its data dir, so rotating REDIS_PASSWORD in .env
-    # takes effect on the next restart with no extra command needed.
-    command: sh -c 'redis-server --requirepass "$$REDIS_PASSWORD"'
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    volumes:
-      - redis_data:/data
-    networks:
-      - ficino-network
-
 volumes:
-  postgres_data:
-  redis_data:
-  paper_uploads:
-  figure_images:
+  pgdata:
+  uploads:
+  figures:
+  media:
 
 networks:
   ficino-network:

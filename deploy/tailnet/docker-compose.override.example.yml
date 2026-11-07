@@ -1,0 +1,78 @@
+# Tailnet override: Ficino on its own tailnet node, through a Tailscale sidecar.
+#
+# Host-only. Copy it to the project root and edit the copy, never this file:
+#   cp deploy/tailnet/docker-compose.override.example.yml docker-compose.override.yml   # gitignored
+# then
+#   1. replace the ./postgres.env, ./secrets.env and ./tailscale.env paths below with files outside
+#      the repo (mode 600). Secrets reach containers through env_file only, never interpolation.
+#      The base already gives postgres ./postgres.env (and never .env); leave that one absent.
+#   2. set FICINO_OWNER_LOGIN=<owner-login> in the project .env. It is this file's only required
+#      variable, and .env is the only file `docker compose config` reads without --env-file, so a
+#      tool that renders the config that way (such as a sidecar auto-updater) needs it there.
+#   3. put a one-off TS_AUTHKEY in the tailscale env file for the first login; the node's state then
+#      lives in the ts-state volume.
+# The web service shares the sidecar's network namespace: if ficino-ts is recreated alone, recreate
+# web too (`docker compose up -d --force-recreate ts web`), or web keeps the old, dead namespace.
+#
+# Serve must be the only way in. Tailscale Serve sets Tailscale-User-Login, and the web nginx admits
+# only the owner's login. Two settings keep a caller from forging that header by reaching nginx
+# directly: TS_USERSPACE "false" (kernel mode; userspace mode forwards tailnet connections to the
+# namespace's loopback listeners, past Serve) and nginx listening on 127.0.0.1 only, so nothing on
+# the tailnet or the docker network reaches it except through Serve
+# (deploy/web/tailnet/default.conf.template). Never add `ports:` to any service here.
+services:
+  ts:
+    image: tailscale/tailscale:stable
+    container_name: ficino-ts
+    hostname: ficino
+    restart: unless-stopped
+    env_file:
+      - path: ./tailscale.env
+        required: false
+    environment:
+      TS_HOSTNAME: ficino
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_AUTH_ONCE: "true"
+      # Required: see the header. Serve stops being the only way in without it.
+      TS_USERSPACE: "false"
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ts-state:/var/lib/tailscale
+      - ./deploy/tailnet:/config:ro
+    # web lives in this namespace, and its `resolver 127.0.0.11` must find ficino-api here.
+    networks:
+      - ficino-network
+    # never any `ports:`
+
+  web:
+    network_mode: service:ts
+    networks: !reset {}
+    environment:
+      FICINO_OWNER_LOGIN: ${FICINO_OWNER_LOGIN:?set FICINO_OWNER_LOGIN in .env}
+    volumes:
+      # The nginx image renders templates/*.template into conf.d/ at start, over the image's own
+      # default.conf, so the web image stays the stock frontend build.
+      - ./deploy/web/tailnet:/etc/nginx/templates:ro
+
+  postgres:
+    env_file:
+      - path: ./postgres.env
+        required: false
+
+  api:
+    env_file:
+      - path: ./secrets.env
+        required: false
+
+  worker:
+    env_file:
+      - path: ./secrets.env
+        required: false
+
+volumes:
+  ts-state:

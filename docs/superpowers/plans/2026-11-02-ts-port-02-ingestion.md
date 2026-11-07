@@ -626,7 +626,7 @@ as the PyMuPDF 1.28.0 inside the `ficino-worker` image), `js-tiktoken@1.0.21` an
 - [ ] **Step 6: Compare against real papers by hand.**
   - `scripts/compare-extraction.ts <dir> <out>` runs `extractTextMarkdown` on each PDF and writes `<name>.ts.md`.
     Run `pdf_text.py` the same way to get `<name>.py.md`.
-  - Run both on the PDFs in `/projects/docker/volumes/ficino_paper_uploads/_data`, writing to
+  - Run both on the PDFs in `<docker-volumes>/ficino_paper_uploads/_data`, writing to
     `<scratch>/extract-compare/`.
   - In the task report, give per-file line counts and the number of differing lines.
   - Never commit those files. They are private papers, and this repo is public.

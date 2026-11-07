@@ -9,6 +9,23 @@ banned. New specs must seed data preconditions via
 is absent. Skips are only acceptable for genuine environment gates, and
 they must be listed here.
 
+## How to run
+
+The suite runs against a throwaway loopback stack (`docker-compose.e2e.yml`,
+compose project `ficino-e2e`), never against a real deployment:
+
+- **Gate (`ci` project):** `scripts/e2e-stack.sh up && scripts/e2e-stack.sh ci`.
+  No LLM or embedding backend; the exclusions are under "CI gate split" below.
+- **Full suite (desktop + mobile, real local models):**
+  `scripts/e2e-stack.sh up --ollama && scripts/e2e-stack.sh full`. It seeds
+  one real paper first.
+- Use a fresh `up` for every acceptance run, and always finish with
+  `scripts/e2e-stack.sh down` (it removes the stack's containers and volumes).
+- Each run writes a JSON report to `tests/results/e2e-ci.json` or
+  `tests/results/e2e-full.json` that lists every skipped test. Every skip
+  must match an entry in this file; a skip not listed here is a failure to
+  investigate, the same as a failed test.
+
 ## Environment-gated (legitimate, kept)
 
 - `review.spec.ts:140` (R-06) — `test.skip(true, …)`: service worker cannot
