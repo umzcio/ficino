@@ -1,0 +1,251 @@
+import { readFileSync } from 'node:fs';
+import { pino } from 'pino';
+import { describe, expect, it } from 'vitest';
+import { buildPostPrompt } from '../../src/feed/prompts.js';
+import { systemPrompts } from '../../src/feed/personas.js';
+import type { Chunk, Persona, Personas, Post } from '../../src/feed/types.js';
+import {
+  chapterContext,
+  chapterScope,
+  finishChapterPost,
+  promptPostType,
+} from '../../src/readingLists/chapter.js';
+import { uuid5 } from '../../src/shared/uuid5.js';
+import { testSql } from '../helpers/db.js';
+
+// Pins src/readingLists/chapter.ts to test/fixtures/goldens/chapter-tasks.json (gen/chapter_tasks.py), which runs the
+// real Python generate_chapter with rng = low bound / first item.
+
+type Call = { system: string; user: string; kwargs: Record<string, unknown> };
+type Case = {
+  name: string;
+  input: {
+    reading_list_id: string;
+    chapter_index: number;
+    user_id: string | null;
+    list: { paper_sequence: string[]; corpus_id: string | null; user_id: string | null };
+    chapter: { id: string; paper_ids: string[]; status: string; feed_id: string | null };
+    feed: { id: string; post_count: number } | null;
+    settings: Record<string, unknown>;
+    personas: Record<string, Record<string, unknown>>;
+    chunks: Record<string, Chunk[]>;
+    plan: Array<{ persona: string; post_type: string }>;
+    responses: Array<Record<string, unknown>>;
+  };
+  feed_lookup: string[] | null;
+  retrievals: Array<{ persona: string; paper_ids: string[]; top_k: number }>;
+  calls: Call[];
+  stored_posts: Post[] | null;
+  executes: Array<{ sql: string; args: unknown[] }>;
+  index: Array<{ feed_id: string; posts: Post[]; base_index: number; user_id: string }>;
+  logs: Array<{ level: string; event: string; kwargs: Record<string, unknown> }>;
+  result: Record<string, unknown>;
+};
+
+const cases = JSON.parse(
+  readFileSync(new URL('../fixtures/goldens/chapter-tasks.json', import.meta.url), 'utf8'),
+) as Case[];
+
+const personasOf = (raw: Record<string, Record<string, unknown>>): Personas =>
+  new Map(Object.entries(raw).map(([key, p]) => [key, { key, ...p } as Persona]));
+const silent = pino({ level: 'silent' });
+const clone = <T>(v: T): T => structuredClone(v);
+
+describe('chapter goldens', () => {
+  it('covers the cases the plan names', () => {
+    expect(cases.map((c) => c.name)).toEqual([
+      'chapter_0',
+      'chapter_2_suffix',
+      'quote_and_reply_omit_post_type',
+      'failing_slot_and_no_chunks',
+      'thread_slot',
+      'scope_last_paper_outside_sequence',
+      'scope_first_occurrence',
+      'idempotent_skip',
+      'empty_feed_regenerates',
+      'figure_slot_raises',
+    ]);
+  });
+
+  for (const c of cases.filter((x) => x.name !== 'figure_slot_raises')) {
+    it(`replays ${c.name}: prompts, finished posts and the stored feed`, async () => {
+      const inp = c.input;
+      const personas = personasOf(inp.personas);
+      const prompts = systemPrompts(personas);
+
+      if (c.result.idempotent) {
+        expect(c.calls).toEqual([]);
+        expect(c.executes).toEqual([]);
+        return;
+      }
+
+      // Scope and feed id.
+      const scope = chapterScope(inp.list.paper_sequence, inp.chapter.paper_ids);
+      for (const r of c.retrievals) {
+        expect(r.paper_ids).toEqual(scope);
+        expect(r.top_k).toBe(10);
+      }
+      const feedId = uuid5(`ficino:chapter:${inp.reading_list_id}:${inp.chapter_index}`);
+      expect(c.result.feed_id).toBe(feedId);
+
+      // Walk the plan as the handler does: a persona without chunks skips silently, every other slot is one call.
+      let callIdx = 0;
+      const stored: Post[] = [];
+      for (const [i, slot] of inp.plan.entries()) {
+        const chunks = inp.chunks[slot.persona] ?? [];
+        if (chunks.length === 0) continue;
+        const call = c.calls[callIdx]!;
+        const response = inp.responses[callIdx]!;
+        callIdx++;
+
+        expect(call.system).toBe((prompts.get(slot.persona) ?? `You are ${slot.persona}`) + chapterContext(inp.chapter_index));
+        const user = await buildPostPrompt({
+          rng: () => 0,
+          sql: testSql(),
+          personas,
+          personaKey: slot.persona,
+          postType: promptPostType(slot.post_type),
+          chunks: clone(chunks),
+          figure: null,
+        });
+        expect(call.user).toBe(user);
+        expect(call.kwargs).toEqual({ temperature: inp.settings.persona_temperature });
+
+        if (Object.keys(response).length === 1 && Object.hasOwn(response, 'raises')) continue;
+        let post: Post | null = null;
+        try {
+          post = finishChapterPost(() => 0, clone(response), {
+            personaKey: slot.persona,
+            plannedType: slot.post_type,
+            slotIndex: i,
+            chunks: clone(chunks),
+            figure: null,
+            logger: silent,
+          });
+        } catch {
+          post = null;
+        }
+        if (post) stored.push(post);
+      }
+      expect(callIdx).toBe(c.calls.length);
+      expect(stored).toEqual(c.stored_posts);
+      expect(c.result.post_count).toBe(stored.length);
+    });
+  }
+
+  it('the figure case records the Python bug the port fixes', () => {
+    const c = cases.find((x) => x.name === 'figure_slot_raises')!;
+    expect(c.result.raises).toBe(
+      "ValueError: build_post_prompt called with post_type='figure' but figure=None; callers must drop the slot when no eligible figure exists.",
+    );
+    expect(c.executes).toEqual([]);
+  });
+
+  it('the stored feed and chapter statements carry the scope, owner and counts', () => {
+    for (const c of cases.filter((x) => x.executes.length > 0)) {
+      const inp = c.input;
+      const scope = chapterScope(inp.list.paper_sequence, inp.chapter.paper_ids);
+      const [feed, complete, unlock] = c.executes;
+      const owner = inp.user_id || inp.list.user_id;
+      expect(feed!.args).toEqual([
+        c.result.feed_id,
+        owner,
+        inp.list.corpus_id,
+        c.stored_posts,
+        scope.length,
+        c.stored_posts!.length,
+        0,
+      ]);
+      expect(complete!.args).toEqual([c.result.feed_id, inp.chapter.id]);
+      expect(unlock!.args).toEqual([inp.reading_list_id, inp.chapter_index + 1]);
+      expect(c.index).toEqual([{ feed_id: c.result.feed_id, posts: c.stored_posts, base_index: 0, user_id: owner }]);
+    }
+  });
+});
+
+describe('chapterContext', () => {
+  it('chapter 0 keeps the trailing space and has no prior-paper sentence', () => {
+    expect(chapterContext(0)).toBe('\nThis is Chapter 1 of a reading list. ');
+  });
+  it('later chapters name the prior papers (U+2014)', () => {
+    expect(chapterContext(2)).toBe(
+      '\nThis is Chapter 3 of a reading list. The reader has already covered 2 prior paper(s). Build on that foundation — reference earlier papers when relevant.',
+    );
+  });
+});
+
+describe('chapterScope', () => {
+  const [a, b, c, x] = ['a', 'b', 'c', 'x'];
+  it('the sequence up to and including the chapter last paper', () => {
+    expect(chapterScope([a, b, c], [b])).toEqual([a, b]);
+  });
+  it('the chapter own ids when its last paper is outside the sequence', () => {
+    expect(chapterScope([a, b, c], [b, x])).toEqual([b, x]);
+  });
+  it('an empty chapter is its own empty scope', () => {
+    expect(chapterScope([a, b], [])).toEqual([]);
+  });
+  it('uses the first occurrence of the last id (list.index), never the last', () => {
+    expect(chapterScope([a, b, a, c], [a])).toEqual([a]);
+    expect(chapterScope([a, b, a, c], [c, a])).toEqual([a]);
+  });
+});
+
+describe('promptPostType', () => {
+  it('post, thread and figure pass through; quote and reply become post', () => {
+    expect(['post', 'thread', 'figure', 'quote', 'reply', 'other'].map(promptPostType)).toEqual([
+      'post',
+      'thread',
+      'figure',
+      'post',
+      'post',
+      'post',
+    ]);
+  });
+});
+
+describe('finishChapterPost', () => {
+  const chunk = cases[0]!.input.chunks.skeptic![0]!;
+  const base = { personaKey: 'skeptic', slotIndex: 4, chunks: [chunk], figure: null, logger: silent };
+
+  it('keeps the planned type only when the LLM omitted one, and uses the loop index for id and time', () => {
+    const p = finishChapterPost(() => 0, { content: 'x' }, { ...base, plannedType: 'quote' });
+    expect(p).toMatchObject({ persona: 'skeptic', post_type: 'quote', id: 5, time: '10m', category: 'debates' });
+    expect(p).not.toHaveProperty('_task_id');
+    const q = finishChapterPost(() => 0, { content: 'x', post_type: 'thread' }, { ...base, plannedType: 'quote' });
+    expect(q.post_type).toBe('post'); // thread without thread_posts is downgraded by validatePostShape
+  });
+
+  it('attaches a picked figure after the chunk cite', () => {
+    const figure = {
+      id: 'f1',
+      paper_id: 'p1',
+      page_number: 2,
+      image_url: '/figures/p1/f1?token=t',
+      description: '',
+      claim_summary: '',
+      figure_index: 0,
+      paper_ref: 'Fig Paper',
+      figure_type: 'chart_bar',
+      caption: 'Share of turns.',
+      figure_number: '3',
+      data_claim: '',
+      referenced_paragraph: '',
+      detector_confidence: null,
+    };
+    const p = finishChapterPost(() => 0, { content: 'x', post_type: 'figure' }, { ...base, plannedType: 'figure', figure });
+    expect(p).toMatchObject({
+      figure_id: 'f1',
+      figure_url: '/figures/p1/f1?token=t',
+      figure_caption: 'Fig. 3, p.2 — Share of turns.. Fig Paper',
+      paper_ref: 'Alpha et al. 2024',
+      category: 'methods',
+    });
+  });
+
+  it('throws on a post without content', () => {
+    expect(() => finishChapterPost(() => 0, { post_type: 'post' }, { ...base, plannedType: 'post' })).toThrow(
+      'persona_post_missing_content',
+    );
+  });
+});

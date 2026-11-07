@@ -195,3 +195,19 @@ export async function countScopeChunks(sql: Sql, paperIds: string[]): Promise<nu
     SELECT count(*)::int AS n FROM chunks WHERE paper_id = ANY(${paperIds}::uuid[])`;
   return row!.n;
 }
+
+/**
+ * The embed-model scope check (plan 03 deliberate change 2): log `embed_model_mismatch` when some in-scope chunks
+ * were embedded with another model, and throw before any persona embed or LLM spend when every in-scope chunk is
+ * excluded. A no-op on an empty id list. Used by generate_feed, generate_chapter and the podcast.
+ */
+export async function assertEmbedModelScope(sql: Sql, paperIds: string[], model: string, log: Logger): Promise<void> {
+  if (paperIds.length === 0) return;
+  const mismatched = await countEmbedModelMismatch(sql, paperIds, model);
+  if (mismatched > 0) log.warn({ expected: model, excluded_chunks: mismatched }, 'embed_model_mismatch');
+  if (mismatched > 0 && mismatched === (await countScopeChunks(sql, paperIds))) {
+    throw new Error(
+      `No chunks embedded with ${model}: ${mismatched} chunks in scope use a different embedding model. Re-process your papers or switch the embedding model back.`,
+    );
+  }
+}

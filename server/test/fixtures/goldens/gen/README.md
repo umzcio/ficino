@@ -205,3 +205,34 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Reading-list chapter goldens
+
+`chapter_tasks.py` runs in the `ficino-worker` image. It imports `tasks.reading_list_tasks` and calls the real
+`generate_chapter.run(reading_list_id, chapter_index, user_id=...)` per case, writing `chapter-tasks.json`
+(`[{name, input, feed_lookup, retrievals, plan_args, calls, stored_posts, executes, index, logs, result}]`):
+
+- `fetchrow` answers the case's list, chapter and idempotency feed rows by SQL prefix; `execute` records every
+  statement (`executes`, the feeds upsert's posts argument `json.loads`'ed, also as `stored_posts`).
+- `apply_provider_settings` returns the case's settings; `persona_lib.get_personas` the case's personas (so the
+  prompts are `SYSTEM_PREAMBLE + system_prompt`, as in production); `persona_lib.plan_feed_posts` the case's fixed
+  plan; `retrieval.retrieve_for_persona` the case's chunks per persona (each call recorded).
+- `claude_client.generate_persona_post_sync` records `(system, user, kwargs)` and returns a copy of the case's next
+  response, or raises `ValueError` for a `{"raises": ...}` response; `persona_tasks._write_feed_posts_index` is
+  recorded in `index`.
+- `random.randint` / `random.choice` take the low bound / first item, so the TS replay uses `rng = () => 0`; the
+  module logger records `(level, event, kwargs)`; the task's `retry` returns `exc`. A raise is
+  `result: {"raises": "<Type>: <str(exc)>"}`.
+
+The `figure_slot_raises` case records the Python bug that plan 05 fixes (a planned `figure` slot fails the whole
+chapter). `test/readingLists/chapter.test.ts` pins `src/readingLists/chapter.ts` to every other case.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/chapter_tasks.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.

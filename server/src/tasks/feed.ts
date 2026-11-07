@@ -12,8 +12,7 @@ import {
 } from '../feed/personas.js';
 import { buildPostPrompt } from '../feed/prompts.js';
 import {
-  countEmbedModelMismatch,
-  countScopeChunks,
+  assertEmbedModelScope,
   DEFAULT_RETRIEVAL_QUERY,
   retrievalQueries,
   retrieveForPersona,
@@ -390,15 +389,8 @@ export async function generateFeed(
     signal.throwIfAborted();
     await progress({ step: 'retrieving' });
     log.info({ step: 'retrieving', papers: paperIds.length }, 'feed_step');
-    const model = embedModelId(providers);
-    const mismatched = await countEmbedModelMismatch(sql, paperIds, model);
-    if (mismatched > 0) log.warn({ expected: model, excluded_chunks: mismatched }, 'embed_model_mismatch');
     // Every in-scope chunk excluded: fail loudly before any persona embed or LLM spend instead of an empty feed.
-    if (mismatched > 0 && mismatched === (await countScopeChunks(sql, paperIds))) {
-      throw new Error(
-        `No chunks embedded with ${model}: ${mismatched} chunks in scope use a different embedding model. Re-process your papers or switch the embedding model back.`,
-      );
-    }
+    await assertEmbedModelScope(sql, paperIds, embedModelId(providers), log);
 
     const rctx: RetrievalCtx = { sql, config, providers, deps: deps.providers, logger: log, signal };
     const liked =

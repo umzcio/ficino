@@ -239,7 +239,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 ## worker/tests
 
 - [x] worker/tests/test_auto_tagging.py::test_auto_tag_db_helpers_are_imported — plan02/T12
-- [ ] worker/tests/test_chapter_post_validation.py::test_reading_list_tasks_imports_validator — plan05
+- [x] worker/tests/test_chapter_post_validation.py::test_reading_list_tasks_imports_validator — plan05/T4 (generate-chapter.test.ts: a post without content is dropped (test_reading_list_tasks_imports_validator), leaving an id gap)
 - [x] worker/tests/test_event_loop.py::test_loop_runner_recovers_from_a_dead_but_unclosed_loop_thread — n/a: no LoopRunner in Node (W §4)
 - [x] worker/tests/test_event_loop.py::test_loop_runner_concurrent_submissions_dont_serialize — n/a: no LoopRunner in Node (W §4)
 - [x] worker/tests/test_generate_feed_idempotency.py::test_fresh_feed_redelivery_is_idempotent — plan03/T8
@@ -277,7 +277,7 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_shared_adoption.py::test_chapter_sql_imported_by_both_sites — plan05/T3 (propose-ordering.test.ts: the route and the job build chapters with the one shared insertChapters)
 - [ ] worker/tests/test_shared_adoption.py::test_default_for_matches_defaults — plan01
 - [x] worker/tests/test_stale_papers.py::test_stale_query_counts_null_corpus_feeds — plan02/T4
-- [ ] worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index — plan05
+- [x] worker/tests/test_wave3_task_fixes.py::test_generate_chapter_writes_feed_posts_index — plan05/T4 (generate-chapter.test.ts: happy path: deterministic feed, chapter complete, next unlocked, feed_posts index, chapter purpose)
 - [x] worker/tests/test_wave3_task_fixes.py::test_coerce_messages_drops_non_dict_elements — plan04/T7 (conversations/summaryParse.test.ts: drops non-dict elements)
 - [x] worker/tests/test_wave3_task_fixes.py::test_ollama_page_extract_retries_transient_failures — plan02/T11
 - [x] worker/tests/test_wave3_task_fixes.py::test_claude_page_extract_retries_transient_failures — plan02/T11

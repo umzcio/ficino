@@ -23,6 +23,7 @@ export type ChatPurpose =
   | 'interjection'
   | 'zap'
   | 'ordering'
+  | 'chapter'
   | 'other';
 
 export type ChatInfo = {
@@ -60,6 +61,8 @@ const PURPOSE_MARKERS: Array<[ChatPurpose, string]> = [
   ['interjection', 'You are jumping into an existing conversation thread'],
   ['zap', 'You were called in to respond to a specific point made by'],
   ['ordering', 'analyzing a set of academic papers to propose an optimal reading order'],
+  // generate_chapter's suffix on a persona system prompt (reading_list_tasks.py chapter_context).
+  ['chapter', 'of a reading list. '],
 ];
 
 function purposeOf(system: string): ChatPurpose {
@@ -113,7 +116,8 @@ function abortable<T>(p: Promise<T>, signal: AbortSignal | null | undefined): Pr
 const defaultChat = (_body: unknown, info: ChatInfo): string => {
   if (info.purpose === 'metadata') return '{"title": null, "authors": [], "year": null, "doi": null, "tags": []}';
   if (info.purpose === 'context') return 'A situating sentence.';
-  if (info.purpose === 'persona') return '{"post_type": "post", "content": "A grounded take."}';
+  if (info.purpose === 'persona' || info.purpose === 'chapter')
+    return '{"post_type": "post", "content": "A grounded take."}';
   if (info.purpose === 'classify') return 'extends';
   if (info.purpose === 'summary' || info.purpose === 'synthesis')
     return JSON.stringify([

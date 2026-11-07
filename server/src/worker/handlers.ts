@@ -12,7 +12,7 @@ import { generateFeed } from '../tasks/feed.js';
 import { processPaper } from '../tasks/ingestion.js';
 import { pruneExpired } from '../tasks/prune.js';
 import { computePreferences } from '../tasks/preferences.js';
-import { proposeOrdering } from '../tasks/readingLists.js';
+import { generateChapter, proposeOrdering } from '../tasks/readingLists.js';
 import { regeneratePost } from '../tasks/regenerate.js';
 import { generateCorpusSynthesis, generatePaperSummary } from '../tasks/summary.js';
 import type { Rng } from '../shared/random.js';
@@ -46,4 +46,5 @@ export const HANDLERS: Partial<Record<QueueName, Handler>> = {
   respond_to_user_post: (data, ctx, deps) => respondToUserPost(data, ctx, deps),
   respond_to_user_post_followup: (data, ctx, deps) => respondToUserPostFollowup(data, ctx, deps),
   propose_ordering: (data, ctx, deps) => proposeOrdering(data, ctx, deps),
+  generate_chapter: (data, ctx, deps) => generateChapter(data, ctx, deps),
 };

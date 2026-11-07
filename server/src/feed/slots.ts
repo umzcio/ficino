@@ -168,10 +168,10 @@ export function attachFigure(post: Post, figure: FeedFigure): void {
 }
 
 /**
- * The tail shared by generate_feed and regenerate_post once a post has its persona, post_type, id and time: cite,
- * figure, sources, category, engagement defaults, shape validation.
+ * The tail shared by generate_feed, regenerate_post and generate_chapter once a post has its persona, post_type, id
+ * and time: cite, figure, sources, category, engagement defaults, shape validation.
  */
-function groundPost(rng: Rng, post: Post, o: GroundPostOpts): Post {
+export function groundPost(rng: Rng, post: Post, o: GroundPostOpts): Post {
   if (o.chunks.length > 0) post.paper_ref = buildShortCite(o.chunks[0]!);
   if (o.figure) attachFigure(post, o.figure);
   post.sources = buildPostSources(o.chunks);
