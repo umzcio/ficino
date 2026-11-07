@@ -236,3 +236,24 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## ElevenLabs request goldens
+
+`tts_requests.py` runs in the `ficino-worker` image. It replaces `httpx.Client` in `lib.tts` with a recorder (no
+network), sets `ELEVENLABS_API_KEY` to a fixed fake key padded with whitespace, and calls the real `synthesize` and
+`synthesize_dialogue` per case (a TTS call with `é` and an astral character, an unknown persona with a model override,
+a two-turn dialogue, a dialogue model override, and a dialogue of exactly 2000 code points). It writes
+`tts-requests.json`: `requests` (`[{name, env, call, url, headers, json, timeout}]`, the stripped key written as
+`<key>`), `voices` (`voice_id_for` over every `VOICE_MAP` key plus `custom_x`), `default_voice`, `too_long` (the
+`DialogueTooLong` message for 2001 code points) with `too_long_requests` (0) and `too_long_inputs`, and `unavailable`
+(the `TTSUnavailable` message for a blank key). `test/providers/speak.test.ts` pins `src/providers/speak.ts` to it.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/tts_requests.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
