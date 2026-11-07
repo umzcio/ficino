@@ -187,6 +187,10 @@ describe('finishPost', () => {
     expect(Array.isArray(out.sources)).toBe(true);
     expect(out.likes).toBe(ENGAGEMENT_RANGES.likes![0]);
   });
+  it('keeps a thread slot whose reply follows the thread prompt (thread_posts, no content or post_type)', () => {
+    const out = finishPost(rngOf(0), { thread_posts: ['Hook.', 'Point.'], thread_count: 2 }, base({ postType: 'thread' }));
+    expect(out).toMatchObject({ post_type: 'thread', content: 'Hook.\n\nPoint.', thread_posts: ['Hook.', 'Point.'] });
+  });
   it('defaults post_type to the slot type', () => {
     expect(finishPost(rngOf(0), { content: 'hi' }, base({ postType: 'quote' })).post_type).toBe('quote');
   });

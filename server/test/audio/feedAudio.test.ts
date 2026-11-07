@@ -16,6 +16,19 @@ const golden = JSON.parse(readFileSync(new URL('../fixtures/goldens/feed-audio.j
 };
 
 describe('postToSpeechText', () => {
+  it('speaks a thread whose content is its joined parts once', () => {
+    const post = { post_type: 'thread', content: 'Hook.\n\nPoint.', thread_posts: ['Hook.', 'Point.'] };
+    expect(postToSpeechText(post, 'Skeptic')).toBe('Skeptic says: Hook.\n\nPoint.');
+  });
+  it('speaks a long thread whose content was cut from its joined parts once', () => {
+    const parts = ['A'.repeat(1500), 'B'.repeat(1500)];
+    const post = { post_type: 'thread', content: parts.join('\n\n').slice(0, 2000) + '…', thread_posts: parts };
+    expect(postToSpeechText(post, '')).toBe(parts.join('\n\n'));
+  });
+  it('still speaks content and parts when content is its own text', () => {
+    const post = { post_type: 'thread', content: 'Head.', thread_posts: ['One.', 'Two.'] };
+    expect(postToSpeechText(post, '')).toBe('Head.\n\nOne.\n\nTwo.');
+  });
   it('MAX_TTS_CHARS is 4000', () => expect(MAX_TTS_CHARS).toBe(4000));
 
   it.each(golden.speech.map((c) => [c.name, c] as const))('%s', (_name, c) => {

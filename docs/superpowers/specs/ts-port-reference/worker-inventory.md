@@ -442,7 +442,7 @@ For each `{persona, post_type}`:
    - `sources = build_post_sources(chunks)`: the first 5 as `{chunk_id, paper_id, paper_title (or filename or "Unknown"), section, content[:300], score round 3}` (`persona.py:140-161`).
    - `category = assign_post_category(persona, type)`: quote/reply → debates; skeptic/methodologist → methods; hype/practitioner or figure → findings; gradstudent → debates; otherwise findings (`persona.py:189-206`). With `tab_focus`, the tab name replaces it.
    - Engagement: `setdefault` random ints for likes (100–5000), retweets (20–1000), replies (10–500) and bookmarks (10–900) (`:38-49`).
-   - `validate_post_shape` (`post_validation.py:33-110`): a missing `persona` or `post_type` is filled in; a missing `content` **raises**, so the slot is dropped; an invalid type becomes `post`; a `thread` without a non-empty list of non-blank strings becomes `post` and drops `thread_posts`/`thread_count`; content over 2000 chars becomes `[:2000] + "…"`.
+   - `validate_post_shape` (`post_validation.py:33-110`): a missing `persona` or `post_type` is filled in; a missing `content` **raises**, so the slot is dropped; an invalid type becomes `post`; a `thread` without a non-empty list of non-blank strings becomes `post` and drops `thread_posts`/`thread_count`; content over 2000 chars becomes `[:2000] + "…"`. *TS deviation (plan 06):* a `thread` with a usable `thread_posts` list and no `content` gets the joined thread as `content` instead of raising, since the thread prompt never asks for `content`; feed audio then speaks the parts once.
    - Append the post, then add its sources' chunk_ids to `used_chunk_ids` and increment `paper_post_counts` once per distinct paper.
 9. Any exception in steps 7–8 is logged and the slot is skipped.
 
