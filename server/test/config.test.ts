@@ -21,9 +21,27 @@ it('unknown AUTH_PROVIDER is rejected', () => {
   expect(() => loadConfig({ AUTH_PROVIDER: 'ldap' })).toThrow('Unknown AUTH_PROVIDER: ldap');
 });
 it('parseBool accepts pydantic truthy/falsy spellings', () => {
-  for (const t of ['1', 'true', 'TRUE', 'yes', 'on', 'y', 't']) expect(parseBool(t, false)).toBe(true);
-  for (const f of ['0', 'false', 'no', 'off', 'n', 'f']) expect(parseBool(f, true)).toBe(false);
-  expect(parseBool(undefined, true)).toBe(true);
+  for (const t of ['1', 'true', 'TRUE', 'yes', 'on', 'y', 't', ' True ']) expect(parseBool('X', t, false)).toBe(true);
+  for (const f of ['0', 'false', 'no', 'off', 'n', 'f', ' OFF ']) expect(parseBool('X', f, true)).toBe(false);
+  expect(parseBool('X', undefined, true)).toBe(true);
+});
+it('parseBool names the variable it rejects', () => {
+  expect(() => parseBool('X', 'maybe', false)).toThrow('X must be a boolean, got: maybe');
+});
+it('parseBool: an empty or blank value uses the fallback', () => {
+  expect(parseBool('X', '', true)).toBe(true);
+  expect(parseBool('X', '  ', false)).toBe(false);
+});
+it('rejects a misspelled boolean', () => {
+  expect(() => loadConfig({ ALLOW_REGISTRATION: 'ture' })).toThrow('ALLOW_REGISTRATION must be a boolean, got: ture');
+  expect(() => loadConfig({ PUBLIC_DEPLOYMENT: 'yep' })).toThrow('PUBLIC_DEPLOYMENT must be a boolean, got: yep');
+  expect(() => loadConfig({ SEARCH_USE_NORMALIZED_POSTS: '2' })).toThrow(
+    'SEARCH_USE_NORMALIZED_POSTS must be a boolean, got: 2',
+  );
+});
+it('an empty boolean uses the default', () => {
+  expect(loadConfig({ PUBLIC_DEPLOYMENT: '' }).publicDeployment).toBe(false);
+  expect(loadConfig({ SEARCH_USE_NORMALIZED_POSTS: '' }).searchUseNormalizedPosts).toBe(true);
 });
 it('CORS_ORIGINS splits on commas and drops blanks', () => {
   expect(loadConfig({ CORS_ORIGINS: 'https://a, ,https://b' }).corsOrigins).toEqual(['https://a', 'https://b']);

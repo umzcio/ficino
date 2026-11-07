@@ -58,13 +58,18 @@ export interface Config {
 const TRUE = new Set(['1', 'true', 't', 'yes', 'y', 'on']);
 const FALSE = new Set(['0', 'false', 'f', 'no', 'n', 'off']);
 
-/** Mirrors pydantic's bool parsing; unset or unrecognised values use the fallback. */
-export function parseBool(v: string | undefined, fallback: boolean): boolean {
+/**
+ * pydantic's bool spellings. Unset or blank uses the fallback (compose passes `VAR=` as ''); anything
+ * else unrecognised throws, so a typo like `ALLOW_REGISTRATION=ture` fails at boot instead of silently
+ * meaning the default.
+ */
+export function parseBool(name: string, v: string | undefined, fallback: boolean): boolean {
   if (v === undefined) return fallback;
   const s = v.trim().toLowerCase();
+  if (s === '') return fallback;
   if (TRUE.has(s)) return true;
   if (FALSE.has(s)) return false;
-  return fallback;
+  throw new Error(`${name} must be a boolean, got: ${v}`);
 }
 
 function str(env: Env, name: string, fallback: string): string {
@@ -147,8 +152,8 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     databaseUrl: str(env, 'DATABASE_URL', 'postgresql://ficino:ficino@postgres:5432/ficino'),
     environment: str(env, 'ENVIRONMENT', 'development'),
     authProvider: authProvider(str(env, 'AUTH_PROVIDER', 'none')),
-    allowRegistration: parseBool(env.ALLOW_REGISTRATION, false),
-    publicDeployment: parseBool(env.PUBLIC_DEPLOYMENT, false),
+    allowRegistration: parseBool('ALLOW_REGISTRATION', env.ALLOW_REGISTRATION, false),
+    publicDeployment: parseBool('PUBLIC_DEPLOYMENT', env.PUBLIC_DEPLOYMENT, false),
     corsOrigins: str(env, 'CORS_ORIGINS', 'https://ficino.app,https://ficino.ai')
       .split(',')
       .map((s) => s.trim())
@@ -164,7 +169,7 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     elevenlabsDialogueModelId: str(env, 'ELEVENLABS_DIALOGUE_MODEL_ID', 'eleven_v3'),
     signedUrlKey: str(env, 'SIGNED_URL_KEY', '').trim(),
     publicApiBase: publicApiBase(str(env, 'PUBLIC_API_BASE', '/ficino/api')),
-    searchUseNormalizedPosts: parseBool(env.SEARCH_USE_NORMALIZED_POSTS, true),
+    searchUseNormalizedPosts: parseBool('SEARCH_USE_NORMALIZED_POSTS', env.SEARCH_USE_NORMALIZED_POSTS, true),
     dbPoolMax: poolMax(int(env, poolVar, 20)),
     workerDbPoolMax: poolMax(int(env, workerPoolVar, 10)),
     embedDim: embedDim(int(env, 'EMBED_DIM', 1024)),
