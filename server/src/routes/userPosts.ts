@@ -1,13 +1,16 @@
 import type postgres from 'postgres';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../app.js';
 import { recordAudit } from '../audit.js';
 import { requireUser } from '../auth/currentUser.js';
 import { toPydanticIso } from '../db/time.js';
+import { isStuckJobState } from '../feed/status.js';
 import { HttpError } from '../http/errors.js';
 import { userRateLimit } from '../http/rateLimit.js';
 import { body, pyMaxLen } from '../http/validate.js';
+import type { JobState } from '../jobs/queue.js';
+import type { QueueName } from '../jobs/registry.js';
 import { LIMITS } from '../shared/constants.js';
 import { isUuid } from '../shared/uuid.js';
 
@@ -25,6 +28,29 @@ function shape(row: postgres.Row) {
     status: row.status,
     created_at: toPydanticIso(row.created_at ?? null),
   };
+}
+
+/**
+ * Sends the Archivist job and stores its id. On a send failure the post is marked `error` with no `task_id`
+ * (nothing will answer it, so a follow-up may retry it) and the route answers 503.
+ */
+async function dispatchOrFail(
+  c: Context<AppEnv>,
+  postId: string,
+  queue: QueueName,
+  data: Record<string, unknown>,
+): Promise<string> {
+  const { sql, logger } = c.var.deps;
+  let taskId: string;
+  try {
+    taskId = await c.var.deps.queue.send(queue, data);
+  } catch (e) {
+    logger.error({ post_id: postId, error: e instanceof Error ? e.message : String(e) }, 'user_post_dispatch_failed');
+    await sql`UPDATE user_posts SET status = 'error', task_id = NULL WHERE id = ${postId}`;
+    throw new HttpError(503, DISPATCH_FAILED);
+  }
+  await sql`UPDATE user_posts SET task_id = ${taskId} WHERE id = ${postId}`;
+  return taskId;
 }
 
 export function userPostsRoutes(): Hono<AppEnv> {
@@ -58,7 +84,7 @@ export function userPostsRoutes(): Hono<AppEnv> {
   });
 
   r.post('/', userRateLimit('user_post'), body(createSchema), async (c) => {
-    const { sql, queue, logger } = c.var.deps;
+    const { sql, logger } = c.var.deps;
     const userId = c.var.user.id;
     const { content, corpus_id: corpusId } = c.req.valid('json');
 
@@ -75,21 +101,16 @@ export function userPostsRoutes(): Hono<AppEnv> {
       VALUES (${userId}, ${corpusId || null}, ${content}, 'pending') RETURNING id`;
     const postId = String(row!.id);
 
-    let taskId: string;
-    try {
-      taskId = await queue.send('respond_to_user_post', { user_post_id: postId, corpus_id: corpusId ?? null });
-    } catch (e) {
-      logger.error({ post_id: postId, error: e instanceof Error ? e.message : String(e) }, 'user_post_dispatch_failed');
-      await sql`UPDATE user_posts SET status = 'error' WHERE id = ${postId}`;
-      throw new HttpError(503, DISPATCH_FAILED);
-    }
-    await sql`UPDATE user_posts SET task_id = ${taskId} WHERE id = ${postId}`;
+    const taskId = await dispatchOrFail(c, postId, 'respond_to_user_post', {
+      user_post_id: postId,
+      corpus_id: corpusId ?? null,
+    });
     logger.info({ post_id: postId, task_id: taskId }, 'user_post_created');
     return c.json({ id: postId, task_id: taskId, status: 'pending' }, 201);
   });
 
   r.post('/:post_id/replies', userRateLimit('user_post'), body(followUpSchema), async (c) => {
-    const { sql, queue, logger } = c.var.deps;
+    const { sql, logger } = c.var.deps;
     const postId = c.req.param('post_id');
     const { content } = c.req.valid('json');
 
@@ -99,22 +120,20 @@ export function userPostsRoutes(): Hono<AppEnv> {
     if (!owned) throw new HttpError(404, 'Post not found');
 
     // Check-and-flip in one statement: of two concurrent follow-ups only the row-lock winner updates.
+    // Deliberate change 11: an `error` post with no job left (task_id NULL) whose last turn is the user's is
+    // retryable; the retry replaces that unanswered turn (the frontend dropped its copy after the failure). A failed
+    // first answer (no turns) stays a dead end, as in Python.
     const [updated] = await sql`
       UPDATE user_posts
-      SET replies = replies || ${sql.json([{ role: 'user', content }] as never)}, status = 'pending'
-      WHERE id = ${postId} AND status = 'complete'
+      SET replies = CASE WHEN status = 'error' THEN replies - (-1) ELSE replies END
+            || ${sql.json([{ role: 'user', content }] as never)},
+          status = 'pending', task_id = NULL
+      WHERE id = ${postId}
+        AND (status = 'complete' OR (status = 'error' AND task_id IS NULL AND replies->-1->>'role' = 'user'))
       RETURNING id`;
     if (!updated) throw new HttpError(409, 'Previous reply not ready yet');
 
-    let taskId: string;
-    try {
-      taskId = await queue.send('respond_to_user_post_followup', { user_post_id: postId });
-    } catch (e) {
-      logger.error({ post_id: postId, error: e instanceof Error ? e.message : String(e) }, 'user_post_dispatch_failed');
-      await sql`UPDATE user_posts SET status = 'error' WHERE id = ${postId}`;
-      throw new HttpError(503, DISPATCH_FAILED);
-    }
-    await sql`UPDATE user_posts SET task_id = ${taskId} WHERE id = ${postId}`;
+    const taskId = await dispatchOrFail(c, postId, 'respond_to_user_post_followup', { user_post_id: postId });
     logger.info({ post_id: postId, task_id: taskId }, 'user_post_followup');
     return c.json({ id: postId, task_id: taskId, status: 'pending' }, 202);
   });
@@ -131,13 +150,47 @@ export function userPostsRoutes(): Hono<AppEnv> {
   });
 
   r.get('/:post_id/status', async (c) => {
-    const { sql } = c.var.deps;
+    const { sql, queue, logger } = c.var.deps;
     const postId = c.req.param('post_id');
     const [row] = isUuid(postId)
       ? await sql`SELECT status, task_id FROM user_posts WHERE id = ${postId} AND user_id = ${c.var.user.id}`
       : [];
     if (!row) throw new HttpError(404, 'Post not found');
-    return c.json({ status: row.status, task_id: row.task_id ?? '' });
+    const answer = (r: postgres.Row) => c.json({ status: r.status, task_id: r.task_id ?? '' });
+
+    // Deliberate change 11: a post whose job will never run again must not spin or 409 forever. `completed` is not
+    // stuck: a late task_id write from an earlier follow-up can point a live post at a completed job. No
+    // re-dispatch here (no charge path, and a job that kills the process would loop).
+    const oldTaskId = row.task_id as string | null;
+    if ((row.status !== 'pending' && row.status !== 'error') || !oldTaskId) return answer(row);
+    let state: JobState['state'];
+    try {
+      state = (await queue.getJobState(oldTaskId)).state;
+    } catch (e) {
+      logger.warn(
+        { post_id: postId, task_id: oldTaskId, err: e instanceof Error ? e.message : String(e) },
+        'user_post_status_check_failed',
+      );
+      return answer(row);
+    }
+    if (!isStuckJobState(state)) return answer(row);
+
+    // pending: the job died before its catch ran. error: a non-final attempt kept its task_id, then the final
+    // attempt was hard-killed. Either way nothing will answer the last turn; clearing task_id makes it retryable.
+    const pending = row.status === 'pending';
+    logger.warn(
+      { post_id: postId, old_task_id: oldTaskId, task_state: state },
+      pending ? 'user_post_stuck_pending' : 'user_post_stuck_error',
+    );
+    const [healed] = await sql`
+      UPDATE user_posts SET status = 'error', task_id = NULL
+      WHERE id = ${postId} AND status = ${row.status as string} AND task_id = ${oldTaskId}
+      RETURNING status, task_id`;
+    if (healed) return answer(healed);
+    // Something else wrote the row first (a retry, a late answer): answer what is stored now.
+    const [now] = await sql`SELECT status, task_id FROM user_posts WHERE id = ${postId}`;
+    if (!now) throw new HttpError(404, 'Post not found');
+    return answer(now);
   });
 
   return r;

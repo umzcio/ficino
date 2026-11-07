@@ -49,17 +49,19 @@ async function addChunks(paperId: string, userId: string, n = 4, model = MODEL) 
 async function addPost(
   userId: string,
   corpusId: string | null,
-  o: { content?: string; replies?: unknown[]; sources?: unknown[] } = {},
+  o: { content?: string; replies?: unknown[]; sources?: unknown[]; status?: string; taskId?: string } = {},
 ) {
   const id = randomUUID();
   await sql`
-    INSERT INTO user_posts (id, user_id, corpus_id, content, replies, sources, status)
+    INSERT INTO user_posts (id, user_id, corpus_id, content, replies, sources, status, task_id)
     VALUES (${id}, ${userId}, ${corpusId}, ${o.content ?? 'What do the papers say about turn-taking?'},
-            ${sql.json((o.replies ?? []) as never)}, ${sql.json((o.sources ?? []) as never)}, 'pending')`;
+            ${sql.json((o.replies ?? []) as never)}, ${sql.json((o.sources ?? []) as never)}, ${o.status ?? 'pending'},
+            ${o.taskId ?? null})`;
   return id;
 }
 
 const postRow = async (id: string) => (await sql`SELECT replies, sources, status FROM user_posts WHERE id = ${id}`)[0]!;
+const markRow = async (id: string) => (await sql`SELECT status, task_id FROM user_posts WHERE id = ${id}`)[0]!;
 
 async function setSettings(userId: string, settings: Record<string, unknown>) {
   await sql`
@@ -78,7 +80,7 @@ async function withArchivistPrompt<T>(prompt: string, fn: () => Promise<T>): Pro
   }
 }
 
-function harness(chat?: (info: ChatInfo) => string) {
+function harness(chat?: (info: ChatInfo) => string, o: { final?: boolean } = {}) {
   const lines: Line[] = [];
   const logger = pino({ level: 'debug' }, { write: (x: string) => void lines.push(JSON.parse(x)) });
   const infos: ChatInfo[] = [];
@@ -88,9 +90,14 @@ function harness(chat?: (info: ChatInfo) => string) {
       return chat ? chat(info) : 'Alpha (2021) found turns cluster. Doe (2019) disagrees.';
     },
   });
-  // retryCount 0 of retryLimit 2: never the final attempt.
+  // retryCount 0 of retryLimit 2: never the final attempt, unless `final` (retryCount 2 of 2).
   const ctx = makeJobContext(
-    { id: randomUUID(), name: 'respond_to_user_post', retryCount: 0, signal: new AbortController().signal },
+    {
+      id: randomUUID(),
+      name: 'respond_to_user_post',
+      retryCount: o.final ? 2 : 0,
+      signal: new AbortController().signal,
+    },
     sql,
     logger,
     600_000,
@@ -267,6 +274,30 @@ describe('respond_to_user_post', () => {
     expect((await postRow(id)).status).toBe('error');
   });
 
+  it('deliberate change 11: a failure on the final attempt marks error and clears its own task_id', async () => {
+    const h = harness(() => '', { final: true });
+    expect(h.ctx.isFinalAttempt).toBe(true);
+    const id = await addPost(s.user_a, s.workspace_a, { taskId: h.ctx.jobId });
+    await expect(respondToUserPost({ user_post_id: id }, h.ctx, h.deps)).rejects.toThrow('LLM returned empty response');
+    expect(await markRow(id)).toEqual({ status: 'error', task_id: null });
+  });
+
+  it('a failure on a non-final attempt marks error and keeps its task_id', async () => {
+    const h = harness(() => '');
+    const id = await addPost(s.user_a, s.workspace_a, { taskId: h.ctx.jobId });
+    await expect(respondToUserPost({ user_post_id: id }, h.ctx, h.deps)).rejects.toThrow('LLM returned empty response');
+    expect(await markRow(id)).toEqual({ status: 'error', task_id: h.ctx.jobId });
+  });
+
+  it.each([false, true])('a row owned by another job is not marked (final=%s)', async (final) => {
+    const h = harness(() => '', { final });
+    const other = randomUUID();
+    const id = await addPost(s.user_a, s.workspace_a, { taskId: other });
+    await expect(respondToUserPost({ user_post_id: id }, h.ctx, h.deps)).rejects.toThrow('LLM returned empty response');
+    expect(await markRow(id)).toEqual({ status: 'pending', task_id: other });
+    expect(logged(h.lines, 'archivist_response_failed')).toHaveLength(1);
+  });
+
   it('a missing row throws', async () => {
     const id = randomUUID();
     const h = harness();
@@ -319,8 +350,10 @@ describe('respond_to_user_post_followup', () => {
     });
   });
 
-  it('a last turn that is not user throws and marks the post error', async () => {
-    const replies = [{ role: 'archivist', content: 'Done.' }];
+  it.each([
+    ['a system last turn', [{ role: 'system', content: 'Done.' }]],
+    ['no turns', []],
+  ])('%s throws and marks the post error', async (_name, replies) => {
     const id = await addPost(s.user_a, s.workspace_a, { replies });
     const h = harness();
     await expect(respondToUserPostFollowup({ user_post_id: id }, h.ctx, h.deps)).rejects.toThrow(
@@ -329,6 +362,33 @@ describe('respond_to_user_post_followup', () => {
     expect(await postRow(id)).toEqual({ status: 'error', replies, sources: [] });
     expect(h.chats()).toHaveLength(0);
     expect(logged(h.lines, 'archivist_followup_failed')).toHaveLength(1);
+  });
+
+  it('deliberate change 11: a redelivered follow-up whose answer is stored is an idempotent skip', async () => {
+    const replies = [...history, { role: 'archivist', persona: 'archivist', content: 'Second answer.' }];
+    const h = harness();
+    const id = await addPost(s.user_a, s.workspace_a, { replies, sources, status: 'complete', taskId: h.ctx.jobId });
+    expect(await respondToUserPostFollowup({ user_post_id: id }, h.ctx, h.deps)).toEqual({
+      status: 'complete',
+      user_post_id: id,
+      idempotent: true,
+    });
+    expect(await postRow(id)).toEqual({ status: 'complete', replies, sources });
+    expect(await markRow(id)).toEqual({ status: 'complete', task_id: h.ctx.jobId });
+    expect(h.chats()).toHaveLength(0);
+    expect(h.embeds()).toHaveLength(0);
+    expect(logged(h.lines, 'archivist_followup_idempotent_skip')).toHaveLength(1);
+    expect(logged(h.lines, 'archivist_followup_failed')).toHaveLength(0);
+  });
+
+  it('a follow-up failure on the final attempt clears its own task_id, so the post is retryable', async () => {
+    const h = harness(() => '', { final: true });
+    const id = await addPost(s.user_a, s.workspace_a, { replies: history, taskId: h.ctx.jobId });
+    await expect(respondToUserPostFollowup({ user_post_id: id }, h.ctx, h.deps)).rejects.toThrow(
+      'LLM returned empty response',
+    );
+    expect(await markRow(id)).toEqual({ status: 'error', task_id: null });
+    expect((await postRow(id)).replies).toEqual(history);
   });
 
   it('an empty corpus appends the short canned reply', async () => {

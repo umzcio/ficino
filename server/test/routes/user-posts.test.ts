@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { pino } from 'pino';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import type { JobQueue } from '../../src/jobs/queue.js';
@@ -27,12 +28,41 @@ const progressRow = async (id: string) => (await sql`SELECT queue FROM job_progr
 const postRow = async (id: string) =>
   (await sql`SELECT status, task_id, replies, corpus_id FROM user_posts WHERE id = ${id}`)[0];
 
-async function newPost(userId = USER_A_ID, status = 'complete', replies: unknown[] = []) {
+async function newPost(userId = USER_A_ID, status = 'complete', replies: unknown[] = [], taskId: string | null = null) {
   const id = randomUUID();
-  await sql`INSERT INTO user_posts (id, user_id, content, status, replies)
-            VALUES (${id}, ${userId}, 'hello', ${status}, ${sql.json(replies as never)})`;
+  await sql`INSERT INTO user_posts (id, user_id, content, status, replies, task_id)
+            VALUES (${id}, ${userId}, 'hello', ${status}, ${sql.json(replies as never)}, ${taskId})`;
   return id;
 }
+
+type Line = Record<string, unknown> & { msg: string; level: number };
+/** A client whose log lines are captured; `queue` overrides the test queue. */
+function logged(queue?: JobQueue) {
+  const lines: Line[] = [];
+  const logger = pino({ level: 'debug' }, { write: (x: string) => void lines.push(JSON.parse(x) as Line) });
+  return { c: client(testApp({ user: user(USER_A_ID), logger, ...(queue ? { queue } : {}) })), lines };
+}
+const jobCount = async () => (await sql`SELECT count(*)::int AS n FROM job_progress`)[0]!.n as number;
+/** pg-boss only completes or fails an active job; a test has no worker, so mark it active directly. `final` spends its retries so a fail is final. */
+const activate = (id: string, final = true) =>
+  final
+    ? sql`UPDATE pgboss.job SET state = 'active', started_on = now(), retry_count = retry_limit WHERE id = ${id}`
+    : sql`UPDATE pgboss.job SET state = 'active', started_on = now() WHERE id = ${id}`;
+/** A follow-up job in the given end state (`null` leaves it created; `retry` is a non-final fail). */
+async function jobIn(op: 'complete' | 'fail' | 'cancel' | 'retry' | 'active' | null) {
+  const id = await testQueue().send('respond_to_user_post_followup', { user_post_id: randomUUID() });
+  if (op === 'active') await activate(id);
+  else if (op === 'retry') {
+    await activate(id, false);
+    await (await testBoss()).fail('respond_to_user_post_followup', id);
+  } else if (op) {
+    await activate(id);
+    await (await testBoss())[op]('respond_to_user_post_followup', id);
+  }
+  return id;
+}
+const answered = [{ role: 'archivist', persona: 'archivist', content: 'a' }];
+const unanswered = [...answered, { role: 'user', content: 'lost' }];
 
 describe('POST /user-posts', () => {
   it('201, dispatches respond_to_user_post, stores task_id', async () => {
@@ -124,11 +154,66 @@ describe('POST /user-posts/:id/replies', () => {
   });
 
   it('dispatch failure: 503 and status error (deliberate change 4)', async () => {
-    const id = await newPost(USER_A_ID, 'complete');
-    const app = client(testApp({ user: user(USER_A_ID), queue: failingQueue() }));
-    const r = await app.post(`/user-posts/${id}/replies`, { content: 'x' });
+    // The previous answer's job id is still on the row; the failed dispatch clears it.
+    const id = await newPost(USER_A_ID, 'complete', answered, randomUUID());
+    const { c, lines } = logged(failingQueue());
+    const r = await c.post(`/user-posts/${id}/replies`, { content: 'x' });
     expect([r.status, (await r.json()).detail]).toEqual([503, 'Failed to dispatch Archivist response. Try again.']);
-    expect((await postRow(id))!.status).toBe('error');
+    const row = await postRow(id);
+    expect(row).toMatchObject({ status: 'error', task_id: null });
+    expect(row!.replies.at(-1)).toEqual({ role: 'user', content: 'x' });
+    expect(lines.find((l) => l.msg === 'user_post_dispatch_failed')).toMatchObject({
+      level: 50, post_id: id, error: 'broker down',
+    });
+  });
+
+  it('deliberate change 11: after a dispatch failure a follow-up retries, replacing the trailing user turn', async () => {
+    const id = await newPost(USER_A_ID, 'complete', answered);
+    const failed = client(testApp({ user: user(USER_A_ID), queue: failingQueue() }));
+    expect((await failed.post(`/user-posts/${id}/replies`, { content: 'x' })).status).toBe(503);
+    const r = await as().post(`/user-posts/${id}/replies`, { content: 'y' });
+    expect(r.status).toBe(202);
+    const j = await r.json();
+    expect(j).toEqual({ id, task_id: expect.any(String), status: 'pending' });
+    const row = await postRow(id);
+    expect(row).toMatchObject({ status: 'pending', task_id: j.task_id });
+    expect(row!.replies).toEqual([...answered, { role: 'user', content: 'y' }]);
+    expect((await progressRow(j.task_id))!.queue).toBe('respond_to_user_post_followup');
+    expect((await (await testBoss()).getJobById('respond_to_user_post_followup', j.task_id))!.data).toEqual({
+      user_post_id: id,
+    });
+  });
+
+  it('an error row whose task_id is set is 409 (a pg-boss retry is pending)', async () => {
+    const id = await newPost(USER_A_ID, 'error', unanswered, randomUUID());
+    const r = await as().post(`/user-posts/${id}/replies`, { content: 'x' });
+    expect([r.status, (await r.json()).detail]).toEqual([409, 'Previous reply not ready yet']);
+    expect(await postRow(id)).toMatchObject({ status: 'error', replies: unanswered });
+    expect(await jobCount()).toBe(0);
+  });
+
+  it('an error row whose last turn is archivist, or with no turns (a failed first answer), is 409', async () => {
+    for (const replies of [answered, []]) {
+      const id = await newPost(USER_A_ID, 'error', replies);
+      const r = await as().post(`/user-posts/${id}/replies`, { content: 'x' });
+      expect([r.status, (await r.json()).detail]).toEqual([409, 'Previous reply not ready yet']);
+      expect(await postRow(id)).toMatchObject({ status: 'error', task_id: null, replies });
+    }
+    expect(await jobCount()).toBe(0);
+  });
+
+  it('two concurrent retries of a retryable row: exactly one 202', async () => {
+    const id = await newPost(USER_A_ID, 'error', unanswered);
+    const rs = await Promise.all([
+      as().post(`/user-posts/${id}/replies`, { content: 'one' }),
+      as().post(`/user-posts/${id}/replies`, { content: 'two' }),
+    ]);
+    expect(rs.map((r) => r.status).sort()).toEqual([202, 409]);
+    const row = await postRow(id);
+    expect(row!.replies).toHaveLength(unanswered.length);
+    expect(row!.replies.at(-2)).toEqual(answered[0]);
+    expect(['one', 'two']).toContain(row!.replies.at(-1).content);
+    expect(await jobCount()).toBe(1);
   });
 
   it('shares the user_post bucket with create (basic, limit 1)', async () => {
@@ -185,6 +270,96 @@ describe('GET /user-posts/:id/status', () => {
     const id = await newPost(USER_A_ID);
     const r = await as(USER_B_ID).get(`/user-posts/${id}/status`);
     expect([r.status, (await r.json()).detail]).toEqual([404, 'Post not found']);
+  });
+
+  it('Review Focus 3: a pending row on a lost job (legacy id, missing) becomes error and is logged', async () => {
+    const id = await newPost(USER_A_ID, 'pending', unanswered, 'celery-abc');
+    const { c, lines } = logged();
+    expect(await (await c.get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'error', task_id: '' });
+    expect(await postRow(id)).toMatchObject({ status: 'error', task_id: null, replies: unanswered });
+    expect(lines.find((l) => l.msg === 'user_post_stuck_pending')).toMatchObject({
+      level: 40, post_id: id, old_task_id: 'celery-abc', task_state: 'missing',
+    });
+    expect(await jobCount()).toBe(0);
+    // ...and a follow-up on it can then be retried.
+    expect((await as().post(`/user-posts/${id}/replies`, { content: 'again' })).status).toBe(202);
+    expect((await postRow(id))!.replies).toEqual([...answered, { role: 'user', content: 'again' }]);
+  });
+
+  it.each(['fail', 'cancel'] as const)('a pending row on a %s-ed job becomes error', async (op) => {
+    const old = await jobIn(op);
+    const id = await newPost(USER_A_ID, 'pending', unanswered, old);
+    expect(await (await as().get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'error', task_id: '' });
+    expect(await postRow(id)).toMatchObject({ status: 'error', task_id: null });
+  });
+
+  it.each(['created', 'retry', 'active', 'complete'] as const)('a pending row on a %s job stays pending', async (op) => {
+    const old = await jobIn(op === 'created' ? null : op);
+    const id = await newPost(USER_A_ID, 'pending', unanswered, old);
+    const { c, lines } = logged();
+    expect(await (await c.get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'pending', task_id: old });
+    expect(await postRow(id)).toMatchObject({ status: 'pending', task_id: old });
+    expect(lines.some((l) => l.msg === 'user_post_stuck_pending')).toBe(false);
+  });
+
+  it('a pending row without a task_id stays pending', async () => {
+    const id = await newPost(USER_A_ID, 'pending', unanswered);
+    expect(await (await as().get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'pending', task_id: '' });
+    expect(await postRow(id)).toMatchObject({ status: 'pending', task_id: null });
+  });
+
+  it('a throwing getJobState leaves a pending row pending', async () => {
+    const queue = Object.create(testQueue()) as JobQueue;
+    queue.getJobState = async () => {
+      throw new Error('db down');
+    };
+    const old = randomUUID();
+    const id = await newPost(USER_A_ID, 'pending', unanswered, old);
+    const { c, lines } = logged(queue);
+    expect(await (await c.get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'pending', task_id: old });
+    expect(await postRow(id)).toMatchObject({ status: 'pending', task_id: old });
+    expect(lines.find((l) => l.msg === 'user_post_status_check_failed')).toMatchObject({
+      level: 40, post_id: id, task_id: old, err: 'db down',
+    });
+  });
+
+  it('an error row on a lost job clears its task_id, and a follow-up then retries', async () => {
+    const id = await newPost(USER_A_ID, 'error', unanswered, 'celery-abc');
+    const { c, lines } = logged();
+    expect(await (await c.get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'error', task_id: '' });
+    expect(await postRow(id)).toMatchObject({ status: 'error', task_id: null, replies: unanswered });
+    expect(lines.find((l) => l.msg === 'user_post_stuck_error')).toMatchObject({
+      level: 40, post_id: id, old_task_id: 'celery-abc', task_state: 'missing',
+    });
+    expect((await as().post(`/user-posts/${id}/replies`, { content: 'y' })).status).toBe(202);
+  });
+
+  it.each(['fail', 'cancel'] as const)('an error row on a %s-ed job clears its task_id', async (op) => {
+    const old = await jobIn(op);
+    const id = await newPost(USER_A_ID, 'error', unanswered, old);
+    expect(await (await as().get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'error', task_id: '' });
+    expect(await postRow(id)).toMatchObject({ status: 'error', task_id: null });
+  });
+
+  it.each(['created', 'retry', 'active'] as const)('an error row on a %s job keeps its task_id; a follow-up is 409', async (op) => {
+    const old = await jobIn(op === 'created' ? null : op);
+    const id = await newPost(USER_A_ID, 'error', unanswered, old);
+    const { c, lines } = logged();
+    expect(await (await c.get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'error', task_id: old });
+    expect(await postRow(id)).toMatchObject({ status: 'error', task_id: old });
+    expect(lines.some((l) => l.msg === 'user_post_stuck_error')).toBe(false);
+    const r = await as().post(`/user-posts/${id}/replies`, { content: 'x' });
+    expect([r.status, (await r.json()).detail]).toEqual([409, 'Previous reply not ready yet']);
+  });
+
+  it('a complete row with a task_id is never checked', async () => {
+    const queue = Object.create(testQueue()) as JobQueue;
+    queue.getJobState = async () => {
+      throw new Error('must not be called');
+    };
+    const id = await newPost(USER_A_ID, 'complete', answered, 'celery-abc');
+    const { c } = logged(queue);
+    expect(await (await c.get(`/user-posts/${id}/status`)).json()).toEqual({ status: 'complete', task_id: 'celery-abc' });
   });
 });
 

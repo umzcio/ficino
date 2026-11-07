@@ -67,8 +67,8 @@ type Mode = {
   chunksEvent: string;
   hallucinatedEvent: string;
   emptyReply: string;
-  /** Loads the row's query and user prompt, or throws. */
-  turn(row: Record<string, unknown>): { query: string; userPrompt: string };
+  /** Loads the row's query and user prompt, `null` when the turn is already answered, or throws. */
+  turn(row: Record<string, unknown>): { query: string; userPrompt: string } | null;
   store(sql: Sql, userPostId: string, reply: Reply, sources: Post[]): Promise<unknown>;
 };
 
@@ -103,6 +103,8 @@ const FOLLOWUP: Mode = {
     // The API appended a {role:'user'} turn before dispatch; anything else has nothing to answer.
     const replies = row.replies as Array<Record<string, unknown>> | null;
     const last = Array.isArray(replies) ? replies.at(-1) : undefined;
+    // Deliberate change 11: a redelivery after this job's append committed has nothing left to do.
+    if (last?.role === 'archivist') return null;
     if (!last || last.role !== 'user') throw new Error('No pending user turn in replies');
     if (!('content' in last)) throw new Error("KeyError: 'content'");
     return { query: pyStr(last.content), userPrompt: followupUserPrompt(pyStr(row.content), replies!) };
@@ -130,7 +132,12 @@ async function respond(
         : await sql`SELECT content, replies, corpus_id, user_id FROM user_posts WHERE id = ${userPostId}`;
     if (!row) throw new Error(`User post ${userPostId} not found`);
 
-    const { query, userPrompt } = mode.turn(row);
+    const turn = mode.turn(row);
+    if (!turn) {
+      log.info('archivist_followup_idempotent_skip');
+      return { status: 'complete', user_post_id: userPostId, idempotent: true };
+    }
+    const { query, userPrompt } = turn;
     // str(row["user_id"]): an ownerless row queries as 'None' and fails on the uuid cast, as Python did.
     const owner = pyStr(row.user_id);
     const corpusId = row.corpus_id ? String(row.corpus_id) : argCorpusId;
@@ -179,9 +186,14 @@ async function respond(
     return { status: 'complete', user_post_id: userPostId, duration_ms: durationMs };
   } catch (e) {
     log.error({ error: errMessage(e) }, `${mode.event}_failed`);
-    // Every failed attempt marks the post error, as Python did; pg-boss retries after 180 s.
+    // Every failed attempt marks the post error, as Python did; pg-boss retries after 180 s. Deliberate change 11:
+    // only a post this job owns (or no job yet) is marked, and the final attempt clears task_id so a follow-up can
+    // retry it; a non-final attempt keeps it, so no second answer races the pending retry.
+    const clearTask = ctx.isFinalAttempt ? sql`, task_id = NULL` : sql``;
     try {
-      await sql`UPDATE user_posts SET status = 'error' WHERE id = ${userPostId}`;
+      await sql`
+        UPDATE user_posts SET status = 'error' ${clearTask}
+        WHERE id = ${userPostId} AND (task_id = ${ctx.jobId} OR task_id IS NULL)`;
     } catch (updateErr) {
       log.error({ error: errMessage(updateErr) }, `${mode.event}_error_mark_failed`);
     }
