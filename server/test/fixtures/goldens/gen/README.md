@@ -257,3 +257,26 @@ docker run --rm --user 10001 --network none \
 ```
 
 As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
+
+## Feed-audio goldens
+
+`feed_audio.py` runs in the `ficino-worker` image and imports the real `tasks.audio_tasks`. It writes
+`feed-audio.json`: `speech` (`_post_to_speech_text(post, display_name)` over synthetic posts: plain, deleted, blank
+and missing content, a non-string content that raises, thread parts with blank and non-string entries, an empty
+display name, and 4100-code-point bodies with and without spaces and with astral characters across the cut; a raise
+is `{"raises": "<Type>: <str(exc)>"}`), `titles` (`str.title()` over the plan's examples), `persona_keys`
+(`str(v or "")`), `title_exceptions` (every code point whose `c.title()` differs from `c.upper()`) with
+`unidata_version`, `reclaim` (`_reclaim_minutes()` for `CELERY_TIME_LIMIT` 300, 600 and 1800) and `attribute_errors`
+(the `AttributeError` message of `v.get("persona")` for each non-dict JSON value). `test/audio/feedAudio.test.ts` pins
+`src/audio/feedAudio.ts` to it and `test/shared/pystr.test.ts` pins `pyTitle`, `PY_TITLE_EXCEPTIONS` and
+`pyTypeName`. Node's ICU may know code points newer than the image's Unicode; those are out of scope.
+
+```bash
+docker run --rm --user 10001 --network none \
+  -v "$PWD/worker:/src/worker:ro" -v "$PWD/shared:/src/shared:ro" \
+  -v "$PWD/server/test/fixtures:/fx" -w /src/worker \
+  -e PYTHONPATH=/src/worker:/src/shared \
+  ficino-worker python -I /fx/goldens/gen/feed_audio.py /fx/goldens
+```
+
+As above, `chmod 777` the goldens dir first and restore the mode and ownership (root, 755) afterwards.
