@@ -1,4 +1,4 @@
-import type { JobState } from '../jobs/queue.js';
+import type { JobQueue, JobState } from '../jobs/queue.js';
 
 const isDict = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -18,6 +18,25 @@ export function summaryStatusFromJob(paperId: string, s: JobState): Record<strin
 /** A job that will never finish: a row still saying `generating` for it is stranded. */
 export function isStuckJobState(state: JobState['state']): boolean {
   return state === 'failed' || state === 'cancelled' || state === 'missing';
+}
+
+/**
+ * Whether a row still saying `generating` for `taskId` is stranded: its job is failed, cancelled or missing, or
+ * `completed` (the worker writes its row before its handler returns, so a generating row on its own completed job
+ * lost the dispatch/placeholder race), or its state cannot be read (`taskState: 'unknown'`, `err` = the message).
+ * `created`, `retry` and `active` are still in flight.
+ */
+export async function checkStranded(
+  queue: Pick<JobQueue, 'getJobState'>,
+  taskId: string,
+): Promise<{ stranded: boolean; taskState: string; err?: string }> {
+  let state: JobState['state'];
+  try {
+    state = (await queue.getJobState(taskId)).state;
+  } catch (e) {
+    return { stranded: true, taskState: 'unknown', err: e instanceof Error ? e.message : String(e) };
+  }
+  return { stranded: isStuckJobState(state) || state === 'completed', taskState: state };
 }
 
 /** C §5.2: the Celery state machine of get_feed_status, translated to pg-boss job states. */

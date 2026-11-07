@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { feedStatusFromJob, isStuckJobState, summaryStatusFromJob } from '../../src/feed/status.js';
+import { checkStranded, feedStatusFromJob, isStuckJobState, summaryStatusFromJob } from '../../src/feed/status.js';
 import type { JobState } from '../../src/jobs/queue.js';
 
 const T = 'task-1';
@@ -70,5 +70,33 @@ describe('isStuckJobState', () => {
   it('is true for exactly failed, cancelled and missing', () => {
     const all = ['created', 'retry', 'active', 'completed', 'cancelled', 'failed', 'missing'] as const;
     expect(all.filter((s) => isStuckJobState(s))).toEqual(['cancelled', 'failed', 'missing']);
+  });
+});
+
+describe('checkStranded', () => {
+  const queueIn = (state: JobState['state']) => ({ getJobState: async () => st(state) });
+  it.each([
+    ['created', false],
+    ['retry', false],
+    ['active', false],
+    ['completed', true],
+    ['cancelled', true],
+    ['failed', true],
+    ['missing', true],
+  ] as const)('%s -> stranded %s', async (state, stranded) => {
+    expect(await checkStranded(queueIn(state), T)).toEqual({ stranded, taskState: state });
+  });
+  it('passes the task id to getJobState', async () => {
+    const seen: string[] = [];
+    await checkStranded({ getJobState: async (id: string) => (seen.push(id), st('active')) }, 'abc');
+    expect(seen).toEqual(['abc']);
+  });
+  it('a throwing getJobState is stranded, unknown, with the error message', async () => {
+    const q = { getJobState: async (): Promise<JobState> => { throw new Error('db down'); } };
+    expect(await checkStranded(q, T)).toEqual({ stranded: true, taskState: 'unknown', err: 'db down' });
+  });
+  it('a non-Error throw is stringified', async () => {
+    const q = { getJobState: async (): Promise<JobState> => { throw 'nope'; } };
+    expect(await checkStranded(q, T)).toEqual({ stranded: true, taskState: 'unknown', err: 'nope' });
   });
 });

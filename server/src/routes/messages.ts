@@ -3,9 +3,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../app.js';
 import { requireUser } from '../auth/currentUser.js';
-import type { JobState } from '../jobs/queue.js';
 import { toPydanticIso } from '../db/time.js';
-import { isStuckJobState, summaryStatusFromJob } from '../feed/status.js';
+import { checkStranded, summaryStatusFromJob } from '../feed/status.js';
 import { HttpError } from '../http/errors.js';
 import { chargeUserRateLimit, userRateLimit } from '../http/rateLimit.js';
 import { body } from '../http/validate.js';
@@ -95,22 +94,14 @@ export function messagesRoutes(): Hono<AppEnv> {
     // job is failed, cancelled, completed or unknown (or its state cannot be read), re-dispatch.
     if (summary && (summary.status || 'complete') === 'generating' && summary.task_id) {
       const oldTaskId = summary.task_id as string;
-      let taskState = 'unknown';
-      let readError: unknown;
-      try {
-        taskState = (await queue.getJobState(oldTaskId)).state;
-      } catch (e) {
-        readError = e;
-      }
-      // `completed` is stranded too: the worker commits status='complete', task_id=NULL before its handler
-      // returns, so a generating row on its own completed job lost the dispatch/upsert race.
-      if (readError !== undefined || isStuckJobState(taskState as JobState['state']) || taskState === 'completed') {
+      const check = await checkStranded(queue, oldTaskId);
+      if (check.stranded) {
         logger.warn(
           {
             paper_id: paperId,
             old_task_id: oldTaskId,
-            task_state: taskState,
-            ...(readError !== undefined && { err: readError instanceof Error ? readError.message : String(readError) }),
+            task_state: check.taskState,
+            ...(check.err !== undefined && { err: check.err }),
           },
           'paper_summary_stuck_generating',
         );
@@ -202,23 +193,67 @@ export function messagesRoutes(): Hono<AppEnv> {
     });
     logger.info({ synthesis_id: synthesisId, task_id: taskId }, 'corpus_synthesis_dispatched');
 
-    // The placeholder gives GET /groups/:id something to read for the whole generation window.
+    // The placeholder gives GET /groups/:id something to read for the whole generation window. The id is fresh, so a
+    // conflict means the worker already wrote its row; that row wins (deliberate change 10; Python overwrote it).
     await sql`
       INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages, status, task_id)
       VALUES (${synthesisId}, ${userId}, ${name}, ${ids}::uuid[], '[]'::jsonb, 'generating', ${taskId})
-      ON CONFLICT (id) DO UPDATE SET status = 'generating', task_id = ${taskId}`;
+      ON CONFLICT (id) DO NOTHING`;
     return c.json({ synthesis_id: synthesisId, task_id: taskId, status: 'generating' }, 202);
   });
 
   r.get('/groups/:synthesis_id', async (c) => {
-    const { sql } = c.var.deps;
+    const { sql, queue, logger } = c.var.deps;
     const synthesisId = c.req.param('synthesis_id');
-    const [row] = isUuid(synthesisId)
-      ? await sql`
-          SELECT id, name, paper_ids, messages, generated_at, status, task_id
-          FROM corpus_syntheses WHERE id = ${synthesisId} AND user_id = ${c.var.user.id}`
-      : [];
+    const userId = c.var.user.id;
+    const cols = sql`id, user_id, name, paper_ids, messages, generated_at, status, task_id`;
+    const select = () => sql`SELECT ${cols} FROM corpus_syntheses WHERE id = ${synthesisId} AND user_id = ${userId}`;
+    let [row] = isUuid(synthesisId) ? await select() : [];
     if (!row) throw new HttpError(404, 'Group chat not found');
+
+    // The stuck check (deliberate change 10): a 'generating' row whose job will never write it back. Error rows keep
+    // Python's behaviour (no regenerate).
+    if ((row.status || 'complete') === 'generating' && row.task_id) {
+      const oldTaskId = row.task_id as string;
+      const check = await checkStranded(queue, oldTaskId);
+      if (check.stranded) {
+        logger.warn(
+          {
+            synthesis_id: synthesisId,
+            old_task_id: oldTaskId,
+            task_state: check.taskState,
+            ...(check.err !== undefined && { err: check.err }),
+          },
+          'corpus_synthesis_stuck_generating',
+        );
+        if (Array.isArray(row.messages) && row.messages.length > 0) {
+          // The worker already wrote the answer: heal the row, no dispatch and no charge.
+          const [healed] = await sql`
+            UPDATE corpus_syntheses SET status = 'complete', task_id = NULL
+            WHERE id = ${synthesisId} AND task_id = ${oldTaskId}
+            RETURNING ${cols}`;
+          row = healed ?? (await select())[0];
+        } else {
+          // Charged only here (the POST's bucket), so polling a live or healed chat never spends it.
+          await chargeUserRateLimit(c, 'summary');
+          const taskId = await queue.send('generate_corpus_synthesis', {
+            synthesis_id: synthesisId,
+            paper_ids: row.paper_ids,
+            name: row.name,
+            user_id: String(row.user_id),
+          });
+          logger.info({ synthesis_id: synthesisId, task_id: taskId }, 'corpus_synthesis_dispatched');
+          // Take over only the row as it was read.
+          const [updated] = await sql`
+            UPDATE corpus_syntheses SET task_id = ${taskId}
+            WHERE id = ${synthesisId} AND status = 'generating' AND task_id = ${oldTaskId}
+            RETURNING ${cols}`;
+          row = updated ?? (await select())[0];
+        }
+        // Each write is guarded by the task id it saw; when it matched nothing, the row as stored now is the answer.
+        if (!row) throw new HttpError(404, 'Group chat not found');
+      }
+    }
     const status = (row.status as string) || 'complete';
 
     // Titles are looked up without a user scope, as in Python (the ids were verified at creation).

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { pino } from 'pino';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { client, testApp } from '../helpers/client.js';
@@ -18,6 +19,23 @@ const as = (id = USER_A_ID, config: Record<string, unknown> = {}) => client(test
 const base = loadConfig({ DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development' });
 const limited = (summary: number) =>
   as(USER_A_ID, { authProvider: 'basic', rateLimits: { ...base.rateLimits, summary } });
+
+type Line = Record<string, unknown> & { msg: string; level: number };
+/** A client whose log lines are captured; `queue` overrides the test queue. */
+function logged(opts: { config?: Record<string, unknown>; queue?: JobQueue } = {}) {
+  const lines: Line[] = [];
+  const logger = pino({ level: 'debug' }, { write: (x: string) => void lines.push(JSON.parse(x) as Line) });
+  return { c: client(testApp({ user: user(USER_A_ID), logger, ...opts })), lines };
+}
+/** A queue over the test queue whose getJobState throws. */
+function throwingQueue(): JobQueue {
+  const queue = Object.create(testQueue()) as JobQueue;
+  queue.getJobState = async () => {
+    throw new Error('db down');
+  };
+  return queue;
+}
+const jobCount = async () => (await sql`SELECT count(*)::int AS n FROM job_progress`)[0]!.n as number;
 
 const progressRow = async (id: string) => (await sql`SELECT queue FROM job_progress WHERE job_id = ${id}`)[0];
 const summaryRow = async (paperId: string) =>
@@ -106,6 +124,24 @@ describe('GET /messages/papers/:paper_id', () => {
     expect(j.status).toBe('generating');
     expect((await summaryRow(seeded.paper_a))!.task_id).toBe(j.task_id);
     expect((await progressRow(j.task_id))!.queue).toBe('generate_paper_summary');
+  });
+
+  it('logs paper_summary_stuck_generating with err only when the state read threw', async () => {
+    await sql`INSERT INTO paper_summaries (paper_id, messages, status, task_id)
+              VALUES (${seeded.paper_a}, '[]', 'generating', 'celery-abc')`;
+    const missing = logged();
+    await missing.c.get(`/messages/papers/${seeded.paper_a}`);
+    const m = missing.lines.find((l) => l.msg === 'paper_summary_stuck_generating')!;
+    expect(m).toMatchObject({ level: 40, paper_id: seeded.paper_a, old_task_id: 'celery-abc', task_state: 'missing' });
+    expect('err' in m).toBe(false);
+
+    const stuck = randomUUID();
+    await sql`UPDATE paper_summaries SET task_id = ${stuck} WHERE paper_id = ${seeded.paper_a}`;
+    const threw = logged({ queue: throwingQueue() });
+    await threw.c.get(`/messages/papers/${seeded.paper_a}`);
+    expect(threw.lines.find((l) => l.msg === 'paper_summary_stuck_generating')).toMatchObject({
+      level: 40, paper_id: seeded.paper_a, old_task_id: stuck, task_state: 'unknown', err: 'db down',
+    });
   });
 
   it('an error row is re-dispatched', async () => {
@@ -328,5 +364,196 @@ describe('group chats', () => {
     const empty = await synth(USER_A_ID, 'generating', 't');
     const all = await (await as().get('/messages/groups')).json();
     expect(all.find((x: any) => x.id === empty).last_message_preview).toBeNull();
+  });
+  describe('the stuck check (deliberate change 10)', () => {
+    const synthRow = async (id: string) =>
+      (await sql`SELECT status, task_id, messages FROM corpus_syntheses WHERE id = ${id}`)[0]!;
+    const done = [{ role: 'synthesis', content: 'done' }];
+    /** A real generate_corpus_synthesis job driven to a final state. */
+    const jobIn = async (op: 'complete' | 'fail' | 'cancel' | null) => {
+      const id = await testQueue().send('generate_corpus_synthesis', { synthesis_id: randomUUID() });
+      if (op) {
+        await activate(id);
+        await (await testBoss())[op]('generate_corpus_synthesis', id);
+      }
+      return id;
+    };
+    const expectRedispatched = async (id: string, old: string, j: any) => {
+      expect(j.status).toBe('generating');
+      expect(j.task_id).not.toBe(old);
+      expect(j.task_id).toMatch(/^[0-9a-f-]{36}$/);
+      expect((await progressRow(j.task_id))!.queue).toBe('generate_corpus_synthesis');
+      expect((await (await testBoss()).getJobById('generate_corpus_synthesis', j.task_id))!.data).toEqual({
+        synthesis_id: id,
+        paper_ids: [seeded.paper_a],
+        name: 'S',
+        user_id: USER_A_ID,
+      });
+      expect(await synthRow(id)).toMatchObject({ status: 'generating', task_id: j.task_id, messages: [] });
+    };
+
+    it('a generating row on a legacy Celery id (missing) re-dispatches and logs the stuck row', async () => {
+      const id = await synth(USER_A_ID, 'generating', 'celery-abc');
+      const { c, lines } = logged();
+      const r = await c.get(`/messages/groups/${id}`);
+      expect(r.status).toBe(200);
+      const j = await r.json();
+      await expectRedispatched(id, 'celery-abc', j);
+      expect(j).toMatchObject({ id, name: 'S', papers: { [seeded.paper_a]: 'a.pdf' }, messages: [] });
+      const warn = lines.find((l) => l.msg === 'corpus_synthesis_stuck_generating')!;
+      expect(warn).toMatchObject({ level: 40, synthesis_id: id, old_task_id: 'celery-abc', task_state: 'missing' });
+      expect('err' in warn).toBe(false);
+      expect(lines.find((l) => l.msg === 'corpus_synthesis_dispatched')).toMatchObject({
+        synthesis_id: id, task_id: j.task_id,
+      });
+    });
+
+    it.each(['fail', 'cancel'] as const)('a generating row on a %s-ed job re-dispatches', async (op) => {
+      const old = await jobIn(op);
+      const id = await synth(USER_A_ID, 'generating', old);
+      await expectRedispatched(id, old, await (await as().get(`/messages/groups/${id}`)).json());
+    });
+
+    it('a generating row on its own completed job with messages heals to complete without a dispatch', async () => {
+      const old = await jobIn('complete');
+      const id = await synth(USER_A_ID, 'generating', old, done);
+      const { c, lines } = logged();
+      const j = await (await c.get(`/messages/groups/${id}`)).json();
+      expect(j).toMatchObject({ id, status: 'complete', messages: done });
+      expect('task_id' in j).toBe(false);
+      expect(await jobCount()).toBe(1);
+      expect(await synthRow(id)).toEqual({ status: 'complete', task_id: null, messages: done });
+      expect(lines.find((l) => l.msg === 'corpus_synthesis_stuck_generating')).toMatchObject({
+        synthesis_id: id, old_task_id: old, task_state: 'completed',
+      });
+      expect(lines.some((l) => l.msg === 'corpus_synthesis_dispatched')).toBe(false);
+    });
+
+    it('a generating row on its own completed job with empty messages re-dispatches', async () => {
+      const old = await jobIn('complete');
+      const id = await synth(USER_A_ID, 'generating', old);
+      await expectRedispatched(id, old, await (await as().get(`/messages/groups/${id}`)).json());
+      expect(await jobCount()).toBe(2);
+    });
+
+    it('a throwing getJobState re-dispatches and logs err', async () => {
+      const old = randomUUID();
+      const id = await synth(USER_A_ID, 'generating', old);
+      const { c, lines } = logged({ queue: throwingQueue() });
+      await expectRedispatched(id, old, await (await c.get(`/messages/groups/${id}`)).json());
+      expect(lines.find((l) => l.msg === 'corpus_synthesis_stuck_generating')).toMatchObject({
+        synthesis_id: id, old_task_id: old, task_state: 'unknown', err: 'db down',
+      });
+    });
+
+    it.each(['created', 'active'] as const)('a %s job is not stranded: no dispatch, no write', async (state) => {
+      const old = await jobIn(null);
+      if (state === 'active') await activate(old);
+      const id = await synth(USER_A_ID, 'generating', old);
+      const { c, lines } = logged();
+      const j = await (await c.get(`/messages/groups/${id}`)).json();
+      expect(j).toMatchObject({ status: 'generating', task_id: old });
+      expect(await jobCount()).toBe(1);
+      expect(await synthRow(id)).toMatchObject({ status: 'generating', task_id: old });
+      expect(lines.some((l) => l.msg === 'corpus_synthesis_stuck_generating')).toBe(false);
+    });
+
+    it('an error row on a lost job keeps its behaviour: no regenerate', async () => {
+      const id = await synth(USER_A_ID, 'error', 'celery-abc');
+      const j = await (await as().get(`/messages/groups/${id}`)).json();
+      expect(j.status).toBe('error');
+      expect('task_id' in j).toBe(false);
+      expect(await jobCount()).toBe(0);
+      expect(await synthRow(id)).toMatchObject({ status: 'error', task_id: 'celery-abc' });
+    });
+
+    it('a generating row without a task_id is left alone', async () => {
+      const id = await synth(USER_A_ID, 'generating', null);
+      const j = await (await as().get(`/messages/groups/${id}`)).json();
+      expect(j.status).toBe('generating');
+      expect('task_id' in j).toBe(false);
+      expect(await jobCount()).toBe(0);
+    });
+
+    it('a stuck GET charges the summary bucket once; the next stuck GET is 429 and dispatches nothing', async () => {
+      const app = limited(1);
+      const first = await synth(USER_A_ID, 'generating', 'celery-1');
+      expect((await app.get(`/messages/groups/${first}`)).status).toBe(200);
+      const second = await synth(USER_A_ID, 'generating', 'celery-2');
+      const r = await app.get(`/messages/groups/${second}`);
+      expect(r.status).toBe(429);
+      expect((await r.json()).detail).toMatch(/^Rate limit exceeded: 1 summary per 24h/);
+      expect(await jobCount()).toBe(1);
+      expect(await synthRow(second)).toMatchObject({ status: 'generating', task_id: 'celery-2' });
+    });
+
+    it('the healed case read three times never charges', async () => {
+      const app = limited(1);
+      const healed = await synth(USER_A_ID, 'generating', 'celery-abc', done);
+      for (let i = 0; i < 3; i++) {
+        const r = await app.get(`/messages/groups/${healed}`);
+        expect(r.status).toBe(200);
+        expect((await r.json()).status).toBe('complete');
+      }
+      expect(await jobCount()).toBe(0);
+      // The bucket is untouched: one real dispatch still fits, the next does not.
+      expect((await app.get(`/messages/groups/${await synth(USER_A_ID, 'generating', 'celery-1')}`)).status).toBe(200);
+      expect((await app.get(`/messages/groups/${await synth(USER_A_ID, 'generating', 'celery-2')}`)).status).toBe(429);
+    });
+
+    it('the re-dispatch only takes over the row it saw: a row changed meanwhile is answered as stored', async () => {
+      const id = await synth(USER_A_ID, 'generating', 'celery-abc');
+      const real = testQueue();
+      const queue = Object.create(real) as JobQueue;
+      // The worker of the old job finishes between the state read and the take-over.
+      queue.send = async (name, data) => {
+        const t = await real.send(name, data);
+        await sql`UPDATE corpus_syntheses SET status = 'complete', task_id = NULL, messages = ${sql.json(done as never)}
+                  WHERE id = ${id}`;
+        return t;
+      };
+      const j = await (await client(testApp({ user: user(USER_A_ID), queue })).get(`/messages/groups/${id}`)).json();
+      expect(j).toMatchObject({ status: 'complete', messages: done });
+      expect('task_id' in j).toBe(false);
+      expect(await synthRow(id)).toEqual({ status: 'complete', task_id: null, messages: done });
+    });
+    it('the heal only touches the row it saw: a task id changed meanwhile is left and answered as stored', async () => {
+      const id = await synth(USER_A_ID, 'generating', 'celery-abc', done);
+      const fresh = await jobIn(null);
+      const queue = Object.create(testQueue()) as JobQueue;
+      // Another request takes the row over between this request's read and its heal.
+      queue.getJobState = async (taskId) => {
+        await sql`UPDATE corpus_syntheses SET task_id = ${fresh} WHERE id = ${id}`;
+        return testQueue().getJobState(taskId);
+      };
+      const j = await (await client(testApp({ user: user(USER_A_ID), queue })).get(`/messages/groups/${id}`)).json();
+      expect(j).toMatchObject({ status: 'generating', task_id: fresh, messages: done });
+      expect(await synthRow(id)).toEqual({ status: 'generating', task_id: fresh, messages: done });
+    });
+  });
+
+  it('POST race: a row the worker wrote before the placeholder insert is kept', async () => {
+    const p2 = await newPaper();
+    const real = testQueue();
+    const queue = Object.create(real) as JobQueue;
+    queue.send = async (name, data) => {
+      const t = await real.send(name, data);
+      await sql`INSERT INTO corpus_syntheses (id, user_id, name, paper_ids, messages, status, task_id)
+                VALUES (${data.synthesis_id as string}, ${USER_A_ID}, 'Worker', ${[seeded.paper_a, p2]}::uuid[],
+                        ${sql.json([{ role: 'synthesis', content: 'done' }] as never)}, 'complete', NULL)`;
+      return t;
+    };
+    const r = await client(testApp({ user: user(USER_A_ID), queue })).post('/messages/groups', {
+      name: 'Wave',
+      paper_ids: [seeded.paper_a, p2],
+    });
+    expect(r.status).toBe(202);
+    const j = await r.json();
+    const row = (await sql`SELECT status, task_id, messages, name FROM corpus_syntheses WHERE id = ${j.synthesis_id}`)[0];
+    expect(row).toEqual({
+      status: 'complete', task_id: null, messages: [{ role: 'synthesis', content: 'done' }], name: 'Worker',
+    });
+    const g = await (await as().get(`/messages/groups/${j.synthesis_id}`)).json();
+    expect(g).toMatchObject({ status: 'complete', messages: [{ role: 'synthesis', content: 'done' }] });
   });
 });
