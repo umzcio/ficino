@@ -119,6 +119,16 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     still wins, except `figure` without a figure the worker picked, which falls back to the slot type (`post` for a
     figure slot). Model-supplied engagement counts are no longer kept, so two chapter goldens' `likes`/`retweets`
     now read the server default. Posts already stored are unchanged.
+16. **Contextualization is capped per paper** (security review). Python made one contextualizer call per chunk with
+    no ceiling, and `chunk_max_tokens` (user-settable, down to 100) sets how many chunks a paper has, so one
+    text-dense upload could drive thousands of Anthropic calls on the operator's key, or hours of a shared Ollama,
+    until the soft time limit. `CONTEXT_MAX_CHUNKS` (default 200, at least 1) now caps it: a paper with more chunks
+    than that is stored with no contextual prefixes and no contextualizer call is made; the worker logs
+    `contextualizer_chunk_cap_hit` with the chunk count, the cap and the provider. The whole paper is skipped rather
+    than its first 200 chunks contextualized, so a paper's chunks are either all prefixed or none are (a half-prefixed
+    paper would rank its front chunks differently from the rest), and an oversized upload, whose text the prompt
+    truncates at `CONTEXT_MAX_PAPER_CHARS` anyway, costs no calls at all. Papers at or under the cap, and every paper
+    when `CONTEXT_PROVIDER` is `none`, behave as before.
 
 ## 3. Rulings made during execution
 

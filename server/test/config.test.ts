@@ -66,6 +66,11 @@ it('worker defaults', () => {
   expect(c.maxVisionPages).toBe(100);
   expect(c.contextMaxPaperChars).toBe(200000);
   expect(c.contextMaxTokens).toBe(150);
+  expect(c.contextMaxChunks).toBe(200);
+});
+it('CONTEXT_MAX_CHUNKS is read and must be at least 1', () => {
+  expect(loadConfig({ CONTEXT_MAX_CHUNKS: '50' }).contextMaxChunks).toBe(50);
+  expect(() => loadConfig({ CONTEXT_MAX_CHUNKS: '0' })).toThrow('CONTEXT_MAX_CHUNKS must be at least 1');
 });
 it('worker pool prefers WORKER_DB_POOL_MAX_SIZE, falls back to DB_POOL_MAX_SIZE, guards >= 2', () => {
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7' }).workerDbPoolMax).toBe(7);

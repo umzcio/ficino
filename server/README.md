@@ -136,6 +136,7 @@ write, so compose's `stop_grace_period` for the worker is 45 s.
 | `MAX_VISION_PAGES` | 100 | Pages sent to the vision fallback / figure detector per paper |
 | `CONTEXT_MAX_PAPER_CHARS` | 200000 | Paper text given to the contextualizer |
 | `CONTEXT_MAX_TOKENS` | 150 | Max tokens per chunk context |
+| `CONTEXT_MAX_CHUNKS` | 200 | A paper with more chunks than this gets no contextual prefixes (one call per chunk otherwise) |
 | `SIGNED_URL_KEY` | (none) | Signs figure and media URLs; required unless `ENVIRONMENT=development` |
 
 Provider choices (`EMBED_PROVIDER`, `LLM_PROVIDER`, `FIGURE_DETECT_PROVIDER`, `VISION_PROVIDER`, the model names, the

@@ -1,4 +1,5 @@
 // Port of worker/lib/contextualizer.py: a 1-2 sentence situating prefix per chunk.
+import { logger } from '../logger.js';
 import type { ProviderConfig } from '../providers/config.js';
 import type { ProviderDeps } from '../providers/deps.js';
 import { fetchJson } from '../providers/http.js';
@@ -94,7 +95,14 @@ async function contextAnthropic(
   });
 }
 
-/** One prefix per chunk ('' = none: provider off, or that chunk failed). A job abort rejects. */
+/**
+ * One prefix per chunk ('' = none: provider off, that chunk failed, or the paper is over the chunk cap). A job abort
+ * rejects.
+ *
+ * Every chunk costs one provider call, so a paper with more than `p.context.maxChunks` chunks is not contextualized at
+ * all (not just its first chunks): a whole paper either has prefixes or has none, and a book-sized upload, whose text
+ * the prompt truncates at `maxPaperChars` anyway, spends nothing here.
+ */
 export async function generateContexts(
   p: ProviderConfig,
   deps: ProviderDeps,
@@ -104,12 +112,14 @@ export async function generateContexts(
 ): Promise<string[]> {
   if (chunks.length === 0) return [];
   const none = () => chunks.map(() => '');
-  switch (p.context.provider) {
-    case 'ollama':
-      return contextOllama(p, deps, paperText, chunks, signal);
-    case 'anthropic':
-      return p.context.anthropicKey ? contextAnthropic(p, deps, paperText, chunks, signal) : none();
-    default:
-      return none();
+  const provider = p.context.provider;
+  const calls = provider === 'ollama' || (provider === 'anthropic' && Boolean(p.context.anthropicKey));
+  if (!calls) return none();
+  if (chunks.length > p.context.maxChunks) {
+    logger.warn({ chunks: chunks.length, max_chunks: p.context.maxChunks, provider }, 'contextualizer_chunk_cap_hit');
+    return none();
   }
+  return provider === 'ollama'
+    ? contextOllama(p, deps, paperText, chunks, signal)
+    : contextAnthropic(p, deps, paperText, chunks, signal);
 }

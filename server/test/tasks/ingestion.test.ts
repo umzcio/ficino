@@ -7,6 +7,7 @@ import * as mupdf from 'mupdf';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, type Config } from '../../src/config.js';
 import { createSql } from '../../src/db/sql.js';
+import { CONTEXT_SYSTEM_PROMPT } from '../../src/ingest/contextualize.js';
 import { makeJobContext } from '../../src/jobs/context.js';
 import { createBoss, JobQueue } from '../../src/jobs/queue.js';
 import { logger } from '../../src/logger.js';
@@ -249,6 +250,29 @@ describe('processPaper', () => {
     expect(rows.every((r) => r.contextual_prefix === 'Situating sentence.')).toBe(true);
     const embedded = f.calls.filter((c) => c.kind === 'ollama-embed').flatMap((c) => (c.body as { input: string[] }).input);
     expect(embedded).toEqual(rows.map((r) => `Situating sentence.\n\n${String(r.content)}`.trim()));
+  });
+
+  // Security review: one provider call per chunk is capped per paper (CONTEXT_MAX_CHUNKS).
+  it('a paper over CONTEXT_MAX_CHUNKS is stored without prefixes and makes no contextualizer calls', async () => {
+    config = loadConfig({
+      OLLAMA_BASE_URL: OLLAMA,
+      UPLOAD_DIR: join(dir, 'uploads'),
+      FIGURES_DIR: join(dir, 'figures'),
+      MEDIA_DIR: join(dir, 'media'),
+      CONTEXT_MAX_CHUNKS: '2',
+    });
+    await setSettings(s.user_a, { context_provider: 'ollama', chunk_max_tokens: 100 });
+    const id = await newPaper(s.user_a, markedPdf('CAP'));
+    const f = fakes();
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, depsWith(f.deps));
+    expect(r.status).toBe('complete');
+    expect(Number(r.chunk_count)).toBeGreaterThan(2);
+    const isContext = (c: (typeof f.calls)[number]) =>
+      c.kind === 'ollama-chat' && JSON.stringify(c.body).includes(CONTEXT_SYSTEM_PROMPT);
+    expect(f.calls.filter(isContext)).toEqual([]);
+    const rows = await sql`SELECT contextual_prefix FROM chunks WHERE paper_id = ${id}`;
+    expect(rows).toHaveLength(Number(r.chunk_count));
+    expect(rows.every((row) => row.contextual_prefix === null)).toBe(true);
   });
 
   // Port of worker/tests/test_auto_tagging.py: a failing tag insert must not cost the paper.

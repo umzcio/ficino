@@ -38,6 +38,8 @@ export interface Config {
   maxVisionPages: number;
   contextMaxPaperChars: number;
   contextMaxTokens: number;
+  /** `CONTEXT_MAX_CHUNKS`: a paper with more chunks than this gets no contextual prefixes (no provider calls). */
+  contextMaxChunks: number;
   port: number;
   retrieval: {
     vectorWeight: number;
@@ -181,6 +183,7 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     maxVisionPages: int(env, 'MAX_VISION_PAGES', 100),
     contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
     contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),
+    contextMaxChunks: atLeastOne('CONTEXT_MAX_CHUNKS', int(env, 'CONTEXT_MAX_CHUNKS', 200)),
     port: int(env, 'PORT', 8000),
     retrieval: {
       vectorWeight: clampWeight(env, 'RETRIEVAL_VECTOR_WEIGHT', 0.7, log),

@@ -39,6 +39,7 @@ describe('providerConfig (port of test_settings_env_hygiene.py)', () => {
     expect(p.context.provider).toBe('none');
     expect(p.context.maxPaperChars).toBe(config.contextMaxPaperChars);
     expect(p.context.maxTokens).toBe(config.contextMaxTokens);
+    expect(p.context.maxChunks).toBe(config.contextMaxChunks);
     expect(p.rerank.provider).toBe('none');
   });
 
