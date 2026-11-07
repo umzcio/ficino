@@ -123,6 +123,9 @@ describe('csrf', () => {
     const warns = lines.filter((l) => l.level === 40);
     expect(warns).toHaveLength(1);
     expect(warns[0]).toMatchObject({ msg: 'csrf_rejected', method: 'POST', path: '/papers', has_cookie: true, has_header: true });
+    // Exactly these fields besides pino's own: nothing derived from either token.
+    const own = new Set(['level', 'time', 'pid', 'hostname', 'msg']);
+    expect(Object.keys(warns[0]!).filter((k) => !own.has(k)).sort()).toEqual(['has_cookie', 'has_header', 'method', 'path']);
     for (const l of lines) {
       expect(JSON.stringify(l)).not.toContain('COOKIEVAL');
       expect(JSON.stringify(l)).not.toContain('HEADERVAL');
@@ -154,12 +157,16 @@ describe('csrf', () => {
     expect(lines.filter((l) => l.msg === 'csrf_rejected')).toEqual([]);
   });
 
-  it('empty cookie with empty header is 403', async () => {
-    const r = await testApp().request('/x', {
+  it('empty cookie with empty header is 403, logged as both missing', async () => {
+    const { lines, logger } = capturingLogger();
+    const r = await testApp({ logger }).request('/x', {
       method: 'POST',
       headers: { cookie: 'ficino_csrf=', 'x-csrf-token': '' },
     });
     expect(r.status).toBe(403);
+    const rejects = lines.filter((l) => l.msg === 'csrf_rejected');
+    expect(rejects).toHaveLength(1);
+    expect(rejects[0]).toMatchObject({ has_cookie: false, has_header: false });
   });
 
   it('CSRF 403 body is exact and still carries CORS headers', async () => {

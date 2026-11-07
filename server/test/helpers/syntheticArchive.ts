@@ -401,7 +401,7 @@ function tables(o: SyntheticDumpOptions): Table[] {
         dedupe_hash: 'synthetic-hash', created_at: T0 }],
     },
     {
-      // Ids outside id columns: metadata.corpus_id and resource_id both name the source Default corpus.
+      // Ids outside id columns: metadata.corpus_id and resource_id name the source Default corpus or the owner.
       schema: 'public',
       table: 'audit_log',
       columns: ['id', 'user_id', 'action', 'resource_type', 'resource_id', 'metadata', 'ip', 'user_agent',
@@ -412,6 +412,10 @@ function tables(o: SyntheticDumpOptions): Table[] {
           user_agent: 'synthetic-agent/1.0', status_code: 200, created_at: T0 },
         { id: ROW(0x82), user_id: SYN.owner, action: 'corpus.rename', resource_type: 'corpus',
           resource_id: SYN.defaultCorpus, metadata: { name: 'Default' }, ip: '203.0.113.7',
+          user_agent: 'synthetic-agent/1.0', status_code: 200, created_at: T1 },
+        // resource_id is text: the owner's id, spelled in upper case, as a user-resource row may hold it.
+        { id: ROW(0x83), user_id: SYN.owner, action: 'settings.update', resource_type: 'user',
+          resource_id: SYN.owner.toUpperCase(), metadata: { keys: ['llm_provider'] }, ip: '203.0.113.7',
           user_agent: 'synthetic-agent/1.0', status_code: 200, created_at: T1 },
       ],
     },

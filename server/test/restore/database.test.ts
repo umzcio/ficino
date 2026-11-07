@@ -116,6 +116,9 @@ describe('restoreDatabase on a migrated database', () => {
     expect(deleted!.c).toBe(DEFAULT_WORKSPACE_ID);
     const [renamed] = await sql`SELECT resource_id FROM audit_log WHERE resource_type = 'corpus'`;
     expect(renamed!.resource_id).toBe(DEFAULT_WORKSPACE_ID);
+    // The dump spells this one in upper case: the re-key matches ids case-insensitively.
+    const [userRow] = await sql`SELECT resource_id FROM audit_log WHERE resource_type = 'user'`;
+    expect(userRow!.resource_id).toBe(STUB_USER_ID);
 
     // No restored row anywhere still carries a source id.
     expect(await rowsMatching(sql, SOURCE_IDS.join('|'))).toEqual({});
@@ -290,11 +293,71 @@ describe('restoreDatabase on a migrated database', () => {
     await expectUntouched(before);
   });
 
-  it('aborts when a source id remains where the re-key does not reach', async () => {
+  // alerts.dedupe_hash is text the re-key never touches, so each id planted there must survive to the final check.
+  it.each([
+    ['the owner', SYN.owner],
+    ['the owner in upper case', SYN.owner.toUpperCase()],
+    ['an orphan', SYN.orphan],
+    ['an orphan in upper case', SYN.orphan.toUpperCase()],
+    ['the source Default corpus', SYN.defaultCorpus],
+    ["an orphan's corpus", SYN.orphanCorpus],
+  ])('aborts when a source id remains where the re-key does not reach: %s', async (_name, id) => {
     const before = await tableCounts(sql);
-    const dump = buildSyntheticDump().replace('\tsynthetic-hash\t', `\t${SYN.owner}\t`);
-    await expect(restore(dump)).rejects.toThrow(/source ids remain: alerts=1/);
+    const dump = buildSyntheticDump().replace('\tsynthetic-hash\t', `\t${id}\t`);
+    await expect(restore(dump)).rejects.toThrow(/source ids remain: alerts=1$/);
     await expectUntouched(before);
+  });
+
+  it("aborts when an orphan's corpus holds data", async () => {
+    const before = await tableCounts(sql);
+    // The feed stays the owner's (user_id), but now sits in the orphan's corpus.
+    const row = `${SYN.feedPlain}\t${SYN.owner}\t${SYN.defaultCorpus}\t`;
+    const dump = buildSyntheticDump();
+    expect(dump).toContain(row);
+    const moved = dump.replace(row, `${SYN.feedPlain}\t${SYN.owner}\t${SYN.orphanCorpus}\t`);
+    await expect(restore(moved)).rejects.toThrow(new RegExp(`^user ${SYN.orphan} owns data$`));
+    await expectUntouched(before);
+  });
+
+  /** `sql`, except that `begin` first runs `before` (after restoreDatabase's own pre-transaction check). */
+  const withBeforeBegin = (before: () => Promise<void>): Sql =>
+    new Proxy(sql, {
+      get(target, prop, receiver) {
+        if (prop !== 'begin') return Reflect.get(target, prop, receiver);
+        return async (...args: unknown[]) => {
+          await before();
+          return (target.begin as (...a: unknown[]) => Promise<unknown>)(...args);
+        };
+      },
+    });
+
+  it('re-checks inside the transaction: a stub created after the first check is replaced', async () => {
+    let calls = 0;
+    const racing = withBeforeBegin(async () => {
+      calls += 1;
+      await ensureStubUser(sql); // an api booting between the first check and the transaction
+    });
+    const report = await restoreDatabase(racing, buildSyntheticDump(), { sourceEmbedModel: SOURCE_MODEL });
+    expect(calls).toBe(1);
+    expect(await sql`SELECT id::text, clerk_id, email FROM users`).toEqual([
+      { id: STUB_USER_ID, clerk_id: 'stub', email: 'owner@example.com' },
+    ]);
+    expect(await rowsMatching(sql, SOURCE_IDS.join('|'))).toEqual({});
+    expect(report.counts.feed_posts).toBe(SYNTHETIC_POST_COUNT);
+  });
+
+  it('re-checks inside the transaction: data written after the first check aborts the restore', async () => {
+    const racing = withBeforeBegin(async () => {
+      await ensureStubUser(sql);
+      await sql`
+        INSERT INTO papers (id, user_id, corpus_id, filename, file_path, status)
+        VALUES (${SYN.paperDefault}, ${STUB_USER_ID}, ${DEFAULT_WORKSPACE_ID}, 'mine.pdf', '/app/uploads/x.pdf', 'complete')`;
+    });
+    await expect(
+      restoreDatabase(racing, buildSyntheticDump(), { sourceEmbedModel: SOURCE_MODEL }),
+    ).rejects.toThrow(/not empty: corpora=1, papers=1, users=1$/);
+    expect(await sql`SELECT id::text, filename FROM papers`).toEqual([{ id: SYN.paperDefault, filename: 'mine.pdf' }]);
+    expect(await sql`SELECT id::text FROM users`).toEqual([{ id: STUB_USER_ID }]);
   });
 
   it('a dry run reports and rolls back', async () => {

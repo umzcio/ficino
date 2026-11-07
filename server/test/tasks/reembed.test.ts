@@ -231,6 +231,63 @@ describe('reembedUserChunks', () => {
     expect(after.slice(2).every((r) => r.old)).toBe(true);
   });
 
+  /** `sql`, except that the `fail`-th statement updating chunks rejects (0: none fail); `updates` counts them. */
+  function failingWrites(fail: number): { db: typeof sql; updates: () => number } {
+    let n = 0;
+    const db = new Proxy(sql, {
+      apply(target, thisArg, args: unknown[]) {
+        const strings = args[0];
+        if (Array.isArray(strings) && 'raw' in strings && /UPDATE\s+chunks\b/i.test(strings.join(''))) {
+          n += 1;
+          if (n === fail) return Promise.reject(new Error('injected write failure'));
+        }
+        return Reflect.apply(target, thisArg, args);
+      },
+    });
+    return { db, updates: () => n };
+  }
+
+  /** Review Focus 3: a row tagged with the target holds the target's vector, and an untagged row its old one. */
+  async function expectTagMatchesVector(before: ChunkRow[]): Promise<number> {
+    let tagged = 0;
+    for (const [i, r] of (await chunks(s.paper_a)).entries()) {
+      if (r.metadata?.embed_model === TARGET) {
+        tagged += 1;
+        expect(await embeddingIs(r.id, fakeFor(before[i]!)), `row ${i} is tagged but holds the old vector`).toBe(true);
+      } else {
+        expect(r.old, `row ${i} is untagged but its vector changed`).toBe(true);
+      }
+    }
+    return tagged;
+  }
+
+  it('writes each batch in one statement', async () => {
+    for (let i = 0; i < 5; i++) await addChunk(s.paper_a, s.user_a, i);
+    const { db, updates } = failingWrites(0);
+    expect(await reembedUserChunks(db, providers, fakeProviders().deps, { userId: s.user_a, batchSize: 2 })).toEqual({
+      target: TARGET,
+      updated: 5,
+      remaining: 0,
+    });
+    expect(updates()).toBe(3);
+  });
+
+  // Whichever write fails, no row ends up with the new tag and an old vector (or the reverse), and a rerun finishes.
+  it.each([1, 2, 3])('a failure at chunk write %i keeps tag and vector together', async (k) => {
+    for (let i = 0; i < 5; i++) await addChunk(s.paper_a, s.user_a, i);
+    const before = await chunks(s.paper_a);
+    const { db } = failingWrites(k);
+
+    await expect(
+      reembedUserChunks(db, providers, fakeProviders().deps, { userId: s.user_a, batchSize: 2 }),
+    ).rejects.toThrow('injected write failure');
+    expect(await expectTagMatchesVector(before)).toBe(2 * (k - 1));
+
+    const rerun = await reembedUserChunks(sql, providers, fakeProviders().deps, { userId: s.user_a, batchSize: 2 });
+    expect(rerun).toEqual({ target: TARGET, updated: 5 - 2 * (k - 1), remaining: 0 });
+    expect(await expectTagMatchesVector(before)).toBe(5);
+  });
+
   it('an unavailable provider stops before writing', async () => {
     await addChunk(s.paper_a, s.user_a, 0);
     await addChunk(s.paper_a, s.user_a, 1, { metadata: null });
