@@ -71,6 +71,7 @@ PARSE_TEXTS = [
     'Sure, here it is: [{"paper_id": "c", "position": 1}] hope that helps.',
     'First [{"paper_id": "x"}] and then [{"paper_id": "y"}] too.',
     'Bad fence:\n```json\n[{"paper_id": "z",]\n```\nbut [{"paper_id": "span"}] is fine',
+    'Bad fence:\n```json\nnot json\n```\nbut [{"paper_id": "span"}] is fine',
     "```json\n{\"ordering\": [{\"paper_id\": \"wrapped\"}]}\n```",
     "```json  \n[{\"paper_id\": \"nbsp\"}]```",
     "```json   [{\"paper_id\": \"inline\"}]```",

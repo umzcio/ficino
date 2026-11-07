@@ -135,6 +135,14 @@
       "result": []
     },
     {
+      "text": "Bad fence:\n```json\nnot json\n```\nbut [{\"paper_id\": \"span\"}] is fine",
+      "result": [
+        {
+          "paper_id": "span"
+        }
+      ]
+    },
+    {
       "text": "```json\n{\"ordering\": [{\"paper_id\": \"wrapped\"}]}\n```",
       "result": [
         {
