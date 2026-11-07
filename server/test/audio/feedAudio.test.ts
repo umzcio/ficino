@@ -1,0 +1,51 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { MAX_TTS_CHARS, personaKeyOf, postToSpeechText, reclaimMinutes } from '../../src/audio/feedAudio.js';
+import type { Post } from '../../src/feed/types.js';
+import { pyLen } from '../../src/shared/pystr.js';
+
+// Plan 05 Task 6: the pure feed-audio helpers, pinned to feed-audio.json (gen/feed_audio.py runs the real
+// `_post_to_speech_text` and `_reclaim_minutes` from worker/tasks/audio_tasks.py).
+
+type SpeechCase = { name: string; post: Post; display_name: string; result: string | null | { raises: string } };
+const golden = JSON.parse(readFileSync(new URL('../fixtures/goldens/feed-audio.json', import.meta.url), 'utf8')) as {
+  speech: SpeechCase[];
+  persona_keys: Array<{ value: unknown; key: string }>;
+  reclaim: Array<{ time_limit: number; minutes: number }>;
+};
+
+describe('postToSpeechText', () => {
+  it('MAX_TTS_CHARS is 4000', () => expect(MAX_TTS_CHARS).toBe(4000));
+
+  it.each(golden.speech.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    if (c.result !== null && typeof c.result === 'object') {
+      // Python raised AttributeError; the port throws a TypeError with the same message.
+      const message = c.result.raises.replace(/^AttributeError: /, '');
+      expect(() => postToSpeechText(c.post, c.display_name)).toThrow(message);
+      return;
+    }
+    expect(postToSpeechText(c.post, c.display_name)).toBe(c.result);
+  });
+
+  it('the long cases really cross the cap', () => {
+    const long = golden.speech.filter((c) => c.name.startsWith('long') || c.name.startsWith('astral'));
+    expect(long.length).toBe(4);
+    for (const c of long) expect(pyLen(c.result as string)).toBeLessThanOrEqual(MAX_TTS_CHARS + 1);
+  });
+});
+
+describe('personaKeyOf', () => {
+  it.each(golden.persona_keys)('str(%j or "")', ({ value, key }) => {
+    expect(personaKeyOf(value)).toBe(key);
+  });
+});
+
+describe('reclaimMinutes', () => {
+  it.each(golden.reclaim)('max(15, $time_limit * 2 // 60) = $minutes', ({ time_limit, minutes }) => {
+    expect(reclaimMinutes(time_limit)).toBe(minutes);
+  });
+  it('20 for 600 s and 60 for 1800 s', () => {
+    expect(reclaimMinutes(600)).toBe(20);
+    expect(reclaimMinutes(1800)).toBe(60);
+  });
+});

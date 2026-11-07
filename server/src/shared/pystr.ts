@@ -88,3 +88,103 @@ export function pyStr(v: unknown): string {
 export function pyJsonString(s: string): string {
   return JSON.stringify(s).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
+
+/** Python truthiness of a JSON value: `None`, `False`, `0`, `""`, `[]` and `{}` are false. */
+export function pyTruthy(v: unknown): boolean {
+  if (v === null || v === undefined || v === false || v === 0 || v === '') return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v as object).length > 0;
+  return true;
+}
+
+/**
+ * Python's type name for a JSON value, as in `'<type>' object has no attribute 'get'`. A jsonb `1.0` is a Python
+ * float but a JS integer; that edge is out of scope.
+ */
+export function pyTypeName(v: unknown): string {
+  if (v === null || v === undefined) return 'NoneType';
+  if (typeof v === 'boolean') return 'bool';
+  if (typeof v === 'number') return Number.isInteger(v) ? 'int' : 'float';
+  if (typeof v === 'string') return 'str';
+  if (Array.isArray(v)) return 'list';
+  return 'dict';
+}
+
+/**
+ * Every code point whose Python `c.title()` differs from `c.upper()` (CPython 3.11, Unicode 14): the `Lt` digraphs,
+ * full special casing (`ß -> Ss`, `ﬁ -> Fi`) and Georgian Mkhedruli, which titlecases to itself. Copied from the
+ * golden `feed-audio.json` (`title_exceptions`); `test/shared/pystr.test.ts` pins the two equal.
+ */
+export const PY_TITLE_EXCEPTIONS: Readonly<Record<string, string>> = Object.freeze({
+  '\u{DF}': 'Ss', '\u{1C4}': '\u{1C5}', '\u{1C5}': '\u{1C5}', '\u{1C6}': '\u{1C5}', '\u{1C7}': '\u{1C8}',
+  '\u{1C8}': '\u{1C8}', '\u{1C9}': '\u{1C8}', '\u{1CA}': '\u{1CB}', '\u{1CB}': '\u{1CB}', '\u{1CC}': '\u{1CB}',
+  '\u{1F1}': '\u{1F2}', '\u{1F2}': '\u{1F2}', '\u{1F3}': '\u{1F2}', '\u{587}': '\u{535}\u{582}',
+  '\u{10D0}': '\u{10D0}', '\u{10D1}': '\u{10D1}', '\u{10D2}': '\u{10D2}', '\u{10D3}': '\u{10D3}',
+  '\u{10D4}': '\u{10D4}', '\u{10D5}': '\u{10D5}', '\u{10D6}': '\u{10D6}', '\u{10D7}': '\u{10D7}',
+  '\u{10D8}': '\u{10D8}', '\u{10D9}': '\u{10D9}', '\u{10DA}': '\u{10DA}', '\u{10DB}': '\u{10DB}',
+  '\u{10DC}': '\u{10DC}', '\u{10DD}': '\u{10DD}', '\u{10DE}': '\u{10DE}', '\u{10DF}': '\u{10DF}',
+  '\u{10E0}': '\u{10E0}', '\u{10E1}': '\u{10E1}', '\u{10E2}': '\u{10E2}', '\u{10E3}': '\u{10E3}',
+  '\u{10E4}': '\u{10E4}', '\u{10E5}': '\u{10E5}', '\u{10E6}': '\u{10E6}', '\u{10E7}': '\u{10E7}',
+  '\u{10E8}': '\u{10E8}', '\u{10E9}': '\u{10E9}', '\u{10EA}': '\u{10EA}', '\u{10EB}': '\u{10EB}',
+  '\u{10EC}': '\u{10EC}', '\u{10ED}': '\u{10ED}', '\u{10EE}': '\u{10EE}', '\u{10EF}': '\u{10EF}',
+  '\u{10F0}': '\u{10F0}', '\u{10F1}': '\u{10F1}', '\u{10F2}': '\u{10F2}', '\u{10F3}': '\u{10F3}',
+  '\u{10F4}': '\u{10F4}', '\u{10F5}': '\u{10F5}', '\u{10F6}': '\u{10F6}', '\u{10F7}': '\u{10F7}',
+  '\u{10F8}': '\u{10F8}', '\u{10F9}': '\u{10F9}', '\u{10FA}': '\u{10FA}', '\u{10FD}': '\u{10FD}',
+  '\u{10FE}': '\u{10FE}', '\u{10FF}': '\u{10FF}', '\u{1F80}': '\u{1F88}', '\u{1F81}': '\u{1F89}',
+  '\u{1F82}': '\u{1F8A}', '\u{1F83}': '\u{1F8B}', '\u{1F84}': '\u{1F8C}', '\u{1F85}': '\u{1F8D}',
+  '\u{1F86}': '\u{1F8E}', '\u{1F87}': '\u{1F8F}', '\u{1F88}': '\u{1F88}', '\u{1F89}': '\u{1F89}',
+  '\u{1F8A}': '\u{1F8A}', '\u{1F8B}': '\u{1F8B}', '\u{1F8C}': '\u{1F8C}', '\u{1F8D}': '\u{1F8D}',
+  '\u{1F8E}': '\u{1F8E}', '\u{1F8F}': '\u{1F8F}', '\u{1F90}': '\u{1F98}', '\u{1F91}': '\u{1F99}',
+  '\u{1F92}': '\u{1F9A}', '\u{1F93}': '\u{1F9B}', '\u{1F94}': '\u{1F9C}', '\u{1F95}': '\u{1F9D}',
+  '\u{1F96}': '\u{1F9E}', '\u{1F97}': '\u{1F9F}', '\u{1F98}': '\u{1F98}', '\u{1F99}': '\u{1F99}',
+  '\u{1F9A}': '\u{1F9A}', '\u{1F9B}': '\u{1F9B}', '\u{1F9C}': '\u{1F9C}', '\u{1F9D}': '\u{1F9D}',
+  '\u{1F9E}': '\u{1F9E}', '\u{1F9F}': '\u{1F9F}', '\u{1FA0}': '\u{1FA8}', '\u{1FA1}': '\u{1FA9}',
+  '\u{1FA2}': '\u{1FAA}', '\u{1FA3}': '\u{1FAB}', '\u{1FA4}': '\u{1FAC}', '\u{1FA5}': '\u{1FAD}',
+  '\u{1FA6}': '\u{1FAE}', '\u{1FA7}': '\u{1FAF}', '\u{1FA8}': '\u{1FA8}', '\u{1FA9}': '\u{1FA9}',
+  '\u{1FAA}': '\u{1FAA}', '\u{1FAB}': '\u{1FAB}', '\u{1FAC}': '\u{1FAC}', '\u{1FAD}': '\u{1FAD}',
+  '\u{1FAE}': '\u{1FAE}', '\u{1FAF}': '\u{1FAF}', '\u{1FB2}': '\u{1FBA}\u{345}', '\u{1FB3}': '\u{1FBC}',
+  '\u{1FB4}': '\u{386}\u{345}', '\u{1FB7}': '\u{391}\u{342}\u{345}', '\u{1FBC}': '\u{1FBC}',
+  '\u{1FC2}': '\u{1FCA}\u{345}', '\u{1FC3}': '\u{1FCC}', '\u{1FC4}': '\u{389}\u{345}',
+  '\u{1FC7}': '\u{397}\u{342}\u{345}', '\u{1FCC}': '\u{1FCC}', '\u{1FF2}': '\u{1FFA}\u{345}', '\u{1FF3}': '\u{1FFC}',
+  '\u{1FF4}': '\u{38F}\u{345}', '\u{1FF7}': '\u{3A9}\u{342}\u{345}', '\u{1FFC}': '\u{1FFC}', '\u{FB00}': 'Ff',
+  '\u{FB01}': 'Fi', '\u{FB02}': 'Fl', '\u{FB03}': 'Ffi', '\u{FB04}': 'Ffl', '\u{FB05}': 'St', '\u{FB06}': 'St',
+  '\u{FB13}': '\u{544}\u{576}', '\u{FB14}': '\u{544}\u{565}', '\u{FB15}': '\u{544}\u{56B}',
+  '\u{FB16}': '\u{54E}\u{576}', '\u{FB17}': '\u{544}\u{56D}',
+});
+
+const CASED_RE = /^\p{Cased}$/u;
+const CASE_IGNORABLE_RE = /^\p{Case_Ignorable}$/u;
+
+/**
+ * CPython's `handle_capital_sigma`: `ς` when a cased character precedes the sigma and none follows it, skipping
+ * case-ignorable characters in each direction; else `σ`.
+ */
+function capitalSigma(cps: string[], i: number): string {
+  let j = i - 1;
+  while (j >= 0 && CASE_IGNORABLE_RE.test(cps[j]!)) j--;
+  let final = j >= 0 && CASED_RE.test(cps[j]!);
+  if (final) {
+    let k = i + 1;
+    while (k < cps.length && CASE_IGNORABLE_RE.test(cps[k]!)) k++;
+    final = k === cps.length || !CASED_RE.test(cps[k]!);
+  }
+  return final ? 'ς' : 'σ';
+}
+
+/**
+ * `str.title()` (CPython `do_title`), by code points: a character after a cased one is lower-cased (`Σ` by its
+ * final-sigma context), any other gets its titlecase mapping (`PY_TITLE_EXCEPTIONS`, else the full uppercase).
+ * "Cased" is read from each input character, never from its mapping.
+ */
+export function pyTitle(s: string): string {
+  const cps = Array.from(s);
+  let out = '';
+  let previousIsCased = false;
+  for (let i = 0; i < cps.length; i++) {
+    const c = cps[i]!;
+    if (previousIsCased) out += c === 'Σ' ? capitalSigma(cps, i) : c.toLowerCase();
+    else out += PY_TITLE_EXCEPTIONS[c] ?? c.toUpperCase();
+    previousIsCased = CASED_RE.test(c);
+  }
+  return out;
+}

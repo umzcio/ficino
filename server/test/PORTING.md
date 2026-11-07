@@ -252,11 +252,11 @@ One line per Python test in api/tests, shared/tests and worker/tests. When a tas
 - [x] worker/tests/test_llm_hardening.py::test_ollama_nonempty_response_still_returns_content — plan02/T6
 - [x] worker/tests/test_llm_hardening.py::test_ollama_empty_content_with_thinking_falls_back_not_raises — plan02/T6
 - [x] worker/tests/test_llm_hardening.py::test_ollama_4xx_is_not_retried — plan02/T6
-- [ ] worker/tests/test_media_claim_reclaim.py::test_stale_generating_claim_is_reclaimable — plan05
-- [ ] worker/tests/test_media_claim_reclaim.py::test_fresh_generating_claim_is_not_stolen — plan05
-- [ ] worker/tests/test_media_claim_reclaim.py::test_legacy_null_claimed_at_generating_row_is_reclaimable — plan05
-- [ ] worker/tests/test_media_claim_reclaim.py::test_reclaim_minutes_default_is_20 — plan05
-- [ ] worker/tests/test_media_claim_reclaim.py::test_raised_celery_time_limit_widens_reclaim_window — plan05
+- [x] worker/tests/test_media_claim_reclaim.py::test_stale_generating_claim_is_reclaimable — plan05/T6 (feed-audio.test.ts: takes a generating claim 21/30/90 minutes old)
+- [x] worker/tests/test_media_claim_reclaim.py::test_fresh_generating_claim_is_not_stolen — plan05/T6 (feed-audio.test.ts: skips ready and a fresh generating claim)
+- [x] worker/tests/test_media_claim_reclaim.py::test_legacy_null_claimed_at_generating_row_is_reclaimable — plan05/T6 (feed-audio.test.ts: takes a generating row with a NULL claim)
+- [x] worker/tests/test_media_claim_reclaim.py::test_reclaim_minutes_default_is_20 — plan05/T6 (feedAudio.test.ts: reclaimMinutes 20 for 600 s and 60 for 1800 s, plus the feed-audio.json goldens)
+- [x] worker/tests/test_media_claim_reclaim.py::test_raised_celery_time_limit_widens_reclaim_window — plan05/T6 (feed-audio.test.ts: the window follows the job time limit)
 - [x] worker/tests/test_persona_helpers.py::test_build_post_sources_key_shape_and_truncation — plan03/T2
 - [x] worker/tests/test_persona_helpers.py::test_build_post_sources_respects_top_n — plan03/T2
 - [x] worker/tests/test_persona_helpers.py::test_build_post_sources_falls_back_to_paper_filename — plan03/T2

@@ -1,5 +1,21 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { PY_WORD, PY_WS, pyIsUpper, pyJsonString, pyStr, pyLen, pyRound, pySlice, pySplit, pyStrip } from '../../src/shared/pystr.js';
+import {
+  PY_TITLE_EXCEPTIONS,
+  PY_WORD,
+  PY_WS,
+  pyIsUpper,
+  pyJsonString,
+  pyLen,
+  pyRound,
+  pySlice,
+  pySplit,
+  pyStr,
+  pyStrip,
+  pyTitle,
+  pyTruthy,
+  pyTypeName,
+} from '../../src/shared/pystr.js';
 
 // Every expected value below was checked with `python3 -I -c`.
 describe('pystr', () => {
@@ -60,5 +76,56 @@ describe('pyJsonString / pyStr', () => {
   });
   it('pyStr prints Python scalars', () => {
     expect([pyStr(null), pyStr(true), pyStr(5), pyStr('x'), pyStr([1])]).toEqual(['None', 'True', '5', 'x', '[1]']);
+  });
+});
+
+// Plan 05 Task 6: pinned to feed-audio.json (gen/feed_audio.py, CPython 3.11, Unicode 14). Node's ICU may know newer
+// code points than the image's Python; those are out of scope.
+const golden = JSON.parse(readFileSync(new URL('../fixtures/goldens/feed-audio.json', import.meta.url), 'utf8')) as {
+  titles: Record<string, string>;
+  title_exceptions: Record<string, string>;
+  attribute_errors: Array<{ value: unknown; message: string }>;
+};
+
+describe('pyTitle', () => {
+  it('PY_TITLE_EXCEPTIONS is the golden map exactly', () => {
+    expect(Object.isFrozen(PY_TITLE_EXCEPTIONS)).toBe(true);
+    expect({ ...PY_TITLE_EXCEPTIONS }).toEqual(golden.title_exceptions);
+  });
+  it.each(Object.entries(golden.titles))('str.title(%j)', (s, want) => {
+    expect(pyTitle(s)).toBe(want);
+  });
+  it('titlecases every exception code point as Python does', () => {
+    for (const [c, want] of Object.entries(golden.title_exceptions)) expect(pyTitle(c), c).toBe(want);
+  });
+  it('the plan examples', () => {
+    expect(pyTitle('my_persona')).toBe('My_Persona');
+    expect(pyTitle("o'neil")).toBe("O'Neil");
+    expect(pyTitle('\u01c6x')).toBe('\u01c5x');
+    expect(pyTitle('\u00dfa')).toBe('Ssa');
+    expect(pyTitle('\u00aab')).toBe('\u00aab');
+    expect(pyTitle('\u24d0b')).toBe('\u24b6b');
+    expect(pyTitle('\u0391\u03a3 \u0391\u03a3\u0391')).toBe('\u0391\u03c2 \u0391\u03c3\u03b1');
+  });
+  it('final sigma skips case-ignorable characters both ways', () => {
+    // '.' and "'" are Case_Ignorable: after "ΑΣ." a cased letter follows, so the sigma is medial.
+    expect(pyTitle('\u0391\u03a3.\u0391')).toBe('\u0391\u03c3.\u0391');
+    expect(pyTitle("\u0391\u03a3'")).toBe("\u0391\u03c2'");
+    expect(pyTitle('\u03a3')).toBe('\u03a3');
+  });
+});
+
+describe('pyTruthy / pyTypeName', () => {
+  it('Python truthiness of JSON values', () => {
+    for (const v of [null, undefined, false, 0, '', [], {}]) expect(pyTruthy(v), JSON.stringify(v)).toBe(false);
+    for (const v of ['x', 1, -1, 0.5, true, [0], { a: 1 }, ' ']) expect(pyTruthy(v), JSON.stringify(v)).toBe(true);
+  });
+  it.each(golden.attribute_errors)('names the Python type of %j', ({ value, message }) => {
+    expect(`'${pyTypeName(value)}' object has no attribute 'get'`).toBe(message);
+  });
+  it('dict, NoneType for undefined', () => {
+    expect(pyTypeName({ a: 1 })).toBe('dict');
+    expect(pyTypeName(undefined)).toBe('NoneType');
+    expect(pyTypeName(-3)).toBe('int');
   });
 });
