@@ -204,11 +204,24 @@ export async function planStorageCopy(
     }
   }
 
-  // Rows the API will look for a file for, by the path it reads (audio is signed by post index, `routes/feed.ts`).
+  const missing = await missingFor(rows, dirs, targets);
+
+  return { copies: copies.map(({ entry: _entry, ...c }) => c), skipped, missing };
+}
+
+/**
+ * Restored rows the API will look for a file for, by the path it reads (audio is signed by post index,
+ * `routes/feed.ts`), whose file is neither in `planned` nor already on disk.
+ */
+async function missingFor(
+  rows: Awaited<ReturnType<typeof loadRows>>,
+  dirs: StorageDirs,
+  planned: ReadonlySet<string>,
+): Promise<FileCopyPlan['missing']> {
   const missing: FileCopyPlan['missing'] = [];
   const requireFile = async (kind: string, id: string, expected: string | null): Promise<void> => {
     if (expected === null) missing.push({ kind, id, expected: '(no servable path)' });
-    else if (!targets.has(expected) && !(await isFile(expected))) missing.push({ kind, id, expected });
+    else if (!planned.has(expected) && !(await isFile(expected))) missing.push({ kind, id, expected });
   };
   for (const id of [...rows.papers].sort()) await requireFile('pdf', id, join(dirs.uploadDir, `${id}.pdf`));
   for (const f of rows.figures) {
@@ -226,8 +239,52 @@ export async function planStorageCopy(
       await requireFile('episode', feed.id, join(dirs.mediaDir, 'feeds', feed.id, 'podcast', 'episode.mp3'));
     }
   }
+  return missing;
+}
 
-  return { copies: copies.map(({ entry: _entry, ...c }) => c), skipped, missing };
+/** Restored rows (every paper PDF, figure, post `audio_key` and `ready` episode) whose file is not on disk. */
+export async function missingFiles(sql: RestoreDb, dirs: StorageDirs): Promise<FileCopyPlan['missing']> {
+  return missingFor(await loadRows(sql), dirs, new Set());
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * The archive manifest as `ManifestEntry`s. Accepts a JSON list of objects, or an object whose one property is that
+ * list; each object needs a non-empty string `name`, a non-negative integer `size` and a string `etag` (`eTag` also
+ * accepted), at the top level or inside a `metadata` object as the storage API lists them. Other fields are dropped.
+ * Anything else throws `RestoreError` naming the entry index, never its content.
+ */
+export function parseManifest(value: unknown): ManifestEntry[] {
+  let list = value;
+  if (isRecord(value)) {
+    const keys = Object.keys(value);
+    if (keys.length === 1) list = value[keys[0]!];
+  }
+  if (!Array.isArray(list)) {
+    throw new RestoreError('manifest: expected a list of { name, size, etag } (or an object holding only that list)');
+  }
+  return list.map((raw, i) => {
+    const meta = isRecord(raw) && isRecord(raw.metadata) ? raw.metadata : {};
+    const pick = (...keys: string[]): unknown => {
+      for (const src of [isRecord(raw) ? raw : {}, meta]) for (const k of keys) if (src[k] !== undefined) return src[k];
+      return undefined;
+    };
+    const name = isRecord(raw) ? raw.name : undefined;
+    const size = pick('size');
+    const etag = pick('etag', 'eTag');
+    if (
+      typeof name !== 'string' ||
+      name === '' ||
+      typeof size !== 'number' ||
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      typeof etag !== 'string'
+    ) {
+      throw new RestoreError(`manifest entry ${i}: expected name (string), size (integer) and etag (string)`);
+    }
+    return { name, size, etag };
+  });
 }
 
 /** `mkdir -p` that leaves every directory it creates at 0755 whatever the umask. */
