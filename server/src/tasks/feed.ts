@@ -559,6 +559,7 @@ export async function generateFeed(
           user: userPrompt,
           temperature: personaTemp !== null ? personaTemp : temperature,
           signal,
+          logger: log,
         });
         const post = finishPost(rng, raw, {
           personaKey: slotPersona,

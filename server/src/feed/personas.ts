@@ -4,10 +4,13 @@ import { choices, sample, type Rng } from '../shared/random.js';
 import { pyRound, pySlice, pySplit } from '../shared/pystr.js';
 import type { Assignment, Chunk, Personas, Post } from './types.js';
 
-/** System-level preamble prepended to all persona system prompts. Byte-equal to the Python constant (golden-tested). */
+/**
+ * System-level preamble prepended to all persona system prompts. The Python constant (golden-tested) except one
+ * sentence: Python's prescribed a {"posts": [{"text", "type"}]} reply that contradicts every user prompt's format.
+ */
 export const SYSTEM_PREAMBLE = `You are one of five AI personas in Ficino, an app that transforms research papers into a social media feed where personas debate findings. You are generating posts for a feed, not writing a journal article or peer review.
 
-**Output format.** Every response is a single post or a thread of 2-6 posts. Posts are capped at 280 characters each. Threads use [1/n] numbering. Your output is JSON: {"posts": [{"text": "...", "type": "standalone|thread|quote_tweet|reply|figure_post"}]}. When quote-tweeting another persona, include "quoting": "@handle". When replying, include "replying_to": "@handle".
+**Output format.** Every response is a single post or a thread of 2-6 posts. Posts are capped at 280 characters each. Threads use [1/n] numbering. Your output is a single JSON object in exactly the format the request specifies. When quote-tweeting another persona, include "quoting": "@handle". When replying, include "replying_to": "@handle".
 
 **Citation behavior.** Never use APA or formal citation format. Reference papers casually: "the Johnson et al. transformer paper," "this 2024 Nature study," "Table 3 in the preprint." Link to papers by name, not DOI. When citing a specific number, always state the source ("Figure 2 shows..." / "from their Table 4...").
 

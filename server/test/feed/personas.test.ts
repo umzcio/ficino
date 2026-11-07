@@ -16,6 +16,7 @@ import {
 } from '../../src/feed/personas.js';
 import type { Chunk, Persona, Personas } from '../../src/feed/types.js';
 import { testSql } from '../helpers/db.js';
+import { fromPythonSystemPrompt } from '../helpers/preamble.js';
 
 const gold = JSON.parse(
   readFileSync(new URL('../fixtures/goldens/feed-pure.json', import.meta.url), 'utf8'),
@@ -34,9 +35,10 @@ const goldPersonas = (): Personas =>
   new Map((gold.personas as string[]).map((k) => [k, mk(k, k !== 'archivist')]));
 
 describe('goldens', () => {
-  it('SYSTEM_PREAMBLE is byte-equal to the Python constant', () => {
-    const file = readFileSync(new URL('../fixtures/goldens/system-preamble.txt', import.meta.url));
-    expect(Buffer.from(SYSTEM_PREAMBLE, 'utf8').equals(file)).toBe(true);
+  it('SYSTEM_PREAMBLE is the Python constant with only its {"posts": [...]} schema sentence replaced', () => {
+    const python = readFileSync(new URL('../fixtures/goldens/system-preamble.txt', import.meta.url), 'utf8');
+    expect(Buffer.from(SYSTEM_PREAMBLE, 'utf8').equals(Buffer.from(fromPythonSystemPrompt(python), 'utf8'))).toBe(true);
+    expect(SYSTEM_PREAMBLE).not.toContain('"posts"');
   });
   it('PREFERENCE_BLEND matches', () => expect(PREFERENCE_BLEND).toBe(gold.preference_blend));
   it('buildShortCite', () => {

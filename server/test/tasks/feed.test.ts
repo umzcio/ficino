@@ -329,8 +329,8 @@ describe('generate_feed pipeline', () => {
     expect(row!.meta).toEqual({ step: 'generating', feed_id: feedId, post_progress: '3/3' });
   });
 
-  it('Review Focus 3: garbage LLM output drops only its slot', async () => {
-    await setSettings(s.user_a, simple(6));
+  it('Review Focus 3: garbage LLM output drops only its slot; a {"posts": [...]} wrapper is unwrapped', async () => {
+    await setSettings(s.user_a, simple(7));
     const replies = [
       '{"post_type": "post", "content": "A valid take."}',
       'Plain prose with no JSON at all, but a real opinion.',
@@ -338,20 +338,23 @@ describe('generate_feed pipeline', () => {
       '[1]',
       'x'.repeat(4001),
       '{"posts": [{"text": "preamble shape", "type": "standalone"}]}',
+      '{"posts": ["not a post"]}',
     ];
     let n = 0;
     const f = fakeProviders({
       chat: (_b, info) => (info.purpose === 'persona' ? replies[n++]! : 'extends'),
     });
     const { result, lines } = await run({ user_id: s.user_a }, { providers: f.deps });
-    expect(n).toBe(6);
-    expect(result.post_count).toBe(2);
+    expect(n).toBe(7);
+    expect(result.post_count).toBe(3);
     const row = (await feedRow(result.feed_id))!;
     expect(row.posts.map((p) => p.content)).toEqual([
       'A valid take.',
       'Plain prose with no JSON at all, but a real opinion.',
+      'preamble shape',
     ]);
-    expect(row.posts.map((p) => p.id)).toEqual([1, 2]);
+    expect(row.posts.map((p) => p.id)).toEqual([1, 2, 3]);
+    expect(logged(lines, 'persona_post_unwrapped')).toHaveLength(1);
     expect(logged(lines, 'post_generation_failed')).toHaveLength(4);
   });
 

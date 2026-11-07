@@ -238,7 +238,7 @@ export async function generateChapter(
 
       try {
         // The user's temperature only: Python's chapter path has no per-persona override.
-        const raw = await generatePersonaPost(providers, deps.providers, { system, user, temperature, signal });
+        const raw = await generatePersonaPost(providers, deps.providers, { system, user, temperature, signal, logger: log });
         posts.push(
           finishChapterPost(rng, raw, { personaKey: persona, plannedType: postType, slotIndex: i, chunks, figure, logger: log }),
         );

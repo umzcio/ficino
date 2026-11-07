@@ -69,6 +69,91 @@ describe('generatePersonaPost', () => {
   });
 });
 
+describe('generatePersonaPost: {"posts": [...]} / {"post": ...} wrappers', () => {
+  const gen = async (reply: unknown) => {
+    const { deps } = fakeProviders({ chat: () => (typeof reply === 'string' ? reply : JSON.stringify(reply)) });
+    const log = logger();
+    const post = await generatePersonaPost(p, deps, { system: 's', user: 'u', temperature: 0.8, logger: log });
+    return { post, log };
+  };
+  const real = { post_type: 'post', content: 'A punchy take.', paper_ref: 'Doe et al. 2024' };
+
+  it('unwraps {"posts": [post]} and warns', async () => {
+    const { post, log } = await gen({ posts: [real] });
+    expect(post).toEqual(real);
+    expect(log.warn).toHaveBeenCalledWith({ wrapper: 'posts', count: 1, text_as_content: false }, 'persona_post_unwrapped');
+  });
+  it('takes the first of several wrapped posts and logs the count', async () => {
+    const { post, log } = await gen({ posts: [real, { post_type: 'post', content: 'second' }] });
+    expect(post).toEqual(real);
+    expect(log.warn).toHaveBeenCalledWith({ wrapper: 'posts', count: 2, text_as_content: false }, 'persona_post_unwrapped');
+  });
+  it('unwraps {"post": post}', async () => {
+    const { post, log } = await gen({ post: real });
+    expect(post).toEqual(real);
+    expect(log.warn).toHaveBeenCalledWith({ wrapper: 'post', count: 1, text_as_content: false }, 'persona_post_unwrapped');
+  });
+  it('reads "text" as content inside a wrapper (the shape the old preamble asked for)', async () => {
+    const { post, log } = await gen({ posts: [{ text: 'Spacing works.', type: 'standalone', quoting: '' }] });
+    expect(post).toEqual({ content: 'Spacing works.', type: 'standalone', quoting: '' });
+    expect(log.warn).toHaveBeenCalledWith({ wrapper: 'posts', count: 1, text_as_content: true }, 'persona_post_unwrapped');
+    expect(validatePostShape(post, { personaKey: 'skeptic', logger: logger() }).content).toBe('Spacing works.');
+  });
+  it('keeps content over text when an unwrapped post has both', async () => {
+    const { post } = await gen({ posts: [{ content: 'c', text: 't' }] });
+    expect(post).toEqual({ content: 'c', text: 't' });
+  });
+  it.each([null, ''])('takes text over a falsy content (%j) inside a wrapper', async (content) => {
+    const { post, log } = await gen({ posts: [{ content, text: 't' }] });
+    expect(post).toEqual({ content: 't' });
+    expect(log.warn).toHaveBeenCalledWith({ wrapper: 'posts', count: 1, text_as_content: true }, 'persona_post_unwrapped');
+  });
+  it('leaves a flat "text" post (no wrapper) alone', async () => {
+    const { post, log } = await gen({ text: 'flat' });
+    expect(post).toEqual({ text: 'flat' });
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['an empty posts array', { posts: [] }],
+    ['a posts array of strings', { posts: ['str'] }],
+    ['a posts array led by an array', { posts: [[real]] }],
+    ['a posts array led by null', { posts: [null, real] }],
+    ['a string post', { post: 'str' }],
+    ['an array post', { post: [real] }],
+  ])('does not unwrap %s, which still fails validation', async (_label, reply) => {
+    const { post, log } = await gen(reply);
+    expect(post).toEqual(reply);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(() => validatePostShape(post, { personaKey: 'skeptic', logger: logger() })).toThrow(
+      'persona_post_missing_content',
+    );
+  });
+  it('leaves a normal post unchanged', async () => {
+    const { post, log } = await gen(real);
+    expect(post).toEqual(real);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+  it('leaves a post with content that also carries a "posts" key alone', async () => {
+    const reply = { ...real, posts: [{ content: 'other' }] };
+    const { post, log } = await gen(reply);
+    expect(post).toEqual(reply);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+  it('leaves a thread (thread_posts, no content) that also carries a "posts" key alone', async () => {
+    const reply = { post_type: 'thread', thread_posts: ['a', 'b'], posts: [{ content: 'other' }] };
+    const { post } = await gen(reply);
+    expect(post).toEqual(reply);
+  });
+  it('unwraps a fenced wrapper reply too', async () => {
+    const { post } = await gen('```json\n' + JSON.stringify({ posts: [real] }) + '\n```');
+    expect(post).toEqual(real);
+  });
+  it('works without a logger', async () => {
+    const { deps } = fakeProviders({ chat: () => JSON.stringify({ posts: [real] }) });
+    expect(await generatePersonaPost(p, deps, { system: 's', user: 'u', temperature: 0.8 })).toEqual(real);
+  });
+});
+
 describe('classifyContradiction', () => {
   const run = async (reply: string) => {
     const { deps } = fakeProviders({ chat: () => reply });
