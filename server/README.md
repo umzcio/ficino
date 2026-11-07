@@ -68,7 +68,7 @@ The worker now runs five more queues (all one job at a time per process): `gener
 three are fanned out by `generate_feed` and a failed send never fails the feed). Plan 04 (below) adds four more.
 
 `/media/...` is new in the TS server: it serves feed audio and podcast files from `MEDIA_DIR` behind the same signed-URL
-check as figures. It has no `Range` support yet.
+check as figures. Plan 05 adds byte ranges (below).
 
 ### Conversations (plan 04)
 
@@ -95,9 +95,55 @@ The worker runs four more queues, one job at a time per process:
 | `respond_to_user_post` | 2, 180 s delay | Retrieves over the post's corpus and stores the Archivist reply and its sources |
 | `respond_to_user_post_followup` | 2, 180 s delay | Answers the trailing user turn and appends the reply |
 
-`propose_ordering`, `generate_chapter`, `generate_audio_for_feed` and `generate_podcast_for_feed` still have no handler
-until plan 05. `scripts/ollama-conversations-smoke.ts` is a manual run of the summary, a DM, a reply, a zap and an
-Archivist post against a real local Ollama (see its header); it is not part of CI.
+`scripts/ollama-conversations-smoke.ts` is a manual run of the summary, a DM, a reply, a zap and an Archivist post
+against a real local Ollama (see its header); it is not part of CI.
+
+### Reading lists and audio (plan 05)
+
+Plan 05 serves the last two product slices; after it every route in the API contract is served and every queue in
+`src/jobs/registry.ts` has a handler.
+
+| Router | Routes | Notes |
+| --- | --- | --- |
+| `/reading-lists` | `GET /`, `GET /:list_id`, `POST /`, `PUT /:list_id/reorder`, `PUT /:list_id/apply-ordering`, `POST /:list_id/chapters/:chapter_index/generate`, `DELETE /:list_id` | `POST /` creates the list and one chapter per paper (the first `unlocked`) and dispatches `propose_ordering`; it and chapter generation charge `feed_generation`. A chapter's progress is polled at `GET /feed/status/:task_id` |
+| `/feed` | `POST /:feed_id/audio`, `POST /:feed_id/podcast` | 501 `Audio TTS not configured` without `ELEVENLABS_API_KEY`. A `ready` feed or a fresh `generating` claim answers 202 without a charge; NULL, `failed` or a `generating` claim older than the reclaim window (`JOB_TIME_LIMIT_SEC`, 20 minutes at the default) is charged to the shared `audio` bucket and dispatched |
+
+The worker runs the four remaining queues:
+
+| Queue | Retries | What it does |
+| --- | --- | --- |
+| `propose_ordering` | 2, 180 s delay | Asks the LLM for a reading order with one rationale per paper; a malformed or mismatched answer falls back to the stored order with empty rationales |
+| `generate_chapter` | 2, 180 s delay | Builds the chapter's feed from its papers (figure slots as in `generate_feed`), marks the chapter `complete` and unlocks the next one in one transaction |
+| `generate_audio_for_feed` | none | Claims `audio_status`, renders each post to its own mp3 in its persona's voice (ElevenLabs text-to-speech, falling back to the default voice) and ends `ready`; any throw ends `failed` |
+| `generate_podcast_for_feed` | none | Claims `podcast_status`, writes a two-host script with the LLM and renders it in ONE ElevenLabs text-to-dialogue call into ONE file. A script over 2000 code points fails the podcast; it is never split |
+
+Media lives on local disk under `MEDIA_DIR`:
+
+- feed audio: `{MEDIA_DIR}/feeds/{feed_id}/audio/post_<n>.mp3` (one file per post, `n` the post's index);
+- podcast: `{MEDIA_DIR}/feeds/{feed_id}/podcast/episode.mp3`.
+
+Every feed delete path (clear-feeds, clear-papers, clear-everything, the delete of a workspace's last paper) removes
+`{MEDIA_DIR}/feeds/{feed_id}/`. `GET /feed/:feed_id` returns `audio_url` (per post) and `podcast_audio_url` as
+`${PUBLIC_API_BASE}/media/feeds/...?token=...`, because the frontend assigns them to `audio.src` as-is. `/media`
+answers a single byte range (`Range: bytes=a-b`, `bytes=a-` or `bytes=-n`) with 206 and `Content-Range`, an
+unsatisfiable one with 416, and always sends `Accept-Ranges: bytes`; HEAD carries `Content-Length` without a body.
+
+#### Environment variables added by plan 05
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ELEVENLABS_API_KEY` | (none) | Operator key for ElevenLabs; never a user setting. Without it the audio routes answer 501 |
+| `ELEVENLABS_MODEL_ID` | `eleven_turbo_v2_5` | The single-voice text-to-speech model (feed audio) |
+| `ELEVENLABS_DIALOGUE_MODEL_ID` | `eleven_v3` | The text-to-dialogue model (podcast) |
+| `PUBLIC_API_BASE` | `/ficino/api` | The path the browser reaches this API under, prefixed to media URLs |
+
+`PUBLIC_API_BASE` supports only same-origin deployments: it must be empty or a path (matching a relative
+`VITE_API_BASE`), never an origin; set it to the prefix the reverse proxy strips. The API and the worker must share
+`MEDIA_DIR` and `SIGNED_URL_KEY`.
+
+`scripts/elevenlabs-audio-smoke.ts` is a manual run of a reading list, a chapter and its podcast against a real local
+Ollama and, with `ELEVENLABS_API_KEY` set, the real ElevenLabs API (feed audio only with `SMOKE_FEED_AUDIO=1`); see its
+header for the cost. It is not part of CI.
 
 ## Tests
 

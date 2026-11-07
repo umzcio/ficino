@@ -80,6 +80,7 @@ An earlier run of the same script also completed every step. In that run the Arc
 
 - **Restored `paper_summaries` rows stuck in `generating` with Celery task ids re-dispatch on first view.** pg-boss reports the id as `missing`, which counts as stuck. Each one costs a `summary` charge and an LLM call when its paper is first opened after the cutover. Sweeping them to `error` during the restore changes nothing, since an `error` row also re-dispatches on view.
 - **Restored `user_posts` rows stuck in `pending` have no recovery path, as in Python.** Their Celery job will never run, and follow-ups 409. Mark them `error` during the restore, or accept them as dead.
+  Superseded by plan 05 Task 11; see `2026-11-06-ts-port-05-carryover.md`.
 - **Double-encoded legacy `messages`.** `GET /replies/{feed_id}/{post_index}` does not `json.loads` a jsonb string, as Python did. Check restored `post_replies` for string-typed `messages` before switching traffic.
 - **A final-attempt worker crash never runs the job's catch block**, so the summary and synthesis rows stay `generating`. For summaries, the API stuck check recovers them; for group chats, see the plan 05 item.
 - **The same holds for the Archivist, in live operation and not only for restored data.** A crash on the Archivist's final attempt (process killed, out of memory, a lost lease) never runs its catch, so the `user_posts` row stays `pending` forever, and follow-ups 409. Nothing re-dispatches it. Add a stuck check like the summary one, or accept it as dead.
