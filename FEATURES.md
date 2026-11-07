@@ -208,7 +208,7 @@ User-created personas with custom name, handle, color, system prompt, and retrie
 ## Distribution Model
 
 Self-host only — same model as Ollama / Immich / Paperless-ngx.
-- `git clone`, fill `.env`, pick an override (`deploy/loopback/` or `deploy/tailnet/`), `docker compose up -d --build`
+- `git clone`, fill `.env` and `postgres.env`, pick an override (`deploy/loopback/` or `deploy/tailnet/`), `docker compose up -d --build`
 - Runs on a laptop, home server, or university VM
 - Defaults to Ollama for free local inference (`AUTH_PROVIDER=none`, local storage volumes)
 - The PWA gives mobile access to the user's own instance

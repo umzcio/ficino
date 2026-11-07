@@ -4,9 +4,10 @@
 # through an override (see deploy/README.md): copy one of the deploy/*/docker-compose.override.example.yml
 # files to docker-compose.override.yml, which compose layers on top of this file automatically.
 #
-# Configuration comes from .env (copy .env.example). The server image fails closed: it runs with
-# ENVIRONMENT=production, and in production the api and worker refuse to start without SIGNED_URL_KEY.
-# Postgres initialises only with POSTGRES_PASSWORD set in .env.
+# Configuration comes from .env (copy .env.example), which only the api and worker read. The server
+# image fails closed: it runs with ENVIRONMENT=production, and in production the api and worker refuse
+# to start without SIGNED_URL_KEY. Postgres reads only postgres.env (copy postgres.env.example) and
+# initialises only with POSTGRES_PASSWORD set there.
 name: ficino
 
 x-server: &server
@@ -33,10 +34,11 @@ services:
     image: pgvector/pgvector:pg18
     container_name: ficino-postgres
     restart: unless-stopped
-    # The password comes only from .env (POSTGRES_PASSWORD), never from interpolation. It is read
+    # The password comes only from postgres.env (POSTGRES_PASSWORD), never from interpolation, and
+    # never from .env: that file holds the app's secrets, which Postgres has no use for. It is read
     # when Postgres initialises an empty volume; rotating it later also needs ALTER USER.
     env_file:
-      - path: .env
+      - path: postgres.env
         required: false
     environment:
       POSTGRES_USER: ficino

@@ -25,11 +25,12 @@ runs as it was.
 
 ## Environment
 
-Every setting is documented in the repo root's `.env.example`, which the compose stack reads as `.env`. The tables in
-the sections below add detail per area. Provider settings (`LLM_PROVIDER`, `EMBED_PROVIDER`, the model names and keys)
-are defaults that each user can override in Settings unless `PUBLIC_DEPLOYMENT=true`. Boolean variables accept
-`1/0`, `t/f`, `true/false`, `y/n`, `yes/no` and `on/off` (any case; unset or blank means the default); anything else
-stops the process at boot rather than falling back.
+Every setting is documented in the repo root's `.env.example`, which the api and worker read as `.env` (Postgres reads
+only `postgres.env`, from `postgres.env.example`). The tables in the sections below add detail per area. Provider
+settings (`LLM_PROVIDER`, `EMBED_PROVIDER`, the model names and keys) are defaults that each user can override in
+Settings unless `PUBLIC_DEPLOYMENT=true`. Boolean variables accept `1/0`, `t/f`, `true/false`, `y/n`, `yes/no` and
+`on/off` (any case; unset or blank means the default); anything else stops the process at boot rather than falling
+back.
 
 ## Commands
 

@@ -41,10 +41,28 @@ wait_for_web() {
   echo "e2e-stack: up at ${BASE_URL}"
 }
 
+# The browser specs follow the port, not the container names: refuse to run unless 127.0.0.1:$PORT
+# is published by the running e2e web, so a stray FICINO_E2E_PORT can never aim the suite (which
+# creates and deletes workspaces and uploads papers) at another stack on this machine.
+assert_e2e_port() {
+  local running published
+  running="$(docker inspect -f '{{.State.Running}}' ficino-e2e-web 2>/dev/null || true)"
+  if [[ "$running" != "true" ]]; then
+    echo "e2e-stack: ficino-e2e-web is not running; start the stack with 'scripts/e2e-stack.sh up'" >&2
+    return 1
+  fi
+  published="$(docker port ficino-e2e-web 80/tcp 2>/dev/null || true)"
+  if ! grep -qxF "127.0.0.1:${PORT}" <<<"$published"; then
+    echo "e2e-stack: 127.0.0.1:${PORT} is not the e2e web (ficino-e2e-web publishes: ${published:-nothing}); refusing to run" >&2
+    return 1
+  fi
+}
+
 # run_suite <report name> [playwright args…]
 run_suite() {
   local name="$1"
   shift
+  assert_e2e_port
   mkdir -p tests/results
   # Always explicit, so a run can never fall back to another stack's containers or port.
   export E2E_BASE_URL="$BASE_URL"

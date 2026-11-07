@@ -50,7 +50,8 @@ test('the override declares the sidecar state volume', async () => {
 test('the override appends the host env files to the base env file', async () => {
   const s = (await rendered()).services;
   const files = (svc) => svc.env_file?.map((e) => basename(e.path));
-  assert.deepEqual(files(s.postgres), ['.env', 'postgres.env']);
+  // The base reads ./postgres.env; the example's own entry is the same path until the host repoints it.
+  assert.deepEqual(files(s.postgres), ['postgres.env', 'postgres.env']);
   assert.deepEqual(files(s.api), ['.env', 'secrets.env']);
   assert.deepEqual(files(s.worker), ['.env', 'secrets.env']);
   assert.deepEqual(files(s.ts), ['tailscale.env']);

@@ -5,6 +5,7 @@
 # then
 #   1. replace the ./postgres.env, ./secrets.env and ./tailscale.env paths below with files outside
 #      the repo (mode 600). Secrets reach containers through env_file only, never interpolation.
+#      The base already gives postgres ./postgres.env (and never .env); leave that one absent.
 #   2. set FICINO_OWNER_LOGIN=<owner-login> in the project .env. It is this file's only required
 #      variable, and .env is the only file `docker compose config` reads without --env-file, so a
 #      tool that renders the config that way (such as a sidecar auto-updater) needs it there.

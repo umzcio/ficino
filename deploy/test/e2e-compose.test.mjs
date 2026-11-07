@@ -2,7 +2,8 @@
 // its driver script and the Playwright harness defaults that point at it.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { REPO, composeConfig } from './helpers.mjs';
@@ -148,4 +149,38 @@ test('the stack script rejects an unknown command with usage and exit 2', () => 
   assert.ok(err, 'expected a non-zero exit');
   assert.equal(err.status, 2);
   assert.match(err.stderr, /usage/i);
+});
+
+test('ci and full run Playwright only against the port the e2e web publishes', () => {
+  const sh = readFileSync(join(REPO, 'scripts/e2e-stack.sh'), 'utf8');
+  assert.match(sh, /docker port ficino-e2e-web 80\/tcp/);
+  assert.match(sh, /grep -qxF "127\.0\.0\.1:\$\{PORT\}"/);
+  const body = sh.slice(sh.indexOf('run_suite() {'));
+  assert.ok(body.indexOf('assert_e2e_port') < body.indexOf('npx playwright'), 'the check runs before Playwright');
+
+  // A port no e2e web publishes (8080 is the loopback override's): exit non-zero, Playwright never starts.
+  const bin = mkdtempSync(join(tmpdir(), 'ficino-e2e-port-'));
+  try {
+    const marker = join(bin, 'npx-ran');
+    writeFileSync(join(bin, 'npx'), `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    for (const cmd of ['ci', 'full']) {
+      let err;
+      try {
+        execFileSync(join(REPO, 'scripts/e2e-stack.sh'), [cmd], {
+          cwd: REPO,
+          encoding: 'utf8',
+          stdio: 'pipe',
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FICINO_E2E_PORT: '8080' },
+        });
+      } catch (e) {
+        err = e;
+      }
+      assert.ok(err, `${cmd}: expected a non-zero exit`);
+      assert.equal(err.status, 1, cmd);
+      assert.match(err.stderr, /ficino-e2e-web is not running|is not the e2e web/, cmd);
+      assert.equal(existsSync(marker), false, `${cmd}: Playwright must not run`);
+    }
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
 });

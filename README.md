@@ -242,8 +242,10 @@ Ficino is self-hosted. (The hosted service was shut down in October 2026.)
 git clone https://github.com/umzcio/ficino.git
 cd ficino
 
-# Configure: set POSTGRES_PASSWORD (and the same password in DATABASE_URL), SIGNED_URL_KEY,
-# CORS_ORIGINS, AUTH_PROVIDER and your providers. Every variable is documented in the file.
+# Configure: in postgres.env set POSTGRES_PASSWORD (Postgres reads only that file); in .env set the
+# same password in DATABASE_URL, SIGNED_URL_KEY, CORS_ORIGINS, AUTH_PROVIDER and your providers.
+# .env.example lists every server setting: the usual ones first, the rest commented out at their defaults.
+cp postgres.env.example postgres.env && chmod 600 postgres.env
 cp .env.example .env
 
 # Reach the web service on this machine only (127.0.0.1:8080)
@@ -310,7 +312,8 @@ model run the re-embed (see [server/README.md](server/README.md)).
 ficino/
 ├── docker-compose.yml        # the generic stack: postgres, api, worker, web (no published ports)
 ├── docker-compose.e2e.yml    # the throwaway loopback stack for the Playwright gate (project ficino-e2e)
-├── .env.example              # every server setting, documented
+├── .env.example              # every server setting, documented (the api and worker read .env)
+├── postgres.env.example      # POSTGRES_PASSWORD, the only setting the postgres service reads
 ├── frontend/                 # React + Vite + TypeScript (the web image: the build behind nginx)
 ├── server/                   # the backend: api, worker, migrations, restore and re-embed CLIs
 │   ├── src/                  # api/, worker/, routes/, tasks/, feed/, ingest/, providers/, restore/, ...

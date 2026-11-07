@@ -79,14 +79,18 @@ test('web is the stock frontend build and waits for a healthy api', async () => 
   assert.equal(web.depends_on.api.condition, 'service_healthy');
 });
 
-test('only postgres, api and worker read the env file', async () => {
+test('only api and worker read the app env file; postgres reads only postgres.env', async () => {
   const s = (await base()).services;
   assert.equal(s.web.env_file, undefined);
-  for (const n of ['postgres', 'api', 'worker']) {
+  for (const n of ['api', 'worker']) {
     assert.equal(s[n].env_file.length, 1, n);
     assert.match(s[n].env_file[0].path, /\/\.env$/, n);
     assert.equal(s[n].env_file[0].required, false, n);
   }
+  // .env holds the app's secrets (SIGNED_URL_KEY, provider keys); Postgres needs only its password.
+  assert.equal(s.postgres.env_file.length, 1);
+  assert.match(s.postgres.env_file[0].path, /\/postgres\.env$/);
+  assert.equal(s.postgres.env_file[0].required, false);
 });
 
 test('api and worker wait for a healthy postgres', async () => {
@@ -120,19 +124,30 @@ test('the server image healthcheck has interval and start period', () => {
   );
 });
 
-test('the env example names only variables the server or the postgres image reads', () => {
+const SERVER_ENV_SOURCES = ['server/src/config.ts', 'server/src/settings/schema.ts', 'server/src/api/main.ts', 'server/src/logger.ts'];
+const envKeys = (raw) => [...raw.matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]);
+
+test('the env example names only variables the server reads, and every one it reads', () => {
   const raw = readFileSync(join(REPO, '.env.example'), 'utf8');
-  const keys = [...raw.matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]);
-  assert.ok(keys.includes('POSTGRES_PASSWORD'));
+  const keys = envKeys(raw);
   assert.ok(keys.includes('SIGNED_URL_KEY'));
-  const src = ['server/src/config.ts', 'server/src/settings/schema.ts']
-    .map((f) => readFileSync(join(REPO, f), 'utf8'))
-    .join('\n');
+  assert.ok(!keys.includes('POSTGRES_PASSWORD'), 'the password lives in postgres.env, which only postgres reads');
+  const src = SERVER_ENV_SOURCES.map((f) => readFileSync(join(REPO, f), 'utf8')).join('\n');
   for (const k of keys) {
-    if (k === 'POSTGRES_PASSWORD') continue;
     assert.ok(src.includes(`'${k}'`) || src.includes(`env.${k}`), `${k} is not read by the server`);
   }
+  // Every setting is documented: each name the server reads (`'NAME'` literals, `env.NAME`) is in the file.
+  const read = new Set([...src.matchAll(/'([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)'|env\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1] ?? m[2]));
+  for (const k of read) assert.ok(keys.includes(k), `${k} is read by the server but missing from .env.example`);
+  // A commented default must not carry a trailing comment: compose would read `KEY=  # note` as `# note`.
+  assert.doesNotMatch(raw, /^#?[ \t]*[A-Z][A-Z0-9_]*=[^\n]*[ \t]#/m);
   for (const k of keys) assert.doesNotMatch(k, /REDIS|CELERY|SUPABASE|RAILWAY|POOL_MIN_SIZE/);
   assert.doesNotMatch(raw, /ficino\.(app|ai)\b/);
   assert.equal(existsSync(join(REPO, '.env.secrets.example')), false);
+});
+
+test('the postgres env example holds only the password', () => {
+  const raw = readFileSync(join(REPO, 'postgres.env.example'), 'utf8');
+  assert.deepEqual(envKeys(raw), ['POSTGRES_PASSWORD']);
+  assert.match(raw, /^POSTGRES_PASSWORD=$/m);
 });

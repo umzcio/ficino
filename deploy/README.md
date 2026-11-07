@@ -26,12 +26,14 @@ cp deploy/<loopback|tailnet>/docker-compose.override.example.yml docker-compose.
 
 ## Env files
 
-- **Project `.env`** (copy `.env.example`): the server's settings, read by `postgres`, `api` and
-  `worker` through `env_file`. It is also compose's default interpolation file.
-- **Secrets** live in files outside the repo (mode 600), added per service through `env_file` in the
-  host override: `postgres.env` (postgres), `secrets.env` (api, worker), `tailscale.env` (the
-  sidecar's one-off `TS_AUTHKEY`). In the example they are `./<name>.env` with `required: false`;
-  point them at the real files. Secrets never go through `${…}` interpolation.
+- **Project `.env`** (copy `.env.example`): the server's settings, read by `api` and `worker` through
+  `env_file`. It is also compose's default interpolation file. Postgres never reads it.
+- **`postgres.env`** (copy `postgres.env.example`, mode 600): `POSTGRES_PASSWORD`, the only file the
+  base gives `postgres`, so the app's keys never reach the database container.
+- **Secrets** on a host live in files outside the repo (mode 600), added per service through
+  `env_file` in the host override: `postgres.env` (postgres), `secrets.env` (api, worker),
+  `tailscale.env` (the sidecar's one-off `TS_AUTHKEY`). In the example they are `./<name>.env` with
+  `required: false`; point them at the real files. Secrets never go through `${…}` interpolation.
 - **`FICINO_OWNER_LOGIN` must be in the project `.env`.** It is the tailnet override's only required
   variable (`${FICINO_OWNER_LOGIN:?…}`), and the project `.env` is the only file compose reads for
   interpolation when no `--env-file` is given. Any tool that renders the config that way, such as a
