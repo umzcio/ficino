@@ -3,6 +3,7 @@ import { providerConfig, loadJobSettings } from '../../src/providers/config.js';
 import { resolveUserSettings } from '../../src/settings/resolve.js';
 import { loadConfig } from '../../src/config.js';
 import { PUBLIC_OFF, PUBLIC_ON } from '../helpers/publicDeployment.js';
+import { BUILT_IN, envFor, STALE_ROW } from '../helpers/lockedOverrides.js';
 import { testSql, resetDb, seedUsers, USER_A_ID, USER_B_ID } from '../helpers/db.js';
 
 const config = loadConfig({});
@@ -67,6 +68,71 @@ describe('providerConfig (port of test_settings_env_hygiene.py)', () => {
     const b = providerConfig({}, env, config);
     expect(a.llm.anthropicKey).toBe('sk-a'); // empty env var does not override
     expect(b.llm.anthropicKey).toBe('');
+  });
+
+  describe('PUBLIC_DEPLOYMENT: a row stored before the lock never picks a provider or model', () => {
+    // What providerConfig reads for each non-secret override, as [path, settings key].
+    const fields = (p: ReturnType<typeof providerConfig>) => ({
+      llm_provider: p.llm.provider,
+      ollama_llm_model: p.llm.ollamaModel,
+      claude_model: p.llm.claudeModel,
+      embed_provider: p.embed.provider,
+      ollama_embed_model: p.embed.ollamaModel,
+      voyage_embed_model: p.embed.voyageModel,
+      openai_embed_model: p.embed.openaiModel,
+      vision_provider: p.vision.provider,
+      ollama_vision_model: p.vision.ollamaModel,
+      vision_claude_model: p.vision.claudeModel,
+      figure_detect_provider: p.figureDetect.provider,
+      figure_detect_ollama_model: p.figureDetect.ollamaModel,
+      figure_detect_anthropic_model: p.figureDetect.anthropicModel,
+      context_provider: p.context.provider,
+      context_ollama_model: p.context.ollamaModel,
+      context_anthropic_model: p.context.anthropicModel,
+      rerank_provider: p.rerank.provider,
+      rerank_voyage_model: p.rerank.voyageModel,
+      rerank_cohere_model: p.rerank.cohereModel,
+    });
+    const builtIn = { ...BUILT_IN, vision_claude_model: BUILT_IN.claude_model };
+    delete (builtIn as Record<string, unknown>).rerank_local_model; // not part of ProviderConfig
+
+    it.each(PUBLIC_ON)('PUBLIC_DEPLOYMENT=%j, operator env unset: built-in defaults', (v) => {
+      const p = providerConfig(STALE_ROW, { PUBLIC_DEPLOYMENT: v }, config);
+      expect(fields(p)).toEqual(builtIn);
+      expect(JSON.stringify(p)).not.toContain('stale-');
+    });
+
+    it('operator env vars set but blank: built-in defaults', () => {
+      const p = providerConfig(STALE_ROW, { PUBLIC_DEPLOYMENT: 'true', ...envFor(() => '') }, config);
+      expect(fields(p)).toEqual(builtIn);
+    });
+
+    it('operator env set: the env value', () => {
+      const p = providerConfig(STALE_ROW, { PUBLIC_DEPLOYMENT: 'true', ...envFor((k) => `env-${k}`) }, config);
+      expect(fields(p)).toMatchObject({ claude_model: 'env-claude_model', context_provider: 'env-context_provider', vision_provider: 'env-vision_provider', rerank_provider: 'env-rerank_provider', embed_provider: 'env-embed_provider' });
+      expect(JSON.stringify(p)).not.toContain('stale-');
+    });
+
+    it('vision falls back to the operator llm provider, never the stored one', () => {
+      const env = { PUBLIC_DEPLOYMENT: 'true', LLM_PROVIDER: 'api' };
+      expect(providerConfig(STALE_ROW, env, config).vision.provider).toBe('api');
+      expect(providerConfig(STALE_ROW, { ...env, VISION_PROVIDER: '' }, config).vision.provider).toBe('api');
+    });
+
+    it('lock off: the stored row still wins (self-host unchanged)', () => {
+      for (const v of PUBLIC_OFF) {
+        const p = providerConfig(STALE_ROW, { PUBLIC_DEPLOYMENT: v, CLAUDE_MODEL: 'env-m' }, config);
+        expect(p.llm.claudeModel, JSON.stringify(v)).toBe('stale-claude_model');
+        expect(p.context.provider).toBe('stale-context_provider');
+        expect(p.vision.provider).toBe('stale-vision_provider');
+      }
+    });
+
+    it('a stored API key is still used when the operator has none (secret carve-out)', () => {
+      const p = providerConfig({ ...STALE_ROW, anthropic_api_key: 'sk-own' }, { PUBLIC_DEPLOYMENT: 'true' }, config);
+      expect(p.llm.anthropicKey).toBe('sk-own');
+      expect(p.llm.claudeModel).toBe(BUILT_IN.claude_model);
+    });
   });
 
   it('a stored empty string falls back to the env', () => {

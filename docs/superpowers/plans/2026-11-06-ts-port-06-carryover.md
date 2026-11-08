@@ -254,6 +254,20 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       terminated instead (the checkpoints stay in `pdf.ts` for in-process callers). Opening the thread adds about
       0.2 s per paper.
 
+26. **The `PUBLIC_DEPLOYMENT` lock ignores stored provider and model choices** (security review). Python's
+    `reassert_public_deployment` and `get_active` let the operator env win only when its variable was non-empty, so
+    a provider or model a user saved before the lock was turned on stayed in force for every variable the operator
+    left unset (the `.env.example` template leaves most of them commented out), on the operator's keys; the lock
+    then also stopped the user from changing or clearing it. Under the lock, every non-secret provider override
+    (`PROVIDER_OVERRIDE_KEYS` minus `SECRET_KEYS`: the providers and model names) now resolves from the operator's
+    env var when non-empty, else the built-in default, never from `user_settings` (`lockedProviderValue` in
+    `server/src/settings/schema.ts`). `reassertPublicDeployment` (so `resolveSettings` and `GET`/`PUT /settings`)
+    and `providerConfig` (worker jobs and the api LLM path) share that rule; under the lock `vision_provider`
+    resolves to a non-empty `VISION_PROVIDER`, else the operator-resolved LLM provider. API keys keep their rule: a
+    non-empty env var wins, else the user's own stored key, which spends the user's account and not the
+    operator's. Stored rows are left as they are, so turning the lock off restores them. With the lock off nothing
+    changes.
+
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the

@@ -177,11 +177,32 @@ export function mergeSettings(defaults: Settings, user: Record<string, unknown>)
   return merged;
 }
 
-/** Under PUBLIC_DEPLOYMENT the operator env wins over any stored user value (when the env var is non-empty). */
+/**
+ * Under PUBLIC_DEPLOYMENT, the value a locked provider/model key (PROVIDER_OVERRIDE_KEYS minus SECRET_KEYS)
+ * resolves to: the operator's env var when non-empty, else the built-in default. A stored user value is never
+ * read, so a row written before the lock cannot keep choosing providers or models on the operator's keys.
+ * Returns undefined for any other key (secrets keep "env when set, else the user's own stored key").
+ */
+export function lockedProviderValue(key: string, env: Env): string | undefined {
+  if (!PROVIDER_OVERRIDE_KEYS.has(key) || SECRET_KEYS.has(key)) return undefined;
+  const envName = SETTINGS_TO_ENV[key];
+  const v = envName === undefined ? undefined : env[envName];
+  return v ? v : String(buildDefaults({})[key] ?? '');
+}
+
+/**
+ * Under PUBLIC_DEPLOYMENT the operator is authoritative: every provider/model key resolves from the env or the
+ * built-in default (never the stored row), and an API key from a non-empty env var wins over a stored one.
+ */
 export function reassertPublicDeployment(merged: Settings, env: Env): Settings {
   const out: Settings = { ...merged };
   if (isPublicDeployment(env)) {
     for (const [key, envKey] of Object.entries(SETTINGS_TO_ENV)) {
+      const locked = lockedProviderValue(key, env);
+      if (locked !== undefined) {
+        out[key] = locked;
+        continue;
+      }
       const v = env[envKey];
       if (v) out[key] = v;
     }
