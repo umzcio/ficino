@@ -8,6 +8,7 @@ import { ApiError, getFeed, requestFeedAudio, requestFeedPodcast } from '../../l
 import { usePersonas } from '../../hooks/usePersonas'
 import { Slider } from '../_shared/primitives'
 import { safeLocal } from '../../lib/safeLocal'
+import { asText } from '../../lib/postFields'
 
 type Status =
   | 'idle'
@@ -958,7 +959,7 @@ export function ListenView({ feedId, posts }: Props) {
                       {p?.name ?? post.persona}
                     </div>
                     <div className="text-xs text-text-muted truncate">
-                      {post.content}
+                      {asText(post.content)}
                     </div>
                   </div>
                   {!hasAudio && status === 'ready' && (

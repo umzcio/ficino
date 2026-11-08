@@ -1,5 +1,8 @@
+import { asText } from '../../../lib/postFields'
+
 /** Lightweight inline markdown: **bold**, *italic*, `code`, [text](url). No block elements. */
-export function InlineMd({ text }: { text: string }) {
+export function InlineMd({ text: raw }: { text: string }) {
+  const text = asText(raw) // a non-string from stored data renders as text or nothing
   if (!text) return null
   const parts: React.ReactNode[] = []
   // Order matters: match bold before italic so ** doesn't get parsed as

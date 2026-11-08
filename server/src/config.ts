@@ -1,7 +1,11 @@
 import { isIP } from 'node:net';
 import { logger } from './logger.js';
+import { parseBool } from './shared/bool.js';
 import { normalizeHost } from './shared/host.js';
 import { pyStrip } from './shared/pystr.js';
+import { isPublicDeployment } from './settings/schema.js';
+
+export { parseBool };
 
 export type Env = Record<string, string | undefined>;
 
@@ -52,6 +56,10 @@ export interface Config {
   maxPdfPages: number;
   /** `FIGURE_DETECT_MAX_PAGES`: figure detection reads and sends only the first this-many pages. */
   figureDetectMaxPages: number;
+  /** `MAX_PAGE_CHARS`: a PDF page with more characters than this fails the paper (no retry). */
+  maxPageChars: number;
+  /** `PDF_THREAD_HEAP_MB`: the V8 heap cap of the thread that reads one paper's PDF; passing it fails the paper. */
+  pdfThreadHeapMb: number;
   contextMaxPaperChars: number;
   contextMaxTokens: number;
   /** `CONTEXT_MAX_CHUNKS`: a paper with more chunks than this gets no contextual prefixes (no provider calls). */
@@ -73,23 +81,6 @@ export interface Config {
     persona_dm: number;
     audio: number;
   };
-}
-
-const TRUE = new Set(['1', 'true', 't', 'yes', 'y', 'on']);
-const FALSE = new Set(['0', 'false', 'f', 'no', 'n', 'off']);
-
-/**
- * pydantic's bool spellings. Unset or blank uses the fallback (compose passes `VAR=` as ''); anything
- * else unrecognised throws, so a typo like `ALLOW_REGISTRATION=ture` fails at boot instead of silently
- * meaning the default.
- */
-export function parseBool(name: string, v: string | undefined, fallback: boolean): boolean {
-  if (v === undefined) return fallback;
-  const s = v.trim().toLowerCase();
-  if (s === '') return fallback;
-  if (TRUE.has(s)) return true;
-  if (FALSE.has(s)) return false;
-  throw new Error(`${name} must be a boolean, got: ${v}`);
 }
 
 function str(env: Env, name: string, fallback: string): string {
@@ -155,6 +146,11 @@ function atLeastOne(name: string, n: number): number {
   return n;
 }
 
+function pdfThreadHeapMb(n: number): number {
+  if (n < 64) throw new Error('PDF_THREAD_HEAP_MB must be at least 64');
+  return n;
+}
+
 /** The browser origins allowed in development (CORS, and their hosts for the host check). */
 export const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8000'];
 
@@ -217,7 +213,9 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     environment: str(env, 'ENVIRONMENT', 'development'),
     authProvider: authProvider(str(env, 'AUTH_PROVIDER', 'none')),
     allowRegistration: parseBool('ALLOW_REGISTRATION', env.ALLOW_REGISTRATION, false),
-    publicDeployment: parseBool('PUBLIC_DEPLOYMENT', env.PUBLIC_DEPLOYMENT, false),
+    // The same parser gates every reassert of the operator env (settings/schema.ts), so the write lock and
+    // stored-override resolution can never disagree about a spelling.
+    publicDeployment: isPublicDeployment(env),
     corsOrigins: str(env, 'CORS_ORIGINS', 'https://ficino.app,https://ficino.ai')
       .split(',')
       .map((s) => s.trim())
@@ -245,6 +243,8 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     maxVisionPages: int(env, 'MAX_VISION_PAGES', 100),
     maxPdfPages: atLeastOne('MAX_PDF_PAGES', int(env, 'MAX_PDF_PAGES', 500)),
     figureDetectMaxPages: atLeastOne('FIGURE_DETECT_MAX_PAGES', int(env, 'FIGURE_DETECT_MAX_PAGES', 60)),
+    maxPageChars: atLeastOne('MAX_PAGE_CHARS', int(env, 'MAX_PAGE_CHARS', 200_000)),
+    pdfThreadHeapMb: pdfThreadHeapMb(int(env, 'PDF_THREAD_HEAP_MB', 1024)),
     contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
     contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),
     contextMaxChunks: atLeastOne('CONTEXT_MAX_CHUNKS', int(env, 'CONTEXT_MAX_CHUNKS', 200)),

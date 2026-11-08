@@ -14,6 +14,8 @@ import {
   seedBudget,
 } from '../../src/feed/slots.js';
 import { unwrapPostWrapper } from '../../src/feed/llmPost.js';
+import { finishChapterPost } from '../../src/readingLists/chapter.js';
+import { postToSpeechText } from '../../src/audio/feedAudio.js';
 import type { Chunk, FeedFigure, Persona, Personas } from '../../src/feed/types.js';
 
 const chunk = (id: string, paper = 'p1', extra: Partial<Chunk> = {}): Chunk => ({
@@ -373,4 +375,140 @@ describe('model output cannot set server-owned post fields', () => {
       common(out);
     });
   });
+});
+
+// Security review: a steered reply can put any JSON type in a kept field. The client renders content, thread_posts,
+// paper_ref, quoting_* and replying_to as text and thread_count as a number, so startPost keeps a string (or null) as
+// given, turns a finite number into its decimal string, and drops anything else; a thread's parts must all be
+// strings and its count an integer. A post left without usable content is dropped like any other.
+describe('model post fields are type-checked', () => {
+  const personas: Personas = new Map([['stats', persona()]]);
+  type Finisher = (raw: Record<string, unknown>, postType?: string) => Record<string, unknown>;
+  const finishers: Record<string, Finisher> = {
+    finishPost: (raw, postType = 'post') => finishPost(rngOf(0), raw, {
+      personaKey: 'stats', postType, chunks: [], figure: null, idOffset: 0, timeOffset: 0, newCount: 0,
+      jobId: 'job-1', tabCategory: null, personas, logger: logger(),
+    }),
+    finishRegeneratedPost: (raw, postType = 'post') => finishRegeneratedPost(rngOf(0), raw, {
+      personaKey: 'stats', postType, chunks: [], figure: null, tabCategory: null, oldPost: { id: 7, time: '14m' },
+      postIndex: 6, logger: logger(),
+    }),
+    finishChapterPost: (raw, postType = 'post') => finishChapterPost(rngOf(0), raw, {
+      personaKey: 'stats', plannedType: postType, slotIndex: 0, chunks: [], figure: null, logger: logger(),
+    }),
+  };
+  const TEXT_FIELDS = ['paper_ref', 'quoting_handle', 'quoting_content', 'replying_to'];
+  const MODEL_FIELDS = ['post_type', 'content', ...TEXT_FIELDS, 'thread_count', 'thread_posts'];
+  /** Every model field the finished post holds is a string, null, an integer count or a list of strings. */
+  const wellTyped = (out: Record<string, unknown>) => {
+    for (const f of MODEL_FIELDS) {
+      if (!Object.hasOwn(out, f)) continue;
+      const v = out[f];
+      if (f === 'thread_count') expect(v === null || Number.isInteger(v), `${f}: ${JSON.stringify(v)}`).toBe(true);
+      else if (f === 'thread_posts') {
+        expect(v === null || (Array.isArray(v) && v.every((x) => typeof x === 'string')), f).toBe(true);
+      } else if (f === 'content' || f === 'post_type') expect(typeof v, f).toBe('string');
+      else expect(v === null || typeof v === 'string', `${f}: ${JSON.stringify(v)}`).toBe(true);
+    }
+    expect(typeof postToSpeechText(out, 'S')).toBe('string');
+  };
+
+  for (const [name, finish] of Object.entries(finishers)) {
+    describe(name, () => {
+      it.each([
+        ['an object', { x: 1 }],
+        ['an array', ['a']],
+        ['an empty object', {}],
+        ['null', null],
+        ['true', true],
+      ])('drops the post when content is %s', (_label, content) => {
+        expect(() => finish({ post_type: 'post', content })).toThrow('persona_post_missing_content');
+      });
+
+      it('stringifies a numeric content', () => {
+        const out = finish({ post_type: 'post', content: 5 });
+        expect(out.content).toBe('5');
+        wellTyped(out);
+        expect(postToSpeechText(out, 'S')).toBe('S says: 5');
+      });
+
+      it('gives a thread with object content its joined parts', () => {
+        const out = finish({ post_type: 'thread', content: { x: 1 }, thread_posts: ['One.', 'Two.'], thread_count: 2 }, 'thread');
+        expect(out).toMatchObject({ post_type: 'thread', content: 'One.\n\nTwo.', thread_posts: ['One.', 'Two.'], thread_count: 2 });
+        wellTyped(out);
+      });
+
+      for (const field of TEXT_FIELDS) {
+        it.each([
+          ['an object', { x: 1 }, undefined],
+          ['an array', ['@a'], undefined],
+          ['true', true, undefined],
+          ['a number', 5, '5'],
+          ['null', null, null],
+          ['a string', '@a', '@a'],
+        ])(`${field} as %s`, (_label, value, expected) => {
+          const out = finish({ post_type: 'quote', content: 'hi', [field]: value });
+          if (expected === undefined) expect(out).not.toHaveProperty(field);
+          else expect(out[field]).toBe(expected);
+          wellTyped(out);
+        });
+      }
+
+      it.each([
+        ['an object', {}, undefined],
+        ['an array', [2], undefined],
+        ['a string', '2', undefined],
+        ['a fraction', 2.5, undefined],
+        ['null', null, null],
+        ['an integer', 2, 2],
+      ])('thread_count as %s', (_label, value, expected) => {
+        const out = finish({ post_type: 'thread', thread_posts: ['a', 'b'], thread_count: value }, 'thread');
+        expect(out.post_type).toBe('thread');
+        if (expected === undefined) expect(out).not.toHaveProperty('thread_count');
+        else expect(out.thread_count).toBe(expected);
+        wellTyped(out);
+      });
+
+      it.each([
+        ['an object', { 0: 'a' }],
+        ['a mixed array', ['a', { x: 1 }]],
+        ['an array with null', ['a', null]],
+        ['an array with a number', ['a', 5]],
+        ['a number', 5],
+        ['a string', 'a'],
+      ])('a thread whose thread_posts is %s becomes a post without them', (_label, value) => {
+        const out = finish({ post_type: 'thread', content: 'hi', thread_posts: value, thread_count: 2 }, 'thread');
+        expect(out.post_type).toBe('post');
+        expect(out).not.toHaveProperty('thread_posts');
+        wellTyped(out);
+      });
+
+      it('drops a non-string thread_posts from a non-thread post', () => {
+        const out = finish({ post_type: 'post', content: 'hi', thread_posts: [{ x: 1 }], thread_count: {} });
+        expect(out).not.toHaveProperty('thread_posts');
+        expect(out).not.toHaveProperty('thread_count');
+        wellTyped(out);
+      });
+
+      it('a non-string post_type becomes post', () => {
+        for (const post_type of [{ x: 1 }, ['thread'], 5, null]) {
+          const out = finish({ post_type, content: 'hi' });
+          expect(out.post_type).toBe('post');
+          wellTyped(out);
+        }
+      });
+
+      it('a reply with every field mistyped stores only well-typed values', () => {
+        const out = finish({
+          post_type: 'reply', content: 7, paper_ref: { a: 1 }, thread_count: { n: 1 }, thread_posts: [1, 2],
+          quoting_handle: [], quoting_content: { q: 1 }, replying_to: {},
+        });
+        expect(out).toMatchObject({ post_type: 'reply', content: '7' });
+        for (const f of ['paper_ref', 'thread_count', 'thread_posts', 'quoting_handle', 'quoting_content', 'replying_to']) {
+          expect(out).not.toHaveProperty(f);
+        }
+        wellTyped(out);
+      });
+    });
+  }
 });

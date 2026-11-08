@@ -2,7 +2,7 @@
 // system prompt, and the post-LLM citation scrubber.
 import type { Chunk } from '../feed/types.js';
 import { PY_WORD, PY_WS, pySplit, pyStr, pyStrip } from '../shared/pystr.js';
-import { fenceUntrusted } from '../shared/sanitize.js';
+import { fenceUntrusted, sanitizeInline } from '../shared/sanitize.js';
 
 /** `_ARCHIVIST_SYSTEM_FALLBACK`, used when the `archivist` persona row is missing or its prompt is blank. */
 export const ARCHIVIST_SYSTEM_FALLBACK = `You are The Archivist, a neutral research assistant embedded in Ficino. You have read every paper in the user's corpus. Your job is to answer the user's question directly, grounding every claim in specific passages from the papers.
@@ -202,14 +202,17 @@ function render(s: string, chunks: string, depth: number): string {
 
 // ------------------------------------------------------------------- prompts
 
-/** The `chunks_text` both tasks build: one fenced block per chunk, or the no-passages line. */
+/**
+ * The `chunks_text` both tasks build: one fenced block per chunk, or the no-passages line. The title and section
+ * come from the PDF, so they go through `sanitizeInline` like every other prompt header (Python put them in raw).
+ */
 export function archivistChunksText(chunks: Chunk[]): string {
   if (chunks.length === 0) return NO_PASSAGES;
   return chunks
     .map((c) => {
       // c.get(key, default): the default only when the key is absent; a present None prints None.
-      const title = c.paper_title === undefined ? 'Unknown' : pyStr(c.paper_title);
-      const section = c.section === undefined ? 'unknown' : pyStr(c.section);
+      const title = sanitizeInline(c.paper_title === undefined ? 'Unknown' : pyStr(c.paper_title));
+      const section = sanitizeInline(c.section === undefined ? 'unknown' : pyStr(c.section));
       return `[${title} — ${section}]\n${fenceUntrusted(pyStr(c.content))}`;
     })
     .join('\n\n');

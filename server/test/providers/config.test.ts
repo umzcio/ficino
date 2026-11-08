@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { providerConfig, loadJobSettings } from '../../src/providers/config.js';
 import { resolveUserSettings } from '../../src/settings/resolve.js';
 import { loadConfig } from '../../src/config.js';
+import { PUBLIC_OFF, PUBLIC_ON } from '../helpers/publicDeployment.js';
 import { testSql, resetDb, seedUsers, USER_A_ID, USER_B_ID } from '../helpers/db.js';
 
 const config = loadConfig({});
@@ -47,6 +48,17 @@ describe('providerConfig (port of test_settings_env_hygiene.py)', () => {
     const env = { PUBLIC_DEPLOYMENT: 'true', LLM_PROVIDER: 'api' };
     const p = providerConfig({ llm_provider: 'ollama' }, env, config);
     expect(p.llm.provider).toBe('api');
+  });
+
+  it('PUBLIC_DEPLOYMENT: every truthy spelling lets the env beat the stored value; off spellings do not', () => {
+    for (const v of PUBLIC_ON) {
+      const p = providerConfig({ llm_provider: 'ollama', vision_provider: 'ollama' }, { PUBLIC_DEPLOYMENT: v, LLM_PROVIDER: 'api', VISION_PROVIDER: 'api' }, config);
+      expect([p.llm.provider, p.vision.provider], JSON.stringify(v)).toEqual(['api', 'api']);
+    }
+    for (const v of PUBLIC_OFF) {
+      const p = providerConfig({ llm_provider: 'ollama' }, { PUBLIC_DEPLOYMENT: v, LLM_PROVIDER: 'api' }, config);
+      expect(p.llm.provider, JSON.stringify(v)).toBe('ollama');
+    }
   });
 
   it('PUBLIC_DEPLOYMENT does not launder a stored key when the operator has none', () => {

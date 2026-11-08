@@ -97,6 +97,14 @@ it('MAX_PDF_PAGES and FIGURE_DETECT_MAX_PAGES are read and must be at least 1', 
   expect(() => loadConfig({ MAX_PDF_PAGES: '0' })).toThrow('MAX_PDF_PAGES must be at least 1');
   expect(() => loadConfig({ FIGURE_DETECT_MAX_PAGES: '0' })).toThrow('FIGURE_DETECT_MAX_PAGES must be at least 1');
 });
+it('MAX_PAGE_CHARS and PDF_THREAD_HEAP_MB are read with their defaults and floors', () => {
+  const d = loadConfig({});
+  expect([d.maxPageChars, d.pdfThreadHeapMb]).toEqual([200_000, 1024]);
+  const c = loadConfig({ MAX_PAGE_CHARS: '5000', PDF_THREAD_HEAP_MB: '256' });
+  expect([c.maxPageChars, c.pdfThreadHeapMb]).toEqual([5000, 256]);
+  expect(() => loadConfig({ MAX_PAGE_CHARS: '0' })).toThrow('MAX_PAGE_CHARS must be at least 1');
+  expect(() => loadConfig({ PDF_THREAD_HEAP_MB: '63' })).toThrow('PDF_THREAD_HEAP_MB must be at least 64');
+});
 it('CONTEXT_MAX_CHUNKS is read and must be at least 1', () => {
   expect(loadConfig({ CONTEXT_MAX_CHUNKS: '50' }).contextMaxChunks).toBe(50);
   expect(() => loadConfig({ CONTEXT_MAX_CHUNKS: '0' })).toThrow('CONTEXT_MAX_CHUNKS must be at least 1');

@@ -7,6 +7,7 @@ import { loadConfig } from '../../src/config.js';
 import type { ResolvedAppDeps } from '../../src/app.js';
 import { resetDb, seedUsers, testSql, USER_A_ID } from '../helpers/db.js';
 import { fakeProviders } from '../helpers/fakeProviders.js';
+import { PUBLIC_ON } from '../helpers/publicDeployment.js';
 
 function capture() {
   const logs: Array<{
@@ -147,6 +148,15 @@ describe('apiLlm', () => {
         }),
         USER_A_ID,
       );
+      await llm.chat(req);
+      expect(fp.calls.map((c) => c.model)).toEqual(['envm']);
+    });
+  });
+
+  it.each(PUBLIC_ON)('PUBLIC_DEPLOYMENT=%j: the operator env wins over a stored model', async (v) => {
+    await withSettings({ llm_provider: 'ollama', ollama_llm_model: 'm1' }, async () => {
+      const fp = fakeProviders();
+      const llm = await apiLlm(deps(fp.deps, { PUBLIC_DEPLOYMENT: v, OLLAMA_LLM_MODEL: 'envm' }), USER_A_ID);
       await llm.chat(req);
       expect(fp.calls.map((c) => c.model)).toEqual(['envm']);
     });

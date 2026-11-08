@@ -5,6 +5,7 @@
 // marker set — a 60-line parser beats pulling in remark.
 import type React from 'react'
 import { InlineMd } from '../Feed/_shared/InlineMd'
+import { asText } from '../../lib/postFields'
 
 interface MdProps {
   text: string
@@ -132,7 +133,9 @@ function splitBlocks(text: string): string[] {
   return blocks.filter(b => b.trim().length > 0)
 }
 
-export function Md({ text, className }: MdProps) {
+export function Md({ text: raw, className }: MdProps) {
+  // Stored post text is model output; a non-string renders as text or nothing rather than throwing.
+  const text = asText(raw)
   if (!text) return null
   const normalized = normalizeBlocks(text).trim()
   const blocks = splitBlocks(normalized)

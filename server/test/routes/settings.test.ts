@@ -11,6 +11,7 @@ import { coercePy } from '../../src/routes/settings.js';
 import { client, testApp } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID } from '../helpers/db.js';
 import { testQueue } from '../helpers/queue.js';
+import { PUBLIC_ON } from '../helpers/publicDeployment.js';
 
 const sql = testSql();
 let seeded: Awaited<ReturnType<typeof seedUsers>>;
@@ -196,6 +197,30 @@ describe('PUBLIC_DEPLOYMENT', () => {
     });
     const r = await client(pub).get('/settings');
     expect((await r.json()).llm_provider).toBe('api');
+  });
+
+  it.each(PUBLIC_ON)('PUBLIC_DEPLOYMENT=%j: lock, PUT response, GET and /auth/provider all agree', async (v) => {
+    await sql`INSERT INTO user_settings (user_id, settings) VALUES (${USER_A_ID}, '{"llm_provider": "ollama"}'::jsonb)`;
+    const env = { DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development', PUBLIC_DEPLOYMENT: v, LLM_PROVIDER: 'api' };
+    const key = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
+    const c = client(
+      createApp({
+        sql,
+        queue: testQueue(),
+        config: loadConfig(env),
+        logger: pino({ level: 'silent' }),
+        storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),
+        signingKey: key,
+        env,
+        userOverride: userA,
+      }),
+    );
+    expect((await (await c.get('/auth/provider')).json()).public_deployment).toBe(true);
+    const put = await c.put('/settings', { settings: { llm_provider: 'ollama', claude_model: 'x' } });
+    expect(put.status).toBe(200);
+    expect((await put.json()).llm_provider).toBe('api');
+    expect(await stored()).toEqual({ llm_provider: 'ollama' }); // pre-lock row untouched, new write dropped
+    expect((await (await c.get('/settings')).json()).llm_provider).toBe('api');
   });
 
   it('/auth/provider exposes public_deployment', async () => {

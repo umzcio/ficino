@@ -152,7 +152,7 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       `JobContext.checkpoint()` before each page. It throws the job's abort reason, or a `TimeoutError` once the
       soft limit's time has passed by the clock (its timer cannot fire during synchronous work), and
       `softLimitHit()` counts that case, so such a timeout is final like item 17. One huge page can still run
-      past the limit; only isolation (section 7) bounds that.
+      past the limit; isolation (item 25) bounds that.
     - `FIGURE_DETECT_MAX_PAGES` (default 60, at least 1): figure detection reads and sends to the detector only
       the first that-many pages and logs `figure_detect_page_cap_hit` with the page count and the cap; Python
       scanned every page. Figures past the cap are not extracted.
@@ -182,6 +182,77 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     X-Forwarded-For` and `real_ip_recursive on` into a file `frontend/nginx.conf` includes; unset, nothing is
     written and the direct peer stays the client, as before; an entry with any other character stops the
     container. The tailnet template does not include that file, so the tailnet node is unchanged.
+21. **`PUBLIC_DEPLOYMENT` has one parser** (security review). Python read it two ways: the api config (pydantic
+    bool: `1/0`, `t/f`, `true/false`, `y/n`, `yes/no`, `on/off`, trimmed, any case) gated the settings write lock
+    and `/auth/provider`, while the shared settings schema reassert (`os.getenv(...) in ("1","true","yes")`,
+    lowercased, untrimmed) made the operator env win over stored provider overrides. The port carried both, so
+    `on`, `t`, `y` or `true ` (trailing space) locked new writes but left overrides stored before the lock in
+    force on the operator's keys. `isPublicDeployment` (`server/src/settings/schema.ts`) now calls the shared
+    `parseBool` (`server/src/shared/bool.ts`) and `config.publicDeployment` is that same call, so the write
+    lock, `GET`/`PUT /settings`, `resolveSettings` and `providerConfig` (worker jobs and the api LLM path) all
+    read the pydantic spellings; unset or blank is off, and any other value already stopped the process at boot.
+    `1`, `true` and `yes` (and unset or `false`) behave as before.
+22. **Prompt fences and PDF-derived headers are hardened** (security review). Python's `fence_untrusted` and
+    `sanitize_inline` escaped only the exact strings `<untrusted>` and `</untrusted>`, so a PDF whose text held
+    `</UNTRUSTED>`, `</untrusted >`, `</ untrusted>` or `</untrusted` plus a newline could end the data block
+    early for the model. `escapeFenceTags` (`server/src/shared/sanitize.ts`) now escapes any tag that reads as
+    `untrusted` ignoring case (Unicode case folding), whitespace or invisible format characters inside it,
+    fullwidth or small-form brackets and letters, a backslash or fullwidth slash, and attributes; the `<` becomes
+    `&lt;` and the tag's own closing bracket, if any, `&gt;`, with the text in between kept. The exact lowercase
+    tags still give Python's strings byte for byte, and other text is unchanged. Separately, the archivist's
+    `chunks_text` put the paper title and chunk section raw into the system prompt, as did the reply persona's
+    grounding (section) and the paper-summary and synthesis prompts (section), while the feed and DM builders
+    already ran the same fields through `sanitize_inline`. `archivistChunksText`, `replyChunksText`,
+    `buildPaperSummaryPrompt` and `buildSynthesisPrompt` now do too (role markers stripped, whitespace collapsed,
+    fence tags escaped, 200 code points then `…`). Ordinary titles and headings render as before, including a
+    null as `None`; the goldens are unchanged.
+23. **Model post fields keep only the type the client renders** (security review). Python stored the model's values
+    for `content`, `paper_ref`, `thread_count`, `thread_posts`, `quoting_handle`, `quoting_content` and
+    `replying_to` with any JSON type, so a reply steered by a hostile paper could store, say, an object as
+    `content`; the web client's markdown renderer then threw and the whole app went blank on every start while that
+    feed was the newest, and feed audio failed on that post. `startPost` in `server/src/feed/slots.ts` now keeps a
+    text field only as a string or null (a finite number becomes its decimal string; an object, array or boolean is
+    dropped), `thread_count` only as an integer or null, and `thread_posts` only as a list of strings or null.
+    Dropping `content` drops the post as missing content (a thread with valid parts still gets them joined), and a
+    thread whose parts are not all strings becomes a post, as before. `post_type` is unchanged (`validatePostShape`
+    already made a non-string type `post`). In the web client, `PostCard` normalises a stored post's text fields
+    (`safeFeedPost`, `frontend/src/lib/postFields.ts`), `Md` and `InlineMd` render a non-string as its text or
+    nothing, and the post detail and listen views read `content` the same way, so a post stored before this change
+    cannot crash the app. `postToSpeechText` keeps Python's error on a stored non-string `content`. Well-typed
+    replies and the goldens are unchanged.
+24. **Figure crops are budgeted while cropping** (security review). Python cropped every detection on every page
+    and cut the list to `MAX_FIGURES_PER_PAPER` (50) at the end, and the port kept every page's crops in memory
+    until all pages were done, so a detector returning many full-page boxes per page held up to pages x boxes
+    crops. `extractFigures` in `server/src/ingest/figures.ts` still detects up to 4 pages at a time, but crops
+    them in page order and spends a paper-wide budget as it goes: at most 20 detections per page are cropped
+    (`figure_detect_page_capped`), no crop is made once 50 figures are kept (`figure_extract_capped`, logged
+    with the page and the cap rather than the extracted count) or once the next crop would take the crops past
+    120 million pixels (`figure_crop_pixel_budget_hit`), and no page is sent to the detector after the budget is
+    spent. 50 full-page crops of a letter or A4 page fit the pixel budget, so for ordinary papers the output,
+    indices and filenames are unchanged; a page with more than 20 detections, or a paper of oversized pages,
+    keeps fewer figures than Python did.
+25. **One paper's PDF work runs in a worker thread the job can kill** (security review). Python's PyMuPDF work ran
+    in a Celery child that the hard time limit killed; the port ran MuPDF on the worker's one thread, where the
+    item 18 checkpoints only fire between pages, so one page whose content stream decodes to a huge number of
+    operators (nested form XObjects, repeated content streams) held every queue past the soft limit, and a page
+    with tens of millions of glyphs could exhaust the V8 heap and kill the process with every in-flight job.
+    Two changes:
+    - `MAX_PAGE_CHARS` (default 200,000, at least 1): the page walk in `server/src/ingest/pdf.ts` throws a
+      `PdfLimitError` (`PDF page N has more than M characters (the per-page limit)`) at the first char over the cap,
+      before the page's text is copied out, so one page's walk holds at most the cap's worth of chars. The
+      `asText()` code-point alignment now runs after the walk over the same order; output under the cap is
+      byte-identical (the PyMuPDF goldens are unchanged). Python had no such cap.
+    - `process_paper` opens the PDF with `openIsolatedPdf` (`server/src/ingest/pdfIsolated.ts`): a
+      `node:worker_threads` thread (`pdfThread.ts`) per paper runs the same `pdf.ts` code for the markdown pass,
+      vision renders and figure detection's page text, renders and crops, over messages. The job's signal (pg-boss
+      abort or soft limit) terminates the thread mid-page, and every call rejects with the signal's reason, so the
+      soft limit stays final (item 17) and a pg-boss abort is still retried; the event loop keeps running for the
+      other queues meanwhile. The thread's V8 heap is capped by `PDF_THREAD_HEAP_MB` (default 1024, at least 64);
+      passing it ends the thread, not the process, with a `PdfLimitError`. A `PdfLimitError` marks the paper
+      `error` and returns `{status: "error"}` without a retry (logged as `ingestion_pdf_limit_not_retried`), since
+      the same file fails the same way. `process_paper` no longer calls `JobContext.checkpoint()`: the thread is
+      terminated instead (the checkpoints stay in `pdf.ts` for in-process callers). Opening the thread adds about
+      0.2 s per paper.
 
 ## 3. Rulings made during execution
 
@@ -239,7 +310,7 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
 | 01 | `parseBool` silent fallback | Fixed: Task 11 (deliberate change) |
 | 02 | Delete the golden generators with `worker/` | Done: Task 13 (tag `python-final`) |
 | 02 | Worker command, shared volumes, same key, no inherited healthcheck, `stop_grace_period` ≥ 40 s | Fixed: Task 1 (45 s) |
-| 02 | Synchronous extraction has no hard limit (`worker_thread`) | Partly fixed: page, raster and figure-page caps plus per-page time checks (section 2, item 18); isolation kept: the feed rework replaces the extractor behind the same interface |
+| 02 | Synchronous extraction has no hard limit (`worker_thread`) | Fixed: page, raster and figure-page caps (section 2, item 18), then a per-page character cap and a per-paper worker thread terminated on the job's abort or soft limit, with a heap cap (item 25) |
 | 02/05 | Reprocess endpoint (empty re-run keeps stale chunks) | Kept out of scope; the re-embed does not re-extract |
 | 03 | Re-embed on an embed-setting change | Kept as CLI only (Task 5): after switching the embedding model, run `reembed`; no settings hook, no new route |
 | 03 | Restore re-embed writes `embed_model` | Fixed: Task 5, run by the restore runbook |
@@ -318,10 +389,11 @@ cleanly; after the key is added, the api and worker are recreated and this smoke
   and re-embed after the change.
 - **Re-embed trigger in Settings.** The re-embed is a CLI only; a Settings action (or a prompt after an embedding-model
   change) belongs to the frontend redo.
-- **`worker_thread` extraction.** The bounds landed (section 2, item 18: page cap, raster cap, figure-page cap and a
-  time check between pages), but synchronous MuPDF work still runs on the worker's one thread with no hard time
-  limit, so a single pathological page can hold the event loop past the soft limit. The feed rework's extractor
-  should run in a worker thread (or child process) that is terminated on the job's deadline or abort.
+- **`worker_thread` extraction.** Done (section 2, item 25): each paper's MuPDF work runs in a worker thread that
+  the job's abort or soft limit terminates, with a heap cap and a per-page character cap. Left for the feed rework:
+  WASM memory is not under the heap cap (MuPDF's WASM build caps it at 2 GB per thread, freed when the thread
+  ends), and a worker process killed from outside (for example by the container's memory limit) still leaves its
+  `process_paper` job to pg-boss's expiry and retry.
 - **The soft-limit slice.** A soft-limit abort still discards the partial feed slice.
 - **The rest of the preamble still contradicts the per-type prompts.** It says threads use `[1/n]` numbering (the
   thread prompt says not to number) and quotes carry `"quoting": "@handle"` (the quote prompt asks for
