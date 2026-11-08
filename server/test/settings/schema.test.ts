@@ -3,6 +3,8 @@ import {
   buildDefaults, SETTINGS_TO_ENV, PROVIDER_OVERRIDE_KEYS, SECRET_KEYS, NUMERIC_BOUNDS, UI_ONLY_KEYS,
   mergeSettings, reassertPublicDeployment, isPublicDeployment,
 } from '../../src/settings/schema.js';
+import { loadConfig } from '../../src/config.js';
+import { PUBLIC_OFF, PUBLIC_ON } from '../helpers/publicDeployment.js';
 
 describe('settings schema (shared/tests/test_settings_schema.py)', () => {
   it('test_defaults_cover_every_env_mapped_key', () => {
@@ -62,9 +64,26 @@ describe('settings contract (api/tests/test_settings_contract.py, non-HTTP parts
     expect(isPublicDeployment(env)).toBe(false);
     expect(reassertPublicDeployment({ llm_provider: 'ollama' }, env).llm_provider).toBe('ollama');
   });
-  it('isPublicDeployment accepts 1/true/yes case-insensitively', () => {
-    for (const v of ['1', 'true', 'TRUE', 'Yes']) expect(isPublicDeployment({ PUBLIC_DEPLOYMENT: v })).toBe(true);
-    for (const v of ['', '0', 'no', undefined]) expect(isPublicDeployment({ PUBLIC_DEPLOYMENT: v })).toBe(false);
+  it('isPublicDeployment accepts every boolean spelling the config accepts (trimmed, case-insensitive)', () => {
+    for (const v of PUBLIC_ON) expect(isPublicDeployment({ PUBLIC_DEPLOYMENT: v }), JSON.stringify(v)).toBe(true);
+    for (const v of PUBLIC_OFF) expect(isPublicDeployment({ PUBLIC_DEPLOYMENT: v }), JSON.stringify(v)).toBe(false);
+  });
+  it('isPublicDeployment rejects an unrecognised spelling instead of reading it as off', () => {
+    for (const v of ['yep', 'enabled', '2', 'tru']) {
+      expect(() => isPublicDeployment({ PUBLIC_DEPLOYMENT: v })).toThrow(`PUBLIC_DEPLOYMENT must be a boolean, got: ${v}`);
+    }
+  });
+  it('the write lock (config.publicDeployment) and the reassert agree on every spelling', () => {
+    for (const v of [...PUBLIC_ON, ...PUBLIC_OFF]) {
+      const env = { PUBLIC_DEPLOYMENT: v };
+      expect(loadConfig(env).publicDeployment, JSON.stringify(v)).toBe(isPublicDeployment(env));
+    }
+  });
+  it('reasserts the operator env for every truthy spelling', () => {
+    for (const v of PUBLIC_ON) {
+      const env = { PUBLIC_DEPLOYMENT: v, LLM_PROVIDER: 'api' };
+      expect(reassertPublicDeployment({ llm_provider: 'ollama' }, env).llm_provider, JSON.stringify(v)).toBe('api');
+    }
   });
   it('merge: unknown user keys pass through, one level only, non-dict replaces', () => {
     const m = mergeSettings({ a: { x: { p: 1 }, y: 1 }, b: 1 }, { a: { x: { q: 2 } }, b: { z: 1 }, extra: 5 });

@@ -182,6 +182,16 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     X-Forwarded-For` and `real_ip_recursive on` into a file `frontend/nginx.conf` includes; unset, nothing is
     written and the direct peer stays the client, as before; an entry with any other character stops the
     container. The tailnet template does not include that file, so the tailnet node is unchanged.
+21. **`PUBLIC_DEPLOYMENT` has one parser** (security review). Python read it two ways: the api config (pydantic
+    bool: `1/0`, `t/f`, `true/false`, `y/n`, `yes/no`, `on/off`, trimmed, any case) gated the settings write lock
+    and `/auth/provider`, while the shared settings schema reassert (`os.getenv(...) in ("1","true","yes")`,
+    lowercased, untrimmed) made the operator env win over stored provider overrides. The port carried both, so
+    `on`, `t`, `y` or `true ` (trailing space) locked new writes but left overrides stored before the lock in
+    force on the operator's keys. `isPublicDeployment` (`server/src/settings/schema.ts`) now calls the shared
+    `parseBool` (`server/src/shared/bool.ts`) and `config.publicDeployment` is that same call, so the write
+    lock, `GET`/`PUT /settings`, `resolveSettings` and `providerConfig` (worker jobs and the api LLM path) all
+    read the pydantic spellings; unset or blank is off, and any other value already stopped the process at boot.
+    `1`, `true` and `yes` (and unset or `false`) behave as before.
 
 ## 3. Rulings made during execution
 

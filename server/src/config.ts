@@ -1,7 +1,11 @@
 import { isIP } from 'node:net';
 import { logger } from './logger.js';
+import { parseBool } from './shared/bool.js';
 import { normalizeHost } from './shared/host.js';
 import { pyStrip } from './shared/pystr.js';
+import { isPublicDeployment } from './settings/schema.js';
+
+export { parseBool };
 
 export type Env = Record<string, string | undefined>;
 
@@ -73,23 +77,6 @@ export interface Config {
     persona_dm: number;
     audio: number;
   };
-}
-
-const TRUE = new Set(['1', 'true', 't', 'yes', 'y', 'on']);
-const FALSE = new Set(['0', 'false', 'f', 'no', 'n', 'off']);
-
-/**
- * pydantic's bool spellings. Unset or blank uses the fallback (compose passes `VAR=` as ''); anything
- * else unrecognised throws, so a typo like `ALLOW_REGISTRATION=ture` fails at boot instead of silently
- * meaning the default.
- */
-export function parseBool(name: string, v: string | undefined, fallback: boolean): boolean {
-  if (v === undefined) return fallback;
-  const s = v.trim().toLowerCase();
-  if (s === '') return fallback;
-  if (TRUE.has(s)) return true;
-  if (FALSE.has(s)) return false;
-  throw new Error(`${name} must be a boolean, got: ${v}`);
 }
 
 function str(env: Env, name: string, fallback: string): string {
@@ -217,7 +204,9 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     environment: str(env, 'ENVIRONMENT', 'development'),
     authProvider: authProvider(str(env, 'AUTH_PROVIDER', 'none')),
     allowRegistration: parseBool('ALLOW_REGISTRATION', env.ALLOW_REGISTRATION, false),
-    publicDeployment: parseBool('PUBLIC_DEPLOYMENT', env.PUBLIC_DEPLOYMENT, false),
+    // The same parser gates every reassert of the operator env (settings/schema.ts), so the write lock and
+    // stored-override resolution can never disagree about a spelling.
+    publicDeployment: isPublicDeployment(env),
     corsOrigins: str(env, 'CORS_ORIGINS', 'https://ficino.app,https://ficino.ai')
       .split(',')
       .map((s) => s.trim())

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { resolveUserSettings } from '../../src/settings/resolve.js';
+import { resolveSettings, resolveUserSettings } from '../../src/settings/resolve.js';
+import { PUBLIC_OFF, PUBLIC_ON } from '../helpers/publicDeployment.js';
 import { loadStoredSettings } from '../../src/settings/stored.js';
 import { client, testApp } from '../helpers/client.js';
 import { testSql, resetDb, seedUsers, USER_A_ID, USER_B_ID } from '../helpers/db.js';
@@ -53,6 +54,18 @@ describe('resolveUserSettings', () => {
     const s = await resolveUserSettings(sql, USER_A_ID, { PUBLIC_DEPLOYMENT: 'true', LLM_PROVIDER: 'api' });
     expect(s.llm_provider).toBe('api');
     expect(s.openai_api_key).toBe('user-key'); // operator set no OPENAI key, so the row stands (matches Python)
+  });
+});
+
+describe('resolveSettings: PUBLIC_DEPLOYMENT spellings', () => {
+  it('every truthy spelling reasserts the operator env over a stored override; off spellings do not', () => {
+    const stored = { llm_provider: 'ollama' };
+    for (const v of PUBLIC_ON) {
+      expect(resolveSettings(stored, { PUBLIC_DEPLOYMENT: v, LLM_PROVIDER: 'api' }).llm_provider, JSON.stringify(v)).toBe('api');
+    }
+    for (const v of PUBLIC_OFF) {
+      expect(resolveSettings(stored, { PUBLIC_DEPLOYMENT: v, LLM_PROVIDER: 'api' }).llm_provider, JSON.stringify(v)).toBe('ollama');
+    }
   });
 });
 

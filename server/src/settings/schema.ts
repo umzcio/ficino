@@ -1,6 +1,7 @@
 // Port of shared/ficino_shared/settings_schema.py. Pure: every function takes
 // the env it should read; nothing here touches process.env.
 
+import { parseBool } from '../shared/bool.js';
 import { MAX_POSTS_PER_GENERATION } from '../shared/constants.js';
 
 export type Settings = Record<string, unknown>;
@@ -148,8 +149,14 @@ export const PROVIDER_OVERRIDE_KEYS: ReadonlySet<string> = new Set([
   'openai_embed_model',
 ]);
 
+/**
+ * The one reading of PUBLIC_DEPLOYMENT. config.publicDeployment (the PUT /settings write lock and
+ * /auth/provider) is this same call, and every reassert below uses it, so a spelling that locks writes
+ * also makes the operator env win over stored overrides. Unrecognised values throw (loadConfig hits this
+ * at boot, before any request or job can read the env).
+ */
 export function isPublicDeployment(env: Env): boolean {
-  return ['1', 'true', 'yes'].includes((env.PUBLIC_DEPLOYMENT ?? '').toLowerCase());
+  return parseBool('PUBLIC_DEPLOYMENT', env.PUBLIC_DEPLOYMENT, false);
 }
 
 function isDict(v: unknown): v is Record<string, unknown> {
