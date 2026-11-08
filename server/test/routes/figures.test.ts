@@ -41,6 +41,16 @@ describe('GET /figures/:paper_id/:figure_id', () => {
     expect(Buffer.from(await res.arrayBuffer()).equals(PNG)).toBe(true);
   });
 
+  it('keeps the private figure out of the browser HTTP cache', async () => {
+    // The service worker keeps its own figure cache, which sign-out clears;
+    // the browser's HTTP disk cache is out of the app's reach.
+    const res = await testApp({ user: { id: USER_A_ID, email: 'a@x', display_name: null } }).request(
+      url(signResource(key, figureId)),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
   it('test_missing_token_rejected', async () => {
     const r = await as(USER_A_ID).get(url());
     expect(r.status).toBe(422);

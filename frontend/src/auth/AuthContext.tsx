@@ -210,9 +210,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // local dev install and drop in as the stub user. On hosted deploys
         // VITE_API_BASE is always set — a failed fetch there is a real outage
         // and silently granting stub access would be an auth bypass.
+        // The stub is set without claiming the offline data: this path also
+        // runs when the app is opened offline or the API is restarting, which
+        // is neither a sign-in nor a session end, and the offline data (and
+        // its stored owner) is exactly what an offline open needs.
         if (!import.meta.env.VITE_API_BASE) {
           setProvider('none')
-          await adoptUser({ id: '00000000-0000-0000-0000-000000000000', email: 'stub@ficino.dev', display_name: 'You' })
+          setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'stub@ficino.dev', display_name: 'You' })
         } else {
           setError('Cannot reach API — please try again in a moment.')
         }
