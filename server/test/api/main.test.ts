@@ -1,3 +1,4 @@
+import http from 'node:http';
 import net from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -44,6 +45,30 @@ describe('startApi', () => {
     await api.close();
     await expect(fetch(`${base}/health`)).rejects.toThrow();
     api = undefined;
+  });
+
+  it('answers 421 to a foreign Host over real HTTP; the healthcheck and the CORS_ORIGINS host pass', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    api = await startApi({
+      DATABASE_URL: scratch.url,
+      PORT: '0',
+      API_HOST: '127.0.0.1',
+      LOG_LEVEL: 'silent',
+      CORS_ORIGINS: 'https://ficino.example',
+    });
+    const port = api.port;
+    const get = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port, path: '/health', headers: { host } }, (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on('error', reject);
+      });
+    expect(await get(`127.0.0.1:${port}`)).toBe(200); // what `wget http://127.0.0.1:8000/health` sends
+    expect(await get('ficino.example')).toBe(200); // what the web nginx sends (Host $host)
+    expect(await get(`attacker.example:${port}`)).toBe(421);
   });
 
   it('binds 127.0.0.1 when API_HOST is unset, and ignores the generic HOST variable', async () => {

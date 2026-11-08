@@ -31,6 +31,7 @@ export type ProviderConfig = {
     anthropicKey: string;
     maxPaperChars: number;
     maxTokens: number;
+    maxChunks: number;
   };
   rerank: { provider: string; voyageModel: string; voyageKey: string; cohereModel: string; cohereKey: string };
 };
@@ -98,6 +99,7 @@ export function providerConfig(stored: Record<string, unknown>, env: Env, config
       anthropicKey: get('anthropic_api_key'),
       maxPaperChars: config.contextMaxPaperChars,
       maxTokens: config.contextMaxTokens,
+      maxChunks: config.contextMaxChunks,
     },
     rerank: {
       provider: get('rerank_provider'),

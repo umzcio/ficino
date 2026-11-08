@@ -17,7 +17,7 @@ describe('recordAudit', () => {
       await recordAudit(c, { action: 'thing.delete', resourceType: 'thing', resourceId: 'r1', metadata: { n: 1, tags: ['a'] }, statusCode: 204 });
       return c.json({});
     });
-    await client(app).post('/_a', undefined, { headers: { 'x-real-ip': ' 1.2.3.4 ', 'user-agent': 'u'.repeat(600) } });
+    await client(app).post('/_a', undefined, { headers: { 'x-real-ip': ' 1.2.3.4 ', 'user-agent': 'u'.repeat(600) }, peer: '172.18.0.5' });
     const [row] = await sql`SELECT * FROM audit_log`;
     expect(row).toMatchObject({
       user_id: USER_A_ID, action: 'thing.delete', resource_type: 'thing', resource_id: 'r1',

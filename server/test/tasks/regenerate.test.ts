@@ -165,6 +165,28 @@ describe('regenerate_post', () => {
     expect(p).not.toHaveProperty('figure_url');
   });
 
+  it('stores none of the server-owned fields a model reply sets (security review)', async () => {
+    const feed = await addFeed(s.user_a, [post(0)]);
+    const reply = JSON.stringify({
+      post_type: 'figure',
+      content: 'An injected take.',
+      figure_url: 'https://attacker.example/x.png?d=leak',
+      figure_id: randomUUID(),
+      figure_caption: 'fake',
+      audio_url: 'https://attacker.example/a.mp3',
+      audio_key: 'k',
+      deleted: true,
+      likes: 1,
+    });
+    await regen({ feed_id: feed, post_index: 0, user_id: s.user_a }, fakeProviders({ chat: () => reply }));
+    const [p] = await feedPosts(feed);
+    expect(p).toMatchObject({ id: 1, post_type: 'post', content: 'An injected take.', regenerated: true });
+    for (const k of ['figure_url', 'figure_id', 'figure_caption', 'audio_url', 'audio_key', 'deleted']) {
+      expect(p).not.toHaveProperty(k);
+    }
+    expect(p!.likes).not.toBe(1);
+  });
+
   it("another user's figure id is never loaded", async () => {
     const fig = await addFigure(s.paper_b);
     const feed = await addFeed(s.user_a, [post(0, { post_type: 'figure', figure_id: fig })]);

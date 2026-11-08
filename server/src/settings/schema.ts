@@ -1,6 +1,8 @@
 // Port of shared/ficino_shared/settings_schema.py. Pure: every function takes
 // the env it should read; nothing here touches process.env.
 
+import { MAX_POSTS_PER_GENERATION } from '../shared/constants.js';
+
 export type Settings = Record<string, unknown>;
 export type Env = Record<string, string | undefined>;
 
@@ -106,7 +108,7 @@ export const SETTINGS_TO_ENV: Readonly<Record<string, string>> = {
 
 /** Numeric bounds for cost-sensitive knobs: [kind, min, max]. */
 export const NUMERIC_BOUNDS: Readonly<Record<string, readonly ['int' | 'float', number, number]>> = {
-  posts_per_generation: ['int', 1, 50],
+  posts_per_generation: ['int', 1, MAX_POSTS_PER_GENERATION],
   persona_temperature: ['float', 0.0, 1.5],
   chunk_max_tokens: ['int', 100, 4000],
 };

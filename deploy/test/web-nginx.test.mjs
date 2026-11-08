@@ -1,8 +1,11 @@
-// Behaviour of deploy/web/tailnet/default.conf.template in a real nginx:alpine container, rendered
-// by the image's own envsubst step. Every container is a throwaway named `ficino-deploytest-<hex>-*`
-// on an --internal network with no published port; after() removes them all.
+// Behaviour of the two web nginx configs in a real nginx:alpine container: the tailnet template
+// (deploy/web/tailnet/default.conf.template, rendered by the image's own envsubst step) and the
+// self-host config (frontend/nginx.conf with its REAL_IP_FROM entrypoint script). Every container is a
+// throwaway named `ficino-deploytest-<hex>-*` on an --internal network with no published port; after()
+// removes them all.
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -19,6 +22,10 @@ const NGINX_IMAGE = 'nginx:alpine';
 const CURL_IMAGE = 'curlimages/curl:8.11.1';
 const STUB_IMAGE = 'node:24-alpine';
 
+// The web image's entrypoint script, mounted where the frontend Dockerfile copies it.
+const REAL_IP_SCRIPT = 'frontend/docker-entrypoint.d/40-ficino-real-ip.sh';
+const REAL_IP_SCRIPT_MOUNT = `${join(REPO, REAL_IP_SCRIPT)}:/docker-entrypoint.d/40-ficino-real-ip.sh:ro`;
+
 // Answers every request with the path and the two proxy headers the template sets.
 const STUB = `require('http').createServer((q, s) => {
   s.setHeader('content-type', 'application/json');
@@ -28,11 +35,26 @@ const STUB = `require('http').createServer((q, s) => {
 
 let curlSeq = 0;
 
-/** Starts an nginx with the tailnet template; `env` is a list of `-e` values. */
+/**
+ * Starts an nginx with the tailnet template, as the web image runs it (with its entrypoint script);
+ * `env` is a list of `-e` values.
+ */
 function startWeb(container, env) {
   const args = ['run', '-d', '--name', container, '--network', NET];
   args.push('-v', `${join(REPO, 'deploy/web/tailnet')}:/etc/nginx/templates:ro`);
   args.push('-v', `${join(REPO, 'frontend/nginx-security-headers.conf')}:/etc/nginx/conf.d/security-headers.conf:ro`);
+  args.push('-v', REAL_IP_SCRIPT_MOUNT);
+  for (const e of env) args.push('-e', e);
+  args.push(NGINX_IMAGE);
+  docker(...args);
+}
+
+/** Starts an nginx with the self-host config (frontend/nginx.conf) as the web image lays it out. */
+function startSelfHostWeb(container, env) {
+  const args = ['run', '-d', '--name', container, '--network', NET];
+  args.push('-v', `${join(REPO, 'frontend/nginx.conf')}:/etc/nginx/conf.d/default.conf:ro`);
+  args.push('-v', `${join(REPO, 'frontend/nginx-security-headers.conf')}:/etc/nginx/conf.d/security-headers.conf:ro`);
+  args.push('-v', REAL_IP_SCRIPT_MOUNT);
   for (const e of env) args.push('-e', e);
   args.push(NGINX_IMAGE);
   docker(...args);
@@ -201,4 +223,79 @@ test('an unset owner login admits nobody', async () => {
   const placeholder = { 'Tailscale-User-Login': '${FICINO_OWNER_LOGIN}' };
   assert.equal(r('/', placeholder).status, 403);
   assert.equal(r('/ficino/', placeholder).status, 403);
+});
+
+test('the tailnet template ignores REAL_IP_FROM: it trusts only Serve on loopback', async () => {
+  const c = name('web-tailnet-realip');
+  startWeb(c, [`FICINO_OWNER_LOGIN=${OWNER_LOGIN}`, 'REAL_IP_FROM=0.0.0.0/0']);
+  const w = await waitForNginx(c, 10000);
+  assert.equal(w.exited, false, dockerTry('logs', c).stderr);
+  const r = dockerTry('exec', c, 'nginx', '-T');
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.stdout.match(/^\s*set_real_ip_from .*$/gm).map((l) => l.trim()), ['set_real_ip_from 127.0.0.1;']);
+  assert.doesNotMatch(r.stdout, /real_ip_recursive/);
+});
+
+// The self-host config: the stub api calls web by name, so the peer nginx sees is the stub's address.
+const SELF = name('web-self');
+const apiIp = () => docker('inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', API);
+
+/** GET /ficino/api/echo on `container` from the stub api container; returns what the api received. */
+function viaSelfHost(container, headers = {}) {
+  const args = ['exec', API, 'wget', '-qO-', '-T', '5'];
+  for (const [k, v] of Object.entries(headers)) args.push('--header', `${k}: ${v}`);
+  args.push(`http://${container}:80/ficino/api/echo`);
+  return JSON.parse(docker(...args));
+}
+
+async function startedSelfHost(container, env) {
+  startSelfHostWeb(container, env);
+  const w = await waitForNginx(container, 10000);
+  assert.equal(w.exited, false, `nginx exited (${w.exitCode}):\n${dockerTry('logs', container).stderr}`);
+}
+
+test('self-host web without REAL_IP_FROM: the direct peer is X-Real-IP and X-Forwarded-For is ignored', async () => {
+  await startedSelfHost(SELF, []);
+  const r = viaSelfHost(SELF, { 'X-Forwarded-For': '198.51.100.9' });
+  assert.deepEqual(r, { path: '/echo', xRealIp: apiIp(), xForwardedProto: 'http' });
+  const t = dockerTry('exec', SELF, 'nginx', '-T');
+  assert.equal(t.code, 0, t.stderr);
+  assert.doesNotMatch(t.stdout, /set_real_ip_from|real_ip_header/);
+});
+
+test('self-host web with REAL_IP_FROM listing the proxy: the client comes from X-Forwarded-For', async () => {
+  const c = name('web-self-trusted');
+  await startedSelfHost(c, [`REAL_IP_FROM=${apiIp()}/32, 192.0.2.0/24`]);
+  assert.equal(viaSelfHost(c, { 'X-Forwarded-For': '198.51.100.9' }).xRealIp, '198.51.100.9');
+  // Recursive: the rightmost address that is not a trusted proxy, so a client cannot prepend its own.
+  assert.equal(viaSelfHost(c, { 'X-Forwarded-For': '203.0.113.1, 198.51.100.9, 192.0.2.7' }).xRealIp, '198.51.100.9');
+  // Without the header the proxy itself is the client.
+  assert.equal(viaSelfHost(c).xRealIp, apiIp());
+  const t = dockerTry('exec', c, 'nginx', '-T');
+  assert.equal(t.code, 0, t.stderr);
+  assert.match(t.stdout, /^\s*real_ip_header X-Forwarded-For;$/m);
+  assert.match(t.stdout, /^\s*real_ip_recursive on;$/m);
+});
+
+test('self-host web with REAL_IP_FROM not listing the peer keeps the peer', async () => {
+  const c = name('web-self-other');
+  await startedSelfHost(c, ['REAL_IP_FROM=192.0.2.0/24']);
+  assert.equal(viaSelfHost(c, { 'X-Forwarded-For': '198.51.100.9' }).xRealIp, apiIp());
+});
+
+test('a REAL_IP_FROM that is not a list of addresses stops the web container', async () => {
+  for (const [i, bad] of ['10.0.0.0/8; return 200', 'proxy.example', '10.0.0.0/8 }', '*'].entries()) {
+    const c = name(`web-self-bad-${i}`);
+    startSelfHostWeb(c, [`REAL_IP_FROM=${bad}`]);
+    const w = await waitForNginx(c, 10000);
+    assert.equal(w.exited, true, `${bad}: nginx started`);
+    assert.notEqual(w.exitCode, 0, bad);
+    assert.match(dockerTry('logs', c).stderr, /REAL_IP_FROM/, bad);
+  }
+});
+
+test('the web image installs the REAL_IP_FROM script as an executable entrypoint step', () => {
+  assert.notEqual(statSync(join(REPO, REAL_IP_SCRIPT)).mode & 0o111, 0, 'executable');
+  const df = readFileSync(join(REPO, 'frontend/Dockerfile'), 'utf8');
+  assert.match(df, /^COPY docker-entrypoint\.d\/40-ficino-real-ip\.sh \/docker-entrypoint\.d\/$/m);
 });

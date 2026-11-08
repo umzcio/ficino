@@ -8,6 +8,11 @@
 #
 # docker-compose.override.yml is gitignored; compose layers it on top of docker-compose.yml.
 # Never publish on 0.0.0.0: the app has no login under AUTH_PROVIDER=none.
+#
+# Behind your own reverse proxy on this machine (for AUTH_PROVIDER=basic), let web trust it so the
+# api's per-IP login limits see each client instead of the proxy (deploy/README.md). Under `web:`:
+#     environment:
+#       REAL_IP_FROM: <the proxy's address as web sees it, or a CIDR>
 services:
   web:
     ports:

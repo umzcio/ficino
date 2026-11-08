@@ -39,7 +39,9 @@ export function figuresRoutes(): Hono<AppEnv> {
     const st = await stat(fullPath).catch(() => null);
     if (!st?.isFile()) throw new HttpError(404, 'Figure file missing');
 
-    return c.body(await readFile(fullPath), 200, { 'content-type': 'image/png' });
+    // no-store: the service worker's figure cache (cleared on sign-out) is the
+    // only client-side copy; the browser HTTP cache is beyond the app's reach.
+    return c.body(await readFile(fullPath), 200, { 'content-type': 'image/png', 'cache-control': 'private, no-store' });
   });
 
   return r;

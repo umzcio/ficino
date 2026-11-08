@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { generateContexts } from '../../src/ingest/contextualize.js';
 import { providerConfig } from '../../src/providers/config.js';
 import { loadConfig } from '../../src/config.js';
+import { logger } from '../../src/logger.js';
 import type { ProviderDeps } from '../../src/providers/deps.js';
 import type { Chunk } from '../../src/ingest/chunker.js';
 
@@ -10,8 +11,8 @@ const prompts = JSON.parse(
   readFileSync(new URL('../fixtures/goldens/contextualizer-prompts.json', import.meta.url), 'utf8'),
 ) as Record<string, string>;
 const config = loadConfig({ OLLAMA_BASE_URL: 'http://fake-ollama:11434' });
-const cfg = (provider: string, key = 'sk') =>
-  providerConfig({ context_provider: provider, anthropic_api_key: key }, {}, config);
+const cfg = (provider: string, key = 'sk', c = config) =>
+  providerConfig({ context_provider: provider, anthropic_api_key: key }, {}, c);
 const mk = (content: string, i = 0): Chunk => ({ section: 's', content, chunk_index: i, token_count: 1 });
 
 function ollamaDeps(replies: Array<string | Error>) {
@@ -137,5 +138,58 @@ describe('generateContexts', () => {
       throw new Error('aborted');
     });
     await expect(generateContexts(cfg('anthropic'), d2.deps, 'p', [mk('a')], ac.signal)).rejects.toThrow();
+  });
+
+  describe('CONTEXT_MAX_CHUNKS', () => {
+    afterEach(() => vi.restoreAllMocks());
+    const capped = loadConfig({ OLLAMA_BASE_URL: 'http://fake-ollama:11434', CONTEXT_MAX_CHUNKS: '5' });
+    const many = (n: number) => Array.from({ length: n }, (_, i) => mk(`c${i}`, i));
+
+    it('defaults to 200 and reaches the provider config', () => {
+      expect(cfg('ollama').context.maxChunks).toBe(200);
+      expect(cfg('ollama', 'sk', capped).context.maxChunks).toBe(5);
+    });
+
+    it('ollama: a paper over the cap gets no prefixes and no calls, length kept, cap hit logged', async () => {
+      const warn = vi.spyOn(logger, 'warn');
+      const { deps, bodies } = ollamaDeps([]);
+      const out = await generateContexts(cfg('ollama', 'sk', capped), deps, 'paper', many(6));
+      expect(out).toEqual(['', '', '', '', '', '']);
+      expect(bodies).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(
+        { chunks: 6, max_chunks: 5, provider: 'ollama' },
+        'contextualizer_chunk_cap_hit',
+      );
+    });
+
+    it('anthropic: 10,000 chunks over the default cap of 200 make no calls', async () => {
+      const warn = vi.spyOn(logger, 'warn');
+      const { deps, calls } = anthropicDeps(async () => 'x');
+      const out = await generateContexts(cfg('anthropic'), deps, 'paper', many(10_000));
+      expect(out).toHaveLength(10_000);
+      expect(out.every((x) => x === '')).toBe(true);
+      expect(calls).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(
+        { chunks: 10_000, max_chunks: 200, provider: 'anthropic' },
+        'contextualizer_chunk_cap_hit',
+      );
+    });
+
+    it('a paper exactly at the cap is contextualized in full', async () => {
+      const { deps, bodies } = ollamaDeps(['a', 'b', 'c', 'd', 'e']);
+      expect(await generateContexts(cfg('ollama', 'sk', capped), deps, 'paper', many(5))).toEqual(['a', 'b', 'c', 'd', 'e']);
+      expect(bodies).toHaveLength(5);
+      const a = anthropicDeps(async () => 'x');
+      expect(await generateContexts(cfg('anthropic', 'sk', capped), a.deps, 'paper', many(5))).toHaveLength(5);
+      expect(a.calls).toHaveLength(5);
+    });
+
+    it('provider none or no key over the cap: no cap-hit log (nothing would have been called)', async () => {
+      const warn = vi.spyOn(logger, 'warn');
+      const { deps } = ollamaDeps([]);
+      expect(await generateContexts(cfg('none', 'sk', capped), deps, 'p', many(6))).toHaveLength(6);
+      expect(await generateContexts(cfg('anthropic', '', capped), deps, 'p', many(6))).toHaveLength(6);
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'contextualizer_chunk_cap_hit');
+    });
   });
 });

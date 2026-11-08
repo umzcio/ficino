@@ -138,7 +138,22 @@ export async function estimateCacheSize(): Promise<{ bytes: number; formatted: s
   return { bytes: 0, formatted: 'unknown' }
 }
 
+// Service worker runtime caches that hold user-private responses (see
+// runtimeCaching in vite.config.ts). Figures are served CacheFirst, so a
+// cached copy skips the server's owner and token checks. The precache, the
+// persona avatars and the font caches are public assets and are kept.
+const USER_PRIVATE_CACHES = ['figure-images']
+
+async function clearRuntimeCaches(): Promise<void> {
+  try {
+    if (typeof caches === 'undefined' || !caches) return
+    await Promise.all(USER_PRIVATE_CACHES.map(name => caches.delete(name)))
+  } catch { /* best-effort: Cache Storage can be blocked or unavailable */ }
+}
+
 export async function clearOfflineData(): Promise<void> {
+  // Runs first so an IndexedDB failure below cannot skip it.
+  await clearRuntimeCaches()
   const db = await getDB()
   const storeNames: (keyof typeof db.objectStoreNames extends never ? never : string)[] = [
     'feeds', 'papers', 'paperSummaries', 'groupChats', 'bookmarks',

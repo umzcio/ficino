@@ -73,6 +73,8 @@ export interface TestResponse {
 
 interface ReqInit {
   headers?: Record<string, string>;
+  /** The socket peer address the request appears to come from (what getConnInfo reads); none by default. */
+  peer?: string;
 }
 
 /**
@@ -98,7 +100,8 @@ export function client(app: Hono<AppEnv>, opts: { csrf?: boolean } = {}) {
       payload = JSON.stringify(body);
       headers['content-type'] ??= 'application/json';
     }
-    const res = await app.request(path, { method, headers, body: payload });
+    const env = init.peer === undefined ? undefined : { incoming: { socket: { remoteAddress: init.peer } } };
+    const res = await app.request(path, { method, headers, body: payload }, env);
     for (const line of res.headers.getSetCookie()) {
       const [pair, ...attrs] = line.split(';').map((x) => x.trim());
       const eq = pair.indexOf('=');

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { clearOfflineData } from '../lib/workspace-download'
+import { claimOfflineData, releaseOfflineData } from '../lib/offline-owner'
 import { setAuthTokenGetter, request, ApiError, getApiErrorDetail } from '../lib/api'
 
 // Holds the current Supabase access token so api.ts can attach it to the
@@ -101,10 +101,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
 
+  // Every user adoption goes through here: the offline data is wiped first
+  // when it belonged to a different user, before any data hook can render it.
+  const adoptUser = useCallback(async (u: AuthUser) => {
+    await claimOfflineData(u.id)
+    setUser(u)
+  }, [])
+
   // Fetches /auth/me and adopts the session user when one exists. A 401/403
   // ApiError just means "not logged in" — not an error state, so it's
-  // swallowed here (matches the pre-request() behavior of checking
-  // `meRes.ok` and doing nothing on failure). Anything else (a network-level
+  // swallowed here (matches the pre-request() behavior of checking `meRes.ok`
+  // and doing nothing on failure), after wiping the offline data: the session
+  // ended, possibly by expiry rather than an explicit sign-out. Any other
+  // ApiError (5xx) leaves the data alone. Anything else (a network-level
   // failure, thrown by fetch() itself before a response exists) propagates
   // to the caller: at init() time that's the outer catch below; when called
   // right after signIn/signUp it surfaces to LoginPage's handleSubmit catch
@@ -113,12 +122,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadMe = useCallback(async () => {
     try {
       const me = await request<AuthUser>('/auth/me')
-      setUser(me)
+      await adoptUser(me)
     } catch (err) {
-      if (err instanceof ApiError) return
+      if (err instanceof ApiError) {
+        if (err.status === 401 || err.status === 403) await releaseOfflineData()
+        return
+      }
       throw err
     }
-  }, [])
+  }, [adoptUser])
 
   // Discover provider and initialize auth state
   useEffect(() => {
@@ -132,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (p === 'none') {
           // No auth — stub user, always authenticated
-          setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'stub@ficino.dev', display_name: 'You' })
+          await adoptUser({ id: '00000000-0000-0000-0000-000000000000', email: 'stub@ficino.dev', display_name: 'You' })
           setLoading(false)
           return
         }
@@ -165,16 +177,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const { data: { session } } = await supabase.auth.getSession()
           if (session) {
             _currentAccessToken = session.access_token ?? null
-            setUser({ id: session.user.id, email: session.user.email || '', display_name: null })
+            await adoptUser({ id: session.user.id, email: session.user.email || '', display_name: null })
           }
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           supabase.auth.onAuthStateChange((event: string, session: any) => {
             _currentAccessToken = session?.access_token ?? null
             if (session) {
-              setUser({ id: session.user.id, email: session.user.email || '', display_name: null })
+              void adoptUser({ id: session.user.id, email: session.user.email || '', display_name: null })
             } else {
               setUser(null)
+              void releaseOfflineData()
             }
             // PASSWORD_RECOVERY is fired when the user lands from a
             // "Reset your password" email. Supabase has already exchanged
@@ -197,6 +210,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // local dev install and drop in as the stub user. On hosted deploys
         // VITE_API_BASE is always set — a failed fetch there is a real outage
         // and silently granting stub access would be an auth bypass.
+        // The stub is set without claiming the offline data: this path also
+        // runs when the app is opened offline or the API is restarting, which
+        // is neither a sign-in nor a session end, and the offline data (and
+        // its stored owner) is exactly what an offline open needs.
         if (!import.meta.env.VITE_API_BASE) {
           setProvider('none')
           setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'stub@ficino.dev', display_name: 'You' })
@@ -208,7 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     }
     init()
-  }, [loadMe])
+  }, [loadMe, adoptUser])
 
   const signIn = useCallback(async (email: string, password: string, captchaToken?: string) => {
     setError(null)
@@ -408,14 +425,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [provider])
 
   const signOut = useCallback(async () => {
-    // Wipe per-user IndexedDB before dropping auth state. None of the offline
-    // stores carry a userId key, so leaving them in place means the next user
-    // on this browser sees the prior user's bookmarks / annotations / etc.
-    // during the fetch-in-flight window. Swallow errors — they shouldn't block
-    // sign-out, but a failure here means some stale data may linger.
-    try {
-      await clearOfflineData()
-    } catch { /* ignore */ }
+    // Wipe per-user IndexedDB and the figure cache before dropping auth state.
+    // None of the offline stores carry a userId key, so leaving them in place
+    // means the next user on this browser sees the prior user's bookmarks /
+    // annotations / etc. during the fetch-in-flight window. Errors are
+    // swallowed — they shouldn't block sign-out, but a failure here means
+    // some stale data may linger.
+    await releaseOfflineData()
     if (provider === 'basic') {
       // Best-effort: always drop local auth state even if the server call
       // fails (matches the pre-request() behavior, which never checked

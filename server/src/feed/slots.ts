@@ -198,11 +198,40 @@ export function groundPost(rng: Rng, post: Post, o: GroundPostOpts): Post {
   return post;
 }
 
+/**
+ * The fields a persona prompt asks the model for (prompts.ts): the post text, the thread, the quote and reply echo,
+ * and a cite the server replaces anyway. Every other post field is the server's.
+ */
+export const MODEL_POST_FIELDS: ReadonlySet<string> = new Set([
+  'post_type',
+  'content',
+  'paper_ref',
+  'thread_count',
+  'thread_posts',
+  'quoting_handle',
+  'quoting_content',
+  'replying_to',
+]);
+
+/**
+ * The start of every finished post (generate_feed, regenerate_post, generate_chapter): a new object holding only the
+ * model's MODEL_POST_FIELDS, the persona, and the post type. Model output is untrusted (a paper can steer it), so it
+ * never sets figure, audio, source, id, time, deletion or engagement fields (deliberate change 15; Python kept every
+ * model key). The model's post_type stands, as in Python, except 'figure' without a figure the worker picked: that
+ * falls back to the slot type, or 'post' for a figure slot.
+ */
+export function startPost(raw: Post, personaKey: string, slotType: string, figure: FeedFigure | null): Post {
+  const post: Post = {};
+  for (const key of Object.keys(raw)) if (MODEL_POST_FIELDS.has(key)) post[key] = raw[key];
+  post.persona = personaKey;
+  if (!Object.hasOwn(post, 'post_type')) post.post_type = slotType;
+  if (post.post_type === 'figure' && !figure) post.post_type = slotType === 'figure' ? 'post' : slotType;
+  return post;
+}
+
 /** Everything generate_feed does to an LLM post between generation and `posts.append` (:747-812). */
 export function finishPost(rng: Rng, raw: Post, o: FinishPostOpts): Post {
-  const post: Post = raw;
-  post.persona = o.personaKey;
-  if (!Object.hasOwn(post, 'post_type')) post.post_type = o.postType;
+  const post = startPost(raw, o.personaKey, o.postType, o.figure);
   post.id = o.idOffset + o.newCount + 1;
   post.time = `${o.timeOffset + (o.newCount + 1) * 2}m`;
   post._task_id = o.jobId;
@@ -218,9 +247,7 @@ export type FinishRegeneratedOpts = GroundPostOpts & {
 
 /** regenerate_post's fill (persona_tasks.py:1018-1040): keeps the old id and time, sets no `_task_id`. */
 export function finishRegeneratedPost(rng: Rng, raw: Post, o: FinishRegeneratedOpts): Post {
-  const post: Post = raw;
-  post.persona = o.personaKey;
-  if (!Object.hasOwn(post, 'post_type')) post.post_type = o.postType;
+  const post = startPost(raw, o.personaKey, o.postType, o.figure);
   post.id = Object.hasOwn(o.oldPost, 'id') ? o.oldPost.id : o.postIndex + 1;
   post.time = Object.hasOwn(o.oldPost, 'time') ? o.oldPost.time : `${o.postIndex * 2}m`;
   groundPost(rng, post, o);

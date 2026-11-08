@@ -19,7 +19,7 @@ function basicApp(config: NonNullable<Parameters<typeof testApp>[0]>['config'] =
 
 // `ip` varies X-Real-IP so tests that register more than 3 times don't hit the per-IP limit.
 async function register(c: ReturnType<typeof client>, email = 'a@x.dev', password = PW, ip?: string) {
-  return c.post('/auth/register', { email, password }, ip ? { headers: { 'x-real-ip': ip } } : undefined);
+  return c.post('/auth/register', { email, password }, ip ? { headers: { 'x-real-ip': ip }, peer: '172.18.0.5' } : undefined);
 }
 
 describe('requireUser gate (ports test_auth_gates.py)', () => {

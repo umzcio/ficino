@@ -1,4 +1,6 @@
+import { isIP } from 'node:net';
 import { logger } from './logger.js';
+import { normalizeHost } from './shared/host.js';
 import { pyStrip } from './shared/pystr.js';
 
 export type Env = Record<string, string | undefined>;
@@ -10,11 +12,23 @@ export interface Config {
   allowRegistration: boolean;
   publicDeployment: boolean;
   corsOrigins: string[];
+  /**
+   * `ALLOWED_HOSTS`: Host names the API answers to beyond loopback and the CORS_ORIGINS (and, in development,
+   * dev-origin) hostnames; `'*'` turns the DNS-rebinding host check off. Entries are normalized (lowercase, no port).
+   */
+  allowedHosts: string[] | '*';
+  /**
+   * `TRUSTED_PROXIES`: the peers (CIDRs, `address/prefix`) whose `X-Real-IP` names the client for the per-IP
+   * rate limits and the audit log; any other peer is the client itself. Default: loopback and private ranges.
+   */
+  trustedProxies: string[];
   cookieDomain: string;
   uploadDir: string;
   figuresDir: string;
   mediaDir: string;
   maxUploadSizeMb: number;
+  /** `MAX_JSON_BODY_KB`: the request body cap for every route except the `POST /papers` upload (which has its own). */
+  maxJsonBodyKb: number;
   ollamaBaseUrl: string;
   elevenlabsApiKey: string;
   /** `ELEVENLABS_MODEL_ID`: the single-voice text-to-speech model (worker/lib/tts.py). */
@@ -34,8 +48,14 @@ export interface Config {
   jobTimeLimitSec: number;
   ingestionConcurrency: number;
   maxVisionPages: number;
+  /** `MAX_PDF_PAGES`: an upload with more pages than this is rejected when it is opened (paper error). */
+  maxPdfPages: number;
+  /** `FIGURE_DETECT_MAX_PAGES`: figure detection reads and sends only the first this-many pages. */
+  figureDetectMaxPages: number;
   contextMaxPaperChars: number;
   contextMaxTokens: number;
+  /** `CONTEXT_MAX_CHUNKS`: a paper with more chunks than this gets no contextual prefixes (no provider calls). */
+  contextMaxChunks: number;
   port: number;
   retrieval: {
     vectorWeight: number;
@@ -135,6 +155,50 @@ function atLeastOne(name: string, n: number): number {
   return n;
 }
 
+/** The browser origins allowed in development (CORS, and their hosts for the host check). */
+export const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8000'];
+
+/** `ALLOWED_HOSTS`: a comma list of host names (a port is ignored, IPv6 with or without brackets), or `*`. */
+function allowedHosts(raw: string): string[] | '*' {
+  const entries = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (entries.includes('*')) return '*';
+  return entries.map((e) => {
+    // A bare IPv6 literal (two or more colons, no brackets) is bracketed so its colons are not read as a port.
+    const unbracketedV6 = !e.startsWith('[') && e.indexOf(':') !== e.lastIndexOf(':');
+    const host = normalizeHost(unbracketedV6 ? `[${e}]` : e);
+    if (host === null) throw new Error(`ALLOWED_HOSTS entry is not a host name: ${e}`);
+    return host;
+  });
+}
+
+/** The addresses a reverse proxy in front of the api has on its compose network or the same machine. */
+const DEFAULT_TRUSTED_PROXIES = ['127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
+
+/**
+ * `TRUSTED_PROXIES`: a comma list of IP addresses and CIDRs (a bare address is one host), `none` for no proxy;
+ * unset or blank gives the default. Entries come back as `address/prefix`, IPv6 lowercased.
+ */
+function trustedProxies(raw: string): string[] {
+  const s = raw.trim();
+  if (s === '') return [...DEFAULT_TRUSTED_PROXIES];
+  if (s.toLowerCase() === 'none') return [];
+  return s
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((e) => {
+      const m = /^([^/]+)(?:\/(\d{1,3}))?$/.exec(e);
+      const family = m ? isIP(m[1]!) : 0;
+      const max = family === 4 ? 32 : 128;
+      const prefix = m?.[2] === undefined ? max : Number(m[2]);
+      if (family === 0 || prefix > max) throw new Error(`TRUSTED_PROXIES entry is not an IP address or CIDR: ${e}`);
+      return `${family === 6 ? m![1]!.toLowerCase() : m![1]}/${prefix}`;
+    });
+}
+
 const PUBLIC_API_BASE_RE = /^(\/[A-Za-z0-9._~-]+)+$/;
 
 function publicApiBase(v: string): string {
@@ -158,11 +222,14 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    allowedHosts: allowedHosts(str(env, 'ALLOWED_HOSTS', '')),
+    trustedProxies: trustedProxies(str(env, 'TRUSTED_PROXIES', '')),
     cookieDomain: str(env, 'COOKIE_DOMAIN', ''),
     uploadDir: str(env, 'UPLOAD_DIR', '/app/uploads'),
     figuresDir: str(env, 'FIGURES_DIR', '/app/figures'),
     mediaDir: str(env, 'MEDIA_DIR', '/app/media'),
     maxUploadSizeMb: int(env, 'MAX_UPLOAD_SIZE_MB', 50),
+    maxJsonBodyKb: atLeastOne('MAX_JSON_BODY_KB', int(env, 'MAX_JSON_BODY_KB', 1024)),
     ollamaBaseUrl: str(env, 'OLLAMA_BASE_URL', 'http://host.docker.internal:11434'),
     elevenlabsApiKey: str(env, 'ELEVENLABS_API_KEY', ''),
     elevenlabsModelId: str(env, 'ELEVENLABS_MODEL_ID', 'eleven_turbo_v2_5'),
@@ -176,8 +243,11 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     jobTimeLimitSec: jobTimeLimit(int(env, 'JOB_TIME_LIMIT_SEC', 600)),
     ingestionConcurrency: atLeastOne('WORKER_INGESTION_CONCURRENCY', int(env, 'WORKER_INGESTION_CONCURRENCY', 1)),
     maxVisionPages: int(env, 'MAX_VISION_PAGES', 100),
+    maxPdfPages: atLeastOne('MAX_PDF_PAGES', int(env, 'MAX_PDF_PAGES', 500)),
+    figureDetectMaxPages: atLeastOne('FIGURE_DETECT_MAX_PAGES', int(env, 'FIGURE_DETECT_MAX_PAGES', 60)),
     contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
     contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),
+    contextMaxChunks: atLeastOne('CONTEXT_MAX_CHUNKS', int(env, 'CONTEXT_MAX_CHUNKS', 200)),
     port: int(env, 'PORT', 8000),
     retrieval: {
       vectorWeight: clampWeight(env, 'RETRIEVAL_VECTOR_WEIGHT', 0.7, log),

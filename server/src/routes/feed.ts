@@ -10,7 +10,7 @@ import { HttpError } from '../http/errors.js';
 import { chargeUserRateLimit, userRateLimit } from '../http/rateLimit.js';
 import { toPydanticIso } from '../db/time.js';
 import { body, params, pyBool, pyInt, pyUuid, query } from '../http/validate.js';
-import { LIMITS } from '../shared/constants.js';
+import { LIMITS, MAX_POSTS_PER_GENERATION } from '../shared/constants.js';
 import type { LocalStorage } from '../storage/local.js';
 import type { Logger } from 'pino';
 import { isUuid } from '../shared/uuid.js';
@@ -22,7 +22,8 @@ const generateSchema = z.object({
   append_to_feed_id: z.string().nullish(),
   tab_focus: z.string().nullish(),
   persona_key: z.string().nullish(),
-  num_posts: pyInt.nullish(),
+  // 0 is accepted and means "the default" (dropped below as falsy); above the cap is a 422.
+  num_posts: pyInt.pipe(z.number().int().min(0).max(MAX_POSTS_PER_GENERATION)).nullish(),
 });
 
 const listQuery = z.object({ workspace_id: z.string().nullish(), summary: pyBool.default(false) });

@@ -10,6 +10,10 @@
  * Both PyMuPDF text pages run the whole page (contents, annotations and widgets) with TEXTFLAGS_TEXT /
  * TEXTFLAGS_DICT, so the structured text here is built from the page's display list with the matching options.
  * Every function is synchronous.
+ *
+ * Bounds (not in PyMuPDF's walks; output under them is unchanged): `openPdf` rejects more than `maxPages` pages,
+ * the page walks call an optional `checkpoint` before each page so a job's time limit stops them between pages,
+ * and a render whose raster would pass `MAX_RENDER_PIXELS` or `MAX_RENDER_EDGE` is drawn at a smaller scale.
  */
 import * as mupdf from 'mupdf';
 import { logger } from '../logger.js';
@@ -36,7 +40,14 @@ const TEXT_OPTIONS = 'preserve-ligatures,preserve-whitespace,use-cid-for-unknown
 /** TEXTFLAGS_DICT: the same plus preserve images (image blocks split text blocks and lines). */
 const DICT_OPTIONS = `${TEXT_OPTIONS},preserve-images`;
 
-export function openPdf(bytes: Uint8Array): PdfDoc {
+/** The default for `openPdf`'s `maxPages` (the worker passes `MAX_PDF_PAGES`). */
+export const DEFAULT_MAX_PDF_PAGES = 500;
+
+/**
+ * Open a PDF, or throw a `PdfOpenError` if it cannot be read, needs a password, has no pages or has more than
+ * `maxPages` pages.
+ */
+export function openPdf(bytes: Uint8Array, { maxPages = DEFAULT_MAX_PDF_PAGES }: { maxPages?: number } = {}): PdfDoc {
   let doc: mupdf.Document;
   try {
     doc = mupdf.Document.openDocument(bytes, 'application/pdf');
@@ -46,7 +57,11 @@ export function openPdf(bytes: Uint8Array): PdfDoc {
   let reason: string | null = null;
   try {
     if (doc.needsPassword()) reason = 'PDF is password protected';
-    else if (doc.countPages() === 0) reason = 'PDF has no pages';
+    else {
+      const pages = doc.countPages();
+      if (pages === 0) reason = 'PDF has no pages';
+      else if (pages > maxPages) reason = `PDF has ${pages} pages; the limit is ${maxPages}`;
+    }
   } catch (err) {
     reason = `cannot read PDF: ${err instanceof Error ? err.message : String(err)}`;
   }
@@ -233,11 +248,23 @@ function warnMisaligned(log: PdfWarnLogger | undefined, pages: number[]): void {
     log.warn({ pages }, 'pdf text walk and asText() disagree; chars above U+FFFF on these pages may be truncated');
 }
 
-/** `page.get_text()` for each page: `JM_print_stext_page_as_text`. */
-export function extractPagesText(doc: PdfDoc, log?: PdfWarnLogger): string[] {
+/** Called before each page a walk reads; it throws to stop the walk (a job's time limit or abort). */
+export type PdfCheckpoint = () => void;
+
+/**
+ * `page.get_text()` for each page: `JM_print_stext_page_as_text`. With `pages`, only the first `pages` pages
+ * are read.
+ */
+export function extractPagesText(
+  doc: PdfDoc,
+  log?: PdfWarnLogger,
+  { pages = Infinity, checkpoint }: { pages?: number; checkpoint?: PdfCheckpoint } = {},
+): string[] {
   const out: string[] = [];
   const misaligned: number[] = [];
-  for (let i = 0; i < pageCount(doc); i++) {
+  const n = Math.min(pageCount(doc), pages);
+  for (let i = 0; i < n; i++) {
+    checkpoint?.();
     const { bounds, blocks, aligned } = readPage(doc, i, TEXT_OPTIONS);
     if (!aligned) misaligned.push(i);
     let s = '';
@@ -398,16 +425,24 @@ function isHeading(text: string, fontSize: number, isBold: boolean, body: number
 }
 
 /** `extract_text_pymupdf`: page text with `#`/`##` headings from font size, bold and section names. */
-export function extractTextMarkdown(doc: PdfDoc, log?: PdfWarnLogger): string {
+export function extractTextMarkdown(
+  doc: PdfDoc,
+  log?: PdfWarnLogger,
+  { checkpoint }: { checkpoint?: PdfCheckpoint } = {},
+): string {
   const n = pageCount(doc);
   const misaligned: number[] = [];
+  const read = (i: number): Span[][] => {
+    checkpoint?.();
+    return pageSpanLines(doc, i, misaligned);
+  };
   const statPages: Span[][][] = [];
-  for (let i = 0; i < Math.min(10, n); i++) statPages.push(pageSpanLines(doc, i, misaligned));
+  for (let i = 0; i < Math.min(10, n); i++) statPages.push(read(i));
   const body = bodySize(statPages);
 
   const pages: string[] = [];
   for (let i = 0; i < n; i++) {
-    const lines = i < statPages.length ? statPages[i]! : pageSpanLines(doc, i, misaligned);
+    const lines = i < statPages.length ? statPages[i]! : read(i);
     const parts: string[] = [];
     for (const spans of lines) {
       let lineText = '';
@@ -433,15 +468,52 @@ export function extractTextMarkdown(doc: PdfDoc, log?: PdfWarnLogger): string {
 
 // --- Rendering --------------------------------------------------------------------------------------------
 
+/** Most pixels in one page raster (75 MB of RGB); figure detection holds up to 4 at once. */
+export const MAX_RENDER_PIXELS = 25_000_000;
+/** Longest side of one page raster, in pixels. */
+export const MAX_RENDER_EDGE = 10_000;
+
 /** `fz_round_rect` of the page bounds under `matrix`, as PyMuPDF sizes the pixmap. */
 function deviceBBox(page: mupdf.Page, matrix: mupdf.Matrix): Rect {
   const r = mupdf.Rect.transform(page.getBounds(), matrix);
   return [Math.floor(r[0] + 0.001), Math.floor(r[1] + 0.001), Math.ceil(r[2] - 0.001), Math.ceil(r[3] - 0.001)];
 }
 
-/** Draw the whole page like PyMuPDF's `JM_pixmap_from_display_list`. The caller destroys the pixmap. */
-function renderPixmap(page: mupdf.Page, matrix: mupdf.Matrix): mupdf.Pixmap {
-  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, deviceBBox(page, matrix), false);
+const overCap = (w: number, h: number): boolean => w * h > MAX_RENDER_PIXELS || Math.max(w, h) > MAX_RENDER_EDGE;
+
+/**
+ * The matrix and device bbox to render with: `matrix` itself when its raster fits the caps (every ordinary page,
+ * so those match PyMuPDF), else `matrix` scaled down uniformly until it does. Checked before any allocation.
+ */
+function boundedRender(page: mupdf.Page, matrix: mupdf.Matrix): { matrix: mupdf.Matrix; bbox: Rect } {
+  let bbox = deviceBBox(page, matrix);
+  let w = bbox[2] - bbox[0];
+  let h = bbox[3] - bbox[1];
+  if (!bbox.every(Number.isFinite)) throw new RangeError(`page bounds are not finite ([${bbox.join(', ')}])`);
+  if (!overCap(w, h)) return { matrix, bbox };
+  const from = { width: w, height: h };
+  // Rounding the scaled bbox outward can add a pixel per side, so aim a little under and shrink until it fits.
+  let s = Math.min(Math.sqrt(MAX_RENDER_PIXELS / (w * h)), MAX_RENDER_EDGE / Math.max(w, h)) * 0.999;
+  let scaled = matrix;
+  for (let tries = 0; tries < 8; tries++, s *= 0.99) {
+    scaled = mupdf.Matrix.concat(matrix, mupdf.Matrix.scale(s, s));
+    bbox = deviceBBox(page, scaled);
+    w = bbox[2] - bbox[0];
+    h = bbox[3] - bbox[1];
+    if (!overCap(w, h)) break;
+  }
+  if (overCap(w, h)) throw new RangeError(`cannot fit a ${from.width}x${from.height} page raster under the caps`);
+  logger.warn({ from, to: { width: w, height: h } }, 'pdf_render_scaled_down');
+  return { matrix: scaled, bbox };
+}
+
+/**
+ * Draw the whole page like PyMuPDF's `JM_pixmap_from_display_list`, scaled down first if the raster would pass
+ * the caps. The caller destroys the pixmap.
+ */
+function renderPixmap(page: mupdf.Page, requested: mupdf.Matrix): mupdf.Pixmap {
+  const { matrix, bbox } = boundedRender(page, requested);
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, bbox, false);
   try {
     pix.clear(255);
     const dev = new mupdf.DrawDevice(matrix, pix);
@@ -469,7 +541,10 @@ function withPage<T>(doc: PdfDoc, index: number, fn: (page: mupdf.Page) => T): T
 
 const scaleFor = (dpi: number): mupdf.Matrix => mupdf.Matrix.scale(dpi / 72, dpi / 72);
 
-/** Render a page as RGB (no alpha) with `scale(dpi / 72)`, like `page.get_pixmap(matrix=...)`. */
+/**
+ * Render a page as RGB (no alpha) with `scale(dpi / 72)`, like `page.get_pixmap(matrix=...)`; a page too large
+ * for the raster caps comes back at a lower effective dpi (see `width`/`height`).
+ */
 export function renderPage(doc: PdfDoc, index: number, dpi: number): { png: Uint8Array; width: number; height: number } {
   return withPage(doc, index, (page) => {
     const pix = renderPixmap(page, scaleFor(dpi));

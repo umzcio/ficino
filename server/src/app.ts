@@ -1,15 +1,17 @@
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { RegExpRouter } from 'hono/router/reg-exp-router';
 import { SmartRouter } from 'hono/router/smart-router';
 import { TrieRouter } from 'hono/router/trie-router';
 import type { Logger } from 'pino';
 import type { AuthUser } from './auth/types.js';
-import type { Config } from './config.js';
+import { DEV_ORIGINS, type Config } from './config.js';
 import type { Sql } from './db/sql.js';
 import { basicRoutes } from './auth/basicRoutes.js';
+import { allowedHosts } from './http/allowedHosts.js';
 import { csrf } from './http/csrf.js';
-import { errorHandler } from './http/errors.js';
+import { errorHandler, HttpError } from './http/errors.js';
 import { securityHeaders } from './http/securityHeaders.js';
 import { alertsRoutes } from './routes/alerts.js';
 import { annotationsRoutes } from './routes/annotations.js';
@@ -54,8 +56,6 @@ export type ResolvedAppDeps = AppDeps & { providers: ProviderDeps; rng: Rng };
 
 export type AppEnv = { Variables: { user: AuthUser; deps: ResolvedAppDeps } };
 
-const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8000'];
-
 function corsMiddleware(config: Config) {
   if (config.environment === 'development') {
     // No allowHeaders: hono reflects Access-Control-Request-Headers, like Starlette's "*".
@@ -71,6 +71,24 @@ function corsMiddleware(config: Config) {
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowHeaders: ['Authorization', 'Content-Type', 'X-Requested-With', 'Accept', 'X-CSRF-Token'],
   });
+}
+
+/** Routes that read a body under their own, larger cap (exact method and path). */
+const OWN_BODY_CAP = new Set(['POST /papers']);
+
+/**
+ * Caps every request body at MAX_JSON_BODY_KB, except on OWN_BODY_CAP routes. hono's bodyLimit rejects a declared
+ * Content-Length over the cap before reading, and counts a chunked body as it reads it, so no route that parses a
+ * body (`c.req.json()` buffers all of it) ever sees more than the cap.
+ */
+function requestBodyCap(config: Config): MiddlewareHandler {
+  const cap = bodyLimit({
+    maxSize: config.maxJsonBodyKb * 1024,
+    onError: () => {
+      throw new HttpError(413, 'Request body too large');
+    },
+  });
+  return (c, next) => (OWN_BODY_CAP.has(`${c.req.method} ${c.req.path}`) ? next() : cap(c, next));
 }
 
 /**
@@ -112,7 +130,9 @@ export function createApp(rawDeps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const allowedMethods = makeAllowedMethods(app);
 
-  // Outermost first (C §2.1): CORS wraps CSRF so 403s still carry ACAO; headers are innermost.
+  // Outermost first: the DNS-rebinding host check answers 421 before anything else runs (no CORS
+  // headers, no CSRF cookie). Then (C §2.1) CORS wraps CSRF so 403s still carry ACAO; headers are innermost.
+  app.use('*', allowedHosts(deps.config, deps.logger));
   app.use('*', corsMiddleware(deps.config));
   app.use('*', csrf(deps.config, deps.logger));
   app.use('*', securityHeaders(deps.config));
@@ -129,6 +149,7 @@ export function createApp(rawDeps: AppDeps): Hono<AppEnv> {
     c.set('deps', deps);
     await next();
   });
+  app.use('*', requestBodyCap(deps.config));
 
   app.onError(errorHandler(deps.logger));
   app.notFound((c) => {

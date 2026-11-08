@@ -133,9 +133,12 @@ write, so compose's `stop_grace_period` for the worker is 45 s.
 | `WORKER_INGESTION_CONCURRENCY` | 1 | Concurrent `process_paper` jobs (at least 1) |
 | `JOB_TIME_LIMIT_SEC` | 600 | Per-job expiry (at least 120); the soft limit that aborts provider calls is this minus 60 s |
 | `EMBED_DIM` | 1024 | Embedding width; only 1024 is accepted (`chunks.embedding` is `vector(1024)`) |
-| `MAX_VISION_PAGES` | 100 | Pages sent to the vision fallback / figure detector per paper |
+| `MAX_VISION_PAGES` | 100 | Pages sent to the vision extraction (forced or fallback) per paper |
+| `MAX_PDF_PAGES` | 500 | An upload with more pages is rejected when the worker opens it (paper error) |
+| `FIGURE_DETECT_MAX_PAGES` | 60 | Pages figure detection reads and sends to the detector per paper |
 | `CONTEXT_MAX_PAPER_CHARS` | 200000 | Paper text given to the contextualizer |
 | `CONTEXT_MAX_TOKENS` | 150 | Max tokens per chunk context |
+| `CONTEXT_MAX_CHUNKS` | 200 | A paper with more chunks than this gets no contextual prefixes (one call per chunk otherwise) |
 | `SIGNED_URL_KEY` | (none) | Signs figure and media URLs; required unless `ENVIRONMENT=development` |
 
 Provider choices (`EMBED_PROVIDER`, `LLM_PROVIDER`, `FIGURE_DETECT_PROVIDER`, `VISION_PROVIDER`, the model names, the

@@ -7,6 +7,7 @@ import * as mupdf from 'mupdf';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, type Config } from '../../src/config.js';
 import { createSql } from '../../src/db/sql.js';
+import { CONTEXT_SYSTEM_PROMPT } from '../../src/ingest/contextualize.js';
 import { makeJobContext } from '../../src/jobs/context.js';
 import { createBoss, JobQueue } from '../../src/jobs/queue.js';
 import { logger } from '../../src/logger.js';
@@ -251,6 +252,29 @@ describe('processPaper', () => {
     expect(embedded).toEqual(rows.map((r) => `Situating sentence.\n\n${String(r.content)}`.trim()));
   });
 
+  // Security review: one provider call per chunk is capped per paper (CONTEXT_MAX_CHUNKS).
+  it('a paper over CONTEXT_MAX_CHUNKS is stored without prefixes and makes no contextualizer calls', async () => {
+    config = loadConfig({
+      OLLAMA_BASE_URL: OLLAMA,
+      UPLOAD_DIR: join(dir, 'uploads'),
+      FIGURES_DIR: join(dir, 'figures'),
+      MEDIA_DIR: join(dir, 'media'),
+      CONTEXT_MAX_CHUNKS: '2',
+    });
+    await setSettings(s.user_a, { context_provider: 'ollama', chunk_max_tokens: 100 });
+    const id = await newPaper(s.user_a, markedPdf('CAP'));
+    const f = fakes();
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, depsWith(f.deps));
+    expect(r.status).toBe('complete');
+    expect(Number(r.chunk_count)).toBeGreaterThan(2);
+    const isContext = (c: (typeof f.calls)[number]) =>
+      c.kind === 'ollama-chat' && JSON.stringify(c.body).includes(CONTEXT_SYSTEM_PROMPT);
+    expect(f.calls.filter(isContext)).toEqual([]);
+    const rows = await sql`SELECT contextual_prefix FROM chunks WHERE paper_id = ${id}`;
+    expect(rows).toHaveLength(Number(r.chunk_count));
+    expect(rows.every((row) => row.contextual_prefix === null)).toBe(true);
+  });
+
   // Port of worker/tests/test_auto_tagging.py: a failing tag insert must not cost the paper.
   it('a tag insert failure is logged and swallowed; the paper still completes', async () => {
     const id = await newPaper(s.user_a, SAMPLE);
@@ -346,6 +370,55 @@ describe('processPaper', () => {
     expect((await paper(id)).status).toBe('error');
   });
 
+  // Security review: bounded PDF work.
+  it('a PDF over MAX_PDF_PAGES is rejected before any extraction or provider call', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes();
+    const deps = { ...depsWith(f.deps), config: { ...config, maxPdfPages: 2 } };
+    await expect(processPaper({ paper_id: id }, ctxFor().ctx, deps)).rejects.toThrow('PDF has 3 pages; the limit is 2');
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe('PDF has 3 pages; the limit is 2');
+    expect(f.calls).toEqual([]);
+  });
+
+  it('figure detection sees at most FIGURE_DETECT_MAX_PAGES pages', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes(); // the one figure is on page 2
+    const deps = { ...depsWith(f.deps), config: { ...config, figureDetectMaxPages: 1 } };
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, deps);
+    expect(r).toMatchObject({ status: 'complete', figure_count: 0 });
+    const detectCalls = f.calls.filter((c) => JSON.stringify(c.body).includes('This is page'));
+    expect(detectCalls).toHaveLength(1);
+    expect(JSON.stringify(detectCalls[0]!.body)).toContain('This is page 1 of');
+  });
+
+  it('the job checkpoint runs before every page of the text pass, the page-text pass and figure detection', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const { ctx } = ctxFor();
+    let calls = 0;
+    const checkpoint = ctx.checkpoint;
+    ctx.checkpoint = () => {
+      calls++;
+      checkpoint();
+    };
+    expect(await processPaper({ paper_id: id }, ctx, depsWith(fakes().deps))).toMatchObject({ status: 'complete' });
+    expect(calls).toBe(9); // 3 pages x (markdown, page text, detection)
+  });
+
+  it('a checkpoint that throws during text extraction stops the paper before any provider call', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes();
+    const { ctx } = ctxFor();
+    const stop = new Error('time is up');
+    ctx.checkpoint = () => {
+      throw stop;
+    };
+    await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBe(stop);
+    expect((await paper(id)).error_message).toBe('time is up');
+    expect(f.calls).toEqual([]);
+  });
+
   it('a deleted paper row returns skipped and calls no provider', async () => {
     const id = await newPaper(s.user_a, SAMPLE);
     await sql`DELETE FROM papers WHERE id = ${id}`;
@@ -364,21 +437,32 @@ describe('processPaper', () => {
   });
 
   // Review Focus 5: an over-time job stops spending.
-  it('a hung provider is cut off by the soft limit: rejects fast, paper error, no calls after the abort', async () => {
+  // The soft limit is final (security review): a rerun would spend the same budget again and time out again.
+  it('a hung provider is cut off by the soft limit: returns fast with status error (no retry), no calls after the abort', async () => {
     const id = await newPaper(s.user_a, SAMPLE);
     const f = fakes({ chat: () => new Promise<string>(() => {}) });
     const { ctx } = ctxFor(1000);
     let callsAtAbort = -1;
     ctx.signal.addEventListener('abort', () => (callsAtAbort = f.calls.length), { once: true });
     const t0 = Date.now();
-    await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBeDefined();
+    const r = await processPaper({ paper_id: id }, ctx, depsWith(f.deps));
     expect(Date.now() - t0).toBeLessThan(3000);
     const p = await paper(id);
     expect(p.status).toBe('error');
     expect(String(p.error_message)).toMatch(/abort|timeout/i);
+    expect(r).toEqual({ status: 'error', paper_id: id, error: String(p.error_message) });
     expect(callsAtAbort).toBeGreaterThan(0);
     await new Promise((r) => setTimeout(r, 300));
     expect(f.calls).toHaveLength(callsAtAbort);
+  });
+
+  it('a pg-boss abort (not the soft limit) still rejects, so the job is retried', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes({ chat: () => new Promise<string>(() => {}) });
+    const { ctx, ac } = ctxFor();
+    setTimeout(() => ac.abort(new Error('worker stopping')), 200);
+    await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBeDefined();
+    expect((await paper(id)).status).toBe('error');
   });
 
   // Review Focus 1: concurrent jobs for different users never cross keys.
@@ -481,6 +565,63 @@ describe('process_paper through a real worker', () => {
       expect(p!.status).toBe('error');
       expect(String(p!.error_message)).not.toBe('');
       expect(f.calls).toEqual([]);
+    } finally {
+      await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
+      await probe.end();
+    }
+  }, 60_000);
+
+  it('a soft-limit timeout completes the job without a retry and leaves the paper error', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    const env = {
+      DATABASE_URL: scratch.url,
+      AUTH_PROVIDER: 'none',
+      ENVIRONMENT: 'development',
+      LOG_LEVEL: 'silent',
+      OLLAMA_BASE_URL: OLLAMA,
+      UPLOAD_DIR: join(dir, 'w-uploads'),
+      FIGURES_DIR: join(dir, 'w-figures'),
+      MEDIA_DIR: join(dir, 'w-media'),
+    };
+    const f = fakes({ chat: () => new Promise<string>(() => {}) });
+    worker = await startWorker(env, {
+      providers: f.deps,
+      softLimitMs: 500,
+      queueOverrides: { process_paper: { retryDelay: 0 } },
+    });
+
+    const probe = createSql(scratch.url, { max: 2 });
+    const boss = createBoss(scratch.url, { max: 2, supervise: false, schedule: false });
+    boss.on('error', () => undefined);
+    try {
+      const userId = randomUUID();
+      const paperId = randomUUID();
+      await probe`INSERT INTO users (id, email) VALUES (${userId}, 'w@ficino.dev')`;
+      await probe`
+        INSERT INTO papers (id, user_id, filename, file_path, status)
+        VALUES (${paperId}, ${userId}, 't.pdf', 't.pdf', 'pending')`;
+      await mkdir(env.UPLOAD_DIR, { recursive: true });
+      await writeFile(join(env.UPLOAD_DIR, `${paperId}.pdf`), SAMPLE);
+
+      await boss.start();
+      const queue = new JobQueue(boss, probe);
+      const jobId = await queue.send('process_paper', { paper_id: paperId });
+      await vi.waitFor(
+        async () => {
+          expect((await queue.getJobState(jobId)).state).toBe('completed');
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+      const job = await boss.getJobById('process_paper', jobId);
+      expect(job!.retryCount).toBe(0);
+      const [p] = await probe`SELECT status, error_message FROM papers WHERE id = ${paperId}`;
+      expect(p!.status).toBe('error');
+      expect(String(p!.error_message)).toMatch(/abort|timeout/i);
+      // One attempt: the metadata call that hung, and nothing after it.
+      expect(f.calls).toHaveLength(1);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(f.calls).toHaveLength(1);
     } finally {
       await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
       await probe.end();

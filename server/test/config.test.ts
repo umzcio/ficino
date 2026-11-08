@@ -46,6 +46,27 @@ it('an empty boolean uses the default', () => {
 it('CORS_ORIGINS splits on commas and drops blanks', () => {
   expect(loadConfig({ CORS_ORIGINS: 'https://a, ,https://b' }).corsOrigins).toEqual(['https://a', 'https://b']);
 });
+it('ALLOWED_HOSTS: unset is no extra hosts; entries are trimmed, lowercased and stripped of ports', () => {
+  expect(loadConfig({}).allowedHosts).toEqual([]);
+  expect(loadConfig({ ALLOWED_HOSTS: '' }).allowedHosts).toEqual([]);
+  expect(loadConfig({ ALLOWED_HOSTS: ' a.example, B.Example:8443 ,, [::1]:8000, ::1, 127.0.0.1 ' }).allowedHosts).toEqual([
+    'a.example',
+    'b.example',
+    '::1',
+    '::1',
+    '127.0.0.1',
+  ]);
+});
+it('ALLOWED_HOSTS=* (alone or in the list) turns the host check off', () => {
+  expect(loadConfig({ ALLOWED_HOSTS: '*' }).allowedHosts).toBe('*');
+  expect(loadConfig({ ALLOWED_HOSTS: 'a.example, *' }).allowedHosts).toBe('*');
+});
+it('ALLOWED_HOSTS rejects an entry that is not a host name', () => {
+  expect(() => loadConfig({ ALLOWED_HOSTS: 'a.example,https://b.example' })).toThrow(
+    'ALLOWED_HOSTS entry is not a host name: https://b.example',
+  );
+  expect(() => loadConfig({ ALLOWED_HOSTS: 'a/b' })).toThrow('ALLOWED_HOSTS entry is not a host name: a/b');
+});
 it('pool size prefers API_DB_POOL_MAX_SIZE over DB_POOL_MAX_SIZE', () => {
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7' }).dbPoolMax).toBe(7);
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7', API_DB_POOL_MAX_SIZE: '9' }).dbPoolMax).toBe(9);
@@ -66,6 +87,19 @@ it('worker defaults', () => {
   expect(c.maxVisionPages).toBe(100);
   expect(c.contextMaxPaperChars).toBe(200000);
   expect(c.contextMaxTokens).toBe(150);
+  expect(c.contextMaxChunks).toBe(200);
+  expect(c.maxPdfPages).toBe(500);
+  expect(c.figureDetectMaxPages).toBe(60);
+});
+it('MAX_PDF_PAGES and FIGURE_DETECT_MAX_PAGES are read and must be at least 1', () => {
+  const c = loadConfig({ MAX_PDF_PAGES: '40', FIGURE_DETECT_MAX_PAGES: '7' });
+  expect([c.maxPdfPages, c.figureDetectMaxPages]).toEqual([40, 7]);
+  expect(() => loadConfig({ MAX_PDF_PAGES: '0' })).toThrow('MAX_PDF_PAGES must be at least 1');
+  expect(() => loadConfig({ FIGURE_DETECT_MAX_PAGES: '0' })).toThrow('FIGURE_DETECT_MAX_PAGES must be at least 1');
+});
+it('CONTEXT_MAX_CHUNKS is read and must be at least 1', () => {
+  expect(loadConfig({ CONTEXT_MAX_CHUNKS: '50' }).contextMaxChunks).toBe(50);
+  expect(() => loadConfig({ CONTEXT_MAX_CHUNKS: '0' })).toThrow('CONTEXT_MAX_CHUNKS must be at least 1');
 });
 it('worker pool prefers WORKER_DB_POOL_MAX_SIZE, falls back to DB_POOL_MAX_SIZE, guards >= 2', () => {
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7' }).workerDbPoolMax).toBe(7);
@@ -123,5 +157,30 @@ it('PUBLIC_API_BASE defaults to /ficino/api, allows empty and nested paths, reje
   expect(loadConfig({ PUBLIC_API_BASE: '/api' }).publicApiBase).toBe('/api');
   for (const bad of ['x/', '/x/', '/x y', '/', 'https://api.example.test', '/x//y']) {
     expect(() => loadConfig({ PUBLIC_API_BASE: bad }), bad).toThrow('PUBLIC_API_BASE must be empty or a path like /ficino/api');
+  }
+});
+
+const DEFAULT_TRUSTED_PROXIES = ['127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
+
+it('TRUSTED_PROXIES defaults to the loopback and private ranges (unset or blank)', () => {
+  expect(loadConfig({}).trustedProxies).toEqual(DEFAULT_TRUSTED_PROXIES);
+  expect(loadConfig({ TRUSTED_PROXIES: '' }).trustedProxies).toEqual(DEFAULT_TRUSTED_PROXIES);
+  expect(loadConfig({ TRUSTED_PROXIES: '  ' }).trustedProxies).toEqual(DEFAULT_TRUSTED_PROXIES);
+});
+it('TRUSTED_PROXIES takes a comma list of addresses and CIDRs; a bare address is one host', () => {
+  expect(loadConfig({ TRUSTED_PROXIES: ' 172.18.0.0/16 ,, 203.0.113.5, 2001:DB8::/32, ::1 ' }).trustedProxies).toEqual([
+    '172.18.0.0/16',
+    '203.0.113.5/32',
+    '2001:db8::/32',
+    '::1/128',
+  ]);
+});
+it('TRUSTED_PROXIES=none trusts no proxy', () => {
+  expect(loadConfig({ TRUSTED_PROXIES: 'none' }).trustedProxies).toEqual([]);
+  expect(loadConfig({ TRUSTED_PROXIES: ' NONE ' }).trustedProxies).toEqual([]);
+});
+it('TRUSTED_PROXIES rejects an entry that is not an address or CIDR', () => {
+  for (const bad of ['proxy.example', '10.0.0.0/33', '::/129', '10.0.0.0/', '10.0.0/8', '10.0.0.0/8/1', '*', 'none,10.0.0.1']) {
+    expect(() => loadConfig({ TRUSTED_PROXIES: bad }), bad).toThrow('TRUSTED_PROXIES entry is not an IP address or CIDR');
   }
 });

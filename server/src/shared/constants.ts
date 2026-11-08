@@ -9,6 +9,10 @@ export const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 export const SIGNED_URL_DEFAULT_TTL = 600;
 export const MEDIA_URL_TTL = 86400;
 
+// Most posts one feed generation may plan: the posts_per_generation setting's max and the
+// /feed/generate num_posts bound; the worker clamps any job to it as well.
+export const MAX_POSTS_PER_GENERATION = 50;
+
 // List caps (api-contract C section 2.11).
 export const LIMITS = {
   FEEDS: 20,

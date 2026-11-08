@@ -3,7 +3,7 @@ import type { ProviderDeps } from '../providers/deps.js';
 import { detectFiguresOnPage, isFigureDetectAvailable } from '../providers/figureDetect.js';
 import { logger } from '../logger.js';
 import { mapLimit } from '../shared/mapLimit.js';
-import { extractPagesText, openRenderedPage, pageCount, type PdfDoc } from './pdf.js';
+import { extractPagesText, openRenderedPage, pageCount, type PdfCheckpoint, type PdfDoc } from './pdf.js';
 
 // Port of worker/lib/pdf_extractor.py extract_figures.
 
@@ -33,22 +33,30 @@ export type ExtractedFigure = {
 
 type PageFigure = Omit<ExtractedFigure, 'filename' | 'figure_index'>;
 
+/** Default for `extractFigures`'s `maxPages` (the worker passes `FIGURE_DETECT_MAX_PAGES`). */
+export const DEFAULT_FIGURE_DETECT_MAX_PAGES = 60;
+
 /**
  * Detect typed scientific figures with a vision model and crop them. Each page is rendered once at
  * 150 dpi, detected, and cropped right away (up to 4 pages in flight), so only the crops stay in memory.
+ * Only the first `maxPages` pages are read and sent to the detector. `checkpoint` runs before each page's text
+ * is read and before each page is rendered; it throws to stop the job (as `signal` does between awaits).
  */
 export async function extractFigures(
   doc: PdfDoc,
   p: ProviderConfig,
   deps: ProviderDeps,
   signal?: AbortSignal,
+  { maxPages = DEFAULT_FIGURE_DETECT_MAX_PAGES, checkpoint }: { maxPages?: number; checkpoint?: PdfCheckpoint } = {},
 ): Promise<ExtractedFigure[]> {
   if (!isFigureDetectAvailable(p)) {
     logger.warn('figure_detector_unavailable_skipping_figures');
     return [];
   }
-  const count = pageCount(doc);
-  const texts = extractPagesText(doc);
+  const total = pageCount(doc);
+  const count = Math.min(total, maxPages);
+  if (total > count) logger.warn({ pages: total, cap: maxPages }, 'figure_detect_page_cap_hit');
+  const texts = extractPagesText(doc, undefined, { pages: count, checkpoint });
 
   // A failed page must not reject while other pages are still using `doc`: the caller closes it right
   // after (a WASM use-after-free otherwise). So every page settles first, no new page starts after a
@@ -71,6 +79,7 @@ export async function extractFigures(
 
   async function detectAndCropPage(i: number): Promise<PageFigure[]> {
     signal?.throwIfAborted();
+    checkpoint?.();
     const page = openRenderedPage(doc, i, DETECT_DPI);
     try {
       const detections = await detectFiguresOnPage(p, deps, page.png, i + 1, texts[i] ?? '', signal);

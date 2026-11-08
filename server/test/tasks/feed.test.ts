@@ -12,6 +12,7 @@ import type { Rng } from '../../src/shared/random.js';
 import { uuid5 } from '../../src/shared/uuid5.js';
 import { LocalStorage } from '../../src/storage/local.js';
 import {
+  clampNumPosts,
   detectContradictions,
   generateFeed,
   getPaperIdsForCorpus,
@@ -664,6 +665,36 @@ describe('generate_feed persona_key and tab_focus', () => {
     expect(posts.length).toBeGreaterThan(0);
     expect(posts.every((p) => p.persona === 'methodologist')).toBe(true);
     expect(f.calls.filter(isPersonaCall)).toHaveLength(2);
+  });
+
+  it('clampNumPosts: non-finite or below 1 is the default 12, else truncated and capped at the shared max', () => {
+    for (const n of [undefined, null, 0, -1, -1e9, 0.5, Number.NaN, Infinity, -Infinity, '7' as never]) {
+      expect(clampNumPosts(n as number | undefined), String(n)).toBe(12);
+    }
+    expect(clampNumPosts(1)).toBe(1);
+    expect(clampNumPosts(2.9)).toBe(2);
+    expect(clampNumPosts(50)).toBe(50);
+    expect(clampNumPosts(51)).toBe(50);
+    expect(clampNumPosts(1e300)).toBe(50);
+  });
+
+  it('an enqueued persona job with a huge num_posts plans at most 50 posts', async () => {
+    const f = fakeProviders();
+    const { result, lines } = await run(
+      { user_id: s.user_a, persona_key: 'methodologist', num_posts: 1_000_000_000 },
+      { providers: f.deps },
+    );
+    expect(logged(lines, 'settings_loaded')[0]).toMatchObject({ num_posts: 50 });
+    expect(logged(lines, 'feed_step').find((l) => l.step === 'generating')).toMatchObject({ planned_posts: 50 });
+    expect(f.calls.filter(isPersonaCall).length).toBeLessThanOrEqual(50);
+    expect(result.post_count).toBeLessThanOrEqual(50);
+  });
+
+  it('an enqueued persona job with a negative or non-finite num_posts uses the default 12', async () => {
+    for (const n of [-5, Infinity]) {
+      const { lines } = await run({ user_id: s.user_a, persona_key: 'methodologist', num_posts: n });
+      expect(logged(lines, 'settings_loaded')[0], String(n)).toMatchObject({ num_posts: 12 });
+    }
   });
 
   it("tab_focus 'methods' sets category 'methods' on every post", async () => {

@@ -94,6 +94,94 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     validation required `content` (Python too), so such threads were dropped. A thread with a usable `thread_posts`
     list and no `content` now gets the joined thread as its `content` (the feed search text; the UI renders
     `thread_posts`).
+13. **`num_posts` is bounded** (security review). Python accepted any integer for `POST /feed/generate`'s `num_posts`,
+    and a `persona_key` request skipped the 1..50 `posts_per_generation` cap, so a huge value (or a long digit string,
+    which became `Infinity`) drove the synchronous post planner until the worker ran out of memory. The route now
+    answers 422 outside 0..50 (`0` still means the default), and the worker clamps every `generate_feed` job: a
+    missing, non-finite or below-1 count is the default 12, anything else is truncated and capped at 50. One constant,
+    `MAX_POSTS_PER_GENERATION` in `server/src/shared/constants.ts`, is both bounds and the setting's max. The shipped
+    UI always sends 3, so nothing visible changes.
+14. **Request bodies are capped** (security review). Python set no body size limit on its JSON routes, and neither
+    did the port: every `body(schema)` route buffers the whole body before validating it, so a large body cost memory
+    in proportion to its size (only the reverse proxy's upload-sized limit stood in front). Every request body is now
+    capped at `MAX_JSON_BODY_KB` (default 1024 KiB) with hono's `bodyLimit`: a declared `Content-Length` over the cap
+    is rejected before the body is read, and a chunked body is cut off once it passes the cap. Either way the answer
+    is 413 `{"detail":"Request body too large"}`. `POST /papers` is exempt and keeps its own `MAX_UPLOAD_SIZE_MB` cap.
+    No shipped client sends a JSON body anywhere near the cap.
+15. **Model output sets only the post's text fields** (security review). Python started every finished post from the
+    model's whole JSON object and only overwrote some keys, so a reply steered by a hostile paper could store its own
+    `figure_url`, `figure_id`, `figure_caption`, `audio_url`, `audio_key`, `deleted`, `regenerated`, `_task_id` or
+    engagement counts, and claim `post_type: "figure"` with no figure; the browser then loaded the model's URLs.
+    `startPost` in `server/src/feed/slots.ts`, the first step of `finishPost`, `finishRegeneratedPost` and
+    `finishChapterPost`, now builds a new post from the fields the prompts ask for (`post_type`, `content`,
+    `paper_ref`, `thread_count`, `thread_posts`, `quoting_handle`, `quoting_content`, `replying_to`); persona, id,
+    time, sources, category, figure fields and engagement counts come from the worker only. The model's `post_type`
+    still wins, except `figure` without a figure the worker picked, which falls back to the slot type (`post` for a
+    figure slot). Model-supplied engagement counts are no longer kept, so two chapter goldens' `likes`/`retweets`
+    now read the server default. Posts already stored are unchanged.
+16. **Contextualization is capped per paper** (security review). Python made one contextualizer call per chunk with
+    no ceiling, and `chunk_max_tokens` (user-settable, down to 100) sets how many chunks a paper has, so one
+    text-dense upload could drive thousands of Anthropic calls on the operator's key, or hours of a shared Ollama,
+    until the soft time limit. `CONTEXT_MAX_CHUNKS` (default 200, at least 1) now caps it: a paper with more chunks
+    than that is stored with no contextual prefixes and no contextualizer call is made; the worker logs
+    `contextualizer_chunk_cap_hit` with the chunk count, the cap and the provider. The whole paper is skipped rather
+    than its first 200 chunks contextualized, so a paper's chunks are either all prefixed or none are (a half-prefixed
+    paper would rank its front chunks differently from the rest), and an oversized upload, whose text the prompt
+    truncates at `CONTEXT_MAX_PAPER_CHARS` anyway, costs no calls at all. Papers at or under the cap, and every paper
+    when `CONTEXT_PROVIDER` is `none`, behave as before.
+17. **An ingestion soft-limit timeout is not retried** (security review). Python's `process_paper` sent every
+    exception, the soft time limit's included, to `self.retry` (two retries), except that the contextualizer step
+    caught it and carried on without prefixes; the port retried every soft-limit abort, so one over-long upload ran
+    the whole pipeline, provider calls and all, up to three times. When the job's soft limit (not a pg-boss abort)
+    stops `process_paper`, the paper is still marked `error` with the abort's message, and the job now returns
+    `{status: "error"}` instead of rethrowing, as the embedding-unavailable path already did, so pg-boss completes it
+    without a retry; the worker logs `ingestion_soft_limit_not_retried`. Every other failure, a pg-boss abort included,
+    still rethrows and is retried. `JobContext.softLimitHit()` tells the two aborts apart.
+18. **PDF work is bounded** (security review). Python's PyMuPDF extraction, rendering and figure detection had no
+    page or size limit; Celery's hard time limit killed a runaway child, which the single-threaded TS worker cannot
+    do, so a crafted or oversized PDF could hold its event loop for the whole job. Four bounds now apply, and output
+    under them is byte-identical (the PyMuPDF goldens are unchanged):
+    - `MAX_PDF_PAGES` (default 500, at least 1): `openPdf` rejects a document with more pages with a `PdfOpenError`
+      (`PDF has N pages; the limit is M`), so the paper is marked `error` before any text is read; like other
+      open errors the job is retried.
+    - Raster cap: a page whose render would pass 25 million pixels or 10,000 px on a side (at 150 dpi, a page over
+      about 33 in square) is drawn at a lower uniform scale that fits, decided before the pixmap is allocated, and
+      the worker logs `pdf_render_scaled_down`. Figure crops and vision
+      extraction use the scaled raster as is. Python allocated such a pixmap at full size or failed the paper.
+    - Page checkpoints: the markdown pass, the per-page text pass and figure detection call
+      `JobContext.checkpoint()` before each page. It throws the job's abort reason, or a `TimeoutError` once the
+      soft limit's time has passed by the clock (its timer cannot fire during synchronous work), and
+      `softLimitHit()` counts that case, so such a timeout is final like item 17. One huge page can still run
+      past the limit; only isolation (section 7) bounds that.
+    - `FIGURE_DETECT_MAX_PAGES` (default 60, at least 1): figure detection reads and sends to the detector only
+      the first that-many pages and logs `figure_detect_page_cap_hit` with the page count and the cap; Python
+      scanned every page. Figures past the cap are not extracted.
+19. **The api answers only to known Host names** (security review). Python, and the port, answered any `Host`, so
+    with `AUTH_PROVIDER=none` on a plain-http self-host a web page on an attacker's name that later resolved to
+    the machine (DNS rebinding) was same-origin with the api: it could read everything and, by setting its own
+    `ficino_csrf` cookie and header pair, write too. A middleware mounted first in `createApp`
+    (`server/src/http/allowedHosts.ts`) now answers 421 `{"detail":"Unknown host"}`, for every method and path,
+    before CORS, CSRF (no cookie is minted) or routing, unless the `Host` header and the request URL host are
+    both allowed: `localhost`, `127.0.0.1`, `::1`, the hostnames of `CORS_ORIGINS` (plus the dev origins' in
+    development) and `ALLOWED_HOSTS` (a comma list; `*` turns the check off). Hosts are compared lowercased,
+    without port, IPv6 brackets or a trailing dot; a malformed `Host` never matches. A `CORS_ORIGINS` entry
+    that is not an origin URL now stops the api at boot. Rejections are logged as `host_rejected`. Both web
+    nginx configs pass `Host $host`, so a deployment whose `CORS_ORIGINS` is the URL people browse to, the
+    loopback self-host, the e2e stack and the in-container healthcheck (`127.0.0.1`) need no new setting. The
+    frontend dev server's proxy now keeps the browser's `Host` (`changeOrigin: false`).
+20. **The client address comes from a trusted proxy only** (security review). Python, and the port, keyed the
+    per-IP login and register limits and the audit log's `ip` on `X-Real-IP` from any peer, and the self-host
+    web nginx set that header to whoever connected to it, so behind an operator's own reverse proxy every client
+    shared one login budget (a few bad requests locked everyone out) and a peer on the api's network could pick
+    its own key. `clientIp` (`server/src/http/rateLimit.ts`) now uses the socket peer (an IPv4-mapped IPv6 peer
+    read as IPv4) and takes `X-Real-IP` only when that peer is in `TRUSTED_PROXIES` (a comma list of addresses
+    and CIDRs, `none` for no proxy; default loopback, `10/8`, `172.16/12`, `192.168/16`, `::1` and `fc00::/7`)
+    and the header is an IP address; without a socket it is null whatever the headers say. A malformed entry
+    stops the process at boot. The self-host web image gains an entrypoint step: with `REAL_IP_FROM` set (a
+    comma or space list of addresses or CIDRs) it writes `set_real_ip_from` for each, `real_ip_header
+    X-Forwarded-For` and `real_ip_recursive on` into a file `frontend/nginx.conf` includes; unset, nothing is
+    written and the direct peer stays the client, as before; an entry with any other character stops the
+    container. The tailnet template does not include that file, so the tailnet node is unchanged.
 
 ## 3. Rulings made during execution
 
@@ -151,7 +239,7 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
 | 01 | `parseBool` silent fallback | Fixed: Task 11 (deliberate change) |
 | 02 | Delete the golden generators with `worker/` | Done: Task 13 (tag `python-final`) |
 | 02 | Worker command, shared volumes, same key, no inherited healthcheck, `stop_grace_period` ≥ 40 s | Fixed: Task 1 (45 s) |
-| 02 | Synchronous extraction has no hard limit (`worker_thread`) | Kept: the feed rework replaces the extractor behind the same interface |
+| 02 | Synchronous extraction has no hard limit (`worker_thread`) | Partly fixed: page, raster and figure-page caps plus per-page time checks (section 2, item 18); isolation kept: the feed rework replaces the extractor behind the same interface |
 | 02/05 | Reprocess endpoint (empty re-run keeps stale chunks) | Kept out of scope; the re-embed does not re-extract |
 | 03 | Re-embed on an embed-setting change | Kept as CLI only (Task 5): after switching the embedding model, run `reembed`; no settings hook, no new route |
 | 03 | Restore re-embed writes `embed_model` | Fixed: Task 5, run by the restore runbook |
@@ -230,8 +318,10 @@ cleanly; after the key is added, the api and worker are recreated and this smoke
   and re-embed after the change.
 - **Re-embed trigger in Settings.** The re-embed is a CLI only; a Settings action (or a prompt after an embedding-model
   change) belongs to the frontend redo.
-- **`worker_thread` extraction.** Synchronous MuPDF extraction has no hard time limit; the feed rework's extractor
-  should run off the main thread.
+- **`worker_thread` extraction.** The bounds landed (section 2, item 18: page cap, raster cap, figure-page cap and a
+  time check between pages), but synchronous MuPDF work still runs on the worker's one thread with no hard time
+  limit, so a single pathological page can hold the event loop past the soft limit. The feed rework's extractor
+  should run in a worker thread (or child process) that is terminated on the job's deadline or abort.
 - **The soft-limit slice.** A soft-limit abort still discards the partial feed slice.
 - **The rest of the preamble still contradicts the per-type prompts.** It says threads use `[1/n]` numbering (the
   thread prompt says not to number) and quotes carry `"quoting": "@handle"` (the quote prompt asks for
