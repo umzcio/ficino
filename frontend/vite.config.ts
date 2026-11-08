@@ -100,7 +100,9 @@ export default defineConfig({
     proxy: {
       '/ficino/api': {
         target: 'http://ficino-api:8000',
-        changeOrigin: true,
+        // Keep the browser's Host (localhost), like the web nginx's `Host $host`: the api answers 421 to
+        // Host names it does not know, and ficino-api is not one of them.
+        changeOrigin: false,
         rewrite: (path) => path.replace(/^\/ficino\/api/, ''),
       },
     },

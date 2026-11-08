@@ -46,6 +46,27 @@ it('an empty boolean uses the default', () => {
 it('CORS_ORIGINS splits on commas and drops blanks', () => {
   expect(loadConfig({ CORS_ORIGINS: 'https://a, ,https://b' }).corsOrigins).toEqual(['https://a', 'https://b']);
 });
+it('ALLOWED_HOSTS: unset is no extra hosts; entries are trimmed, lowercased and stripped of ports', () => {
+  expect(loadConfig({}).allowedHosts).toEqual([]);
+  expect(loadConfig({ ALLOWED_HOSTS: '' }).allowedHosts).toEqual([]);
+  expect(loadConfig({ ALLOWED_HOSTS: ' a.example, B.Example:8443 ,, [::1]:8000, ::1, 127.0.0.1 ' }).allowedHosts).toEqual([
+    'a.example',
+    'b.example',
+    '::1',
+    '::1',
+    '127.0.0.1',
+  ]);
+});
+it('ALLOWED_HOSTS=* (alone or in the list) turns the host check off', () => {
+  expect(loadConfig({ ALLOWED_HOSTS: '*' }).allowedHosts).toBe('*');
+  expect(loadConfig({ ALLOWED_HOSTS: 'a.example, *' }).allowedHosts).toBe('*');
+});
+it('ALLOWED_HOSTS rejects an entry that is not a host name', () => {
+  expect(() => loadConfig({ ALLOWED_HOSTS: 'a.example,https://b.example' })).toThrow(
+    'ALLOWED_HOSTS entry is not a host name: https://b.example',
+  );
+  expect(() => loadConfig({ ALLOWED_HOSTS: 'a/b' })).toThrow('ALLOWED_HOSTS entry is not a host name: a/b');
+});
 it('pool size prefers API_DB_POOL_MAX_SIZE over DB_POOL_MAX_SIZE', () => {
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7' }).dbPoolMax).toBe(7);
   expect(loadConfig({ DB_POOL_MAX_SIZE: '7', API_DB_POOL_MAX_SIZE: '9' }).dbPoolMax).toBe(9);

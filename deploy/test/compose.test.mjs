@@ -124,6 +124,16 @@ test('the server image healthcheck has interval and start period', () => {
   );
 });
 
+test('both web nginx configs pass the browser Host to the api (its DNS-rebinding host check reads it)', () => {
+  for (const f of ['frontend/nginx.conf', 'deploy/web/tailnet/default.conf.template']) {
+    const conf = readFileSync(join(REPO, f), 'utf8');
+    const api = conf.slice(conf.indexOf('location /ficino/api/'));
+    assert.match(api, /^\s*proxy_set_header Host \$host;$/m, f);
+  }
+  // The dev server's proxy keeps the browser's Host too (changeOrigin would send the container name).
+  assert.match(readFileSync(join(REPO, 'frontend/vite.config.ts'), 'utf8'), /changeOrigin: false/);
+});
+
 const SERVER_ENV_SOURCES = ['server/src/config.ts', 'server/src/settings/schema.ts', 'server/src/api/main.ts', 'server/src/logger.ts'];
 const envKeys = (raw) => [...raw.matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]);
 

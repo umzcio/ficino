@@ -6,9 +6,10 @@ import { SmartRouter } from 'hono/router/smart-router';
 import { TrieRouter } from 'hono/router/trie-router';
 import type { Logger } from 'pino';
 import type { AuthUser } from './auth/types.js';
-import type { Config } from './config.js';
+import { DEV_ORIGINS, type Config } from './config.js';
 import type { Sql } from './db/sql.js';
 import { basicRoutes } from './auth/basicRoutes.js';
+import { allowedHosts } from './http/allowedHosts.js';
 import { csrf } from './http/csrf.js';
 import { errorHandler, HttpError } from './http/errors.js';
 import { securityHeaders } from './http/securityHeaders.js';
@@ -54,8 +55,6 @@ export type AppDeps = {
 export type ResolvedAppDeps = AppDeps & { providers: ProviderDeps; rng: Rng };
 
 export type AppEnv = { Variables: { user: AuthUser; deps: ResolvedAppDeps } };
-
-const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8000'];
 
 function corsMiddleware(config: Config) {
   if (config.environment === 'development') {
@@ -131,7 +130,9 @@ export function createApp(rawDeps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const allowedMethods = makeAllowedMethods(app);
 
-  // Outermost first (C §2.1): CORS wraps CSRF so 403s still carry ACAO; headers are innermost.
+  // Outermost first: the DNS-rebinding host check answers 421 before anything else runs (no CORS
+  // headers, no CSRF cookie). Then (C §2.1) CORS wraps CSRF so 403s still carry ACAO; headers are innermost.
+  app.use('*', allowedHosts(deps.config, deps.logger));
   app.use('*', corsMiddleware(deps.config));
   app.use('*', csrf(deps.config, deps.logger));
   app.use('*', securityHeaders(deps.config));

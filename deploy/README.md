@@ -59,6 +59,10 @@ cp deploy/<loopback|tailnet>/docker-compose.override.example.yml docker-compose.
 - `/ficino/api/` is proxied to `ficino-api:8000` with the prefix stripped, so `PUBLIC_API_BASE` in
   `.env` must equal that prefix (`/ficino/api`, the default). Serve's `X-Forwarded-For` becomes
   `X-Real-IP` (the tailnet peer), and API reads and writes may take up to 300 s (long LLM calls).
+- Both web nginx configs pass the browser's `Host` to the api, which answers 421 to any name it does
+  not know (its DNS-rebinding guard): localhost, `127.0.0.1`, `::1`, the hostnames in `CORS_ORIGINS`
+  and `ALLOWED_HOSTS`. So `CORS_ORIGINS` in `.env` must be the node's own `https://<node>.<tailnet>.ts.net`
+  URL, or every API call fails with 421. The loopback override needs nothing: `localhost` is always allowed.
 - `web` shares the sidecar's namespace: if `ficino-ts` is recreated alone, recreate `web` too
   (`docker compose up -d --force-recreate ts web`).
 

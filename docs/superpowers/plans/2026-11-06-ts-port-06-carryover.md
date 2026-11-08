@@ -156,6 +156,19 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     - `FIGURE_DETECT_MAX_PAGES` (default 60, at least 1): figure detection reads and sends to the detector only
       the first that-many pages and logs `figure_detect_page_cap_hit` with the page count and the cap; Python
       scanned every page. Figures past the cap are not extracted.
+19. **The api answers only to known Host names** (security review). Python, and the port, answered any `Host`, so
+    with `AUTH_PROVIDER=none` on a plain-http self-host a web page on an attacker's name that later resolved to
+    the machine (DNS rebinding) was same-origin with the api: it could read everything and, by setting its own
+    `ficino_csrf` cookie and header pair, write too. A middleware mounted first in `createApp`
+    (`server/src/http/allowedHosts.ts`) now answers 421 `{"detail":"Unknown host"}`, for every method and path,
+    before CORS, CSRF (no cookie is minted) or routing, unless the `Host` header and the request URL host are
+    both allowed: `localhost`, `127.0.0.1`, `::1`, the hostnames of `CORS_ORIGINS` (plus the dev origins' in
+    development) and `ALLOWED_HOSTS` (a comma list; `*` turns the check off). Hosts are compared lowercased,
+    without port, IPv6 brackets or a trailing dot; a malformed `Host` never matches. A `CORS_ORIGINS` entry
+    that is not an origin URL now stops the api at boot. Rejections are logged as `host_rejected`. Both web
+    nginx configs pass `Host $host`, so a deployment whose `CORS_ORIGINS` is the URL people browse to, the
+    loopback self-host, the e2e stack and the in-container healthcheck (`127.0.0.1`) need no new setting. The
+    frontend dev server's proxy now keeps the browser's `Host` (`changeOrigin: false`).
 
 ## 3. Rulings made during execution
 

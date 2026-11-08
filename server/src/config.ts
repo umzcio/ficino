@@ -1,4 +1,5 @@
 import { logger } from './logger.js';
+import { normalizeHost } from './shared/host.js';
 import { pyStrip } from './shared/pystr.js';
 
 export type Env = Record<string, string | undefined>;
@@ -10,6 +11,11 @@ export interface Config {
   allowRegistration: boolean;
   publicDeployment: boolean;
   corsOrigins: string[];
+  /**
+   * `ALLOWED_HOSTS`: Host names the API answers to beyond loopback and the CORS_ORIGINS (and, in development,
+   * dev-origin) hostnames; `'*'` turns the DNS-rebinding host check off. Entries are normalized (lowercase, no port).
+   */
+  allowedHosts: string[] | '*';
   cookieDomain: string;
   uploadDir: string;
   figuresDir: string;
@@ -143,6 +149,25 @@ function atLeastOne(name: string, n: number): number {
   return n;
 }
 
+/** The browser origins allowed in development (CORS, and their hosts for the host check). */
+export const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8000'];
+
+/** `ALLOWED_HOSTS`: a comma list of host names (a port is ignored, IPv6 with or without brackets), or `*`. */
+function allowedHosts(raw: string): string[] | '*' {
+  const entries = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (entries.includes('*')) return '*';
+  return entries.map((e) => {
+    // A bare IPv6 literal (two or more colons, no brackets) is bracketed so its colons are not read as a port.
+    const unbracketedV6 = !e.startsWith('[') && e.indexOf(':') !== e.lastIndexOf(':');
+    const host = normalizeHost(unbracketedV6 ? `[${e}]` : e);
+    if (host === null) throw new Error(`ALLOWED_HOSTS entry is not a host name: ${e}`);
+    return host;
+  });
+}
+
 const PUBLIC_API_BASE_RE = /^(\/[A-Za-z0-9._~-]+)+$/;
 
 function publicApiBase(v: string): string {
@@ -166,6 +191,7 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    allowedHosts: allowedHosts(str(env, 'ALLOWED_HOSTS', '')),
     cookieDomain: str(env, 'COOKIE_DOMAIN', ''),
     uploadDir: str(env, 'UPLOAD_DIR', '/app/uploads'),
     figuresDir: str(env, 'FIGURES_DIR', '/app/figures'),
