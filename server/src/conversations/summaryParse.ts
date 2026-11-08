@@ -2,7 +2,7 @@
 // `_coerce_messages` and the inline prompt building and parsing in `worker/tasks/summary_tasks.py`.
 // test/conversations/summaryParse.test.ts pins them to goldens produced by the real Celery tasks.
 import { pySlice, pyStr, pyStrip } from '../shared/pystr.js';
-import { fenceUntrusted } from '../shared/sanitize.js';
+import { fenceUntrusted, sanitizeInline } from '../shared/sanitize.js';
 
 export const PAPER_SUMMARY_SYSTEM = `You are a research paper summarizer for an academic discourse platform.
 Your job is to create a structured summary of a paper presented as a series of chat messages —
@@ -91,19 +91,19 @@ export type SynthesisPaperRow = {
 
 /**
  * The summary prompt for a paper and its first chunks. Chunk content and the title are PDF-origin, so both are
- * fenced; the joined chunk text is cut to 8000 code points after fencing, as Python's `chunks_text[:8000]`.
+ * fenced, and the section headings are sanitized (Python put them in raw); the joined chunk text is cut to 8000 code points after fencing, as Python's `chunks_text[:8000]`.
  */
 export function buildPaperSummaryPrompt(paper: SummaryPaperRow, chunks: SummaryChunkRow[]): string {
   const chunksText = chunks
-    .map((row) => `[${pyStr(row.section).toUpperCase()}]\n${fenceUntrusted(pyStr(row.content))}`)
+    .map((row) => `[${sanitizeInline(pyStr(row.section).toUpperCase())}]\n${fenceUntrusted(pyStr(row.content))}`)
     .join('\n\n');
   const title = paper.title || paper.filename;
   return paperSummaryPrompt(fenceUntrusted(pyStr(title)), pySlice(chunksText, 0, 8000));
 }
 
 /**
- * The synthesis prompt for the LATERAL query's rows: papers without chunks are skipped, each chunk is cut to 300
- * code points before fencing, and the combined text to 10 000. Throws when no paper has chunks.
+ * The synthesis prompt for the LATERAL query's rows: papers without chunks are skipped, section headings are
+ * sanitized, each chunk is cut to 300 code points before fencing, and the combined text to 10 000. Throws when no paper has chunks.
  */
 export function buildSynthesisPrompt(paperRows: SynthesisPaperRow[]): string {
   const paperSections: string[] = [];
@@ -115,7 +115,7 @@ export function buildSynthesisPrompt(paperRows: SynthesisPaperRow[]): string {
     const n = Math.min(sections.length, contents.length); // zip()
     const lines: string[] = [];
     for (let i = 0; i < n; i++) {
-      lines.push(`[${pyStr(sections[i])}]\n${fenceUntrusted(pySlice(pyStr(contents[i]), 0, 300))}`);
+      lines.push(`[${sanitizeInline(pyStr(sections[i]))}]\n${fenceUntrusted(pySlice(pyStr(contents[i]), 0, 300))}`);
     }
     paperSections.push(`=== ${fenceUntrusted(pyStr(title))} ===\n${lines.join('\n')}`);
   }

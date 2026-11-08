@@ -192,6 +192,20 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     lock, `GET`/`PUT /settings`, `resolveSettings` and `providerConfig` (worker jobs and the api LLM path) all
     read the pydantic spellings; unset or blank is off, and any other value already stopped the process at boot.
     `1`, `true` and `yes` (and unset or `false`) behave as before.
+22. **Prompt fences and PDF-derived headers are hardened** (security review). Python's `fence_untrusted` and
+    `sanitize_inline` escaped only the exact strings `<untrusted>` and `</untrusted>`, so a PDF whose text held
+    `</UNTRUSTED>`, `</untrusted >`, `</ untrusted>` or `</untrusted` plus a newline could end the data block
+    early for the model. `escapeFenceTags` (`server/src/shared/sanitize.ts`) now escapes any tag that reads as
+    `untrusted` ignoring case (Unicode case folding), whitespace or invisible format characters inside it,
+    fullwidth or small-form brackets and letters, a backslash or fullwidth slash, and attributes; the `<` becomes
+    `&lt;` and the tag's own closing bracket, if any, `&gt;`, with the text in between kept. The exact lowercase
+    tags still give Python's strings byte for byte, and other text is unchanged. Separately, the archivist's
+    `chunks_text` put the paper title and chunk section raw into the system prompt, as did the reply persona's
+    grounding (section) and the paper-summary and synthesis prompts (section), while the feed and DM builders
+    already ran the same fields through `sanitize_inline`. `archivistChunksText`, `replyChunksText`,
+    `buildPaperSummaryPrompt` and `buildSynthesisPrompt` now do too (role markers stripped, whitespace collapsed,
+    fence tags escaped, 200 code points then `…`). Ordinary titles and headings render as before, including a
+    null as `None`; the goldens are unchanged.
 
 ## 3. Rulings made during execution
 

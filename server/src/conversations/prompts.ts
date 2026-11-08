@@ -64,9 +64,14 @@ ${chunksText ? 'CORPUS CONTEXT:\n' + chunksText : 'No papers in corpus yet.'}`;
   return { system, messages, maxTokens: 512, temperature: 0.7 };
 }
 
-/** replies.py `_load_grounding`'s `chunks_text`: `[section]\n<fenced content>` joined by blank lines. */
+/**
+ * replies.py `_load_grounding`'s `chunks_text`: `[section]\n<fenced content>` joined by blank lines. The section is
+ * a PDF heading, so it is sanitized like the other prompt headers (Python put it in raw).
+ */
 export function replyChunksText(chunks: Array<{ section: string | null; content: unknown }>): string {
-  return chunks.map((c) => `[${pyStr(c.section)}]\n${fenceUntrusted(pyStr(c.content))}`).join('\n\n');
+  return chunks
+    .map((c) => `[${sanitizeInline(pyStr(c.section))}]\n${fenceUntrusted(pyStr(c.content))}`)
+    .join('\n\n');
 }
 
 /** `create_reply`'s main-persona call. `history` already ends with the new user turn. */
