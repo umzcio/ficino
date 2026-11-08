@@ -198,31 +198,48 @@ export function groundPost(rng: Rng, post: Post, o: GroundPostOpts): Post {
   return post;
 }
 
+/** A model text field as kept: a string or null as given, a finite number as its decimal string, else absent. */
+function modelText(v: unknown): string | null | undefined {
+  if (typeof v === 'string' || v === null) return v;
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return undefined;
+}
+
 /**
  * The fields a persona prompt asks the model for (prompts.ts): the post text, the thread, the quote and reply echo,
- * and a cite the server replaces anyway. Every other post field is the server's.
+ * and a cite the server replaces anyway, each with the value startPost keeps (undefined: the field is dropped). The
+ * client renders the text fields as strings and thread_count as a number, so another JSON type is never stored
+ * (deliberate change 23). post_type passes as is: validatePostShape turns a non-string or unknown type into 'post'.
  */
-export const MODEL_POST_FIELDS: ReadonlySet<string> = new Set([
-  'post_type',
-  'content',
-  'paper_ref',
-  'thread_count',
-  'thread_posts',
-  'quoting_handle',
-  'quoting_content',
-  'replying_to',
-]);
+const MODEL_FIELD_VALUE: Readonly<Record<string, (v: unknown) => unknown>> = {
+  post_type: (v) => v,
+  content: modelText,
+  paper_ref: modelText,
+  thread_count: (v) => (v === null || Number.isSafeInteger(v) ? v : undefined),
+  thread_posts: (v) => (v === null || (Array.isArray(v) && v.every((x) => typeof x === 'string')) ? v : undefined),
+  quoting_handle: modelText,
+  quoting_content: modelText,
+  replying_to: modelText,
+};
+
+/** Every other post field is the server's. */
+export const MODEL_POST_FIELDS: ReadonlySet<string> = new Set(Object.keys(MODEL_FIELD_VALUE));
 
 /**
  * The start of every finished post (generate_feed, regenerate_post, generate_chapter): a new object holding only the
  * model's MODEL_POST_FIELDS, the persona, and the post type. Model output is untrusted (a paper can steer it), so it
  * never sets figure, audio, source, id, time, deletion or engagement fields (deliberate change 15; Python kept every
- * model key). The model's post_type stands, as in Python, except 'figure' without a figure the worker picked: that
- * falls back to the slot type, or 'post' for a figure slot.
+ * model key), and a kept field holds only the type the client expects (MODEL_FIELD_VALUE). The model's post_type
+ * stands, as in Python, except 'figure' without a figure the worker picked: that falls back to the slot type, or
+ * 'post' for a figure slot.
  */
 export function startPost(raw: Post, personaKey: string, slotType: string, figure: FeedFigure | null): Post {
   const post: Post = {};
-  for (const key of Object.keys(raw)) if (MODEL_POST_FIELDS.has(key)) post[key] = raw[key];
+  for (const key of Object.keys(raw)) {
+    if (!Object.hasOwn(MODEL_FIELD_VALUE, key)) continue;
+    const value = MODEL_FIELD_VALUE[key]!(raw[key]);
+    if (value !== undefined) post[key] = value;
+  }
   post.persona = personaKey;
   if (!Object.hasOwn(post, 'post_type')) post.post_type = slotType;
   if (post.post_type === 'figure' && !figure) post.post_type = slotType === 'figure' ? 'post' : slotType;

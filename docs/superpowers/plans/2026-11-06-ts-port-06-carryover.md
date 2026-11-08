@@ -206,6 +206,20 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     `buildPaperSummaryPrompt` and `buildSynthesisPrompt` now do too (role markers stripped, whitespace collapsed,
     fence tags escaped, 200 code points then `…`). Ordinary titles and headings render as before, including a
     null as `None`; the goldens are unchanged.
+23. **Model post fields keep only the type the client renders** (security review). Python stored the model's values
+    for `content`, `paper_ref`, `thread_count`, `thread_posts`, `quoting_handle`, `quoting_content` and
+    `replying_to` with any JSON type, so a reply steered by a hostile paper could store, say, an object as
+    `content`; the web client's markdown renderer then threw and the whole app went blank on every start while that
+    feed was the newest, and feed audio failed on that post. `startPost` in `server/src/feed/slots.ts` now keeps a
+    text field only as a string or null (a finite number becomes its decimal string; an object, array or boolean is
+    dropped), `thread_count` only as an integer or null, and `thread_posts` only as a list of strings or null.
+    Dropping `content` drops the post as missing content (a thread with valid parts still gets them joined), and a
+    thread whose parts are not all strings becomes a post, as before. `post_type` is unchanged (`validatePostShape`
+    already made a non-string type `post`). In the web client, `PostCard` normalises a stored post's text fields
+    (`safeFeedPost`, `frontend/src/lib/postFields.ts`), `Md` and `InlineMd` render a non-string as its text or
+    nothing, and the post detail and listen views read `content` the same way, so a post stored before this change
+    cannot crash the app. `postToSpeechText` keeps Python's error on a stored non-string `content`. Well-typed
+    replies and the goldens are unchanged.
 
 ## 3. Rulings made during execution
 

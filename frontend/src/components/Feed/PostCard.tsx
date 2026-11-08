@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect, type CSSProperties } from 'react'
+import { memo, useState, useRef, useEffect, useMemo, type CSSProperties } from 'react'
 import {
   MessageCircle, Repeat2, Heart, Bookmark,
   MoreHorizontal, FileText, ImageIcon, ZoomIn, Loader2,
@@ -9,6 +9,7 @@ import { sendReply, sendZap, getPostReplies, getCitation, regeneratePost, delete
 import { usePersonas } from '../../hooks/usePersonas'
 import { InlineMd } from './_shared/InlineMd'
 import { Md } from '../_shared/Md'
+import { safeFeedPost } from '../../lib/postFields'
 import { FigureLightbox } from './_shared/FigureLightbox'
 import { Avatar } from './_shared/Avatar'
 import { SourcesList } from './_shared/SourcesList'
@@ -102,7 +103,9 @@ export interface PostCardProps {
   threadConnector?: 'below' | 'above' | 'both'
 }
 
-function PostCardImpl({ post, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated, onPostDeleted, threadConnector }: PostCardProps) {
+function PostCardImpl({ post: storedPost, feedId, postIndex = 0, bookmarkedId, onBookmarkToggle, onClick, hasUserReply, annotation, onAnnotationSave, onAnnotationDelete, onPersonaClick, autoOpenReply, liked = false, onLikeToggle, isReplyLiked, onReplyLikeToggle, onReplyBookmark, isReplyBookmarked, onPostRegenerated, onPostDeleted, threadConnector }: PostCardProps) {
+  // Model fields of a stored post are made well typed first: one bad post must not throw and unmount the app.
+  const post = useMemo(() => safeFeedPost(storedPost), [storedPost])
   const personas = usePersonas()
   const p = personas[post.persona]
   const bookmarked = !!bookmarkedId

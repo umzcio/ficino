@@ -4,6 +4,7 @@ import { usePersonas, type PersonaMap } from '../../hooks/usePersonas'
 import { useLikes } from '../../hooks/useLikes'
 import { PostCard } from './PostCard'
 import { Md } from '../_shared/Md'
+import { asText } from '../../lib/postFields'
 import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 
 interface PostDetailProps {
@@ -57,7 +58,8 @@ function findQuotedPost(
   if (!targetKey) return null
 
   for (let i = currentIndex - 1; i >= 0; i--) {
-    if (posts[i].persona === targetKey && posts[i].content?.includes(quotingContent.slice(0, 50))) {
+    // asText: stored post fields are model output and may not be strings.
+    if (posts[i].persona === targetKey && asText(posts[i].content).includes(asText(quotingContent).slice(0, 50))) {
       return { post: posts[i], index: i }
     }
   }

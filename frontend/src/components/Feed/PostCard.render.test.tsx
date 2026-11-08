@@ -125,6 +125,29 @@ describe('PostCard render', () => {
     expect(screen.getByRole('button', { name: 'Zoom figure: Figure 1: accuracy over epochs' })).toBeTruthy()
   })
 
+  // A post stored before the server type-checked model fields (or read from the offline cache) can carry any JSON
+  // type; one bad post must not unmount the app.
+  describe('mistyped stored fields', () => {
+    const bad = (over: Record<string, unknown>) => basePost(over as Partial<FeedPost>)
+    const VALUES: [string, unknown][] = [['an object', { x: 1 }], ['an array', ['a', { x: 1 }]], ['a number', 5], ['null', null]]
+    for (const field of ['content', 'paper_ref', 'replying_to', 'quoting_handle', 'quoting_content', 'thread_count', 'thread_posts', 'post_type']) {
+      it.each(VALUES)(`renders with ${field} as %s`, (_l, value) => {
+        const types = field === 'post_type' ? ['post'] : ['post', 'thread', 'quote', 'reply']
+        for (const post_type of types) {
+          const extra = post_type === 'thread' && field !== 'thread_posts' ? { thread_posts: ['opener'] } : {}
+          const { container, unmount } = renderCard(bad({ post_type, ...extra, [field]: value }))
+          expect(container.querySelector('article')).toBeTruthy()
+          unmount()
+        }
+      })
+    }
+
+    it('renders a numeric content as text', () => {
+      renderCard(bad({ content: 42 }))
+      expect(screen.getByText('42')).toBeTruthy()
+    })
+  })
+
   it('renders without throwing with only the minimal required fields', () => {
     const { container } = renderCard(basePost())
     expect(container.querySelector('article')).toBeTruthy()
