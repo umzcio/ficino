@@ -2,7 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ProviderConfig } from './config.js';
 import type { ProviderDeps } from './deps.js';
 import { logger } from '../logger.js';
-import { renderPage, pageCount, type PdfDoc } from '../ingest/pdf.js';
+import type { PdfDoc } from '../ingest/pdf.js';
+import { asPdfSession, type PdfSession } from '../ingest/pdfSession.js';
 import { pyStrip } from '../shared/pystr.js';
 import { fetchJson, isTransient, withRetry } from './http.js';
 
@@ -125,14 +126,15 @@ async function extractPage(
  * are dropped so a crafted PDF cannot burn unbounded paid-API spend.
  */
 export async function extractWithVision(
-  doc: PdfDoc,
+  doc: PdfDoc | PdfSession,
   p: ProviderConfig,
   deps: ProviderDeps,
   maxPages: number,
   signal?: AbortSignal,
 ): Promise<string> {
   if (!isVisionAvailable(p)) throw new Error('No vision provider available (set OLLAMA_VISION_MODEL or ANTHROPIC_API_KEY)');
-  const total = pageCount(doc);
+  const pdf = asPdfSession(doc);
+  const total = pdf.pages;
   const pages = Math.min(total, maxPages);
   if (total > maxPages) logger.warn({ totalPages: total, maxPages }, 'vision_extract_truncated');
   logger.info({ pages, total, provider: p.vision.provider }, 'vision_extract_start');
@@ -141,7 +143,8 @@ export async function extractWithVision(
   for (let i = 0; i < pages; i++) {
     signal?.throwIfAborted();
     logger.info({ page: i + 1, total: pages }, 'vision_extract_page');
-    out.push(await extractPage(p, deps, renderPage(doc, i, 200).png, i + 1, signal));
+    const { png } = await pdf.renderPage(i, 200);
+    out.push(await extractPage(p, deps, png, i + 1, signal));
   }
   const markdown = out.join('\n\n---\n\n');
   logger.info({ length: markdown.length }, 'vision_extract_complete');

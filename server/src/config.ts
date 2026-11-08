@@ -56,6 +56,10 @@ export interface Config {
   maxPdfPages: number;
   /** `FIGURE_DETECT_MAX_PAGES`: figure detection reads and sends only the first this-many pages. */
   figureDetectMaxPages: number;
+  /** `MAX_PAGE_CHARS`: a PDF page with more characters than this fails the paper (no retry). */
+  maxPageChars: number;
+  /** `PDF_THREAD_HEAP_MB`: the V8 heap cap of the thread that reads one paper's PDF; passing it fails the paper. */
+  pdfThreadHeapMb: number;
   contextMaxPaperChars: number;
   contextMaxTokens: number;
   /** `CONTEXT_MAX_CHUNKS`: a paper with more chunks than this gets no contextual prefixes (no provider calls). */
@@ -139,6 +143,11 @@ function jobTimeLimit(n: number): number {
 
 function atLeastOne(name: string, n: number): number {
   if (n < 1) throw new Error(`${name} must be at least 1`);
+  return n;
+}
+
+function pdfThreadHeapMb(n: number): number {
+  if (n < 64) throw new Error('PDF_THREAD_HEAP_MB must be at least 64');
   return n;
 }
 
@@ -234,6 +243,8 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     maxVisionPages: int(env, 'MAX_VISION_PAGES', 100),
     maxPdfPages: atLeastOne('MAX_PDF_PAGES', int(env, 'MAX_PDF_PAGES', 500)),
     figureDetectMaxPages: atLeastOne('FIGURE_DETECT_MAX_PAGES', int(env, 'FIGURE_DETECT_MAX_PAGES', 60)),
+    maxPageChars: atLeastOne('MAX_PAGE_CHARS', int(env, 'MAX_PAGE_CHARS', 200_000)),
+    pdfThreadHeapMb: pdfThreadHeapMb(int(env, 'PDF_THREAD_HEAP_MB', 1024)),
     contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
     contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),
     contextMaxChunks: atLeastOne('CONTEXT_MAX_CHUNKS', int(env, 'CONTEXT_MAX_CHUNKS', 200)),

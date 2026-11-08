@@ -3,7 +3,8 @@ import type { ProviderDeps } from '../providers/deps.js';
 import { detectFiguresOnPage, isFigureDetectAvailable } from '../providers/figureDetect.js';
 import { logger } from '../logger.js';
 import { mapLimit } from '../shared/mapLimit.js';
-import { extractPagesText, openRenderedPage, pageCount, type PdfCheckpoint, type PdfDoc } from './pdf.js';
+import type { PdfCheckpoint, PdfDoc } from './pdf.js';
+import { asPdfSession, type PdfSession } from './pdfSession.js';
 
 // Port of worker/lib/pdf_extractor.py extract_figures.
 
@@ -48,11 +49,13 @@ export const DEFAULT_FIGURE_DETECT_MAX_PAGES = 60;
  * 150 dpi, detected, and cropped right away (up to 4 pages in flight), so only the crops stay in memory.
  * Pages are detected concurrently but cropped in page order, so the paper-wide budget (50 figures, 120 MP of
  * crops) is spent while cropping: no crop is made past it, and no page starts once it is spent.
- * Only the first `maxPages` pages are read and sent to the detector. `checkpoint` runs before each page's text
- * is read and before each page is rendered; it throws to stop the job (as `signal` does between awaits).
+ * Only the first `maxPages` pages are read and sent to the detector. `doc` is the worker's `PdfSession` (MuPDF in
+ * a thread the job's signal terminates) or a `PdfDoc` read in this thread. `checkpoint` runs before each page is
+ * rendered and, for a `PdfDoc`, before each page's text is read; it throws to stop the job (as `signal` does
+ * between awaits).
  */
 export async function extractFigures(
-  doc: PdfDoc,
+  doc: PdfDoc | PdfSession,
   p: ProviderConfig,
   deps: ProviderDeps,
   signal?: AbortSignal,
@@ -62,10 +65,11 @@ export async function extractFigures(
     logger.warn('figure_detector_unavailable_skipping_figures');
     return [];
   }
-  const total = pageCount(doc);
+  const pdf = asPdfSession(doc, { checkpoint });
+  const total = pdf.pages;
   const count = Math.min(total, maxPages);
   if (total > count) logger.warn({ pages: total, cap: maxPages }, 'figure_detect_page_cap_hit');
-  const texts = extractPagesText(doc, undefined, { pages: count, checkpoint });
+  const texts = await pdf.extractPagesText(undefined, { pages: count });
 
   // A failed page must not reject while other pages are still using `doc`: the caller closes it right
   // after (a WASM use-after-free otherwise). So every page settles first, no new page starts after a
@@ -105,7 +109,7 @@ export async function extractFigures(
   async function detectAndCropPage(i: number): Promise<PageFigure[]> {
     signal?.throwIfAborted();
     checkpoint?.();
-    const page = openRenderedPage(doc, i, DETECT_DPI);
+    const page = await pdf.openRenderedPage(i, DETECT_DPI);
     try {
       const detections = await detectFiguresOnPage(p, deps, page.png, i + 1, texts[i] ?? '', signal);
       if (detections.length > MAX_FIGURES_PER_PAGE)
@@ -136,7 +140,7 @@ export async function extractFigures(
           spend(i + 1, 'figure_crop_pixel_budget_hit', { pixels, cap: MAX_CROP_PIXELS_PER_PAPER });
           break;
         }
-        const crop = page.crop(box);
+        const crop = await page.crop(box);
         kept++;
         pixels += area;
         found.push({

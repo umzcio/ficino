@@ -19,6 +19,7 @@ import { startWorker, type RunningWorker } from '../../src/worker/main.js';
 import { createScratchDb, resetDb, seedUsers, testSql, type Seeded } from '../helpers/db.js';
 import { fakeProviders, type FakeProviderOpts } from '../helpers/fakeProviders.js';
 import { testQueue } from '../helpers/queue.js';
+import { formBomb, glyphPages } from '../helpers/pdfBombs.js';
 
 const sql = testSql();
 const SAMPLE = new Uint8Array(readFileSync(new URL('../fixtures/sample.pdf', import.meta.url)));
@@ -393,29 +394,41 @@ describe('processPaper', () => {
     expect(JSON.stringify(detectCalls[0]!.body)).toContain('This is page 1 of');
   });
 
-  it('the job checkpoint runs before every page of the text pass, the page-text pass and figure detection', async () => {
-    const id = await newPaper(s.user_a, SAMPLE);
-    const { ctx } = ctxFor();
-    let calls = 0;
-    const checkpoint = ctx.checkpoint;
-    ctx.checkpoint = () => {
-      calls++;
-      checkpoint();
-    };
-    expect(await processPaper({ paper_id: id }, ctx, depsWith(fakes().deps))).toMatchObject({ status: 'complete' });
-    expect(calls).toBe(9); // 3 pages x (markdown, page text, detection)
+  it('a page over MAX_PAGE_CHARS marks the paper error and returns without a retry or any provider call', async () => {
+    const id = await newPaper(s.user_a, glyphPages([10, 3000]));
+    const f = fakes();
+    const deps = { ...depsWith(f.deps), config: { ...config, maxPageChars: 2999 } };
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, deps);
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe('PDF page 2 has more than 2999 characters (the per-page limit)');
+    expect(r).toEqual({ status: 'error', paper_id: id, error: p.error_message });
+    expect(f.calls).toEqual([]);
   });
 
-  it('a checkpoint that throws during text extraction stops the paper before any provider call', async () => {
-    const id = await newPaper(s.user_a, SAMPLE);
+  // Security review: one page can run MuPDF for as long as it likes, so the PDF work runs in a thread the job kills.
+  it('a page that runs past the soft limit is stopped at it: status error (no retry), no provider call', async () => {
+    const id = await newPaper(s.user_a, formBomb(8, 10, 'q Q')); // 10^8 operators from a 2 KB file
     const f = fakes();
-    const { ctx } = ctxFor();
-    const stop = new Error('time is up');
-    ctx.checkpoint = () => {
-      throw stop;
-    };
+    const { ctx } = ctxFor(1500);
+    const t0 = Date.now();
+    const r = await processPaper({ paper_id: id }, ctx, depsWith(f.deps));
+    expect(Date.now() - t0).toBeLessThan(4000);
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(String(p.error_message)).toMatch(/timeout/i);
+    expect(r).toEqual({ status: 'error', paper_id: id, error: String(p.error_message) });
+    expect(f.calls).toEqual([]);
+  });
+
+  it('a pg-boss abort during a long page rejects (so the job is retried) before any provider call', async () => {
+    const id = await newPaper(s.user_a, formBomb(8, 10, 'q Q'));
+    const f = fakes();
+    const { ctx, ac } = ctxFor();
+    const stop = new Error('worker stopping');
+    setTimeout(() => ac.abort(stop), 1000);
     await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBe(stop);
-    expect((await paper(id)).error_message).toBe('time is up');
+    expect((await paper(id)).error_message).toBe('worker stopping');
     expect(f.calls).toEqual([]);
   });
 

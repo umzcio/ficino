@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   closePdf,
   cropPage,
+  DEFAULT_MAX_PAGE_CHARS,
   extractPagesText,
   extractTextMarkdown,
   MAX_RENDER_EDGE,
@@ -11,10 +12,12 @@ import {
   openPdf,
   openRenderedPage,
   pageCount,
+  PdfLimitError,
   PdfOpenError,
   renderPage,
   type PdfDoc,
 } from '../../src/ingest/pdf.js';
+import { formBomb, glyphPages } from '../helpers/pdfBombs.js';
 
 // Goldens come from worker/lib/pdf_extractor.py run on sample.pdf inside the ficino-worker image
 // (PyMuPDF 1.28.0); see test/fixtures/goldens/README.md (tag `python-final`).
@@ -449,6 +452,59 @@ describe('checkpoint between pages', () => {
     try {
       expect(extractPagesText(doc, undefined, { pages: 2 })).toEqual(GOLDEN_PAGES.slice(0, 2));
       expect(extractPagesText(doc, undefined, { pages: 99 })).toEqual(GOLDEN_PAGES);
+    } finally {
+      closePdf(doc);
+    }
+  });
+});
+
+describe('per-page character cap', () => {
+  it('defaults to DEFAULT_MAX_PAGE_CHARS and leaves the golden output unchanged', () => {
+    expect(DEFAULT_MAX_PAGE_CHARS).toBe(200_000);
+    const doc = openPdf(SAMPLE, { maxPageChars: 2000 });
+    try {
+      expect(extractTextMarkdown(doc)).toBe(GOLDEN_MD);
+      expect(extractPagesText(doc)).toEqual(GOLDEN_PAGES);
+    } finally {
+      closePdf(doc);
+    }
+  });
+
+  it('a page at the cap is read; one character over it fails both walks with a PdfLimitError', () => {
+    const at = openPdf(glyphPages([10, 3000]), { maxPageChars: 3000 });
+    try {
+      expect(extractPagesText(at)[1]!.replace(/\n/g, '')).toBe('a'.repeat(3000));
+      expect(extractTextMarkdown(at)).toContain('a'.repeat(1000));
+    } finally {
+      closePdf(at);
+    }
+    const over = openPdf(glyphPages([10, 3000]), { maxPageChars: 2999 });
+    try {
+      expect(() => extractTextMarkdown(over)).toThrow(PdfLimitError);
+      expect(() => extractTextMarkdown(over)).toThrow('page 2 has more than 2999 characters');
+      expect(() => extractPagesText(over)).toThrow(PdfLimitError);
+    } finally {
+      closePdf(over);
+    }
+  });
+
+  it('stops the walk at the cap, before the page text is copied out', () => {
+    const doc = openPdf(glyphPages([5000]), { maxPageChars: 100 });
+    const asText = vi.spyOn(mupdf.StructuredText.prototype, 'asText');
+    try {
+      expect(() => extractTextMarkdown(doc)).toThrow(PdfLimitError);
+      expect(asText).not.toHaveBeenCalled();
+    } finally {
+      asText.mockRestore();
+      closePdf(doc);
+    }
+  });
+
+  it('counts glyphs a form draws many times (a small file cannot hide a huge page)', () => {
+    // 10^4 draws of a 2-glyph form: 20,000 chars from about 2 KB.
+    const doc = openPdf(formBomb(4, 10, 'BT /F1 1 Tf 10 10 Td (ab) Tj ET'), { maxPageChars: 10_000 });
+    try {
+      expect(() => extractPagesText(doc)).toThrow(PdfLimitError);
     } finally {
       closePdf(doc);
     }

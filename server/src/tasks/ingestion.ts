@@ -7,7 +7,9 @@ import { generateContexts } from '../ingest/contextualize.js';
 import { chunkEmbedText } from '../ingest/embedText.js';
 import { extractFigures } from '../ingest/figures.js';
 import { extractMetadata } from '../ingest/metadata.js';
-import { closePdf, extractTextMarkdown, openPdf, type PdfDoc } from '../ingest/pdf.js';
+import { PdfLimitError } from '../ingest/pdf.js';
+import { openIsolatedPdf } from '../ingest/pdfIsolated.js';
+import type { PdfSession } from '../ingest/pdfSession.js';
 import { checkExtractionQuality } from '../ingest/qualityCheck.js';
 import { storeChunks, storeFigure } from '../ingest/store.js';
 import type { JobContext } from '../jobs/context.js';
@@ -36,9 +38,11 @@ async function setError(sql: Sql, paperId: string, message: string): Promise<voi
  *
  * Provider settings are resolved once for the paper's owner and the same frozen config goes to every call, so
  * concurrent jobs never share keys. `ctx.signal` (pg-boss abort or the soft time limit) reaches every provider
- * call. An embedding failure is final (status error, returned, no retry), and so is the soft time limit: a rerun
- * would spend the same provider budget again and time out the same way. Any other failure (a pg-boss abort included)
- * marks the paper error and rethrows so pg-boss retries the whole job.
+ * call and terminates the thread that runs the paper's MuPDF work (`openIsolatedPdf`), even mid-page. An embedding
+ * failure is final (status error, returned, no retry), and so are the soft time limit (a rerun would spend the same
+ * provider budget again and time out the same way) and a `PdfLimitError` (a page over `MAX_PAGE_CHARS`, or the PDF
+ * thread past its heap cap: the same file fails the same way). Any other failure (a pg-boss abort included) marks
+ * the paper error and rethrows so pg-boss retries the whole job.
  */
 export async function processPaper(
   data: { paper_id: string },
@@ -62,15 +66,18 @@ export async function processPaper(
   const progress = (step: string) => ctx.progress({ step, paper_id: paperId });
   const step = (name: string) => log.info({ step: name }, 'ingestion_step');
 
-  let doc: PdfDoc | undefined;
+  let doc: PdfSession | undefined;
   try {
     // --- Step 1: text extraction ---
     await progress('extracting');
     await setStatus(sql, paperId, 'extracting');
     step('extracting');
-    doc = openPdf(new Uint8Array(await readFile(deps.storage.pdfPath(paperId))), { maxPages: config.maxPdfPages });
-    // The MuPDF walks are synchronous, so they check the soft limit by the clock between pages.
-    const checkpoint = () => ctx.checkpoint();
+    doc = await openIsolatedPdf(new Uint8Array(await readFile(deps.storage.pdfPath(paperId))), {
+      maxPages: config.maxPdfPages,
+      maxPageChars: config.maxPageChars,
+      heapMb: config.pdfThreadHeapMb,
+      signal,
+    });
 
     const extractionMode = String(settings.extraction_mode ?? 'auto');
     let extractionPath = 'pymupdf_clean';
@@ -81,14 +88,14 @@ export async function processPaper(
         extractionPath = 'vision_forced';
       } else {
         log.warn('vision_forced_but_unavailable_falling_back_to_pymupdf');
-        markdown = extractTextMarkdown(doc, log, { checkpoint });
+        markdown = await doc.extractTextMarkdown(log);
       }
     } else if (extractionMode === 'pymupdf') {
-      markdown = extractTextMarkdown(doc, log, { checkpoint });
+      markdown = await doc.extractTextMarkdown(log);
       extractionPath = 'pymupdf_forced';
     } else {
       // Auto: PyMuPDF, then the quality check below (Marker is gone, so never "marker_clean").
-      markdown = extractTextMarkdown(doc, log, { checkpoint });
+      markdown = await doc.extractTextMarkdown(log);
     }
 
     // --- Step 2: quality check (auto only) ---
@@ -202,7 +209,6 @@ export async function processPaper(
     step('extracting_figures');
     const figures = await extractFigures(doc, p, deps.providers, signal, {
       maxPages: config.figureDetectMaxPages,
-      checkpoint,
     });
 
     const figuresAttempted = figures.length;
@@ -281,8 +287,12 @@ export async function processPaper(
       log.warn('ingestion_soft_limit_not_retried');
       return { status: 'error', paper_id: paperId, error: errMessage(e) };
     }
+    if (e instanceof PdfLimitError) {
+      log.warn('ingestion_pdf_limit_not_retried');
+      return { status: 'error', paper_id: paperId, error: errMessage(e) };
+    }
     throw e;
   } finally {
-    if (doc) closePdf(doc);
+    if (doc) await doc.close();
   }
 }

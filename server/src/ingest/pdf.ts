@@ -12,8 +12,10 @@
  * Every function is synchronous.
  *
  * Bounds (not in PyMuPDF's walks; output under them is unchanged): `openPdf` rejects more than `maxPages` pages,
- * the page walks call an optional `checkpoint` before each page so a job's time limit stops them between pages,
- * and a render whose raster would pass `MAX_RENDER_PIXELS` or `MAX_RENDER_EDGE` is drawn at a smaller scale.
+ * a page walk fails with a `PdfLimitError` once a page passes `maxPageChars` characters, the page walks call an
+ * optional `checkpoint` before each page so a job's time limit stops them between pages, and a render whose raster
+ * would pass `MAX_RENDER_PIXELS` or `MAX_RENDER_EDGE` is drawn at a smaller scale. The worker runs all of this in
+ * a separate thread it can terminate (`pdfIsolated.ts`), since one page can still take as long as it likes.
  */
 import * as mupdf from 'mupdf';
 import { logger } from '../logger.js';
@@ -33,7 +35,19 @@ export class PdfOpenError extends Error {
   }
 }
 
-export type PdfDoc = { readonly doc: mupdf.Document };
+/** A bound this module enforces was passed; the same input fails the same way again, so it is not worth a retry. */
+export class PdfLimitError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'PdfLimitError';
+  }
+}
+
+export type PdfDoc = {
+  readonly doc: mupdf.Document;
+  /** Most characters one page's text walk may hold (`openPdf`'s `maxPageChars`). */
+  readonly maxPageChars: number;
+};
 
 /** TEXTFLAGS_TEXT: preserve ligatures and whitespace, clip to the page, CID for unknown unicode. */
 const TEXT_OPTIONS = 'preserve-ligatures,preserve-whitespace,use-cid-for-unknown-unicode';
@@ -42,12 +56,22 @@ const DICT_OPTIONS = `${TEXT_OPTIONS},preserve-images`;
 
 /** The default for `openPdf`'s `maxPages` (the worker passes `MAX_PDF_PAGES`). */
 export const DEFAULT_MAX_PDF_PAGES = 500;
+/**
+ * The default for `openPdf`'s `maxPageChars` (the worker passes `MAX_PAGE_CHARS`). A dense page of a paper holds
+ * under 10,000; the walk keeps a few hundred bytes per character, so the cap bounds one page's memory.
+ */
+export const DEFAULT_MAX_PAGE_CHARS = 200_000;
+
+export type OpenPdfOptions = { maxPages?: number; maxPageChars?: number };
 
 /**
  * Open a PDF, or throw a `PdfOpenError` if it cannot be read, needs a password, has no pages or has more than
- * `maxPages` pages.
+ * `maxPages` pages. Its text walks fail with a `PdfLimitError` on a page with more than `maxPageChars` characters.
  */
-export function openPdf(bytes: Uint8Array, { maxPages = DEFAULT_MAX_PDF_PAGES }: { maxPages?: number } = {}): PdfDoc {
+export function openPdf(
+  bytes: Uint8Array,
+  { maxPages = DEFAULT_MAX_PDF_PAGES, maxPageChars = DEFAULT_MAX_PAGE_CHARS }: OpenPdfOptions = {},
+): PdfDoc {
   let doc: mupdf.Document;
   try {
     doc = mupdf.Document.openDocument(bytes, 'application/pdf');
@@ -69,7 +93,7 @@ export function openPdf(bytes: Uint8Array, { maxPages = DEFAULT_MAX_PDF_PAGES }:
     doc.destroy();
     throw new PdfOpenError(reason);
   }
-  return { doc };
+  return { doc, maxPageChars };
 }
 
 export function closePdf(doc: PdfDoc): void {
@@ -139,6 +163,10 @@ function charBBox(quad: mupdf.Quad, wmode: number, size: number): Rect {
  * chars are kept and `aligned` is false: any later astral char on the page is then a truncated BMP unit.
  * (The one known trigger is a lone surrogate, which `asText()` writes as three U+FFFD.) Like PyMuPDF's
  * `make_escape`, an orphaned surrogate becomes U+FFFD.
+ *
+ * The walk throws a `PdfLimitError` at the page's `maxPageChars + 1`th char, before `asText()` copies the page
+ * out, so an over-cap page never holds more than the cap's worth of chars in JS. The `asText()` alignment runs
+ * after the walk over the same block, line and char order, so its result is what an interleaved pass gives.
  */
 function readPage(
   doc: PdfDoc,
@@ -151,7 +179,7 @@ function readPage(
     try {
       const stext = list.toStructuredText(options);
       try {
-        return walkPage(stext, list.getBounds() as Rect);
+        return walkPage(stext, list.getBounds() as Rect, index, doc.maxPageChars);
       } finally {
         stext.destroy();
       }
@@ -163,16 +191,15 @@ function readPage(
   }
 }
 
-function walkPage(stext: mupdf.StructuredText, bounds: Rect): { bounds: Rect; blocks: Block[]; aligned: boolean } {
+function walkPage(
+  stext: mupdf.StructuredText,
+  bounds: Rect,
+  index: number,
+  maxChars: number,
+): { bounds: Rect; blocks: Block[]; aligned: boolean } {
   const fonts = new Map<number, FontInfo>();
   const blocks: Block[] = [];
-  const text = Array.from(stext.asText());
-  let pos = 0;
-  let aligned = true;
-  const expectBreak = (): void => {
-    if (text[pos] === '\n') pos++;
-    else aligned = false;
-  };
+  let chars = 0;
   let line: Line | null = null;
   let wmode = 0;
   let horizontal = false;
@@ -188,6 +215,10 @@ function walkPage(stext: mupdf.StructuredText, bounds: Rect): { bounds: Rect; bl
       horizontal = lineWmode === 0 && dir[0] === 1 && dir[1] === 0;
     },
     onChar(c, origin, font, size, quad, color, bidi) {
+      if (++chars > maxChars) {
+        font.destroy();
+        throw new PdfLimitError(`PDF page ${index + 1} has more than ${maxChars} characters (the per-page limit)`);
+      }
       // The walker wraps each char's font in a new Font; read it once per font, then free the wrapper.
       let info = fonts.get(font.pointer);
       try {
@@ -207,18 +238,9 @@ function walkPage(stext: mupdf.StructuredText, bounds: Rect): { bounds: Rect; bl
       }
       const cur = line!;
       if (cur.chars.length === 0) firstOriginY = origin[1];
-      let ch = c;
-      if (aligned) {
-        const real = text[pos];
-        if (real !== undefined && (real.codePointAt(0)! & 0xffff) === c.charCodeAt(0)) {
-          ch = real;
-          pos++;
-        } else aligned = false;
-      }
-      if (/^[\uD800-\uDFFF]$/.test(ch)) ch = String.fromCodePoint(0xfffd);
       const [r, g, b] = color as number[];
       cur.chars.push({
-        c: ch,
+        c,
         size,
         font: info,
         rgb: (Math.round(r! * 255) << 16) | (Math.round(g! * 255) << 8) | Math.round(b! * 255),
@@ -227,13 +249,32 @@ function walkPage(stext: mupdf.StructuredText, bounds: Rect): { bounds: Rect; bl
         bbox: charBBox(quad, wmode, size),
       });
     },
-    endLine() {
-      if (aligned) expectBreak();
-    },
-    endTextBlock() {
-      if (aligned) expectBreak();
-    },
   });
+
+  // Swap in the true code points from asText(), in walk order: each char, then a newline per line and per block.
+  const text = Array.from(stext.asText());
+  let pos = 0;
+  let aligned = true;
+  const expectBreak = (): void => {
+    if (text[pos] === '\n') pos++;
+    else aligned = false;
+  };
+  for (const block of blocks) {
+    for (const { chars: lineChars } of block.lines) {
+      for (const ch of lineChars) {
+        if (aligned) {
+          const real = text[pos];
+          if (real !== undefined && (real.codePointAt(0)! & 0xffff) === ch.c.charCodeAt(0)) {
+            ch.c = real;
+            pos++;
+          } else aligned = false;
+        }
+        if (/^[\uD800-\uDFFF]$/.test(ch.c)) ch.c = String.fromCodePoint(0xfffd);
+      }
+      if (aligned) expectBreak();
+    }
+    if (aligned) expectBreak();
+  }
   return { bounds, blocks, aligned };
 }
 
