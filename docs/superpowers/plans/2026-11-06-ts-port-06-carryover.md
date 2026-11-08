@@ -220,6 +220,17 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     nothing, and the post detail and listen views read `content` the same way, so a post stored before this change
     cannot crash the app. `postToSpeechText` keeps Python's error on a stored non-string `content`. Well-typed
     replies and the goldens are unchanged.
+24. **Figure crops are budgeted while cropping** (security review). Python cropped every detection on every page
+    and cut the list to `MAX_FIGURES_PER_PAPER` (50) at the end, and the port kept every page's crops in memory
+    until all pages were done, so a detector returning many full-page boxes per page held up to pages x boxes
+    crops. `extractFigures` in `server/src/ingest/figures.ts` still detects up to 4 pages at a time, but crops
+    them in page order and spends a paper-wide budget as it goes: at most 20 detections per page are cropped
+    (`figure_detect_page_capped`), no crop is made once 50 figures are kept (`figure_extract_capped`, logged
+    with the page and the cap rather than the extracted count) or once the next crop would take the crops past
+    120 million pixels (`figure_crop_pixel_budget_hit`), and no page is sent to the detector after the budget is
+    spent. 50 full-page crops of a letter or A4 page fit the pixel budget, so for ordinary papers the output,
+    indices and filenames are unchanged; a page with more than 20 detections, or a paper of oversized pages,
+    keeps fewer figures than Python did.
 
 ## 3. Rulings made during execution
 
