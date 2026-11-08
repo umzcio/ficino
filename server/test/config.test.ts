@@ -159,3 +159,28 @@ it('PUBLIC_API_BASE defaults to /ficino/api, allows empty and nested paths, reje
     expect(() => loadConfig({ PUBLIC_API_BASE: bad }), bad).toThrow('PUBLIC_API_BASE must be empty or a path like /ficino/api');
   }
 });
+
+const DEFAULT_TRUSTED_PROXIES = ['127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
+
+it('TRUSTED_PROXIES defaults to the loopback and private ranges (unset or blank)', () => {
+  expect(loadConfig({}).trustedProxies).toEqual(DEFAULT_TRUSTED_PROXIES);
+  expect(loadConfig({ TRUSTED_PROXIES: '' }).trustedProxies).toEqual(DEFAULT_TRUSTED_PROXIES);
+  expect(loadConfig({ TRUSTED_PROXIES: '  ' }).trustedProxies).toEqual(DEFAULT_TRUSTED_PROXIES);
+});
+it('TRUSTED_PROXIES takes a comma list of addresses and CIDRs; a bare address is one host', () => {
+  expect(loadConfig({ TRUSTED_PROXIES: ' 172.18.0.0/16 ,, 203.0.113.5, 2001:DB8::/32, ::1 ' }).trustedProxies).toEqual([
+    '172.18.0.0/16',
+    '203.0.113.5/32',
+    '2001:db8::/32',
+    '::1/128',
+  ]);
+});
+it('TRUSTED_PROXIES=none trusts no proxy', () => {
+  expect(loadConfig({ TRUSTED_PROXIES: 'none' }).trustedProxies).toEqual([]);
+  expect(loadConfig({ TRUSTED_PROXIES: ' NONE ' }).trustedProxies).toEqual([]);
+});
+it('TRUSTED_PROXIES rejects an entry that is not an address or CIDR', () => {
+  for (const bad of ['proxy.example', '10.0.0.0/33', '::/129', '10.0.0.0/', '10.0.0/8', '10.0.0.0/8/1', '*', 'none,10.0.0.1']) {
+    expect(() => loadConfig({ TRUSTED_PROXIES: bad }), bad).toThrow('TRUSTED_PROXIES entry is not an IP address or CIDR');
+  }
+});

@@ -67,10 +67,12 @@ describe('userRateLimit', () => {
 });
 
 describe('ipRateLimit', () => {
-  const login = (c: ReturnType<typeof client>, ip: string) =>
-    c.post('/auth/login', { email: 'nobody@x.dev', password: 'pw' }, { headers: { 'x-real-ip': ip } });
+  // 172.18.0.5 stands in for the web nginx on the compose network: a private address, trusted by default.
+  const NGINX = '172.18.0.5';
+  const login = (c: ReturnType<typeof client>, ip: string, peer = NGINX) =>
+    c.post('/auth/login', { email: 'nobody@x.dev', password: 'pw' }, { headers: { 'x-real-ip': ip }, peer });
 
-  it('keys on trimmed X-Real-IP; login 6th attempt in 900s is 429', async () => {
+  it('keys on trimmed X-Real-IP from a trusted proxy; login 6th attempt in 900s is 429', async () => {
     const c = client(testApp({ config: { authProvider: 'basic' } }));
     for (let i = 0; i < 5; i++) expect((await login(c, ' 9.9.9.9 ')).status).toBe(401);
     const r = await login(c, '9.9.9.9');
@@ -81,11 +83,57 @@ describe('ipRateLimit', () => {
     expect(row.count).toBe(6);
   });
 
-  it('falls back to "unknown" without a socket or X-Real-IP', async () => {
+  it('ignores X-Real-IP from an untrusted peer: rotating it still hits 429 on the 6th attempt', async () => {
+    const c = client(testApp({ config: { authProvider: 'basic' } }));
+    for (let i = 0; i < 5; i++) expect((await login(c, `9.9.9.${i}`, '203.0.113.7')).status).toBe(401);
+    expect((await login(c, '9.9.9.99', '203.0.113.7')).status).toBe(429);
+    const rows = await sql`SELECT key, count FROM rate_limits`;
+    expect(rows.map((r) => [r.key, r.count])).toEqual([['ratelimit:login:ip:203.0.113.7', 6]]);
+  });
+
+  it('TRUSTED_PROXIES decides which peers may set the client IP', async () => {
+    const c = client(testApp({ config: { authProvider: 'basic', trustedProxies: ['203.0.113.0/24'] } }));
+    await login(c, '9.9.9.1', '203.0.113.7'); // listed: header used
+    await login(c, '9.9.9.2', NGINX); // a private address no longer trusted once the list is set
+    const keys = (await sql`SELECT key FROM rate_limits ORDER BY key`).map((r) => r.key);
+    expect(keys).toEqual([`ratelimit:login:ip:${NGINX}`, 'ratelimit:login:ip:9.9.9.1']);
+  });
+
+  it('an empty TRUSTED_PROXIES list (none) always uses the peer', async () => {
+    const c = client(testApp({ config: { authProvider: 'basic', trustedProxies: [] } }));
+    await login(c, '9.9.9.1', '127.0.0.1');
+    const [row] = await sql`SELECT key FROM rate_limits`;
+    expect(row.key).toBe('ratelimit:login:ip:127.0.0.1');
+  });
+
+  it('reads an IPv4-mapped IPv6 peer as IPv4, in the trust check and the key', async () => {
+    const c = client(testApp({ config: { authProvider: 'basic' } }));
+    await login(c, '9.9.9.1', '::ffff:172.18.0.5'); // trusted as 172.18.0.5
+    await login(c, '9.9.9.2', '::ffff:203.0.113.7'); // untrusted: keyed on the plain IPv4 peer
+    const keys = (await sql`SELECT key FROM rate_limits ORDER BY key`).map((r) => r.key);
+    expect(keys).toEqual(['ratelimit:login:ip:203.0.113.7', 'ratelimit:login:ip:9.9.9.1']);
+  });
+
+  it('a trusted proxy header that is not an IP address is ignored for the peer', async () => {
+    const c = client(testApp({ config: { authProvider: 'basic' } }));
+    await login(c, 'not-an-ip', NGINX);
+    const [row] = await sql`SELECT key FROM rate_limits`;
+    expect(row.key).toBe(`ratelimit:login:ip:${NGINX}`);
+  });
+
+  it('a trusted proxy without X-Real-IP is keyed on its own address', async () => {
+    const c = client(testApp({ config: { authProvider: 'basic' } }));
+    await c.post('/auth/login', { email: 'n@x.dev', password: 'pw' }, { peer: NGINX });
+    const [row] = await sql`SELECT key FROM rate_limits`;
+    expect(row.key).toBe(`ratelimit:login:ip:${NGINX}`);
+  });
+
+  it('falls back to "unknown" without a socket, even with X-Real-IP (no peer to trust)', async () => {
     const c = client(testApp({ config: { authProvider: 'basic' } }));
     await c.post('/auth/login', { email: 'n@x.dev', password: 'pw' });
-    const [row] = await sql`SELECT key FROM rate_limits`;
-    expect(row.key).toBe('ratelimit:login:ip:unknown');
+    await c.post('/auth/login', { email: 'n@x.dev', password: 'pw' }, { headers: { 'x-real-ip': '9.9.9.9' } });
+    const rows = await sql`SELECT key, count FROM rate_limits`;
+    expect(rows.map((r) => [r.key, r.count])).toEqual([['ratelimit:login:ip:unknown', 2]]);
   });
 
   it('is active under AUTH_PROVIDER=none (on a route using it)', async () => {
@@ -100,10 +148,10 @@ describe('ipRateLimit', () => {
   it('a 422-invalid request still consumes a slot (rate limit runs before validation)', async () => {
     const c = client(testApp({ config: { authProvider: 'basic' } }));
     for (let i = 0; i < 3; i++) {
-      const r = await c.post('/auth/register', { email: 'x@y.dev' }, { headers: { 'x-real-ip': '7.7.7.7' } });
+      const r = await c.post('/auth/register', { email: 'x@y.dev' }, { headers: { 'x-real-ip': '7.7.7.7' }, peer: NGINX });
       expect(r.status).toBe(422);
     }
-    const r = await c.post('/auth/register', { email: 'x@y.dev', password: 'correct horse battery' }, { headers: { 'x-real-ip': '7.7.7.7' } });
+    const r = await c.post('/auth/register', { email: 'x@y.dev', password: 'correct horse battery' }, { headers: { 'x-real-ip': '7.7.7.7' }, peer: NGINX });
     expect(r.status).toBe(429);
     expect(await r.json()).toEqual({ detail: 'Too many register attempts. Try again later.' });
   });

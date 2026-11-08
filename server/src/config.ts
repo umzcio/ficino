@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { logger } from './logger.js';
 import { normalizeHost } from './shared/host.js';
 import { pyStrip } from './shared/pystr.js';
@@ -16,6 +17,11 @@ export interface Config {
    * dev-origin) hostnames; `'*'` turns the DNS-rebinding host check off. Entries are normalized (lowercase, no port).
    */
   allowedHosts: string[] | '*';
+  /**
+   * `TRUSTED_PROXIES`: the peers (CIDRs, `address/prefix`) whose `X-Real-IP` names the client for the per-IP
+   * rate limits and the audit log; any other peer is the client itself. Default: loopback and private ranges.
+   */
+  trustedProxies: string[];
   cookieDomain: string;
   uploadDir: string;
   figuresDir: string;
@@ -168,6 +174,31 @@ function allowedHosts(raw: string): string[] | '*' {
   });
 }
 
+/** The addresses a reverse proxy in front of the api has on its compose network or the same machine. */
+const DEFAULT_TRUSTED_PROXIES = ['127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
+
+/**
+ * `TRUSTED_PROXIES`: a comma list of IP addresses and CIDRs (a bare address is one host), `none` for no proxy;
+ * unset or blank gives the default. Entries come back as `address/prefix`, IPv6 lowercased.
+ */
+function trustedProxies(raw: string): string[] {
+  const s = raw.trim();
+  if (s === '') return [...DEFAULT_TRUSTED_PROXIES];
+  if (s.toLowerCase() === 'none') return [];
+  return s
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((e) => {
+      const m = /^([^/]+)(?:\/(\d{1,3}))?$/.exec(e);
+      const family = m ? isIP(m[1]!) : 0;
+      const max = family === 4 ? 32 : 128;
+      const prefix = m?.[2] === undefined ? max : Number(m[2]);
+      if (family === 0 || prefix > max) throw new Error(`TRUSTED_PROXIES entry is not an IP address or CIDR: ${e}`);
+      return `${family === 6 ? m![1]!.toLowerCase() : m![1]}/${prefix}`;
+    });
+}
+
 const PUBLIC_API_BASE_RE = /^(\/[A-Za-z0-9._~-]+)+$/;
 
 function publicApiBase(v: string): string {
@@ -192,6 +223,7 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
       .map((s) => s.trim())
       .filter(Boolean),
     allowedHosts: allowedHosts(str(env, 'ALLOWED_HOSTS', '')),
+    trustedProxies: trustedProxies(str(env, 'TRUSTED_PROXIES', '')),
     cookieDomain: str(env, 'COOKIE_DOMAIN', ''),
     uploadDir: str(env, 'UPLOAD_DIR', '/app/uploads'),
     figuresDir: str(env, 'FIGURES_DIR', '/app/figures'),

@@ -14,7 +14,7 @@ function register(email: string, config: { allowRegistration?: boolean } = {}) {
   const app = testApp({ config: { authProvider: 'basic', allowRegistration: false, ...config } });
   // A fresh X-Real-IP per call keeps the per-IP register limit (3/hour) out of the way.
   ipSeq += 1;
-  return client(app).post('/auth/register', { email, password: PW }, { headers: { 'x-real-ip': `10.9.0.${ipSeq}` } });
+  return client(app).post('/auth/register', { email, password: PW }, { headers: { 'x-real-ip': `10.9.0.${ipSeq}` }, peer: '172.18.0.5' });
 }
 
 describe('first registration is serialized', () => {

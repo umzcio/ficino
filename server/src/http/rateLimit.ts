@@ -1,3 +1,4 @@
+import { BlockList, isIP } from 'node:net';
 import type { Context, MiddlewareHandler } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { AppEnv } from '../app.js';
@@ -22,15 +23,47 @@ export async function hitRateLimit(sql: Sql, key: string, windowSec: number): Pr
   return Number(row.count);
 }
 
-/** X-Real-IP (set by nginx to $remote_addr), else the socket peer, else null. Never X-Forwarded-For. */
+/** `::ffff:a.b.c.d` (an IPv4 peer on a dual-stack socket) as `a.b.c.d`; anything else unchanged. */
+function unmapIpv4(ip: string): string {
+  const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  return m ? m[1]! : ip;
+}
+
+const trustLists = new WeakMap<string[], BlockList>();
+
+/** The BlockList for one config's `trustedProxies` (`address/prefix` entries, validated by loadConfig). */
+function trustList(cidrs: string[]): BlockList {
+  let list = trustLists.get(cidrs);
+  if (!list) {
+    list = new BlockList();
+    for (const cidr of cidrs) {
+      const slash = cidr.lastIndexOf('/');
+      const address = cidr.slice(0, slash);
+      list.addSubnet(address, Number(cidr.slice(slash + 1)), isIP(address) === 6 ? 'ipv6' : 'ipv4');
+    }
+    trustLists.set(cidrs, list);
+  }
+  return list;
+}
+
+/**
+ * The client's address: the socket peer, or the X-Real-IP it sends when the peer is in TRUSTED_PROXIES (the web
+ * nginx sets it to $remote_addr) and the header is an IP address. Null without a socket (app.request in tests),
+ * whatever the headers say. Never X-Forwarded-For.
+ */
 export function clientIp(c: Context<AppEnv>): string | null {
-  const real = c.req.header('x-real-ip')?.trim();
-  if (real) return real;
+  let peer: string | undefined;
   try {
-    return getConnInfo(c).remote.address ?? null;
+    peer = getConnInfo(c).remote.address;
   } catch {
     return null; // no socket (app.request in tests)
   }
+  if (!peer) return null;
+  peer = unmapIpv4(peer);
+  const family = isIP(peer);
+  if (family === 0 || !trustList(c.var.deps.config.trustedProxies).check(peer, family === 6 ? 'ipv6' : 'ipv4')) return peer;
+  const real = unmapIpv4(c.req.header('x-real-ip')?.trim() ?? '');
+  return isIP(real) ? real : peer;
 }
 
 /** Imperative per-user charge. No-op under AUTH_PROVIDER=none. Needs c.var.user. */
