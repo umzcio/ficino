@@ -169,6 +169,19 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     nginx configs pass `Host $host`, so a deployment whose `CORS_ORIGINS` is the URL people browse to, the
     loopback self-host, the e2e stack and the in-container healthcheck (`127.0.0.1`) need no new setting. The
     frontend dev server's proxy now keeps the browser's `Host` (`changeOrigin: false`).
+20. **The client address comes from a trusted proxy only** (security review). Python, and the port, keyed the
+    per-IP login and register limits and the audit log's `ip` on `X-Real-IP` from any peer, and the self-host
+    web nginx set that header to whoever connected to it, so behind an operator's own reverse proxy every client
+    shared one login budget (a few bad requests locked everyone out) and a peer on the api's network could pick
+    its own key. `clientIp` (`server/src/http/rateLimit.ts`) now uses the socket peer (an IPv4-mapped IPv6 peer
+    read as IPv4) and takes `X-Real-IP` only when that peer is in `TRUSTED_PROXIES` (a comma list of addresses
+    and CIDRs, `none` for no proxy; default loopback, `10/8`, `172.16/12`, `192.168/16`, `::1` and `fc00::/7`)
+    and the header is an IP address; without a socket it is null whatever the headers say. A malformed entry
+    stops the process at boot. The self-host web image gains an entrypoint step: with `REAL_IP_FROM` set (a
+    comma or space list of addresses or CIDRs) it writes `set_real_ip_from` for each, `real_ip_header
+    X-Forwarded-For` and `real_ip_recursive on` into a file `frontend/nginx.conf` includes; unset, nothing is
+    written and the direct peer stays the client, as before; an entry with any other character stops the
+    container. The tailnet template does not include that file, so the tailnet node is unchanged.
 
 ## 3. Rulings made during execution
 

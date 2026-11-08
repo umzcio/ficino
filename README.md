@@ -263,6 +263,10 @@ machine (DNS rebinding) gets 421 instead of your library: `localhost`, `127.0.0.
 `CORS_ORIGINS` to the URL you browse to (for example `https://ficino.example`) and that name is allowed; add
 `ALLOWED_HOSTS` only if browsers reach the API under a different name than the web.
 
+Running `AUTH_PROVIDER=basic` behind your own reverse proxy? Set `REAL_IP_FROM` on the web service so the
+login and registration limits count each client rather than the proxy (see "Behind your own reverse proxy" in
+[deploy/README.md](deploy/README.md)).
+
 The base `docker-compose.yml` publishes no port; the override decides how the stack is reached. The alternative to
 the loopback override is `deploy/tailnet/`, which runs Ficino as its own Tailscale node behind an owner-only gate.
 See [deploy/README.md](deploy/README.md) for how the files layer and where secrets go.

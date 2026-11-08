@@ -66,6 +66,37 @@ cp deploy/<loopback|tailnet>/docker-compose.override.example.yml docker-compose.
 - `web` shares the sidecar's namespace: if `ficino-ts` is recreated alone, recreate `web` too
   (`docker compose up -d --force-recreate ts web`).
 
+## Behind your own reverse proxy
+
+With `AUTH_PROVIDER=basic`, the api limits logins (5 per 15 minutes) and registrations (3 per hour)
+per client address, and records that address in the audit log. It takes the address from the
+`X-Real-IP` the web nginx sets, but only when the request comes from a peer in `TRUSTED_PROXIES`
+(default: loopback and the private ranges, which covers web on the compose network); from any other
+peer it uses the peer itself.
+
+The web nginx sets `X-Real-IP` to whoever connected to it. Behind your own TLS terminator or reverse
+proxy that is the proxy, for every client, so all users would share one login budget. Tell web to
+trust the proxy with `REAL_IP_FROM` in the host override:
+
+```yaml
+services:
+  web:
+    environment:
+      REAL_IP_FROM: 172.30.0.1   # comma-separated addresses or CIDRs
+```
+
+From those peers web takes the client from `X-Forwarded-For` (the rightmost address that is not
+itself listed; `real_ip_recursive on`), so the proxy must send that header, as Caddy, Traefik,
+HAProxy and nginx do. List the address web sees the proxy as: for a proxy on the same machine
+reaching the loopback publish, that is the `ficino-network` gateway
+(`docker network inspect ficino-network -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}'`); for a
+proxy container on `ficino-network`, its address or the network's subnet. List only addresses
+that are your proxy: any listed peer can name any client. An entry that is not an address or CIDR
+stops web at start. Unset (the default), web trusts no proxy and nothing changes.
+
+`REAL_IP_FROM` applies to the self-host config (`frontend/nginx.conf`) only; the tailnet template
+already takes the client from Serve and ignores it.
+
 ## Restoring data
 
 A restore runs before the api and worker first start, from the server image with
