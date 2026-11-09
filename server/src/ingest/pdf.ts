@@ -12,7 +12,8 @@
  * Every function is synchronous.
  *
  * Bounds (not in PyMuPDF's walks; output under them is unchanged): `openPdf` rejects more than `maxPages` pages,
- * a page walk fails with a `PdfLimitError` once a page passes `maxPageChars` characters, the page walks call an
+ * a page walk fails with a `PdfLimitError` once a page passes `maxPageChars` characters, the markdown pass fails
+ * with one once the paper's text passes `maxPaperChars` characters, the page walks call an
  * optional `checkpoint` before each page so a job's time limit stops them between pages, and a render whose raster
  * would pass `MAX_RENDER_PIXELS` or `MAX_RENDER_EDGE` is drawn at a smaller scale. The worker runs all of this in
  * a separate thread it can terminate (`pdfIsolated.ts`), since one page can still take as long as it likes.
@@ -47,6 +48,8 @@ export type PdfDoc = {
   readonly doc: mupdf.Document;
   /** Most characters one page's text walk may hold (`openPdf`'s `maxPageChars`). */
   readonly maxPageChars: number;
+  /** Longest markdown `extractTextMarkdown` may return, in UTF-16 units (`openPdf`'s `maxPaperChars`). */
+  readonly maxPaperChars: number;
 };
 
 /** TEXTFLAGS_TEXT: preserve ligatures and whitespace, clip to the page, CID for unknown unicode. */
@@ -61,16 +64,27 @@ export const DEFAULT_MAX_PDF_PAGES = 500;
  * under 10,000; the walk keeps a few hundred bytes per character, so the cap bounds one page's memory.
  */
 export const DEFAULT_MAX_PAGE_CHARS = 200_000;
+/**
+ * The default for `openPdf`'s `maxPaperChars` (the worker passes `MAX_PAPER_CHARS`). A long paper's text runs to
+ * a few hundred thousand characters and a 500-page book's to one or two million; the worker's main thread
+ * quality-checks the whole text, so the cap bounds that pass and what is chunked and embedded.
+ */
+export const DEFAULT_MAX_PAPER_CHARS = 3_000_000;
 
-export type OpenPdfOptions = { maxPages?: number; maxPageChars?: number };
+export type OpenPdfOptions = { maxPages?: number; maxPageChars?: number; maxPaperChars?: number };
 
 /**
  * Open a PDF, or throw a `PdfOpenError` if it cannot be read, needs a password, has no pages or has more than
- * `maxPages` pages. Its text walks fail with a `PdfLimitError` on a page with more than `maxPageChars` characters.
+ * `maxPages` pages. Its text walks fail with a `PdfLimitError` on a page with more than `maxPageChars` characters,
+ * and `extractTextMarkdown` with one once the text passes `maxPaperChars`.
  */
 export function openPdf(
   bytes: Uint8Array,
-  { maxPages = DEFAULT_MAX_PDF_PAGES, maxPageChars = DEFAULT_MAX_PAGE_CHARS }: OpenPdfOptions = {},
+  {
+    maxPages = DEFAULT_MAX_PDF_PAGES,
+    maxPageChars = DEFAULT_MAX_PAGE_CHARS,
+    maxPaperChars = DEFAULT_MAX_PAPER_CHARS,
+  }: OpenPdfOptions = {},
 ): PdfDoc {
   let doc: mupdf.Document;
   try {
@@ -93,7 +107,7 @@ export function openPdf(
     doc.destroy();
     throw new PdfOpenError(reason);
   }
-  return { doc, maxPageChars };
+  return { doc, maxPageChars, maxPaperChars };
 }
 
 export function closePdf(doc: PdfDoc): void {
@@ -465,7 +479,11 @@ function isHeading(text: string, fontSize: number, isBold: boolean, body: number
   return 0;
 }
 
-/** `extract_text_pymupdf`: page text with `#`/`##` headings from font size, bold and section names. */
+/**
+ * `extract_text_pymupdf`: page text with `#`/`##` headings from font size, bold and section names. Throws a
+ * `PdfLimitError` as soon as the text built so far (pages and their separators) is longer than `doc.maxPaperChars`,
+ * before reading any further page; under the cap the output is unchanged.
+ */
 export function extractTextMarkdown(
   doc: PdfDoc,
   log?: PdfWarnLogger,
@@ -482,6 +500,7 @@ export function extractTextMarkdown(
   const body = bodySize(statPages);
 
   const pages: string[] = [];
+  let length = 0; // of pages.join('\n\n') so far
   for (let i = 0; i < n; i++) {
     const lines = i < statPages.length ? statPages[i]! : read(i);
     const parts: string[] = [];
@@ -501,7 +520,13 @@ export function extractTextMarkdown(
       else if (level === 2) parts.push(`\n## ${text}\n`);
       else parts.push(text);
     }
-    pages.push(parts.join('\n'));
+    const page = parts.join('\n');
+    length += (i > 0 ? 2 : 0) + page.length;
+    if (length > doc.maxPaperChars)
+      throw new PdfLimitError(
+        `PDF text has more than ${doc.maxPaperChars} characters by page ${i + 1} (the per-paper limit)`,
+      );
+    pages.push(page);
   }
   warnMisaligned(log, misaligned);
   return pages.join('\n\n');

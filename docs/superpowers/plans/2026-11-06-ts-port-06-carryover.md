@@ -268,6 +268,31 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
     operator's. Stored rows are left as they are, so turning the lock off restores them. With the lock off nothing
     changes.
 
+27. **A paper's extracted text is capped, and chunking runs in the paper's PDF thread** (security review). Python
+    capped nothing; the port capped each page (`MAX_PAGE_CHARS`, item 25) and the page count, so one small PDF could
+    still yield `MAX_PDF_PAGES` x `MAX_PAGE_CHARS` (about 100 million) characters, which the worker's main thread
+    then quality-checked, sliced and chunked (token counting every paragraph and chunk) synchronously, stalling every
+    queue for minutes. Three changes:
+    - `MAX_PAPER_CHARS` (default 3,000,000, at least 1): `extractTextMarkdown` in `server/src/ingest/pdf.ts` throws a
+      `PdfLimitError` (`PDF text has more than N characters by page K (the per-paper limit)`) as soon as the
+      markdown built so far (pages plus their separators, in UTF-16 units) passes the cap, in the PDF thread and
+      before reading any further page; `extractWithVision` does the same for vision text
+      (`vision text has more than N characters by page K (the per-paper limit)`), since a model's reply per page has
+      no length bound. Like every `PdfLimitError`, it marks the paper `error` and returns without a retry. Output
+      under the cap is unchanged (the PyMuPDF goldens are byte-identical). A long paper's text runs to a few hundred
+      thousand characters and a 500-page book's to one or two million. A crafted PDF of 500 pages of 199,999
+      glyphs, under 0.5 MB) is now rejected at page 15 after about 4 s in the thread, with the main thread's event
+      loop never stalled past one 20 ms timer tick.
+    - `process_paper` chunks with the session's `chunkMarkdown` (`PdfSession.chunkMarkdown`), which runs
+      `chunkMarkdown` in the paper's PDF thread (`pdfThread.ts` op `chunk`): at the cap it takes about 2.5 s for
+      word-like text and about 6.5 s for unbroken CJK text, now off the main thread and under the job's signal and
+      the thread's heap cap. The chunks are the same. What stays on the main thread at the cap is the quality check
+      (about 0.1 to 0.15 s) and the metadata prompt.
+    - `pySlice` (`server/src/shared/pystr.ts`) walks only up to the slice's end instead of building an array of
+      every code point, so the metadata prompt's 2,000-code-point head of a paper costs microseconds; `pyLen`
+      counts UTF-16 units minus surrogate pairs instead of allocating a string per code point. Both give the same
+      output as before (tested against the old implementations on astral characters and lone surrogates).
+
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the

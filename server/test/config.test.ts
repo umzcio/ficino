@@ -105,6 +105,11 @@ it('MAX_PAGE_CHARS and PDF_THREAD_HEAP_MB are read with their defaults and floor
   expect(() => loadConfig({ MAX_PAGE_CHARS: '0' })).toThrow('MAX_PAGE_CHARS must be at least 1');
   expect(() => loadConfig({ PDF_THREAD_HEAP_MB: '63' })).toThrow('PDF_THREAD_HEAP_MB must be at least 64');
 });
+it('MAX_PAPER_CHARS is read with its default and floor', () => {
+  expect(loadConfig({}).maxPaperChars).toBe(3_000_000);
+  expect(loadConfig({ MAX_PAPER_CHARS: '50000' }).maxPaperChars).toBe(50_000);
+  expect(() => loadConfig({ MAX_PAPER_CHARS: '0' })).toThrow('MAX_PAPER_CHARS must be at least 1');
+});
 it('CONTEXT_MAX_CHUNKS is read and must be at least 1', () => {
   expect(loadConfig({ CONTEXT_MAX_CHUNKS: '50' }).contextMaxChunks).toBe(50);
   expect(() => loadConfig({ CONTEXT_MAX_CHUNKS: '0' })).toThrow('CONTEXT_MAX_CHUNKS must be at least 1');

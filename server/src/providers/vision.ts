@@ -2,12 +2,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ProviderConfig } from './config.js';
 import type { ProviderDeps } from './deps.js';
 import { logger } from '../logger.js';
-import type { PdfDoc } from '../ingest/pdf.js';
+import { PdfLimitError, type PdfDoc } from '../ingest/pdf.js';
 import { asPdfSession, type PdfSession } from '../ingest/pdfSession.js';
 import { pyStrip } from '../shared/pystr.js';
 import { fetchJson, isTransient, withRetry } from './http.js';
 
 // Port of worker/lib/vision_extractor.py.
+
+/** Between pages of the vision markdown. */
+const SEPARATOR = '\n\n---\n\n';
 
 const VISION_SYSTEM_PROMPT = `You are an academic paper text extractor. Convert the page image into clean, structured markdown.
 
@@ -123,7 +126,9 @@ async function extractPage(
 
 /**
  * Extract a whole PDF page by page with a vision model, serially, at 200 dpi. Pages past `maxPages`
- * are dropped so a crafted PDF cannot burn unbounded paid-API spend.
+ * are dropped so a crafted PDF cannot burn unbounded paid-API spend. Once the joined text would be longer than
+ * `maxChars` UTF-16 units (the worker passes `MAX_PAPER_CHARS`) it throws a `PdfLimitError` and reads no further
+ * page: a model's reply to one page has no length bound of its own.
  */
 export async function extractWithVision(
   doc: PdfDoc | PdfSession,
@@ -131,6 +136,7 @@ export async function extractWithVision(
   deps: ProviderDeps,
   maxPages: number,
   signal?: AbortSignal,
+  maxChars = Infinity,
 ): Promise<string> {
   if (!isVisionAvailable(p)) throw new Error('No vision provider available (set OLLAMA_VISION_MODEL or ANTHROPIC_API_KEY)');
   const pdf = asPdfSession(doc);
@@ -140,13 +146,20 @@ export async function extractWithVision(
   logger.info({ pages, total, provider: p.vision.provider }, 'vision_extract_start');
 
   const out: string[] = [];
+  let length = 0; // of out.join(SEPARATOR) so far
   for (let i = 0; i < pages; i++) {
     signal?.throwIfAborted();
     logger.info({ page: i + 1, total: pages }, 'vision_extract_page');
     const { png } = await pdf.renderPage(i, 200);
-    out.push(await extractPage(p, deps, png, i + 1, signal));
+    const text = await extractPage(p, deps, png, i + 1, signal);
+    length += (i > 0 ? SEPARATOR.length : 0) + text.length;
+    if (length > maxChars)
+      throw new PdfLimitError(
+        `vision text has more than ${maxChars} characters by page ${i + 1} (the per-paper limit)`,
+      );
+    out.push(text);
   }
-  const markdown = out.join('\n\n---\n\n');
+  const markdown = out.join(SEPARATOR);
   logger.info({ length: markdown.length }, 'vision_extract_complete');
   return markdown;
 }

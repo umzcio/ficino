@@ -5,6 +5,7 @@ import {
   closePdf,
   cropPage,
   DEFAULT_MAX_PAGE_CHARS,
+  DEFAULT_MAX_PAPER_CHARS,
   extractPagesText,
   extractTextMarkdown,
   MAX_RENDER_EDGE,
@@ -506,6 +507,59 @@ describe('per-page character cap', () => {
     try {
       expect(() => extractPagesText(doc)).toThrow(PdfLimitError);
     } finally {
+      closePdf(doc);
+    }
+  });
+});
+
+// Security review: the page cap alone let one paper yield MAX_PDF_PAGES x MAX_PAGE_CHARS characters, all of which
+// the worker's main thread then checks, chunks and token-counts.
+describe('per-paper character cap', () => {
+  it('defaults to DEFAULT_MAX_PAPER_CHARS and leaves the golden output unchanged', () => {
+    expect(DEFAULT_MAX_PAPER_CHARS).toBe(3_000_000);
+    const doc = openPdf(SAMPLE, { maxPaperChars: GOLDEN_MD.length });
+    try {
+      expect(extractTextMarkdown(doc)).toBe(GOLDEN_MD);
+    } finally {
+      closePdf(doc);
+    }
+  });
+
+  it('markdown of exactly the cap is returned; one character over it is a PdfLimitError', () => {
+    const bytes = glyphPages([10, 3000]);
+    const free = openPdf(bytes);
+    let md: string;
+    try {
+      md = extractTextMarkdown(free);
+    } finally {
+      closePdf(free);
+    }
+    const at = openPdf(bytes, { maxPaperChars: md.length });
+    try {
+      expect(extractTextMarkdown(at)).toBe(md);
+    } finally {
+      closePdf(at);
+    }
+    const over = openPdf(bytes, { maxPaperChars: md.length - 1 });
+    try {
+      expect(() => extractTextMarkdown(over)).toThrow(PdfLimitError);
+      expect(() => extractTextMarkdown(over)).toThrow(
+        `PDF text has more than ${md.length - 1} characters by page 2 (the per-paper limit)`,
+      );
+    } finally {
+      closePdf(over);
+    }
+  });
+
+  it('stops reading pages once the text passes the cap', () => {
+    // 14 pages of 1000 chars: the first 10 are read for the font statistics, then page 3's text passes 2500.
+    const doc = openPdf(glyphPages(Array.from({ length: 14 }, () => 1000)), { maxPaperChars: 2500 });
+    const loadPage = vi.spyOn(mupdf.PDFDocument.prototype, 'loadPage');
+    try {
+      expect(() => extractTextMarkdown(doc)).toThrow('by page 3 (the per-paper limit)');
+      expect(loadPage).toHaveBeenCalledTimes(10);
+    } finally {
+      loadPage.mockRestore();
       closePdf(doc);
     }
   });

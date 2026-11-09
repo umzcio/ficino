@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
-import { closePdf, openPdf, type PdfDoc } from '../../src/ingest/pdf.js';
+import { closePdf, openPdf, PdfLimitError, type PdfDoc } from '../../src/ingest/pdf.js';
 import type { ProviderDeps } from '../../src/providers/deps.js';
 import { providerConfig } from '../../src/providers/config.js';
 import { extractWithVision, isVisionAvailable } from '../../src/providers/vision.js';
@@ -104,6 +104,16 @@ describe('extractWithVision: ollama', () => {
     const { deps, calls } = fakeDeps([ok('a'), ok('b'), ok('c'), ok('d')]);
     expect(await extractWithVision(doc, ollama, deps, 100)).toBe('a\n\n---\n\nb\n\n---\n\nc');
     expect(calls).toHaveLength(3);
+  });
+  // Security review: the per-paper text cap covers vision text too (a model's reply per page is not bounded).
+  it('fails with a PdfLimitError, sending no further page, once the text passes maxChars', async () => {
+    const at = fakeDeps([ok('one'), ok('two'), ok('three')]);
+    expect(await extractWithVision(doc, ollama, at.deps, 2, undefined, 13)).toBe('one\n\n---\n\ntwo');
+    const over = fakeDeps([ok('one'), ok('two'), ok('three')]);
+    const err = await extractWithVision(doc, ollama, over.deps, 3, undefined, 12).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PdfLimitError);
+    expect((err as Error).message).toBe('vision text has more than 12 characters by page 2 (the per-paper limit)');
+    expect(over.calls).toHaveLength(2);
   });
   it('throws when no provider is available', async () => {
     const { deps } = fakeDeps([]);

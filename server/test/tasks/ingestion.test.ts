@@ -406,6 +406,35 @@ describe('processPaper', () => {
     expect(f.calls).toEqual([]);
   });
 
+  // Security review: the per-page cap let a paper yield MAX_PDF_PAGES x MAX_PAGE_CHARS characters for the main
+  // thread to check and chunk, so the whole text is capped too, in the PDF thread, before any of that.
+  it('text over MAX_PAPER_CHARS marks the paper error and returns without a retry or any provider call', async () => {
+    const id = await newPaper(s.user_a, glyphPages([10, 3000]));
+    const f = fakes();
+    const deps = { ...depsWith(f.deps), config: { ...config, maxPaperChars: 1000 } };
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, deps);
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe('PDF text has more than 1000 characters by page 2 (the per-paper limit)');
+    expect(r).toEqual({ status: 'error', paper_id: id, error: p.error_message });
+    expect(f.calls).toEqual([]);
+  });
+
+  it('vision text over MAX_PAPER_CHARS marks the paper error and returns without a retry', async () => {
+    await setSettings(s.user_a, { extraction_mode: 'vision' });
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes();
+    const deps = { ...depsWith(f.deps), config: { ...config, maxPaperChars: VISION_PAGE.length + 5 } };
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, deps);
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe(
+      `vision text has more than ${VISION_PAGE.length + 5} characters by page 2 (the per-paper limit)`,
+    );
+    expect(r).toEqual({ status: 'error', paper_id: id, error: p.error_message });
+    expect(f.calls.map((c) => c.kind)).toEqual(['ollama-chat', 'ollama-chat']); // two vision pages, nothing after
+  });
+
   // Security review: one page can run MuPDF for as long as it likes, so the PDF work runs in a thread the job kills.
   it('a page that runs past the soft limit is stopped at it: status error (no retry), no provider call', async () => {
     const id = await newPaper(s.user_a, formBomb(8, 10, 'q Q')); // 10^8 operators from a 2 KB file
