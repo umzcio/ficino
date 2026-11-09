@@ -280,7 +280,7 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       (`vision text has more than N characters by page K (the per-paper limit)`), since a model's reply per page has
       no length bound. Like every `PdfLimitError`, it marks the paper `error` and returns without a retry. Output
       under the cap is unchanged (the PyMuPDF goldens are byte-identical). A long paper's text runs to a few hundred
-      thousand characters and a 500-page book's to one or two million. A crafted PDF of 500 pages of 199,999
+      thousand characters and a 500-page book's to one or two million. A crafted PDF (500 pages of 199,999
       glyphs, under 0.5 MB) is now rejected at page 15 after about 4 s in the thread, with the main thread's event
       loop never stalled past one 20 ms timer tick.
     - `process_paper` chunks with the session's `chunkMarkdown` (`PdfSession.chunkMarkdown`), which runs
