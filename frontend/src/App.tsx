@@ -19,6 +19,7 @@ import { SwipeableTabs } from './components/_shared/SwipeableTabs'
 import { PullToRefresh } from './components/_shared/PullToRefresh'
 import { FadeIn } from './components/_shared/FadeIn'
 import { FeedHistory } from './components/Feed/FeedHistory'
+import { ErrorBoundary } from './components/_shared/ErrorBoundary'
 // Route-level views are code-split via lazy() so Rollup does NOT emit
 // <link rel="modulepreload"> for them on first paint. Each view loads on
 // demand when the user navigates to it.
@@ -766,9 +767,17 @@ function AppContent() {
                 A single sr-only h1 establishes the document root for
                 screen readers without changing visual hierarchy. */}
             <h1 className="sr-only">Ficino</h1>
-            <Suspense fallback={<div className="p-4 text-text-muted">Loading…</div>}>
-              {renderMainContent()}
-            </Suspense>
+            {/* A view that throws while rendering (or a lazy chunk that fails to load) shows a placeholder here
+                instead of unmounting the app, so the nav stays usable. Switching view, post, persona or feed
+                changes resetKey and gives the content a fresh render. */}
+            <ErrorBoundary
+              label="view"
+              resetKey={`${activeView}|${selectedPostIndex ?? ''}|${selectedPersona ?? ''}|${feed.feedId ?? ''}`}
+            >
+              <Suspense fallback={<div className="p-4 text-text-muted">Loading…</div>}>
+                {renderMainContent()}
+              </Suspense>
+            </ErrorBoundary>
           </main>
           <Sidebar
             corpus={corpus}
