@@ -4,6 +4,7 @@ import type { GroupChat, SummaryMessage } from '../../types'
 import { getGroupChat, isNotFoundError, getApiErrorDetail } from '../../lib/api'
 import { cacheGroupChat, getCachedGroupChat } from '../../lib/offline-cache'
 import { usePollTask } from '../../hooks/usePollTask'
+import { asText, ownEntry } from '../../lib/postFields'
 
 interface GroupChatViewProps {
   groupId: string
@@ -19,8 +20,10 @@ const ROLE_CONFIG: Record<string, { icon: typeof FileText; color: string; label:
   summary: { icon: FileText, color: 'var(--color-persona-methodologist)', label: 'Synthesis' },
 }
 
+// Messages are model output: a row stored before the server kept only string fields (or an offline-cached copy) can
+// hold any JSON type, so each field is read as text and ROLE_CONFIG only by its own keys.
 function SynthesisMessage({ message }: { message: SummaryMessage }) {
-  const config = ROLE_CONFIG[message.type] || ROLE_CONFIG.summary
+  const config = ownEntry(ROLE_CONFIG, message.type) ?? ROLE_CONFIG.summary
   const Icon = config.icon
   const isPaperSpeaking = message.role === 'paper'
 
@@ -39,11 +42,11 @@ function SynthesisMessage({ message }: { message: SummaryMessage }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold tracking-wide uppercase" style={{ color: config.color }}>
-            {isPaperSpeaking ? (message.paper_ref || 'Paper') : config.label}
+            {isPaperSpeaking ? (asText(message.paper_ref) || 'Paper') : config.label}
           </span>
         </div>
         <p className="text-[14px] text-text leading-relaxed mt-0.5 whitespace-pre-wrap">
-          {message.content}
+          {asText(message.content)}
         </p>
       </div>
     </div>

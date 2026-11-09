@@ -28,3 +28,11 @@ export function safeFeedPost(post: FeedPost): FeedPost {
   if (tc !== undefined && !(typeof tc === 'number' && Number.isFinite(tc))) fixed.thread_count = undefined
   return Object.keys(fixed).length === 0 ? post : ({ ...post, ...fixed } as FeedPost)
 }
+
+/**
+ * `table[key]` only when the table has that key itself: a model-written key such as `__proto__` or `constructor`
+ * must not reach Object.prototype's members. Anything else (including a non-string key) is undefined.
+ */
+export function ownEntry<T>(table: Readonly<Record<string, T>>, key: unknown): T | undefined {
+  return typeof key === 'string' && Object.hasOwn(table, key) ? table[key] : undefined
+}
