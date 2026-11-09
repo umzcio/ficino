@@ -293,6 +293,31 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       counts UTF-16 units minus surrogate pairs instead of allocating a string per code point. Both give the same
       output as before (tested against the old implementations on astral characters and lone surrogates).
 
+28. **Summary, synthesis and reading-order fields keep only the type the client renders** (security review). Python
+    stored the model's paper-summary and synthesis messages with every key and any JSON type as long as `content`
+    was a non-empty string, and the reading-list ordering's `rationale` and `position` with any JSON type. A reply
+    steered by a hostile paper could store, say, an object `type` or `paper_ref`, a `type` of `__proto__`, or an
+    object `rationale`; the web client rendered those as React children or looked them up in its label tables
+    through inherited properties, threw, and the whole app went blank whenever that chat or list was opened. Now:
+    - `coerceMessages` (`server/src/conversations/summaryParse.ts`) stores each kept message as a new object of
+      `role`, `type`, `paper_ref` and `content` only, each a string (`modelString`, `server/src/shared/modelString.ts`:
+      a finite number becomes its decimal string; null, a boolean, an object or an array is dropped), and drops a
+      `type` that names an `Object.prototype` member. Which messages are kept, and the fallback bubbles, are
+      unchanged, and so are the goldens' stored messages.
+    - `validateOrdering` (`server/src/readingLists/ordering.ts`) still sorts on the model's positions exactly as
+      Python did (same order, same `TypeError` on an unorderable pair), then stores each `rationale` as a string
+      (`modelString`, else empty, so a null rationale is now `''`) and the positions as numbers when every one is a
+      finite number or a boolean (a boolean as 1 or 0), else each entry's 0-based index in the sorted order (string
+      or list positions, or one too large to be finite). The job's `ordered_papers` result is the same stored form.
+    - `GET /reading-lists/:list_id` returns each paper's rationale as text the same way, so a list stored before this
+      change answers a string (a stored null is now `''`). The list route's raw `rationale` array is unchanged; the
+      client does not render it.
+    - In the web client, `PaperChat` and `GroupChatView` read `type`, `paper_ref` and `content` as text (`asText`)
+      and look up their label, colour and icon tables only by own keys (`ownEntry`,
+      `frontend/src/lib/postFields.ts`), with the old fallbacks; `ReadingListDetail` renders the rationale as text in
+      the overview and the chapter view. A row stored before this change, or an offline-cached copy, renders without
+      a React error.
+
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the

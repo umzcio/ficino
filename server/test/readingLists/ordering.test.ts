@@ -63,8 +63,41 @@ describe('ordering prompt (golden)', () => {
   });
 });
 
+/**
+ * Python's ordered entries as the port stores them (deliberate change 28): the order and the other fields are
+ * Python's; a rationale is a string (a finite number as its decimal string, anything else empty), and positions are
+ * kept as numbers only when every one is a finite number or a bool, else each entry gets its index in the order.
+ */
+function asStored(entries: unknown): Record<string, unknown>[] {
+  const list = entries as Record<string, unknown>[];
+  const numeric = list.every(
+    (e) => typeof e.position === 'boolean' || (typeof e.position === 'number' && Number.isFinite(e.position)),
+  );
+  return list.map((e, i) => ({
+    ...e,
+    position: numeric ? Number(e.position) : i,
+    rationale:
+      typeof e.rationale === 'string'
+        ? e.rationale
+        : typeof e.rationale === 'number' && Number.isFinite(e.rationale)
+          ? String(e.rationale)
+          : '',
+  }));
+}
+
 describe('validateOrdering (golden)', () => {
   const runs = golden.runs.filter((r) => r.call);
+  it('the stored form differs from Python only in the runs with non-text rationales or non-number positions', () => {
+    const changed = runs
+      .filter((r) => !('raises' in r.result))
+      .filter((r) => JSON.stringify(asStored(r.result.ordered_papers)) !== JSON.stringify(r.result.ordered_papers))
+      .map((r) => r.name);
+    expect(changed).toEqual(
+      expect.arrayContaining(['rationale_null', 'list_positions_sorted', 'string_positions_code_point_order']),
+    );
+    expect(changed).not.toContain('reversed_two');
+  });
+
   it.each(runs.map((r) => [r.name, r] as const))('%s', (_n, r) => {
     const papers = orderingContext(r.rows);
     const items = parseOrderingJson(r.raw);
@@ -75,9 +108,9 @@ describe('validateOrdering (golden)', () => {
     }
     expect(raised).toBeNull();
     const { ordered, mismatch } = validateOrdering(papers, items);
-    expect(ordered).toEqual(r.result.ordered_papers);
+    expect(ordered).toEqual(asStored(r.result.ordered_papers));
     if (r.persisted) {
-      expect(ordered).toEqual(r.persisted.rationale);
+      expect(asStored(r.persisted.rationale)).toEqual(asStored(r.result.ordered_papers));
       expect(ordered.map((o) => o.paper_id)).toEqual(r.persisted.paper_sequence);
       expect(r.persisted.chapters).toEqual(r.persisted.paper_sequence);
     }
@@ -132,12 +165,86 @@ describe('validateOrdering edges', () => {
     expect(mismatch!.returned_count).toBe(2);
   });
 
-  it('an explicit null rationale stays null; an absent one is empty', () => {
+  it('a null or absent rationale is empty (deliberate change 28: Python kept null)', () => {
     const { ordered } = validateOrdering(papers, [
       { paper_id: 'b', position: 1, rationale: null },
       { paper_id: 'a', position: 2 },
     ]);
-    expect(ordered.map((o) => o.rationale)).toEqual([null, '']);
+    expect(ordered.map((o) => o.rationale)).toEqual(['', '']);
+  });
+});
+
+describe('validateOrdering keeps a string rationale and a finite-number position (deliberate change 28)', () => {
+  const papers = orderingContext([
+    { id: 'a', title: 'A', authors: null, year: null, filename: null, chunks: [] },
+    { id: 'b', title: 'B', authors: null, year: null, filename: null, chunks: [] },
+  ]);
+  const view = (items: Record<string, unknown>[]) =>
+    validateOrdering(papers, items).ordered.map((o) => [o.paper_id, o.position, o.rationale]);
+
+  it('an object, an array, a boolean or a list of objects as rationale becomes empty', () => {
+    expect(
+      view([
+        { paper_id: 'b', position: 1, rationale: { a: 1 } },
+        { paper_id: 'a', position: 2, rationale: [{}] },
+      ]),
+    ).toEqual([
+      ['b', 1, ''],
+      ['a', 2, ''],
+    ]);
+    expect(
+      view([
+        { paper_id: 'a', position: 1, rationale: true },
+        { paper_id: 'b', position: 2, rationale: ['x'] },
+      ]),
+    ).toEqual([
+      ['a', 1, ''],
+      ['b', 2, ''],
+    ]);
+  });
+
+  it('a finite number as rationale becomes its decimal string', () => {
+    expect(view([{ paper_id: 'a', position: 1, rationale: 7 }, { paper_id: 'b', position: 2, rationale: 'r' }])).toEqual([
+      ['a', 1, '7'],
+      ['b', 2, 'r'],
+    ]);
+  });
+
+  it('string positions still sort, then are stored as the sorted index', () => {
+    expect(view([{ paper_id: 'a', position: 'y', rationale: 'r' }, { paper_id: 'b', position: 'x' }])).toEqual([
+      ['b', 0, ''],
+      ['a', 1, 'r'],
+    ]);
+  });
+
+  it('list positions are stored as the sorted index', () => {
+    expect(view([{ paper_id: 'a', position: [2] }, { paper_id: 'b', position: [1] }])).toEqual([
+      ['b', 0, ''],
+      ['a', 1, ''],
+    ]);
+  });
+
+  it('a single object position (nothing to compare) is stored as its index', () => {
+    const one = orderingContext([{ id: 'a', title: 'A', authors: null, year: null, filename: null, chunks: [] }]);
+    const { ordered } = validateOrdering(one, [{ paper_id: 'a', position: {}, rationale: { a: 1 } }]);
+    expect(ordered.map((o) => [o.position, o.rationale])).toEqual([[0, '']]);
+  });
+
+  it('boolean positions are stored as numbers; an infinite one makes every position its index', () => {
+    expect(view([{ paper_id: 'a', position: true }, { paper_id: 'b', position: false }])).toEqual([
+      ['b', 0, ''],
+      ['a', 1, ''],
+    ]);
+    expect(view([{ paper_id: 'a', position: 1e400 }, { paper_id: 'b', position: 5 }])).toEqual([
+      ['b', 0, ''],
+      ['a', 1, ''],
+    ]);
+  });
+
+  it('a mixed-type position still raises as in Python', () => {
+    expect(raisesOf(() => view([{ paper_id: 'a', position: 'x' }, { paper_id: 'b', position: 1 }]))).toBe(
+      "TypeError: '<' not supported between instances of 'int' and 'str'",
+    );
   });
 });
 
