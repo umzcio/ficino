@@ -16,6 +16,7 @@ import { SourcesList } from './_shared/SourcesList'
 import { formatNum } from './_shared/formatNum'
 import { haptic } from '../../hooks/useHaptic'
 import { SwipeToAct } from '../_shared/SwipeToAct'
+import { figureSrc } from '../../lib/mediaUrl'
 
 function ActionBtn({
   icon: Icon, count, color, active, onClick, label,
@@ -337,17 +338,10 @@ function PostCardImpl({ post: storedPost, feedId, postIndex = 0, bookmarkedId, o
   const isFigure = post.post_type === 'figure'
   const isThread = post.post_type === 'thread' && post.thread_posts && post.thread_posts.length > 0
   const paper = post.paper_ref
-  const apiBase = import.meta.env.VITE_API_BASE || '/ficino/api'
-  // figure_url may be absolute (Supabase signed URL on SaaS) or relative
-  // (self-host `/figures/…?token=…`). Prefix apiBase only for the relative
-  // case — blindly concatenating onto an absolute URL produces
-  // "<apiBase>https://supabase.co/…" which the browser parses as a bogus
-  // host and 404s.
-  const figSrc = !post.figure_url
-    ? ''
-    : /^https?:\/\//i.test(post.figure_url)
-      ? post.figure_url
-      : `${apiBase}${post.figure_url}`
+  // Only the server-signed relative `/figures/…` path is loaded (under the
+  // API base); any other stored value shows the "Figure not available"
+  // placeholder rather than making the browser fetch it.
+  const figSrc = figureSrc(post.figure_url)
 
   return (
     <SwipeToAct

@@ -76,7 +76,12 @@ function parse(raw) {
   const lines = head.split('\r\n');
   const status = Number(lines[0].split(' ')[1]);
   const loc = lines.find((l) => /^location:/i.test(l));
-  return { status, location: loc ? loc.slice(loc.indexOf(':') + 1).trim() : undefined, body };
+  const headers = {};
+  for (const l of lines.slice(1)) {
+    const i = l.indexOf(':');
+    if (i > 0) headers[l.slice(0, i).trim().toLowerCase()] = l.slice(i + 1).trim();
+  }
+  return { status, location: loc ? loc.slice(loc.indexOf(':') + 1).trim() : undefined, headers, body };
 }
 
 const reqTo = (container) => (path, headers = {}) => {
@@ -149,6 +154,32 @@ test('the SPA is served under /ficino/ for the owner', () => {
   const r = req('/ficino/', OWNER);
   assert.equal(r.status, 200);
   assert.match(r.body, /<html/i);
+});
+
+/** The CSP directives as { name: [sources] }. */
+function cspDirectives(header) {
+  const out = {};
+  for (const part of String(header ?? '').split(';')) {
+    const [name, ...sources] = part.trim().split(/\s+/);
+    if (name) out[name] = sources;
+  }
+  return out;
+}
+
+test('the SPA CSP loads images, media and connections from the app origin only', () => {
+  const r = req('/ficino/', OWNER);
+  assert.equal(r.status, 200);
+  const csp = r.headers['content-security-policy'];
+  assert.ok(csp, 'the SPA document carries a CSP');
+  const d = cspDirectives(csp);
+  assert.deepEqual(d['img-src'], ["'self'", 'data:', 'blob:']);
+  assert.deepEqual(d['media-src'], ["'self'", 'blob:']);
+  assert.deepEqual(d['connect-src'], ["'self'"]);
+  assert.deepEqual(d['script-src'], ["'self'"]);
+  // Hosted auth, its captcha and its storage are gone from the TS port; only the web font hosts stay.
+  assert.doesNotMatch(csp, /supabase|cloudflare/i);
+  const thirdParty = csp.match(/https?:\/\/[^\s;]+|wss?:\/\/[^\s;]+/g) ?? [];
+  assert.deepEqual([...new Set(thirdParty)].sort(), ['https://fonts.googleapis.com', 'https://fonts.gstatic.com']);
 });
 
 test('the API prefix is stripped and the tailnet peer becomes X-Real-IP', () => {

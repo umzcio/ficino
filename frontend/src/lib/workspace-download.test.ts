@@ -14,7 +14,24 @@ const fakeDb = {
 const getDB = vi.fn(async () => fakeDb)
 vi.mock('./offline-db', () => ({ getDB: () => getDB() }))
 
-import { clearOfflineData } from './workspace-download'
+import { clearOfflineData, collectFigureUrls } from './workspace-download'
+import type { Feed, FeedPost } from '../types'
+
+describe('collectFigureUrls', () => {
+  const feed = (posts: Partial<FeedPost>[]) => ({ id: 'f', posts }) as unknown as Feed
+
+  it('keeps only server-signed figure paths, under the API base', () => {
+    const urls = collectFigureUrls([
+      feed([
+        { post_type: 'figure', figure_url: '/figures/p/f?token=t' },
+        { post_type: 'figure', figure_url: 'https://example.invalid/x.png' },
+        { post_type: 'figure', figure_url: '//example.invalid/x.png' },
+        { post_type: 'post' },
+      ]),
+    ])
+    expect(urls).toEqual(['/ficino/api/figures/p/f?token=t'])
+  })
+})
 
 describe('clearOfflineData', () => {
   beforeEach(() => {

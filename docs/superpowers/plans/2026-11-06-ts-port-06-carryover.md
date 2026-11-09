@@ -318,6 +318,30 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       the overview and the chapter view. A row stored before this change, or an offline-cached copy, renders without
       a React error.
 
+29. **Post media URLs are built from server-owned ids on every read, and loaded only from the API** (security
+    review). Python returned a post's stored `figure_url` whenever it could not re-sign it (no `figure_id`, another
+    user's figure, a failed lookup or signature) and returned the list and persona-reply posts as stored; the client
+    loaded any absolute `figure_url` or `audio_url` it was given, and the SPA CSP allowed a hosted storage domain. A
+    post stored before change 15 (or restored from older data) could therefore make the browser fetch a URL a model
+    wrote. Now:
+    - `presentStoredPosts` (`server/src/routes/postMedia.ts`) shapes every post that `GET /feed`, `GET /feed/:id`
+      and `GET /personas/:key/replies` return. It copies each object post without `figure_url` and `audio_url`, then
+      sets `figure_url` to a fresh signature for a `figure_id` naming one of the caller's figures (one lookup per
+      response, the list route included, which Python left unsigned), and `audio_url` when the feed's audio is
+      `ready` and the post's `audio_key` is the key the audio task writes for that post (`feeds/<feed>/audio/
+      post_<index>.mp3`, which a restore maps Python's keys to; any other value gives no audio). A `figure` post whose
+      `figure_id` is not the caller's figure is returned as a `post`; an owned figure that cannot be signed, or a
+      failed lookup, keeps the type with no URL. The replies' parent posts get audio like the detail route; the list
+      route still carries none. Non-object elements and the stored rows are unchanged; no migration is needed.
+    - The web client loads a figure only from the relative `/figures/...` path (under the API base) and audio only
+      from the API base's `/media/...` URL (`frontend/src/lib/mediaUrl.ts`), in `PostCard`, the Listen view (post
+      and episode audio) and the offline download's figure prefetch. Any other value shows "Figure not available"
+      or no audio, also for feeds already in the offline cache.
+    - The SPA CSP (`frontend/nginx-security-headers.conf`) drops the hosted storage, auth and captcha entries:
+      `img-src`, `media-src` and `connect-src` are the app origin (plus `data:`/`blob:` as before), and the web
+      font hosts are the only third parties left. The captcha widget only rendered for a build-time site key that
+      the self-host image never sets.
+
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the
