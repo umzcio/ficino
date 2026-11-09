@@ -1,7 +1,7 @@
 // A stored feed post can predate the server's type check on model fields (or come from the offline cache), so the
 // card normalises the fields it renders as text before use.
 import { describe, it, expect } from 'vitest'
-import { asText, safeFeedPost } from './postFields'
+import { asText, ownEntry, safeFeedPost } from './postFields'
 import type { FeedPost } from '../types'
 
 const post = (over: Record<string, unknown>): FeedPost => ({
@@ -49,5 +49,20 @@ describe('safeFeedPost', () => {
   it('thread_count must be a finite number', () => {
     for (const v of [{}, ['2'], '2', null, Number.NaN]) expect(safeFeedPost(post({ thread_count: v })).thread_count).toBeUndefined()
     expect(safeFeedPost(post({ thread_count: 3 })).thread_count).toBe(3)
+  })
+})
+
+describe('ownEntry', () => {
+  const table: Record<string, string> = { tldr: 'TL;DR', intro: 'Overview' }
+  it('returns an own entry', () => {
+    expect(ownEntry(table, 'tldr')).toBe('TL;DR')
+  })
+  it('never returns an Object.prototype member', () => {
+    for (const key of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(ownEntry(table, key), key).toBeUndefined()
+    }
+  })
+  it('a non-string key is undefined', () => {
+    for (const key of [{}, ['tldr'], 1, null, undefined, true]) expect(ownEntry(table, key)).toBeUndefined()
   })
 })

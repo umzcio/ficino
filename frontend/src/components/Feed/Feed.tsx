@@ -2,9 +2,64 @@ import { useState, useEffect, useCallback, forwardRef } from 'react'
 import { FileText, Loader2, AlertCircle } from 'lucide-react'
 import { Virtuoso } from 'react-virtuoso'
 import type { FeedPost } from '../../types'
-import { getRepliedPostIndices } from '../../lib/api'
+import { getRepliedPostIndices, deletePost } from '../../lib/api'
 import { useLikes } from '../../hooks/useLikes'
 import { PostCard } from './PostCard'
+import { ErrorBoundary } from '../_shared/ErrorBoundary'
+
+const FALLBACK_BUTTON =
+  'bg-transparent border border-border rounded-[20px] px-3 py-1 cursor-pointer text-xs font-semibold hover:bg-gold/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+
+// Placeholder for a post card that threw while rendering. The card's own menu (delete, regenerate) went down with
+// it, so the placeholder offers a retry and a delete of its own; the rest of the feed renders as usual.
+function PostErrorFallback({ reset, feedId, postIndex, onDeleted }: {
+  reset: () => void
+  feedId: string | null
+  postIndex: number
+  onDeleted: (postIndex: number) => void
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const handleDelete = async () => {
+    if (!feedId) return
+    if (!confirming) {
+      setConfirming(true)
+      return
+    }
+    setDeleting(true)
+    setFailed(false)
+    try {
+      await deletePost(feedId, postIndex)
+      onDeleted(postIndex)
+    } catch {
+      setFailed(true)
+      setConfirming(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border text-text-muted">
+      <AlertCircle size={18} className="shrink-0 text-persona-skeptic" aria-hidden="true" />
+      <p className="text-sm flex-1 min-w-[160px]">
+        This post couldn&rsquo;t be displayed.{failed && ' Deleting it failed.'}
+      </p>
+      <button type="button" onClick={reset} className={`${FALLBACK_BUTTON} text-gold`}>Try again</button>
+      {feedId && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleting}
+          className={FALLBACK_BUTTON}
+          style={{ color: 'var(--color-persona-skeptic)' }}
+        >
+          {deleting ? 'Deleting...' : confirming ? 'Click again to confirm' : 'Delete post'}
+        </button>
+      )}
+    </div>
+  )
+}
 
 // Preserve the role="feed" semantic by overriding Virtuoso's List element.
 // Virtuoso types the List ref as HTMLDivElement; cast through to keep its
@@ -199,26 +254,36 @@ export function FeedContent({ posts, feedId, feedState, generatingMeta, error, a
           computeItemKey={(_, { post, originalIndex }) => post.id ?? `post-${originalIndex}`}
           itemContent={(_, { post, originalIndex }) => (
             <li className="list-none">
-              <PostCard
-                post={post}
-                feedId={feedId}
-                postIndex={originalIndex}
-                bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
-                onBookmarkToggle={handleBookmarkToggle}
-                onClick={() => onPostClick?.(originalIndex)}
-                hasUserReply={repliedIndices.has(originalIndex)}
-                annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
-                onAnnotationSave={onAnnotationSave}
-                onAnnotationDelete={onAnnotationDelete}
-                onPersonaClick={onPersonaClick}
-                liked={isLiked(originalIndex)}
-                onLikeToggle={toggleLike}
-                isReplyLiked={isReplyLiked}
-                onReplyLikeToggle={toggleReplyLike}
-                onReplyBookmark={onReplyBookmark}
-                isReplyBookmarked={isReplyBookmarked}
-                onPostDeleted={handlePostDeleted}
-              />
+              {/* One post that throws while rendering shows a placeholder instead of unmounting the feed (and the
+                  app). Keyed on the post object, so a reloaded or regenerated post gets a fresh try. */}
+              <ErrorBoundary
+                label="post"
+                resetKey={post}
+                fallback={({ reset }) => (
+                  <PostErrorFallback reset={reset} feedId={feedId} postIndex={originalIndex} onDeleted={handlePostDeleted} />
+                )}
+              >
+                <PostCard
+                  post={post}
+                  feedId={feedId}
+                  postIndex={originalIndex}
+                  bookmarkedId={feedId ? isBookmarked(feedId, originalIndex) : null}
+                  onBookmarkToggle={handleBookmarkToggle}
+                  onClick={() => onPostClick?.(originalIndex)}
+                  hasUserReply={repliedIndices.has(originalIndex)}
+                  annotation={feedId ? getAnnotation?.(feedId, originalIndex) ?? null : null}
+                  onAnnotationSave={onAnnotationSave}
+                  onAnnotationDelete={onAnnotationDelete}
+                  onPersonaClick={onPersonaClick}
+                  liked={isLiked(originalIndex)}
+                  onLikeToggle={toggleLike}
+                  isReplyLiked={isReplyLiked}
+                  onReplyLikeToggle={toggleReplyLike}
+                  onReplyBookmark={onReplyBookmark}
+                  isReplyBookmarked={isReplyBookmarked}
+                  onPostDeleted={handlePostDeleted}
+                />
+              </ErrorBoundary>
             </li>
           )}
         />

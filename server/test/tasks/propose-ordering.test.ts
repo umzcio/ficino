@@ -137,6 +137,28 @@ describe('propose_ordering', () => {
     expect(lines.filter((l) => l.msg === 'propose_ordering_id_mismatch')).toHaveLength(0);
   });
 
+  it('deliberate change 28: a non-text rationale and a non-number position are stored as text and a number', async () => {
+    const p1 = await newPaper(USER_A_ID, 'Foundations', ['Base chunk.']);
+    const p2 = await newPaper(USER_A_ID, 'Follow-up', ['Later chunk.']);
+    const listId = await seedList(USER_A_ID, [p1, p2]);
+    const answer = JSON.stringify([
+      { paper_id: p2, position: 'a', rationale: { a: 1 } },
+      { paper_id: p1, position: 'b', rationale: [{}] },
+    ]);
+    const { result } = await run({ paper_ids: [p1, p2], list_id: listId, user_id: USER_A_ID }, () => answer);
+    const row = await listRow(listId);
+    expect(row.paper_sequence).toEqual([p2, p1]);
+    const stored = (row.rationale as Record<string, unknown>[]).map((r) => [r.paper_id, r.position, r.rationale]);
+    expect(stored).toEqual([
+      [p2, 0, ''],
+      [p1, 1, ''],
+    ]);
+    expect((result.ordered_papers as Record<string, unknown>[]).map((r) => [r.position, r.rationale])).toEqual([
+      [0, ''],
+      [1, ''],
+    ]);
+  });
+
   it('persists the reversed order, the rationale and chapters rebuilt from scratch', async () => {
     const p1 = await newPaper(USER_A_ID, 'Foundations', ['Base chunk.']);
     const p2 = await newPaper(USER_A_ID, 'Follow-up', ['Later chunk.']);

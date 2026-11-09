@@ -2,7 +2,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Logger } from 'pino';
 import type { Sql } from '../db/sql.js';
-import { chunkMarkdown } from '../ingest/chunker.js';
 import { generateContexts } from '../ingest/contextualize.js';
 import { chunkEmbedText } from '../ingest/embedText.js';
 import { extractFigures } from '../ingest/figures.js';
@@ -38,11 +37,12 @@ async function setError(sql: Sql, paperId: string, message: string): Promise<voi
  *
  * Provider settings are resolved once for the paper's owner and the same frozen config goes to every call, so
  * concurrent jobs never share keys. `ctx.signal` (pg-boss abort or the soft time limit) reaches every provider
- * call and terminates the thread that runs the paper's MuPDF work (`openIsolatedPdf`), even mid-page. An embedding
- * failure is final (status error, returned, no retry), and so are the soft time limit (a rerun would spend the same
- * provider budget again and time out the same way) and a `PdfLimitError` (a page over `MAX_PAGE_CHARS`, or the PDF
- * thread past its heap cap: the same file fails the same way). Any other failure (a pg-boss abort included) marks
- * the paper error and rethrows so pg-boss retries the whole job.
+ * call and terminates the thread that runs the paper's MuPDF work and chunking (`openIsolatedPdf`), even mid-page.
+ * An embedding failure is final (status error, returned, no retry), and so are the soft time limit (a rerun would
+ * spend the same provider budget again and time out the same way) and a `PdfLimitError` (a page over
+ * `MAX_PAGE_CHARS`, PDF or vision text over `MAX_PAPER_CHARS`, or the PDF thread past its heap cap: the same file
+ * fails the same way). Any other failure (a pg-boss abort included) marks the paper error and rethrows so pg-boss
+ * retries the whole job.
  */
 export async function processPaper(
   data: { paper_id: string },
@@ -75,16 +75,20 @@ export async function processPaper(
     doc = await openIsolatedPdf(new Uint8Array(await readFile(deps.storage.pdfPath(paperId))), {
       maxPages: config.maxPdfPages,
       maxPageChars: config.maxPageChars,
+      maxPaperChars: config.maxPaperChars,
       heapMb: config.pdfThreadHeapMb,
       signal,
     });
 
+    const pdf = doc;
+    const readVision = () =>
+      extractWithVision(pdf, p, deps.providers, config.maxVisionPages, signal, config.maxPaperChars);
     const extractionMode = String(settings.extraction_mode ?? 'auto');
     let extractionPath = 'pymupdf_clean';
     let markdown: string;
     if (extractionMode === 'vision') {
       if (isVisionAvailable(p)) {
-        markdown = await extractWithVision(doc, p, deps.providers, config.maxVisionPages, signal);
+        markdown = await readVision();
         extractionPath = 'vision_forced';
       } else {
         log.warn('vision_forced_but_unavailable_falling_back_to_pymupdf');
@@ -108,7 +112,7 @@ export async function processPaper(
         log.warn({ reason }, 'extraction_quality_failed');
         if (isVisionAvailable(p)) {
           log.info('falling_back_to_vision');
-          markdown = await extractWithVision(doc, p, deps.providers, config.maxVisionPages, signal);
+          markdown = await readVision();
           extractionPath = 'vision_fallback';
         } else {
           log.warn('no_vision_provider_available_using_raw_text');
@@ -162,7 +166,8 @@ export async function processPaper(
     await setStatus(sql, paperId, 'chunking');
     step('chunking');
     const chunkMax = Number(settings.chunk_max_tokens ?? 800);
-    const chunks = chunkMarkdown(markdown, chunkMax);
+    // In the PDF thread: token counting a long paper takes seconds, which would block every other queue here.
+    const chunks = await doc.chunkMarkdown(markdown, chunkMax);
     log.info({ count: chunks.length }, 'chunks_created');
 
     // --- Step 3b: contextual prefixes (best-effort) ---

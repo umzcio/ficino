@@ -8,9 +8,9 @@ import {
   cachePersonas, cacheSettings, cacheUserPosts, cacheLikes,
 } from './offline-cache'
 import { getDB } from './offline-db'
+import { figureSrc } from './mediaUrl'
 import type { Feed } from '../types'
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/ficino/api'
 
 export interface DownloadProgress {
   step: string
@@ -103,19 +103,13 @@ export async function downloadWorkspace(
   onProgress({ step: 'Complete', current: totalSteps, total: totalSteps, done: true })
 }
 
-function collectFigureUrls(feeds: Feed[]): string[] {
+/** The figure URLs to warm the service worker cache with: server-signed figure paths only (see mediaUrl.ts). */
+export function collectFigureUrls(feeds: Feed[]): string[] {
   const urls = new Set<string>()
   for (const feed of feeds) {
     for (const post of feed.posts) {
-      if (post.figure_url) {
-        // See PostCard.tsx — absolute URLs (Supabase signed) pass through;
-        // relative ones (self-host /figures/...) get the API_BASE prefix.
-        urls.add(
-          /^https?:\/\//i.test(post.figure_url)
-            ? post.figure_url
-            : `${API_BASE}${post.figure_url}`,
-        )
-      }
+      const src = post && typeof post === 'object' ? figureSrc(post.figure_url) : ''
+      if (src) urls.add(src)
     }
   }
   return [...urls]

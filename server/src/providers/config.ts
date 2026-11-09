@@ -3,6 +3,7 @@ import type { Sql } from '../db/sql.js';
 import {
   buildDefaults,
   isPublicDeployment,
+  lockedProviderValue,
   SETTINGS_TO_ENV,
   type Env,
   type Settings,
@@ -38,8 +39,10 @@ export type ProviderConfig = {
 
 /**
  * Port of get_active() over a per-job stored row: the stored value when truthy, otherwise the
- * operator env, otherwise the built-in default. Under PUBLIC_DEPLOYMENT a non-empty env var wins.
- * Nothing here reads process.env or keeps state, so one job's key cannot reach another job.
+ * operator env, otherwise the built-in default. Under PUBLIC_DEPLOYMENT a provider or model resolves
+ * from the operator env or the built-in default only (the stored row is ignored), and an API key from a
+ * non-empty env var beats a stored one. Nothing here reads process.env or keeps state, so one job's key
+ * cannot reach another job.
  */
 export function providerConfig(stored: Record<string, unknown>, env: Env, config: Config): ProviderConfig {
   const defaults = buildDefaults({});
@@ -48,20 +51,24 @@ export function providerConfig(stored: Record<string, unknown>, env: Env, config
     const envName = SETTINGS_TO_ENV[key];
     if (envName === undefined) throw new Error(`providerConfig: ${key} is not an env-mapped setting`);
     const envValue = env[envName];
-    if (pub && envValue) return envValue;
+    if (pub) {
+      const locked = lockedProviderValue(key, env);
+      if (locked !== undefined) return locked;
+      if (envValue) return envValue;
+    }
     const s = stored[key];
     if (s) return String(s);
     return envValue ?? String(defaults[key] ?? '');
   };
 
   const llmProvider = get('llm_provider');
-  // vision_provider: stored, else env VISION_PROVIDER, else the resolved llm provider.
-  const visionProvider =
-    pub && env.VISION_PROVIDER
-      ? env.VISION_PROVIDER
-      : stored.vision_provider
-        ? String(stored.vision_provider)
-        : (env.VISION_PROVIDER ?? llmProvider);
+  // vision_provider: stored, else env VISION_PROVIDER, else the resolved llm provider. Under
+  // PUBLIC_DEPLOYMENT the stored value is ignored: a non-empty VISION_PROVIDER, else the (operator) llm provider.
+  const visionProvider = pub
+    ? env.VISION_PROVIDER || llmProvider
+    : stored.vision_provider
+      ? String(stored.vision_provider)
+      : (env.VISION_PROVIDER ?? llmProvider);
 
   return deepFreeze({
     ollamaBaseUrl: config.ollamaBaseUrl, // env-only (SSRF guard); a stored ollama_base_url is ignored

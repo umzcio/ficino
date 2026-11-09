@@ -7,10 +7,14 @@
  * - the thread's V8 heap is capped (`heapMb`); passing it ends the thread, not this process, and every call
  *   rejects with a `PdfLimitError`, as a page over `maxPageChars` does;
  * - this thread's event loop keeps running meanwhile (other queues, pg-boss, timers).
+ * The paper's chunking (`chunkMarkdown`, which token-counts the whole text) runs in the same thread for the same
+ * reasons: it takes seconds at the per-paper text cap.
  */
 import { Worker } from 'node:worker_threads';
+import type { Chunk } from './chunker.js';
 import {
   DEFAULT_MAX_PAGE_CHARS,
+  DEFAULT_MAX_PAPER_CHARS,
   DEFAULT_MAX_PDF_PAGES,
   PdfLimitError,
   PdfOpenError,
@@ -26,13 +30,14 @@ export const DEFAULT_PDF_THREAD_HEAP_MB = 1024;
 
 type Box = [number, number, number, number];
 export type ThreadOp =
-  | { op: 'open'; bytes: Uint8Array; maxPages: number; maxPageChars: number }
+  | { op: 'open'; bytes: Uint8Array; maxPages: number; maxPageChars: number; maxPaperChars: number }
   | { op: 'markdown' }
   | { op: 'pagesText'; pages?: number }
   | { op: 'render'; index: number; dpi: number }
   | { op: 'openRendered'; index: number; dpi: number }
   | { op: 'crop'; handle: number; box: Box }
-  | { op: 'dispose'; handle: number };
+  | { op: 'dispose'; handle: number }
+  | { op: 'chunk'; markdown: string; maxTokens: number };
 export type ThreadRequest = ThreadOp & { id: number };
 export type ThreadWarning = { obj: Record<string, unknown>; msg: string };
 export type ThreadReply = { id: number; warnings: ThreadWarning[] } & (
@@ -100,10 +105,10 @@ class IsolatedPdf implements PdfSession {
     signal?.addEventListener('abort', this.onAbort, { once: true });
   }
 
-  async start(bytes: Uint8Array, maxPages: number, maxPageChars: number): Promise<void> {
+  async start(bytes: Uint8Array, limits: Required<OpenPdfOptions>): Promise<void> {
     await this.loaded;
     const copy = bytes.slice();
-    const { pages } = await this.call<{ pages: number }>({ op: 'open', bytes: copy, maxPages, maxPageChars }, undefined, [
+    const { pages } = await this.call<{ pages: number }>({ op: 'open', bytes: copy, ...limits }, undefined, [
       copy.buffer,
     ]);
     this.pages = pages;
@@ -135,6 +140,10 @@ class IsolatedPdf implements PdfSession {
         if (!this.failure) this.call({ op: 'dispose', handle }).catch(() => undefined);
       },
     };
+  }
+
+  chunkMarkdown(markdown: string, maxTokens: number): Promise<Chunk[]> {
+    return this.call({ op: 'chunk', markdown, maxTokens });
   }
 
   async close(): Promise<void> {
@@ -195,6 +204,7 @@ export async function openIsolatedPdf(bytes: Uint8Array, opts: IsolatedPdfOption
   const {
     maxPages = DEFAULT_MAX_PDF_PAGES,
     maxPageChars = DEFAULT_MAX_PAGE_CHARS,
+    maxPaperChars = DEFAULT_MAX_PAPER_CHARS,
     heapMb = DEFAULT_PDF_THREAD_HEAP_MB,
     signal,
     threadUrl = THREAD_URL,
@@ -202,7 +212,7 @@ export async function openIsolatedPdf(bytes: Uint8Array, opts: IsolatedPdfOption
   signal?.throwIfAborted();
   const pdf = new IsolatedPdf(threadUrl, heapMb, signal);
   try {
-    await pdf.start(bytes, maxPages, maxPageChars);
+    await pdf.start(bytes, { maxPages, maxPageChars, maxPaperChars });
     return pdf;
   } catch (e) {
     await pdf.close();

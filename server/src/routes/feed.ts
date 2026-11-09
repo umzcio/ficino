@@ -11,9 +11,8 @@ import { chargeUserRateLimit, userRateLimit } from '../http/rateLimit.js';
 import { toPydanticIso } from '../db/time.js';
 import { body, params, pyBool, pyInt, pyUuid, query } from '../http/validate.js';
 import { LIMITS, MAX_POSTS_PER_GENERATION } from '../shared/constants.js';
-import type { LocalStorage } from '../storage/local.js';
-import type { Logger } from 'pino';
 import { isUuid } from '../shared/uuid.js';
+import { mediaDeps, presentFeedPosts, presentStoredPosts } from './postMedia.js';
 
 // FeedGenerateRequest: every field optional/nullable, unknown keys ignored (zod strips them).
 const generateSchema = z.object({
@@ -64,61 +63,6 @@ export function feedFromRow(
 function parsePosts(v: unknown): Post[] {
   const p = typeof v === 'string' ? JSON.parse(v) : v;
   return Array.isArray(p) ? (p as Post[]) : [];
-}
-
-/**
- * Deliberate change 7: media URLs carry the public API base, because ListenView assigns them to `audio.src` as-is
- * (figure URLs stay relative; the frontend prefixes those). The signed resource itself stays prefix-free.
- */
-function hydrateAudioUrls(posts: Post[], feedId: string, storage: LocalStorage, base: string): void {
-  posts.forEach((post, idx) => {
-    if (!post || typeof post !== 'object' || !post.audio_key) return;
-    try {
-      post.audio_url = `${base}${storage.audioUrl(feedId, idx)}`;
-    } catch {
-      post.audio_url = null;
-    }
-  });
-}
-
-async function hydrateFigureUrls(
-  posts: Post[],
-  userId: string,
-  sql: AppDeps['sql'],
-  storage: LocalStorage,
-  logger: Logger,
-): Promise<void> {
-  const indices = posts.map((p, i) => (p && typeof p === 'object' && p.figure_id ? i : -1)).filter((i) => i >= 0);
-  if (indices.length === 0) return;
-  // A non-UUID id would fail the ::uuid[] cast for every post, so only well-formed ids are queried; the rest keep their persisted URL.
-  const ids = indices.map((i) => String(posts[i]!.figure_id)).filter(isUuid);
-  let rows: Row[] = [];
-  try {
-    if (ids.length > 0) rows = await sql`
-      SELECT f.id, f.paper_id, f.image_path
-      FROM figures f
-      JOIN papers p ON f.paper_id = p.id AND p.user_id = ${userId}
-      WHERE f.id = ANY(${ids}::uuid[])`;
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    logger.warn({ user_id: userId, error_type: err.name, error: err.message.slice(0, 200) }, 'figure_url_resign_query_failed');
-    rows = []; // e.g. a malformed persisted figure_id: keep every persisted URL
-  }
-  const info = new Map(rows.map((r) => [String(r.id), String(r.paper_id)]));
-  for (const idx of indices) {
-    const figureId = String(posts[idx]!.figure_id);
-    const paperId = info.get(figureId);
-    let url: string | null = null;
-    if (paperId !== undefined) {
-      try {
-        url = storage.figureImageUrl(paperId, figureId, 600);
-      } catch {
-        url = null;
-      }
-    }
-    if (url !== null) posts[idx]!.figure_url = url;
-    else logger.warn({ user_id: userId, figure_id: posts[idx]!.figure_id }, 'figure_url_resign_failed');
-  }
 }
 
 /** The two media dispatch routes differ only in these. Column names come from here, never from input. */
@@ -228,11 +172,26 @@ export function feedRoutes(): Hono<AppEnv> {
                   ORDER BY generated_at DESC LIMIT ${LIMITS.FEEDS}`
       : await sql`SELECT ${cols} FROM feeds WHERE user_id = ${c.var.user.id}
                   ORDER BY generated_at DESC LIMIT ${LIMITS.FEEDS}`;
-    return c.json(rows.map((row) => feedFromRow(row, summary ? [] : parsePosts(row.posts), { includeMedia: false })));
+    if (summary) return c.json(rows.map((row) => feedFromRow(row, [], { includeMedia: false })));
+    // One figure lookup for every listed post; the list shape carries no audio (includeMedia false).
+    const perFeed = rows.map((row) => parsePosts(row.posts));
+    const presented = await presentStoredPosts(
+      perFeed.flatMap((posts, i) => posts.map((post, index) => ({ post, feedId: String(rows[i]!.id), index, audioReady: false }))),
+      c.var.user.id,
+      mediaDeps(c),
+    );
+    let offset = 0;
+    return c.json(
+      rows.map((row, i) => {
+        const posts = presented.slice(offset, offset + perFeed[i]!.length) as Post[];
+        offset += perFeed[i]!.length;
+        return feedFromRow(row, posts, { includeMedia: false });
+      }),
+    );
   });
 
   r.get('/:feed_id', async (c) => {
-    const { sql, storage, logger, config } = c.var.deps;
+    const { sql, storage, config } = c.var.deps;
     const userId = c.var.user.id;
     const feedId = c.req.param('feed_id');
     const [row] = await sql`
@@ -242,9 +201,13 @@ export function feedRoutes(): Hono<AppEnv> {
              podcast_status, podcast_generated_at, podcast_segments
       FROM feeds WHERE id = ${feedId} AND user_id = ${userId}`;
     if (!row) throw new HttpError(404, 'Feed not found');
-    const posts = parsePosts(row.posts);
-    if (row.audio_status === 'ready') hydrateAudioUrls(posts, feedId, storage, config.publicApiBase);
-    await hydrateFigureUrls(posts, userId, sql, storage, logger);
+    const posts = (await presentFeedPosts(
+      parsePosts(row.posts),
+      String(row.id),
+      row.audio_status === 'ready',
+      userId,
+      mediaDeps(c),
+    )) as Post[];
     let podcastAudioUrl: string | null = null;
     if (row.podcast_status === 'ready') {
       try {

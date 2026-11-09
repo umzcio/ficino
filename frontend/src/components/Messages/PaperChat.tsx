@@ -4,6 +4,7 @@ import type { PaperSummary, SummaryMessage } from '../../types'
 import { getPaperSummary, getPaperSummaryStatus } from '../../lib/api'
 import { cachePaperSummary, getCachedPaperSummary } from '../../lib/offline-cache'
 import { usePollTask, type PollController } from '../../hooks/usePollTask'
+import { asText, ownEntry } from '../../lib/postFields'
 
 interface PaperChatProps {
   paperId: string
@@ -36,17 +37,21 @@ const TYPE_COLORS: Record<string, string> = {
   summary: 'var(--color-gold)',
 }
 
+// Messages are model output: a row stored before the server kept only string fields (or an offline-cached copy) can
+// hold any JSON type, so each field is read as text and the label tables only by their own keys.
 function MessageBubble({ message }: { message: SummaryMessage }) {
-  const label = TYPE_LABELS[message.type] || message.type
-  const color = TYPE_COLORS[message.type] || 'var(--color-gold)'
-  const isTldr = message.type === 'tldr'
+  const type = asText(message.type)
+  const content = asText(message.content)
+  const label = ownEntry(TYPE_LABELS, type) || type
+  const color = ownEntry(TYPE_COLORS, type) || 'var(--color-gold)'
+  const isTldr = type === 'tldr'
 
   if (isTldr) {
     return (
       <div className="mx-4 my-2 p-4 rounded-xl border" style={{ backgroundColor: 'color-mix(in srgb, var(--color-gold) 4%, transparent)', borderColor: 'color-mix(in srgb, var(--color-gold) 15%, transparent)' }}>
         <span className="text-[11px] font-bold tracking-widest uppercase text-gold">TL;DR</span>
         <p className="text-[16px] text-text font-semibold leading-snug mt-1.5">
-          {message.content}
+          {content}
         </p>
       </div>
     )
@@ -68,7 +73,7 @@ function MessageBubble({ message }: { message: SummaryMessage }) {
           {label}
         </span>
         <p className="text-[14px] text-text leading-relaxed mt-0.5 whitespace-pre-wrap">
-          {message.content}
+          {content}
         </p>
       </div>
     </div>

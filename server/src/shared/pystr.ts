@@ -28,16 +28,41 @@ export function pySplit(s: string): string[] {
   return s.split(SPLIT_RE).filter((p) => p !== '');
 }
 
-/** `len(s)`: code points, not UTF-16 units. */
+/** True when the UTF-16 unit at `i` starts a surrogate pair (a high surrogate followed by a low one). */
+const pairAt = (s: string, i: number): boolean => {
+  const c = s.charCodeAt(i);
+  return c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00;
+};
+
+/**
+ * `len(s)`: code points, not UTF-16 units. A lone surrogate counts as one, as string iteration (and Python, for the
+ * surrogates `surrogateescape` produces) counts it. A scan of UTF-16 units: no per-character strings.
+ */
 export function pyLen(s: string): number {
-  let n = 0;
-  for (const _ of s) n++;
+  let n = s.length;
+  for (let i = 0; i < s.length - 1; i++)
+    if (pairAt(s, i)) {
+      n--;
+      i++;
+    }
   return n;
 }
 
-/** `s[start:end]` by code points, for non-negative start/end. */
+/**
+ * `s[start:end]` by code points (as `Array.from(s).slice(start, end).join('')`), for non-negative start/end. It runs
+ * over the first `end` code points only: callers take short heads of whole-paper text. Other bounds (negative,
+ * fractional, infinite) take the code-point array path, which gives Array.slice's meaning for them.
+ */
 export function pySlice(s: string, start: number, end?: number): string {
-  return Array.from(s).slice(start, end).join('');
+  if (!(Number.isSafeInteger(start) && start >= 0 && (end === undefined || (Number.isSafeInteger(end) && end >= 0))))
+    return Array.from(s).slice(start, end).join('');
+  let i = 0;
+  let cp = 0;
+  for (; cp < start && i < s.length; cp++) i += pairAt(s, i) ? 2 : 1;
+  if (end === undefined) return s.slice(i);
+  const from = i;
+  for (; cp < end && i < s.length; cp++) i += pairAt(s, i) ? 2 : 1;
+  return s.slice(from, i);
 }
 
 /** `str.isupper()`: at least one cased character and no lowercase/titlecase ones. */

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { chunkMarkdown } from '../../src/ingest/chunker.js';
 import { closePdf, cropPage, openPdf, PdfLimitError, PdfOpenError, renderPage } from '../../src/ingest/pdf.js';
 import { openIsolatedPdf } from '../../src/ingest/pdfIsolated.js';
 import { formBomb, glyphPages } from '../helpers/pdfBombs.js';
@@ -68,6 +69,48 @@ describe('openIsolatedPdf (PDF work in a worker thread)', () => {
     try {
       await expect(pdf.extractTextMarkdown()).rejects.toThrow(PdfLimitError);
       await expect(pdf.extractTextMarkdown()).rejects.toThrow('page 2 has more than 2999 characters');
+    } finally {
+      await pdf.close();
+    }
+  });
+
+  it('fails markdown over maxPaperChars with a PdfLimitError', async () => {
+    const pdf = await openIsolatedPdf(SAMPLE, { maxPaperChars: GOLDEN_MD.length - 1 });
+    try {
+      await expect(pdf.extractTextMarkdown()).rejects.toThrow(PdfLimitError);
+      await expect(pdf.extractTextMarkdown()).rejects.toThrow(`more than ${GOLDEN_MD.length - 1} characters`);
+    } finally {
+      await pdf.close();
+    }
+    const at = await openIsolatedPdf(SAMPLE, { maxPaperChars: GOLDEN_MD.length });
+    try {
+      expect(await at.extractTextMarkdown()).toBe(GOLDEN_MD);
+    } finally {
+      await at.close();
+    }
+  });
+
+  // Security review: chunking and token counting a paper's text takes seconds at the per-paper cap, so it runs in
+  // the paper's thread, where it neither blocks the other queues nor outlives the job's signal.
+  it('chunks in the thread, with the same chunks as chunkMarkdown, while this thread keeps running', async () => {
+    const pdf = await openIsolatedPdf(SAMPLE);
+    try {
+      expect(await pdf.chunkMarkdown(GOLDEN_MD, 800)).toEqual(chunkMarkdown(GOLDEN_MD, 800));
+      expect(await pdf.chunkMarkdown(GOLDEN_MD, 120)).toEqual(chunkMarkdown(GOLDEN_MD, 120));
+      // About 1.5 MB of word-like paragraphs: a second or so of token counting.
+      let x = 1;
+      const words: string[] = [];
+      for (let i = 0; i < 250_000; i++) {
+        x = (x * 1103515245 + 12345) & 0x7fffffff;
+        const end = i % 150 === 149 ? '.\n\n' : '';
+        words.push('abcdefgh'.slice(0, 2 + (x % 6)) + String.fromCharCode(97 + (x % 26)) + end);
+      }
+      const big = words.join(' ');
+      const { ticks, ms, result } = await ticking(pdf.chunkMarkdown(big, 800));
+      expect(result.status).toBe('fulfilled');
+      expect((result as PromiseFulfilledResult<unknown[]>).value.length).toBeGreaterThan(100);
+      expect(ticks).toBeGreaterThanOrEqual(Math.min(5, Math.floor(ms / 100)));
+      expect(ticks).toBeGreaterThan(0);
     } finally {
       await pdf.close();
     }

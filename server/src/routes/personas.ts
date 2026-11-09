@@ -10,6 +10,7 @@ import { HttpError } from '../http/errors.js';
 import { userRateLimit } from '../http/rateLimit.js';
 import { body, params, pyInt, pyMaxLen } from '../http/validate.js';
 import { LIMITS } from '../shared/constants.js';
+import { mediaDeps, presentStoredPosts } from './postMedia.js';
 
 const dmSchema = z.object({ message: pyMaxLen(2000) });
 const deleteParams = z.object({ persona_key: z.string(), message_index: pyInt });
@@ -42,6 +43,7 @@ export function personasRoutes(): Hono<AppEnv> {
     const rows = await sql`
       SELECT
         f.id                            AS feed_id,
+        f.audio_status                  AS audio_status,
         pr.post_index                   AS post_index,
         (msg.idx - 1)::int              AS message_index,
         msg.value ->> 'content'         AS content,
@@ -56,14 +58,25 @@ export function personasRoutes(): Hono<AppEnv> {
         AND msg.value ->> 'role'    = 'interjection'
       ORDER BY f.generated_at DESC, pr.post_index, msg.idx
       LIMIT ${LIMITS.ACTIVITY}`;
-    return c.json(
+    // The parent posts go out like GET /feed/:id's: media URLs re-signed from server-owned ids, never echoed.
+    const parents = await presentStoredPosts(
       rows.map((x) => ({
+        post: x.parent_post ?? {},
+        feedId: String(x.feed_id),
+        index: x.post_index as number,
+        audioReady: x.audio_status === 'ready',
+      })),
+      c.var.user.id,
+      mediaDeps(c),
+    );
+    return c.json(
+      rows.map((x, i) => ({
         feed_id: String(x.feed_id),
         post_index: x.post_index,
         message_index: x.message_index,
         content: x.content ?? '',
         thread_generated_at: toPydanticIso(x.thread_generated_at),
-        parent_post: x.parent_post ?? {},
+        parent_post: parents[i],
       })),
     );
   });

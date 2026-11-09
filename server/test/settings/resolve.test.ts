@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveSettings, resolveUserSettings } from '../../src/settings/resolve.js';
 import { PUBLIC_OFF, PUBLIC_ON } from '../helpers/publicDeployment.js';
+import { BUILT_IN, envFor, LOCKED_NON_SECRET, pick, STALE_ROW } from '../helpers/lockedOverrides.js';
 import { loadStoredSettings } from '../../src/settings/stored.js';
 import { client, testApp } from '../helpers/client.js';
 import { testSql, resetDb, seedUsers, USER_A_ID, USER_B_ID } from '../helpers/db.js';
@@ -66,6 +67,26 @@ describe('resolveSettings: PUBLIC_DEPLOYMENT spellings', () => {
     for (const v of PUBLIC_OFF) {
       expect(resolveSettings(stored, { PUBLIC_DEPLOYMENT: v, LLM_PROVIDER: 'api' }).llm_provider, JSON.stringify(v)).toBe('ollama');
     }
+  });
+});
+
+describe('resolveSettings: PUBLIC_DEPLOYMENT ignores provider and model overrides stored before the lock', () => {
+  it.each(PUBLIC_ON)('PUBLIC_DEPLOYMENT=%j, operator env unset: built-in defaults', (v) => {
+    const s = resolveSettings(STALE_ROW, { PUBLIC_DEPLOYMENT: v });
+    expect(pick(s, LOCKED_NON_SECRET)).toEqual(BUILT_IN);
+  });
+  it('operator env vars blank: built-in defaults', () => {
+    expect(pick(resolveSettings(STALE_ROW, { PUBLIC_DEPLOYMENT: 'true', ...envFor(() => '') }), LOCKED_NON_SECRET)).toEqual(BUILT_IN);
+  });
+  it('operator env set: the env values', () => {
+    const s = resolveSettings(STALE_ROW, { PUBLIC_DEPLOYMENT: 'true', ...envFor((k) => `env-${k}`) });
+    expect(pick(s, LOCKED_NON_SECRET)).toEqual(Object.fromEntries(LOCKED_NON_SECRET.map((k) => [k, `env-${k}`])));
+  });
+  it('a stored API key stays when the operator has none (secret carve-out)', () => {
+    expect(resolveSettings({ ...STALE_ROW, openai_api_key: 'own' }, { PUBLIC_DEPLOYMENT: 'true' }).openai_api_key).toBe('own');
+  });
+  it('lock off: the stored row wins (self-host unchanged)', () => {
+    for (const v of PUBLIC_OFF) expect(pick(resolveSettings(STALE_ROW, { PUBLIC_DEPLOYMENT: v }), LOCKED_NON_SECRET), JSON.stringify(v)).toEqual(STALE_ROW);
   });
 });
 

@@ -125,6 +125,22 @@ describe('PostCard render', () => {
     expect(screen.getByRole('button', { name: 'Zoom figure: Figure 1: accuracy over epochs' })).toBeTruthy()
   })
 
+  it('a figure post whose figure_url is not a server path shows the placeholder and loads nothing', () => {
+    for (const figure_url of ['https://example.invalid/x.png', '//example.invalid/x.png', 'data:image/png;base64,AAAA']) {
+      const { container, unmount } = renderCard(basePost({
+        post_type: 'figure',
+        content: 'see the figure',
+        figure_url,
+        figure_caption: 'Figure 1: accuracy over epochs',
+      }))
+      expect(container.querySelector('img')).toBeNull()
+      const button = screen.getByRole('button', { name: 'Figure not available' }) as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+      expect(container.innerHTML).not.toContain('example.invalid')
+      unmount()
+    }
+  })
+
   // A post stored before the server type-checked model fields (or read from the offline cache) can carry any JSON
   // type; one bad post must not unmount the app.
   describe('mistyped stored fields', () => {

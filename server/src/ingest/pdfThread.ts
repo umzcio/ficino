@@ -1,9 +1,10 @@
 /**
  * The worker-thread side of `pdfIsolated.ts`: it opens one PDF with `pdf.ts` and answers that session's requests
- * in order. The thread is terminated, never asked to stop, so nothing here needs a cleanup path; the document and
- * its rendered pages go with the thread.
+ * in order, and chunks the paper's text (`chunker.ts`). The thread is terminated, never asked to stop, so nothing
+ * here needs a cleanup path; the document and its rendered pages go with the thread.
  */
 import { parentPort } from 'node:worker_threads';
+import { chunkMarkdown } from './chunker.js';
 import {
   extractPagesText,
   extractTextMarkdown,
@@ -35,9 +36,11 @@ function own(png: Uint8Array): Uint8Array<ArrayBuffer> {
 
 function handle(req: ThreadRequest, log: { warn(obj: Record<string, unknown>, msg: string): void }) {
   switch (req.op) {
-    case 'open':
-      doc = openPdf(req.bytes, { maxPages: req.maxPages, maxPageChars: req.maxPageChars });
+    case 'open': {
+      const { maxPages, maxPageChars, maxPaperChars } = req;
+      doc = openPdf(req.bytes, { maxPages, maxPageChars, maxPaperChars });
       return { value: { pages: pageCount(doc) } };
+    }
     case 'markdown':
       return { value: extractTextMarkdown(opened(), log) };
     case 'pagesText':
@@ -65,6 +68,8 @@ function handle(req: ThreadRequest, log: { warn(obj: Record<string, unknown>, ms
       rendered.get(req.handle)?.dispose();
       rendered.delete(req.handle);
       return { value: null };
+    case 'chunk':
+      return { value: chunkMarkdown(req.markdown, req.maxTokens) };
   }
 }
 

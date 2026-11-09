@@ -1,5 +1,6 @@
 // Port of worker/tasks/reading_list_tasks.py: the propose_ordering prompt, `_parse_ordering_json` and the ordering
 // validation (W §2.8). Pure functions, pinned to test/fixtures/goldens/reading-list-ordering.json.
+import { modelString } from '../shared/modelString.js';
 import { PY_WS, pySlice, pyStr } from '../shared/pystr.js';
 import { fenceUntrusted } from '../shared/sanitize.js';
 
@@ -25,8 +26,8 @@ export type OrderingPaper = {
 /** One entry of the persisted rationale (and of the job's `ordered_papers`). */
 export type OrderedPaper = {
   paper_id: unknown;
-  position: unknown;
-  rationale: unknown;
+  position: number;
+  rationale: string;
   title: string | null;
   authors: string;
   year: number | string;
@@ -306,5 +307,23 @@ export function validateOrdering(
       year: m.year,
     };
   });
-  return { ordered: pySortBy(result, (x) => x.position), mismatch: null };
+  return { ordered: storedForm(pySortBy(result, (x) => x.position)), mismatch: null };
+}
+
+const isFinitePosition = (v: unknown): boolean =>
+  typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+
+/**
+ * The sorted entries as stored (deliberate change 28): the model's rationale and position are untrusted and the
+ * client renders the rationale as text, so a rationale is kept as a string (`modelString`, else empty) and positions
+ * as numbers when every one is a finite number or a bool (a bool as 1 or 0), else each entry's index in the sorted
+ * order. The order itself is Python's: the sort above runs on the model's values first.
+ */
+function storedForm(entries: Array<Omit<OrderedPaper, 'position' | 'rationale'> & { position: unknown; rationale: unknown }>): OrderedPaper[] {
+  const numeric = entries.every((e) => isFinitePosition(e.position));
+  return entries.map((e, i) => ({
+    ...e,
+    position: numeric ? Number(e.position) : i,
+    rationale: modelString(e.rationale) ?? '',
+  }));
 }

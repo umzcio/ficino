@@ -1,6 +1,7 @@
 // Prompts and output parsing for the paper-summary and corpus-synthesis jobs: a port of the module constants,
 // `_coerce_messages` and the inline prompt building and parsing in `worker/tasks/summary_tasks.py`.
 // test/conversations/summaryParse.test.ts pins them to goldens produced by the real Celery tasks.
+import { modelString } from '../shared/modelString.js';
 import { pySlice, pyStr, pyStrip } from '../shared/pystr.js';
 import { fenceUntrusted, sanitizeInline } from '../shared/sanitize.js';
 
@@ -125,10 +126,30 @@ export function buildSynthesisPrompt(paperRows: SynthesisPaperRow[]): string {
 
 const isDict = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** `_coerce_messages`: keep the objects whose `content` is a non-empty string; a non-array gives []. */
+/** The message fields the web client renders, all as text; any other key the model adds is not stored. */
+const MESSAGE_FIELDS = ['role', 'type', 'paper_ref', 'content'] as const;
+
+/**
+ * `_coerce_messages`: keep the objects whose `content` is a non-empty string; a non-array gives []. Each kept message
+ * is a new object of `MESSAGE_FIELDS` only, each a string (`modelString`: a finite number as its decimal string, any
+ * other type dropped), and a `type` naming an `Object.prototype` member (`__proto__`, `constructor` ...) is dropped,
+ * since the client looks types up in label tables (deliberate change 28; Python kept every key with any type).
+ */
 export function coerceMessages(parsed: unknown): Record<string, unknown>[] {
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter((m): m is Record<string, unknown> => isDict(m) && typeof m.content === 'string' && m.content !== '');
+  const out: Record<string, unknown>[] = [];
+  for (const m of parsed) {
+    if (!isDict(m) || typeof m.content !== 'string' || m.content === '') continue;
+    const kept: Record<string, unknown> = {};
+    for (const key of MESSAGE_FIELDS) {
+      const value = Object.hasOwn(m, key) ? modelString(m[key]) : undefined;
+      if (value === undefined) continue;
+      if (key === 'type' && value in Object.prototype) continue;
+      kept[key] = value;
+    }
+    out.push(kept);
+  }
+  return out;
 }
 
 const THINK_RE = /<think>[\s\S]*?<\/think>/g;

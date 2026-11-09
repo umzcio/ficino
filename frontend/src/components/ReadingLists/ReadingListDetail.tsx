@@ -13,6 +13,8 @@ import { SwipeBackEdge } from '../_shared/SwipeBackEdge'
 import { Spinner } from '../_shared/AsyncState'
 import { FadeIn } from '../_shared/FadeIn'
 import { usePollTask, type PollController } from '../../hooks/usePollTask'
+// The rationale is model output; a list stored before the server kept it as text can hold any JSON type.
+import { asText } from '../../lib/postFields'
 
 interface Props {
   listId: string
@@ -257,8 +259,8 @@ export function ReadingListDetail({ listId, onBack }: Props) {
               {chapterPaper.authors?.length > 0 && (
                 <div className="text-[12px] text-text-muted">{chapterPaper.authors.join(', ')} {chapterPaper.year && `(${chapterPaper.year})`}</div>
               )}
-              {chapterPaper.rationale && (
-                <p className="text-[12px] text-text-mid mt-1 italic">{chapterPaper.rationale}</p>
+              {asText(chapterPaper.rationale) && (
+                <p className="text-[12px] text-text-mid mt-1 italic">{asText(chapterPaper.rationale)}</p>
               )}
             </div>
           )}
@@ -364,8 +366,8 @@ export function ReadingListDetail({ listId, onBack }: Props) {
                   {paper.authors?.length > 0 && (
                     <div className="text-[12px] text-text-muted">{paper.authors.join(', ')} {paper.year && `(${paper.year})`}</div>
                   )}
-                  {paper.rationale && (
-                    <p className="text-[12px] text-text-mid mt-1 italic leading-relaxed">{paper.rationale}</p>
+                  {asText(paper.rationale) && (
+                    <p className="text-[12px] text-text-mid mt-1 italic leading-relaxed">{asText(paper.rationale)}</p>
                   )}
                 </div>
                 <div className="flex flex-col gap-0.5 shrink-0">

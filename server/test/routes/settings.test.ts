@@ -12,6 +12,8 @@ import { client, testApp } from '../helpers/client.js';
 import { resetDb, seedUsers, testSql, USER_A_ID, USER_B_ID } from '../helpers/db.js';
 import { testQueue } from '../helpers/queue.js';
 import { PUBLIC_ON } from '../helpers/publicDeployment.js';
+import { BUILT_IN, LOCKED_NON_SECRET, pick, STALE_ROW } from '../helpers/lockedOverrides.js';
+import { providerConfig } from '../../src/providers/config.js';
 
 const sql = testSql();
 let seeded: Awaited<ReturnType<typeof seedUsers>>;
@@ -221,6 +223,37 @@ describe('PUBLIC_DEPLOYMENT', () => {
     expect((await put.json()).llm_provider).toBe('api');
     expect(await stored()).toEqual({ llm_provider: 'ollama' }); // pre-lock row untouched, new write dropped
     expect((await (await c.get('/settings')).json()).llm_provider).toBe('api');
+  });
+
+  it('a row stored before the lock: GET, PUT, providerConfig all resolve env-or-default, the row is never used', async () => {
+    await sql`INSERT INTO user_settings (user_id, settings) VALUES (${USER_A_ID}, ${sql.json({ ...STALE_ROW, anthropic_api_key: 'sk-own' })})`;
+    // The operator env leaves every provider/model var unset except one.
+    const env = { DATABASE_URL: process.env.DATABASE_URL, ENVIRONMENT: 'development', PUBLIC_DEPLOYMENT: 'true', CONTEXT_PROVIDER: 'none' };
+    const key = resolveSigningKey({ DATABASE_URL: process.env.DATABASE_URL });
+    const config = loadConfig(env);
+    const c = client(
+      createApp({
+        sql,
+        queue: testQueue(),
+        config,
+        logger: pino({ level: 'silent' }),
+        storage: new LocalStorage({ uploadDir: '/nonexistent/u', figuresDir: '/nonexistent/f', mediaDir: '/nonexistent/m' }, key),
+        signingKey: key,
+        env,
+        userOverride: userA,
+      }),
+    );
+    const expected = { ...BUILT_IN, context_provider: 'none' };
+    const get = await (await c.get('/settings')).json();
+    expect(pick(get, LOCKED_NON_SECRET)).toEqual(expected);
+    expect(get.anthropic_api_key).toBe('set'); // the user's own key is redacted, not dropped
+    const put = await c.put('/settings', { settings: { claude_model: 'x', theme: 'light' } });
+    expect(put.status).toBe(200);
+    expect(pick(await put.json(), LOCKED_NON_SECRET)).toEqual(expected);
+    const p = providerConfig((await stored())!, env, config);
+    expect([p.llm.claudeModel, p.context.provider, p.rerank.provider, p.embed.provider, p.vision.provider]).toEqual([
+      BUILT_IN.claude_model, 'none', BUILT_IN.rerank_provider, BUILT_IN.embed_provider, BUILT_IN.vision_provider,
+    ]);
   });
 
   it('/auth/provider exposes public_deployment', async () => {

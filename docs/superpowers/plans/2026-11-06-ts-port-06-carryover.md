@@ -254,6 +254,94 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       terminated instead (the checkpoints stay in `pdf.ts` for in-process callers). Opening the thread adds about
       0.2 s per paper.
 
+26. **The `PUBLIC_DEPLOYMENT` lock ignores stored provider and model choices** (security review). Python's
+    `reassert_public_deployment` and `get_active` let the operator env win only when its variable was non-empty, so
+    a provider or model a user saved before the lock was turned on stayed in force for every variable the operator
+    left unset (the `.env.example` template leaves most of them commented out), on the operator's keys; the lock
+    then also stopped the user from changing or clearing it. Under the lock, every non-secret provider override
+    (`PROVIDER_OVERRIDE_KEYS` minus `SECRET_KEYS`: the providers and model names) now resolves from the operator's
+    env var when non-empty, else the built-in default, never from `user_settings` (`lockedProviderValue` in
+    `server/src/settings/schema.ts`). `reassertPublicDeployment` (so `resolveSettings` and `GET`/`PUT /settings`)
+    and `providerConfig` (worker jobs and the api LLM path) share that rule; under the lock `vision_provider`
+    resolves to a non-empty `VISION_PROVIDER`, else the operator-resolved LLM provider. API keys keep their rule: a
+    non-empty env var wins, else the user's own stored key, which spends the user's account and not the
+    operator's. Stored rows are left as they are, so turning the lock off restores them. With the lock off nothing
+    changes.
+
+27. **A paper's extracted text is capped, and chunking runs in the paper's PDF thread** (security review). Python
+    capped nothing; the port capped each page (`MAX_PAGE_CHARS`, item 25) and the page count, so one small PDF could
+    still yield `MAX_PDF_PAGES` x `MAX_PAGE_CHARS` (about 100 million) characters, which the worker's main thread
+    then quality-checked, sliced and chunked (token counting every paragraph and chunk) synchronously, stalling every
+    queue for minutes. Three changes:
+    - `MAX_PAPER_CHARS` (default 3,000,000, at least 1): `extractTextMarkdown` in `server/src/ingest/pdf.ts` throws a
+      `PdfLimitError` (`PDF text has more than N characters by page K (the per-paper limit)`) as soon as the
+      markdown built so far (pages plus their separators, in UTF-16 units) passes the cap, in the PDF thread and
+      before reading any further page; `extractWithVision` does the same for vision text
+      (`vision text has more than N characters by page K (the per-paper limit)`), since a model's reply per page has
+      no length bound. Like every `PdfLimitError`, it marks the paper `error` and returns without a retry. Output
+      under the cap is unchanged (the PyMuPDF goldens are byte-identical). A long paper's text runs to a few hundred
+      thousand characters and a 500-page book's to one or two million. A crafted PDF (500 pages of 199,999
+      glyphs, under 0.5 MB) is now rejected at page 15 after about 4 s in the thread, with the main thread's event
+      loop never stalled past one 20 ms timer tick.
+    - `process_paper` chunks with the session's `chunkMarkdown` (`PdfSession.chunkMarkdown`), which runs
+      `chunkMarkdown` in the paper's PDF thread (`pdfThread.ts` op `chunk`): at the cap it takes about 2.5 s for
+      word-like text and about 6.5 s for unbroken CJK text, now off the main thread and under the job's signal and
+      the thread's heap cap. The chunks are the same. What stays on the main thread at the cap is the quality check
+      (about 0.1 to 0.15 s) and the metadata prompt.
+    - `pySlice` (`server/src/shared/pystr.ts`) walks only up to the slice's end instead of building an array of
+      every code point, so the metadata prompt's 2,000-code-point head of a paper costs microseconds; `pyLen`
+      counts UTF-16 units minus surrogate pairs instead of allocating a string per code point. Both give the same
+      output as before (tested against the old implementations on astral characters and lone surrogates).
+
+28. **Summary, synthesis and reading-order fields keep only the type the client renders** (security review). Python
+    stored the model's paper-summary and synthesis messages with every key and any JSON type as long as `content`
+    was a non-empty string, and the reading-list ordering's `rationale` and `position` with any JSON type. A reply
+    steered by a hostile paper could store, say, an object `type` or `paper_ref`, a `type` of `__proto__`, or an
+    object `rationale`; the web client rendered those as React children or looked them up in its label tables
+    through inherited properties, threw, and the whole app went blank whenever that chat or list was opened. Now:
+    - `coerceMessages` (`server/src/conversations/summaryParse.ts`) stores each kept message as a new object of
+      `role`, `type`, `paper_ref` and `content` only, each a string (`modelString`, `server/src/shared/modelString.ts`:
+      a finite number becomes its decimal string; null, a boolean, an object or an array is dropped), and drops a
+      `type` that names an `Object.prototype` member. Which messages are kept, and the fallback bubbles, are
+      unchanged, and so are the goldens' stored messages.
+    - `validateOrdering` (`server/src/readingLists/ordering.ts`) still sorts on the model's positions exactly as
+      Python did (same order, same `TypeError` on an unorderable pair), then stores each `rationale` as a string
+      (`modelString`, else empty, so a null rationale is now `''`) and the positions as numbers when every one is a
+      finite number or a boolean (a boolean as 1 or 0), else each entry's 0-based index in the sorted order (string
+      or list positions, or one too large to be finite). The job's `ordered_papers` result is the same stored form.
+    - `GET /reading-lists/:list_id` returns each paper's rationale as text the same way, so a list stored before this
+      change answers a string (a stored null is now `''`). The list route's raw `rationale` array is unchanged; the
+      client does not render it.
+    - In the web client, `PaperChat` and `GroupChatView` read `type`, `paper_ref` and `content` as text (`asText`)
+      and look up their label, colour and icon tables only by own keys (`ownEntry`,
+      `frontend/src/lib/postFields.ts`), with the old fallbacks; `ReadingListDetail` renders the rationale as text in
+      the overview and the chapter view. A row stored before this change, or an offline-cached copy, renders without
+      a React error.
+
+29. **Post media URLs are built from server-owned ids on every read, and loaded only from the API** (security
+    review). Python returned a post's stored `figure_url` whenever it could not re-sign it (no `figure_id`, another
+    user's figure, a failed lookup or signature) and returned the list and persona-reply posts as stored; the client
+    loaded any absolute `figure_url` or `audio_url` it was given, and the SPA CSP allowed a hosted storage domain. A
+    post stored before change 15 (or restored from older data) could therefore make the browser fetch a URL a model
+    wrote. Now:
+    - `presentStoredPosts` (`server/src/routes/postMedia.ts`) shapes every post that `GET /feed`, `GET /feed/:id`
+      and `GET /personas/:key/replies` return. It copies each object post without `figure_url` and `audio_url`, then
+      sets `figure_url` to a fresh signature for a `figure_id` naming one of the caller's figures (one lookup per
+      response, the list route included, which Python left unsigned), and `audio_url` when the feed's audio is
+      `ready` and the post's `audio_key` is the key the audio task writes for that post (`feeds/<feed>/audio/
+      post_<index>.mp3`, which a restore maps Python's keys to; any other value gives no audio). A `figure` post whose
+      `figure_id` is not the caller's figure is returned as a `post`; an owned figure that cannot be signed, or a
+      failed lookup, keeps the type with no URL. The replies' parent posts get audio like the detail route; the list
+      route still carries none. Non-object elements and the stored rows are unchanged; no migration is needed.
+    - The web client loads a figure only from the relative `/figures/...` path (under the API base) and audio only
+      from the API base's `/media/...` URL (`frontend/src/lib/mediaUrl.ts`), in `PostCard`, the Listen view (post
+      and episode audio) and the offline download's figure prefetch. Any other value shows "Figure not available"
+      or no audio, also for feeds already in the offline cache.
+    - The SPA CSP (`frontend/nginx-security-headers.conf`) drops the hosted storage, auth and captcha entries:
+      `img-src`, `media-src` and `connect-src` are the app origin (plus `data:`/`blob:` as before), and the web
+      font hosts are the only third parties left. The captcha widget only rendered for a build-time site key that
+      the self-host image never sets.
+
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the

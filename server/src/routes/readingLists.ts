@@ -10,6 +10,7 @@ import { HttpError } from '../http/errors.js';
 import { userRateLimit } from '../http/rateLimit.js';
 import { body, params, pyInt } from '../http/validate.js';
 import { insertChapters, insertReorderChapters } from '../readingLists/chapters.js';
+import { modelString } from '../shared/modelString.js';
 import { isUuid } from '../shared/uuid.js';
 
 const createSchema = z.object({
@@ -29,11 +30,14 @@ function isDict(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Python `r.get("rationale", "")` of the first rationale entry whose paper_id equals `pid`, else `''`. */
-function paperRationale(rationale: unknown, pid: string): unknown {
+/**
+ * Python `r.get("rationale", "")` of the first rationale entry whose paper_id equals `pid`, else `''`, as text: the
+ * client renders it, and a row stored before deliberate change 28 can hold any JSON type (`modelString`, else `''`).
+ */
+function paperRationale(rationale: unknown, pid: string): string {
   if (!Array.isArray(rationale)) return '';
   for (const r of rationale) {
-    if (isDict(r) && r.paper_id === pid) return Object.hasOwn(r, 'rationale') ? r.rationale : '';
+    if (isDict(r) && r.paper_id === pid) return (Object.hasOwn(r, 'rationale') ? modelString(r.rationale) : '') ?? '';
   }
   return '';
 }

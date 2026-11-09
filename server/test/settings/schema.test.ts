@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildDefaults, SETTINGS_TO_ENV, PROVIDER_OVERRIDE_KEYS, SECRET_KEYS, NUMERIC_BOUNDS, UI_ONLY_KEYS,
-  mergeSettings, reassertPublicDeployment, isPublicDeployment,
+  mergeSettings, reassertPublicDeployment, isPublicDeployment, lockedProviderValue,
 } from '../../src/settings/schema.js';
 import { loadConfig } from '../../src/config.js';
 import { PUBLIC_OFF, PUBLIC_ON } from '../helpers/publicDeployment.js';
+import { BUILT_IN, LOCKED_NON_SECRET, pick, STALE_ROW } from '../helpers/lockedOverrides.js';
 
 describe('settings schema (shared/tests/test_settings_schema.py)', () => {
   it('test_defaults_cover_every_env_mapped_key', () => {
@@ -58,6 +59,22 @@ describe('settings contract (api/tests/test_settings_contract.py, non-HTTP parts
     const env = { PUBLIC_DEPLOYMENT: 'true', LLM_PROVIDER: 'api' };
     const merged = reassertPublicDeployment(mergeSettings(buildDefaults(env), { llm_provider: 'ollama' }), env);
     expect(merged.llm_provider).toBe('api');
+  });
+  it('every provider override is env-mapped, so the lock can resolve it from the env', () => {
+    expect([...PROVIDER_OVERRIDE_KEYS].filter((k) => !(k in SETTINGS_TO_ENV))).toEqual([]);
+  });
+  it('reassert drops a stale stored provider/model even when the operator env leaves it unset', () => {
+    const env = { PUBLIC_DEPLOYMENT: 'true' };
+    const merged = reassertPublicDeployment(mergeSettings(buildDefaults(env), { ...STALE_ROW, voyage_api_key: 'own' }), env);
+    expect(pick(merged, LOCKED_NON_SECRET)).toEqual(BUILT_IN);
+    expect(merged.voyage_api_key).toBe('own');
+  });
+  it('lockedProviderValue: env when non-empty, else built-in default; undefined for secrets and other keys', () => {
+    expect(lockedProviderValue('claude_model', { CLAUDE_MODEL: 'm' })).toBe('m');
+    expect(lockedProviderValue('claude_model', { CLAUDE_MODEL: '' })).toBe(BUILT_IN.claude_model);
+    expect(lockedProviderValue('context_provider', {})).toBe('none');
+    expect(lockedProviderValue('anthropic_api_key', { ANTHROPIC_API_KEY: 'k' })).toBeUndefined();
+    expect(lockedProviderValue('theme', {})).toBeUndefined();
   });
   it('does not reassert when not public', () => {
     const env = { LLM_PROVIDER: 'api' };

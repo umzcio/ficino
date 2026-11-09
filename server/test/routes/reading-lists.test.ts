@@ -142,7 +142,7 @@ describe('GET /reading-lists/:list_id', () => {
     expect(Object.keys(j).sort()).toEqual(['chapters', 'corpus_id', 'created_at', 'id', 'name', 'papers']);
   });
 
-  it('rationale: missing entry and missing key are "", a stored null stays null, the first match wins', async () => {
+  it('rationale: missing entry, missing key and a stored null are "", the first match wins', async () => {
     const [p1, p2, p3] = [
       await newPaper(USER_A_ID, null),
       await newPaper(USER_A_ID, null),
@@ -157,7 +157,27 @@ describe('GET /reading-lists/:list_id', () => {
       ],
     });
     const j = await (await as().get(`/reading-lists/${id}`)).json();
-    expect(j.papers.map((p: any) => p.rationale)).toEqual(['', '', null, 'first']);
+    // Deliberate change 28: Python returned a stored null as null.
+    expect(j.papers.map((p: any) => p.rationale)).toEqual(['', '', '', 'first']);
+  });
+
+  it('deliberate change 28: a stored non-text rationale is returned as text (a number) or ""', async () => {
+    const [p1, p2, p3, p4] = [
+      await newPaper(USER_A_ID, null),
+      await newPaper(USER_A_ID, null),
+      await newPaper(USER_A_ID, null),
+      await newPaper(USER_A_ID, null),
+    ];
+    const id = await seedList(USER_A_ID, null, [p1, p2, p3, p4], {
+      rationale: [
+        { paper_id: p1, rationale: { a: 1 } },
+        { paper_id: p2, rationale: [{}] },
+        { paper_id: p3, rationale: 7 },
+        { paper_id: p4, rationale: true },
+      ],
+    });
+    const j = await (await as().get(`/reading-lists/${id}`)).json();
+    expect(j.papers.map((p: any) => p.rationale)).toEqual(['', '', '7', '']);
   });
 
   it('chapters ordered by index without created_at; a NULL corpus is null', async () => {

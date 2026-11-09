@@ -130,3 +130,53 @@ describe('pyTruthy / pyTypeName', () => {
     expect(pyTypeName(-3)).toBe('int');
   });
 });
+
+// Security review: pySlice and pyLen run on whole-paper text, so they must not build a code-point array of it.
+describe('pySlice / pyLen cost and parity', () => {
+  /** The old implementations, kept as the reference: Array.from iterates by code points like Python's str. */
+  const refSlice = (s: string, start: number, end?: number): string => Array.from(s).slice(start, end).join('');
+  const refLen = (s: string): number => Array.from(s).length;
+
+  // Deterministic mixed input: ASCII, BMP, astral pairs, lone high and low surrogates, a high surrogate at the end.
+  const UNITS = ['a', 'Z', ' ', '\n', 'é', '中', '\u{1F600}', '\u{1D400}', '\uD800', '\uDC00', '\uDBFF', '\uDFFF'];
+  function mixed(seed: number, n: number): string {
+    let x = seed;
+    let s = '';
+    for (let i = 0; i < n; i++) {
+      x = (x * 1103515245 + 12345) & 0x7fffffff;
+      s += UNITS[x % UNITS.length];
+    }
+    return s;
+  }
+
+  it('matches the code-point-array implementation on varied input, astral chars and lone surrogates', () => {
+    const inputs = ['', 'a', '\u{1F600}', '\uD83D', '\uDE00', '\uD83D😀', 'ab\uD800', '\uDC00\uD800'];
+    for (let seed = 1; seed <= 60; seed++) inputs.push(mixed(seed, seed % 7 === 0 ? 0 : 1 + ((seed * 37) % 90)));
+    for (const s of inputs) {
+      expect(pyLen(s)).toBe(refLen(s));
+      const n = refLen(s);
+      const bounds = [0, 1, 2, 3, Math.floor(n / 2), n - 1, n, n + 1, n + 5].filter((b) => b >= 0);
+      for (const start of bounds) {
+        expect(pySlice(s, start)).toBe(refSlice(s, start));
+        for (const end of bounds) expect(pySlice(s, start, end)).toBe(refSlice(s, start, end));
+      }
+    }
+  });
+
+  it('keeps Array.slice semantics for negative and fractional bounds', () => {
+    const s = 'a\u{1F600}b\uD800c';
+    for (const [start, end] of [[-2, undefined], [0, -1], [-3, -1], [1.7, 3.2], [NaN, 2], [0, Infinity]] as const)
+      expect(pySlice(s, start, end)).toBe(refSlice(s, start, end));
+  });
+
+  it('costs time proportional to the slice, not the whole string', () => {
+    const big = 'ab\u{1F600}'.repeat(8_000_000); // 32M UTF-16 units, 24M code points
+    const t0 = performance.now();
+    let head = '';
+    for (let i = 0; i < 5; i++) head = pySlice(big, 0, 2000);
+    const tail = pySlice(big, 1000, 1003);
+    expect(performance.now() - t0).toBeLessThan(200);
+    expect(head).toBe(refSlice('ab\u{1F600}'.repeat(700), 0, 2000));
+    expect(tail).toBe(refSlice('ab\u{1F600}'.repeat(700), 1000, 1003));
+  });
+});

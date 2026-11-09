@@ -9,6 +9,7 @@ import { usePersonas } from '../../hooks/usePersonas'
 import { Slider } from '../_shared/primitives'
 import { safeLocal } from '../../lib/safeLocal'
 import { asText } from '../../lib/postFields'
+import { apiMediaSrc, withSafeAudio } from '../../lib/mediaUrl'
 
 type Status =
   | 'idle'
@@ -62,7 +63,9 @@ function hostAvatar(speaker: 'host_a' | 'host_b'): string {
  *   v3 gives us cross-speaker prosody and interruptions for free, and
  *   the unified audio file is the feature. Transcript is display-only.
  */
-export function ListenView({ feedId, posts }: Props) {
+export function ListenView({ feedId, posts: rawPosts }: Props) {
+  // Audio is played only from the API's own /media/ URLs (mediaUrl.ts).
+  const posts = useMemo(() => withSafeAudio(rawPosts), [rawPosts])
   const personas = usePersonas()
   const [mode, setMode] = useState<Mode>('feed')
   const [status, setStatus] = useState<Status>(posts.length === 0 ? 'empty' : 'idle')
@@ -168,10 +171,10 @@ export function ListenView({ feedId, posts }: Props) {
     let cancelled = false
     getFeed(feedId).then((feed) => {
       if (cancelled || !mountedRef.current) return
-      setServerPosts((feed.posts as FeedPost[]) || null)
+      setServerPosts(feed.posts ? withSafeAudio(feed.posts as FeedPost[]) : null)
       setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
       setPodcastStatus(feed.podcast_status ?? null)
-      setPodcastAudioUrl(feed.podcast_audio_url ?? null)
+      setPodcastAudioUrl(apiMediaSrc(feed.podcast_audio_url))
       if (feed.podcast_status === 'ready') setMode('podcast')
     }).catch(() => { /* non-fatal */ })
     return () => { cancelled = true }
@@ -298,11 +301,11 @@ export function ListenView({ feedId, posts }: Props) {
       const feed = await getFeed(feedId)
       if (!mountedRef.current) return
       if (activePollerRef.current !== 'feed') return
-      const fresh = (feed.posts as FeedPost[]) || []
+      const fresh = withSafeAudio((feed.posts as FeedPost[]) || [])
       setServerPosts(fresh)
       setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
       setPodcastStatus(feed.podcast_status ?? null)
-      setPodcastAudioUrl(feed.podcast_audio_url ?? null)
+      setPodcastAudioUrl(apiMediaSrc(feed.podcast_audio_url))
 
       if (feed.audio_status === 'ready') {
         setStatus('ready')
@@ -353,11 +356,12 @@ export function ListenView({ feedId, posts }: Props) {
       if (activePollerRef.current !== 'podcast') return
       setPodcastSegments((feed.podcast_segments as PodcastSegment[]) ?? null)
       setPodcastStatus(feed.podcast_status ?? null)
-      setPodcastAudioUrl(feed.podcast_audio_url ?? null)
+      setPodcastAudioUrl(apiMediaSrc(feed.podcast_audio_url))
 
-      if (feed.podcast_status === 'ready' && feed.podcast_audio_url) {
+      const episodeUrl = apiMediaSrc(feed.podcast_audio_url)
+      if (feed.podcast_status === 'ready' && episodeUrl) {
         setStatus('ready')
-        playPodcast(feed.podcast_audio_url)
+        playPodcast(episodeUrl)
         activePollerRef.current = null
         return
       }

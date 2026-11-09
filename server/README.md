@@ -137,6 +137,7 @@ write, so compose's `stop_grace_period` for the worker is 45 s.
 | `MAX_PDF_PAGES` | 500 | An upload with more pages is rejected when the worker opens it (paper error) |
 | `FIGURE_DETECT_MAX_PAGES` | 60 | Pages figure detection reads and sends to the detector per paper |
 | `MAX_PAGE_CHARS` | 200000 | A PDF page with more characters fails the paper (no retry) |
+| `MAX_PAPER_CHARS` | 3000000 | A paper whose extracted text (PDF markdown, or vision text) has more characters fails (no retry). A 500-page book runs to one or two million |
 | `PDF_THREAD_HEAP_MB` | 1024 | Heap cap (at least 64) of the worker thread that runs one paper's MuPDF work; passing it fails the paper (no retry). The job's abort or soft limit terminates that thread mid-page |
 | `CONTEXT_MAX_PAPER_CHARS` | 200000 | Paper text given to the contextualizer |
 | `CONTEXT_MAX_TOKENS` | 150 | Max tokens per chunk context |
