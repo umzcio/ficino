@@ -1,6 +1,7 @@
 /** Section-aware markdown chunking. Port of worker/lib/chunker.py (goldens: test/fixtures/goldens/chunker.json). */
 import cl100k_base from 'js-tiktoken/ranks/cl100k_base';
 import { PY_WS, pyStrip } from '../shared/pystr.js';
+import { PdfLimitError } from './limitError.js';
 
 export type Chunk = { section: string; content: string; chunk_index: number; token_count: number };
 
@@ -148,8 +149,8 @@ export function countTokens(text: string): number {
   return n;
 }
 
-function detectSections(markdown: string): [string, string][] {
-  const sections: [string, string][] = [];
+/** Python's detect_sections as a generator: the same sections in the same order, found as the caller asks. */
+function* detectSections(markdown: string): Generator<[string, string]> {
   let currentSection = 'untitled';
   let currentLines: string[] = [];
 
@@ -163,7 +164,7 @@ function detectSections(markdown: string): [string, string][] {
     if (m) {
       if (currentLines.length > 0) {
         const content = pyStrip(currentLines.join('\n'));
-        if (content) sections.push([currentSection, content]);
+        if (content) yield [currentSection, content];
       }
       currentSection = pyStrip(m[1]!).toLowerCase();
       currentLines = [];
@@ -173,18 +174,26 @@ function detectSections(markdown: string): [string, string][] {
   }
   if (currentLines.length > 0) {
     const content = pyStrip(currentLines.join('\n'));
-    if (content) sections.push([currentSection, content]);
+    if (content) yield [currentSection, content];
   }
-  return sections;
 }
 
-function splitByTokens(text: string, section: string, maxTokens: number, startIndex: number): Chunk[] {
+function splitByTokens(
+  text: string,
+  section: string,
+  maxTokens: number,
+  startIndex: number,
+  maxChunks: number,
+): Chunk[] {
   const chunks: Chunk[] = [];
   let current: string[] = [];
   let currentTokens = 0;
   let chunkIndex = startIndex;
 
   const emit = (content: string): void => {
+    if (chunkIndex >= maxChunks) {
+      throw new PdfLimitError(`Paper text splits into more than ${maxChunks} chunks (the per-paper limit)`);
+    }
     chunks.push({ section, content, chunk_index: chunkIndex, token_count: countTokens(content) });
     chunkIndex += 1;
   };
@@ -233,17 +242,26 @@ function splitByTokens(text: string, section: string, maxTokens: number, startIn
   return chunks;
 }
 
-export function chunkMarkdown(markdown: string, maxTokens = 800): Chunk[] {
-  let sections = detectSections(markdown);
-  if (sections.length === 0) sections = [['untitled', markdown]];
-
+/**
+ * Python's chunk_markdown. With `maxChunks` (the worker passes `MAX_PAPER_CHUNKS`) it throws a `PdfLimitError` as soon
+ * as the paper would get a chunk more than that, before token counting the rest of the text (sections are found as
+ * they are chunked, not all first); under the ceiling the chunks are unchanged. Skipped reference sections make no
+ * chunks, so they do not count.
+ */
+export function chunkMarkdown(markdown: string, maxTokens = 800, maxChunks = Infinity): Chunk[] {
   const all: Chunk[] = [];
   let chunkIndex = 0;
-  for (const [name, content] of sections) {
-    if (name === 'references' || name === 'bibliography') continue;
-    const created = splitByTokens(content, name, maxTokens, chunkIndex);
+  let any = false;
+  const add = (name: string, content: string): void => {
+    if (name === 'references' || name === 'bibliography') return;
+    const created = splitByTokens(content, name, maxTokens, chunkIndex, maxChunks);
     all.push(...created);
     chunkIndex += created.length;
+  };
+  for (const [name, content] of detectSections(markdown)) {
+    any = true;
+    add(name, content);
   }
+  if (!any) add('untitled', markdown);
   return all;
 }

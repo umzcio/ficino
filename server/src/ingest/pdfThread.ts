@@ -69,7 +69,7 @@ function handle(req: ThreadRequest, log: { warn(obj: Record<string, unknown>, ms
       rendered.delete(req.handle);
       return { value: null };
     case 'chunk':
-      return { value: chunkMarkdown(req.markdown, req.maxTokens) };
+      return { value: chunkMarkdown(req.markdown, req.maxTokens, req.maxChunks) };
   }
 }
 

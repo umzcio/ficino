@@ -60,6 +60,11 @@ export interface Config {
   maxPageChars: number;
   /** `MAX_PAPER_CHARS`: a paper whose extracted text (PDF or vision) is longer than this fails (no retry). */
   maxPaperChars: number;
+  /**
+   * `MAX_PAPER_CHUNKS`: a paper whose text splits into more chunks than this fails (no retry), before any embedding
+   * or contextualizer call; the chunker stops at it.
+   */
+  maxPaperChunks: number;
   /** `PDF_THREAD_HEAP_MB`: the V8 heap cap of the thread that reads one paper's PDF; passing it fails the paper. */
   pdfThreadHeapMb: number;
   contextMaxPaperChars: number;
@@ -247,6 +252,7 @@ export function loadConfig(env: Env = process.env, log: ConfigLog = logger): Con
     figureDetectMaxPages: atLeastOne('FIGURE_DETECT_MAX_PAGES', int(env, 'FIGURE_DETECT_MAX_PAGES', 60)),
     maxPageChars: atLeastOne('MAX_PAGE_CHARS', int(env, 'MAX_PAGE_CHARS', 200_000)),
     maxPaperChars: atLeastOne('MAX_PAPER_CHARS', int(env, 'MAX_PAPER_CHARS', 3_000_000)),
+    maxPaperChunks: atLeastOne('MAX_PAPER_CHUNKS', int(env, 'MAX_PAPER_CHUNKS', 10_000)),
     pdfThreadHeapMb: pdfThreadHeapMb(int(env, 'PDF_THREAD_HEAP_MB', 1024)),
     contextMaxPaperChars: int(env, 'CONTEXT_MAX_PAPER_CHARS', 200000),
     contextMaxTokens: int(env, 'CONTEXT_MAX_TOKENS', 150),

@@ -138,6 +138,7 @@ write, so compose's `stop_grace_period` for the worker is 45 s.
 | `FIGURE_DETECT_MAX_PAGES` | 60 | Pages figure detection reads and sends to the detector per paper |
 | `MAX_PAGE_CHARS` | 200000 | A PDF page with more characters fails the paper (no retry) |
 | `MAX_PAPER_CHARS` | 3000000 | A paper whose extracted text (PDF markdown, or vision text) has more characters fails (no retry). A 500-page book runs to one or two million |
+| `MAX_PAPER_CHUNKS` | 10000 | A paper whose text splits into more chunks fails (no retry) before any contextualizer or embedding call; the chunker stops at it, in the PDF thread. A 500-page book makes about 500 chunks at the default `chunk_max_tokens` (800) and about 3,500 at the smallest (100); text at `MAX_PAPER_CHARS` about 8,000 at the smallest. Chunks are embedded and stored 256 at a time |
 | `PDF_THREAD_HEAP_MB` | 1024 | Heap cap (at least 64) of the worker thread that runs one paper's MuPDF work; passing it fails the paper (no retry). The job's abort or soft limit terminates that thread mid-page |
 | `CONTEXT_MAX_PAPER_CHARS` | 200000 | Paper text given to the contextualizer |
 | `CONTEXT_MAX_TOKENS` | 150 | Max tokens per chunk context |

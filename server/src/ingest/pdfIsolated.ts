@@ -8,7 +8,8 @@
  *   rejects with a `PdfLimitError`, as a page over `maxPageChars` does;
  * - this thread's event loop keeps running meanwhile (other queues, pg-boss, timers).
  * The paper's chunking (`chunkMarkdown`, which token-counts the whole text) runs in the same thread for the same
- * reasons: it takes seconds at the per-paper text cap.
+ * reasons: it takes seconds at the per-paper text cap. Its chunk ceiling is enforced there too, so a paper over it
+ * fails with a `PdfLimitError` without its chunks ever reaching this thread.
  */
 import { Worker } from 'node:worker_threads';
 import type { Chunk } from './chunker.js';
@@ -37,7 +38,7 @@ export type ThreadOp =
   | { op: 'openRendered'; index: number; dpi: number }
   | { op: 'crop'; handle: number; box: Box }
   | { op: 'dispose'; handle: number }
-  | { op: 'chunk'; markdown: string; maxTokens: number };
+  | { op: 'chunk'; markdown: string; maxTokens: number; maxChunks?: number };
 export type ThreadRequest = ThreadOp & { id: number };
 export type ThreadWarning = { obj: Record<string, unknown>; msg: string };
 export type ThreadReply = { id: number; warnings: ThreadWarning[] } & (
@@ -142,8 +143,8 @@ class IsolatedPdf implements PdfSession {
     };
   }
 
-  chunkMarkdown(markdown: string, maxTokens: number): Promise<Chunk[]> {
-    return this.call({ op: 'chunk', markdown, maxTokens });
+  chunkMarkdown(markdown: string, maxTokens: number, maxChunks?: number): Promise<Chunk[]> {
+    return this.call({ op: 'chunk', markdown, maxTokens, maxChunks });
   }
 
   async close(): Promise<void> {
