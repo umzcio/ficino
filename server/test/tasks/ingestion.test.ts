@@ -671,7 +671,7 @@ describe('processPaper', () => {
       expect(figs.map((x) => x.page_number)).toEqual([2]);
       expect(p.figure_count).toBe(1);
       expect(r).toMatchObject({ status: 'complete', figure_count: 1, chunk_count: n });
-      expect(warn).toHaveBeenCalledWith({ pages_done: 2, pages_total: 3 }, 'figure_extraction_budget_exhausted');
+      expect(warn).toHaveBeenCalledWith({ pages_answered: 2, pages_total: 3 }, 'figure_extraction_budget_exhausted');
       expect(ctx.signal.aborted).toBe(false);
       expect(await sentJobs('check_contradictions')).toEqual([{ paper_id: id }]);
     } finally {

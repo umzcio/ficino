@@ -56,7 +56,8 @@ export const DEFAULT_FIGURE_DETECT_MAX_PAGES = 60;
  *
  * `timeBudget` ends detection early without failing: once it aborts, no page starts, in-flight detection requests are
  * aborted, the pages already detected are still cropped, and the figures found so far are returned (with a
- * `figure_extraction_budget_exhausted` warning). `signal` (the job's own abort) still rejects as before.
+ * `figure_extraction_budget_exhausted` warning: pages answered, pages total). Any other error, even one after the
+ * budget ran out, rejects as before, and so does `signal` (the job's own abort).
  */
 export async function extractFigures(
   doc: PdfDoc | PdfSession,
@@ -77,10 +78,11 @@ export async function extractFigures(
   const total = pdf.pages;
   const count = Math.min(total, maxPages);
   if (total > count) logger.warn({ pages: total, cap: maxPages }, 'figure_detect_page_cap_hit');
-  let detected = 0;
+  /** Pages whose detection request returned, including a page that failed and returned no detections. */
+  let answered = 0;
   const budgetSpent = (): boolean => !!timeBudget?.aborted && !signal?.aborted;
   const budgetExhausted = (): void =>
-    logger.warn({ pages_done: detected, pages_total: count }, 'figure_extraction_budget_exhausted');
+    logger.warn({ pages_answered: answered, pages_total: count }, 'figure_extraction_budget_exhausted');
   if (budgetSpent()) {
     budgetExhausted();
     return [];
@@ -110,8 +112,7 @@ export async function extractFigures(
         if (failure || spent || budgetSpent()) return [];
         return await detectAndCropPage(i);
       } catch (error) {
-        // The time budget ended this page's detection: not a failure, the paper keeps what it found.
-        if (!budgetSpent()) failure ??= { error };
+        failure ??= { error };
         return [];
       } finally {
         cropped[i]!.resolve();
@@ -120,7 +121,7 @@ export async function extractFigures(
   );
   if (failure) throw signal?.aborted ? signal.reason : failure.error;
   // Only when it cost pages: a time budget that ran out during the last pages' crops cost nothing.
-  if (budgetSpent() && detected < count) budgetExhausted();
+  if (budgetSpent() && answered < count) budgetExhausted();
 
   function spend(page: number, event: string, fields: Record<string, number>): void {
     if (!spent) logger.warn({ page, ...fields }, event);
@@ -132,8 +133,16 @@ export async function extractFigures(
     checkpoint?.();
     const page = await pdf.openRenderedPage(i, DETECT_DPI);
     try {
-      const detections = await detectFiguresOnPage(p, deps, page.png, i + 1, texts[i] ?? '', detectSignal);
-      detected++;
+      let detections;
+      try {
+        detections = await detectFiguresOnPage(p, deps, page.png, i + 1, texts[i] ?? '', detectSignal);
+      } catch (error) {
+        // The time budget ended this page's detection: not a failure, the paper keeps what it found. Only this call
+        // gets the budget's signal, so any other error (render, crop, checkpoint) is still a failure.
+        if (budgetSpent()) return [];
+        throw error;
+      }
+      answered++;
       if (detections.length > MAX_FIGURES_PER_PAGE)
         logger.warn({ page: i + 1, detected: detections.length, cap: MAX_FIGURES_PER_PAGE }, 'figure_detect_page_capped');
       // Indices follow page order, so every earlier page spends the budget first.

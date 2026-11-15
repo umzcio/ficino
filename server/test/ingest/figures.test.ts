@@ -481,7 +481,7 @@ describe('extractFigures time budget', () => {
       // Pages 1 and 2 answered, so pages 3-6 were in flight (4 at a time) when the budget ran out; 7 and 8 never left.
       expect([...sent].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
       expect([...aborted].sort((a, b) => a - b)).toEqual([3, 4, 5, 6]);
-      expect(warn).toHaveBeenCalledWith({ pages_done: 2, pages_total: 8 }, 'figure_extraction_budget_exhausted');
+      expect(warn).toHaveBeenCalledWith({ pages_answered: 2, pages_total: 8 }, 'figure_extraction_budget_exhausted');
       expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'figure_detect_page_failed');
       expect(job.signal.aborted).toBe(false);
       expect(rendered.length).toBe(6);
@@ -501,7 +501,7 @@ describe('extractFigures time budget', () => {
       const budget = AbortSignal.abort(new DOMException('figure budget', 'TimeoutError'));
       expect(await extractFigures(doc, ollama(), deps, new AbortController().signal, { timeBudget: budget })).toEqual([]);
       expect(sent).toEqual([]);
-      expect(warn).toHaveBeenCalledWith({ pages_done: 0, pages_total: 3 }, 'figure_extraction_budget_exhausted');
+      expect(warn).toHaveBeenCalledWith({ pages_answered: 0, pages_total: 3 }, 'figure_extraction_budget_exhausted');
     } finally {
       warn.mockRestore();
     }
@@ -517,6 +517,29 @@ describe('extractFigures time budget', () => {
       expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'figure_extraction_budget_exhausted');
     } finally {
       warn.mockRestore();
+    }
+  });
+
+  it('a real failure after the budget runs out (a crop error) is still rethrown, not taken for the budget', async () => {
+    const four = openPdf(blankPages(4));
+    const asPng = mupdf.Pixmap.prototype.asPNG;
+    const cropError = new Error('crop failed');
+    // Page 2 answers at once but crops only after page 1 settles, which is when the budget aborts page 1.
+    const p = vi.spyOn(mupdf.Pixmap.prototype, 'asPNG').mockImplementation(function (this: mupdf.Pixmap) {
+      if (this.getWidth() !== 1275) throw cropError; // 8.5in * 150dpi is a whole-page render
+      return asPng.call(this);
+    });
+    try {
+      const { deps, aborted } = hangingDetector({ 2: [{ bbox: [0.1, 0.1, 0.5, 0.5] }] });
+      const budget = new AbortController();
+      setTimeout(() => budget.abort(new DOMException('figure budget', 'TimeoutError')), 100);
+      await expect(
+        extractFigures(four, ollama(), deps, new AbortController().signal, { timeBudget: budget.signal }),
+      ).rejects.toBe(cropError);
+      expect(aborted).toContain(1);
+    } finally {
+      p.mockRestore();
+      closePdf(four);
     }
   });
 

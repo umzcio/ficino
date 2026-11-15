@@ -386,15 +386,23 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       `"length"` is a failed page: no detections, and the warning `figure_detect_reply_truncated` (page, cap)
       instead of parsing part of it. The temperature is unchanged, and no `repeat_penalty` is sent (strict JSON
       repeats its structural tokens).
-    - The Ollama page reader (`server/src/providers/vision.ts`) sends `num_predict` 4096 (a dense page of markdown is
-      about 2,000 tokens). A page cut off at the cap keeps its text, with the warning `vision_page_truncated` (page,
-      cap), as the Anthropic reader already keeps a reply cut at its `max_tokens` (2048); `MAX_PAPER_CHARS` and its
-      `PdfLimitError` apply as before.
+    - The Ollama page reader (`server/src/providers/vision.ts`) sends `num_predict` 8192. The default vision model
+      reasons before it answers and Ollama counts those tokens against `num_predict`, so the cap covers reasoning
+      plus a dense page (about 2,000 tokens of markdown); at about 45 tokens/s it is about 3 minutes, inside the 300 s
+      request timeout, and pages are read one at a time. A reply Ollama ends with `done_reason` `"length"` keeps what
+      it returned, with the warning `vision_page_truncated` (page, cap, chars kept), as the Anthropic reader already
+      keeps a reply cut at its `max_tokens` (2048). When the cap is reached while the model is still reasoning (empty
+      or blank content), the page is kept as an empty page with the same warning (chars 0) instead of failing the
+      paper; Python had no cap, so this case did not arise. Empty content without `done_reason` `"length"` still
+      throws the non-retried "returned empty content" error. `MAX_PAPER_CHARS` and its `PdfLimitError` apply as
+      before.
     - `process_paper` gives the figure step a time budget that ends `FIGURE_FINALIZE_MARGIN_MS` (60 s) before the
       job's soft limit (`JobContext.deadline`). When it runs out, `extractFigures` starts no further page, aborts the
       detection requests in flight (every page still settles before the PDF session is closed), crops the pages
-      already detected, logs `figure_extraction_budget_exhausted` (pages done, pages total), and returns the figures
-      found; the paper completes with them. A figure step that starts with less than the margin left sends no page.
+      already detected, logs `figure_extraction_budget_exhausted` (pages answered, i.e. pages whose detection request
+      returned, including a page that failed and returned no detections; pages total), and returns the figures found;
+      the paper completes with them. Only a detection request the budget aborted is excused: any other error in the
+      figure step (render, crop, checkpoint), even one after the budget ran out, fails it as before. A figure step that starts with less than the margin left sends no page.
       A pg-boss abort, or the soft limit reached outside the figure step, is handled as before (item 17).
       `DETECT_CONCURRENCY` stays 4: with the cap a reply takes at most about 45-90 s, so the fourth request queued in
       a single-slot server still finishes inside its 300 s timeout.

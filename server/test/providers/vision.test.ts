@@ -75,8 +75,8 @@ describe('extractWithVision: ollama', () => {
     expect(calls[0]!.url).toBe('http://fake-ollama:11434/api/chat');
     expect(b.model).toBe('vis-model');
     expect(b.stream).toBe(false);
-    // The reply is capped (a dense page is well under it); the temperature stays the model's default.
-    expect(b.options).toEqual({ num_predict: 4096 });
+    // The reply is capped (reasoning plus a dense page is well under it); the temperature stays the model's default.
+    expect(b.options).toEqual({ num_predict: 8192 });
     expect(String(b.messages[0]!.content)).toMatch(/^You are an academic paper text extractor\./);
     expect(b.messages[1]!.content).toBe('Extract all text from page 1 as structured markdown.');
     const img = Buffer.from((b.messages[1]!.images as string[])[0]!, 'base64');
@@ -90,8 +90,22 @@ describe('extractWithVision: ollama', () => {
       const { deps, calls } = fakeDeps([cut, ok('two')]);
       expect(await extractWithVision(doc, ollama, deps, 2)).toBe('# Heading\n\nThe text. The text. The text.\n\n---\n\ntwo');
       expect(calls).toHaveLength(2);
-      expect(warn).toHaveBeenCalledWith({ page: 1, cap: 4096 }, 'vision_page_truncated');
+      expect(warn).toHaveBeenCalledWith({ page: 1, cap: 8192, chars: 40 }, 'vision_page_truncated');
       expect(warn.mock.calls.filter((c) => c[1] === 'vision_page_truncated')).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it('a page cut off at num_predict while the model is still reasoning (empty content) is kept empty, not failed or retried', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      const cut = json({ message: { content: '', thinking: 'Let me look at the page. '.repeat(50) }, done_reason: 'length' });
+      const blank = json({ message: { content: ' \n', thinking: 'Still reasoning.' }, done_reason: 'length' });
+      const { deps, calls } = fakeDeps([cut, ok('two'), blank]);
+      expect(await extractWithVision(doc, ollama, deps, 3)).toBe('\n\n---\n\ntwo\n\n---\n\n');
+      expect(calls).toHaveLength(3);
+      expect(warn).toHaveBeenCalledWith({ page: 1, cap: 8192, chars: 0 }, 'vision_page_truncated');
+      expect(warn).toHaveBeenCalledWith({ page: 3, cap: 8192, chars: 0 }, 'vision_page_truncated');
     } finally {
       warn.mockRestore();
     }
