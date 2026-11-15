@@ -80,6 +80,14 @@ async function extractPageClaude(
   );
 }
 
+/**
+ * Ollama `num_predict` for one page's markdown. A dense two-column page is ~1,000-1,500 words, about 2,000 tokens
+ * with markdown tables and footnotes; 4096 covers that twice over (~90 s at ~45 tokens/s). Without a cap a vision
+ * model can loop on an image until its context is full. A reply cut off at the cap keeps its text (the page's own
+ * text comes first, the loop after) with a warning, as the Anthropic path keeps a reply cut at `max_tokens`.
+ */
+export const VISION_OLLAMA_NUM_PREDICT = 4096;
+
 async function extractPageOllama(
   p: ProviderConfig,
   deps: ProviderDeps,
@@ -94,6 +102,7 @@ async function extractPageOllama(
       { role: 'user', content: userText(pageNum), images: [b64(png)] },
     ],
     stream: false,
+    options: { num_predict: VISION_OLLAMA_NUM_PREDICT },
   };
   return withRetry(
     async () => {
@@ -101,11 +110,13 @@ async function extractPageOllama(
         body: payload,
         timeoutMs: 300_000,
         signal,
-      })) as { message: { content?: string } };
+      })) as { message: { content?: string }; done_reason?: string };
       const content = data.message.content;
       // A 200 with empty content means a misconfigured model; not transient, so not retried.
       if (!content || !pyStrip(content))
         throw new Error(`ollama vision model '${p.vision.ollamaModel}' returned empty content for page ${pageNum}`);
+      if (data.done_reason === 'length')
+        logger.warn({ page: pageNum, cap: VISION_OLLAMA_NUM_PREDICT }, 'vision_page_truncated');
       return content;
     },
     { ...RETRY, delaysMs: [...RETRY.delaysMs], retryable: (e) => isTransient(e, signal), sleep: deps.sleep, signal },

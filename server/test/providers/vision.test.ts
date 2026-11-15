@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { closePdf, openPdf, PdfLimitError, type PdfDoc } from '../../src/ingest/pdf.js';
+import { logger } from '../../src/logger.js';
 import type { ProviderDeps } from '../../src/providers/deps.js';
 import { providerConfig } from '../../src/providers/config.js';
 import { extractWithVision, isVisionAvailable } from '../../src/providers/vision.js';
@@ -65,15 +66,35 @@ describe('extractWithVision: ollama', () => {
   it('wire shape: system prompt, per-page user text, base64 png image, stream false', async () => {
     const { deps, calls } = fakeDeps([ok('x')]);
     await extractWithVision(doc, ollama, deps, 1);
-    const b = calls[0]!.body as { model: string; stream: boolean; messages: Array<Record<string, unknown>> };
+    const b = calls[0]!.body as {
+      model: string;
+      stream: boolean;
+      options: unknown;
+      messages: Array<Record<string, unknown>>;
+    };
     expect(calls[0]!.url).toBe('http://fake-ollama:11434/api/chat');
     expect(b.model).toBe('vis-model');
     expect(b.stream).toBe(false);
+    // The reply is capped (a dense page is well under it); the temperature stays the model's default.
+    expect(b.options).toEqual({ num_predict: 4096 });
     expect(String(b.messages[0]!.content)).toMatch(/^You are an academic paper text extractor\./);
     expect(b.messages[1]!.content).toBe('Extract all text from page 1 as structured markdown.');
     const img = Buffer.from((b.messages[1]!.images as string[])[0]!, 'base64');
     expect([...img.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     expect(img.readUInt32BE(16)).toBe(1700); // 8.5in * 200dpi
+  });
+  it('a page cut off at num_predict (done_reason length) keeps its text, with a warning, and is not retried', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      const cut = json({ message: { content: '# Heading\n\nThe text. The text. The text.' }, done_reason: 'length' });
+      const { deps, calls } = fakeDeps([cut, ok('two')]);
+      expect(await extractWithVision(doc, ollama, deps, 2)).toBe('# Heading\n\nThe text. The text. The text.\n\n---\n\ntwo');
+      expect(calls).toHaveLength(2);
+      expect(warn).toHaveBeenCalledWith({ page: 1, cap: 4096 }, 'vision_page_truncated');
+      expect(warn.mock.calls.filter((c) => c[1] === 'vision_page_truncated')).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
   it('a 5xx is retried; a 4xx is not', async () => {
     const a = fakeDeps([json({}, 503), ok('fine')]);

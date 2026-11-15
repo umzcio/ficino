@@ -19,6 +19,14 @@ import { pyRound, pySlice } from '../shared/pystr.js';
 import { isUuid } from '../shared/uuid.js';
 import type { WorkerDeps } from '../worker/handlers.js';
 
+/**
+ * Time the figure step leaves before the job's soft limit. Figure detection is best-effort: it stops this long
+ * before the deadline so the figures found so far can be saved and the paper marked complete (saving the at most 50
+ * figures takes seconds; the margin matches the 60 s between the soft and the hard limit). A paper whose text and
+ * chunks are stored is never lost to a slow figure model.
+ */
+export const FIGURE_FINALIZE_MARGIN_MS = 60_000;
+
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const errType = (e: unknown): string => (e instanceof Error ? e.name : typeof e);
 
@@ -43,7 +51,8 @@ async function setError(sql: Sql, paperId: string, message: string): Promise<voi
  * past its heap cap: the same file fails the same way). Chunks are embedded and stored in batches
  * (`embedAndStoreChunks`); a failure after the first batch is written deletes the batches written, so a failed paper
  * never keeps part of its chunks. Any other failure (a pg-boss abort included) marks the paper error and rethrows so pg-boss
- * retries the whole job.
+ * retries the whole job. Figure detection alone is best-effort: it stops `FIGURE_FINALIZE_MARGIN_MS` before the soft
+ * limit, and the paper completes with the figures found by then.
  */
 export async function processPaper(
   data: { paper_id: string },
@@ -212,11 +221,16 @@ export async function processPaper(
     }
     log.info({ count: stored }, 'chunks_stored');
 
-    // --- Step 6: figures ---
+    // --- Step 6: figures (best-effort under the job's time budget) ---
     await progress('extracting_figures');
     step('extracting_figures');
+    const figureMs = ctx.deadline - FIGURE_FINALIZE_MARGIN_MS - Date.now();
     const figures = await extractFigures(doc, p, deps.providers, signal, {
       maxPages: config.figureDetectMaxPages,
+      timeBudget:
+        figureMs > 0
+          ? AbortSignal.timeout(figureMs)
+          : AbortSignal.abort(new DOMException('The figure detection time budget ran out', 'TimeoutError')),
     });
 
     const figuresAttempted = figures.length;

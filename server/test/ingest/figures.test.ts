@@ -428,3 +428,105 @@ describe('extractFigures bounds', () => {
     }
   });
 });
+
+/**
+ * A fake Ollama: pages in `answer` reply at once with those detections, every other page hangs until its request is
+ * aborted (a runaway reply, or a request queued behind one).
+ */
+function hangingDetector(answer: Record<number, unknown[]>) {
+  const sent: number[] = [];
+  const aborted: number[] = [];
+  const deps: ProviderDeps = {
+    fetch: (async (_url: string | URL | Request, init?: RequestInit) => {
+      const page = Number(/This is page (\d+) of/.exec(JSON.parse(String(init?.body)).messages[1].content)![1]);
+      sent.push(page);
+      const figures = answer[page];
+      if (figures) return new Response(JSON.stringify({ message: { content: JSON.stringify({ figures }) } }));
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init!.signal!;
+        signal.addEventListener('abort', () => (aborted.push(page), reject(signal.reason)), { once: true });
+      });
+    }) as typeof fetch,
+    anthropic: () => {
+      throw new Error('unexpected');
+    },
+    sleep: async () => {},
+  };
+  return { deps, sent, aborted };
+}
+
+describe('extractFigures time budget', () => {
+  it('keeps the figures found when the budget runs out, aborts in-flight pages, starts no page after it, and logs it', async () => {
+    const eight = openPdf(blankPages(8));
+    const warn = vi.spyOn(logger, 'warn');
+    const orig = mupdf.Pixmap.prototype.clear;
+    const origDestroy = mupdf.Pixmap.prototype.destroy;
+    const rendered: mupdf.Pixmap[] = [];
+    const freed = new Set<mupdf.Pixmap>();
+    const c = vi.spyOn(mupdf.Pixmap.prototype, 'clear').mockImplementation(function (this: mupdf.Pixmap, v?: number) {
+      rendered.push(this);
+      return orig.call(this, v);
+    });
+    const d = vi.spyOn(mupdf.Pixmap.prototype, 'destroy').mockImplementation(function (this: mupdf.Pixmap) {
+      freed.add(this);
+      return origDestroy.call(this);
+    });
+    try {
+      const { deps, sent, aborted } = hangingDetector({ 1: [{ bbox: [0.1, 0.1, 0.5, 0.5] }], 2: [] });
+      const job = new AbortController();
+      const budget = new AbortController();
+      setTimeout(() => budget.abort(new DOMException('figure budget', 'TimeoutError')), 300);
+      const out = await extractFigures(eight, ollama(), deps, job.signal, { timeBudget: budget.signal });
+      expect(out.map((f) => f.filename)).toEqual(['fig_p1_0.png']);
+      // Pages 1 and 2 answered, so pages 3-6 were in flight (4 at a time) when the budget ran out; 7 and 8 never left.
+      expect([...sent].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect([...aborted].sort((a, b) => a - b)).toEqual([3, 4, 5, 6]);
+      expect(warn).toHaveBeenCalledWith({ pages_done: 2, pages_total: 8 }, 'figure_extraction_budget_exhausted');
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'figure_detect_page_failed');
+      expect(job.signal.aborted).toBe(false);
+      expect(rendered.length).toBe(6);
+      expect(rendered.every((px) => freed.has(px))).toBe(true);
+    } finally {
+      c.mockRestore();
+      d.mockRestore();
+      warn.mockRestore();
+      closePdf(eight);
+    }
+  });
+
+  it('a budget already spent sends no page and returns [] with the warning', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      const { deps, sent } = hangingDetector({});
+      const budget = AbortSignal.abort(new DOMException('figure budget', 'TimeoutError'));
+      expect(await extractFigures(doc, ollama(), deps, new AbortController().signal, { timeBudget: budget })).toEqual([]);
+      expect(sent).toEqual([]);
+      expect(warn).toHaveBeenCalledWith({ pages_done: 0, pages_total: 3 }, 'figure_extraction_budget_exhausted');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a budget that does not run out changes nothing and logs nothing', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      const { deps } = detector((page) => (page === 2 ? [{ bbox: [0.1, 0.1, 0.5, 0.5] }] : []));
+      const budget = new AbortController();
+      const out = await extractFigures(doc, ollama(), deps, undefined, { timeBudget: budget.signal });
+      expect(out.map((f) => f.filename)).toEqual(['fig_p2_0.png']);
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'figure_extraction_budget_exhausted');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a job abort while a budget is set still rejects with the job reason', async () => {
+    const { deps } = hangingDetector({ 1: [] });
+    const job = new AbortController();
+    const reason = new Error('job cancelled');
+    setTimeout(() => job.abort(reason), 100);
+    await expect(
+      extractFigures(doc, ollama(), deps, job.signal, { timeBudget: new AbortController().signal }),
+    ).rejects.toBe(reason);
+  });
+});

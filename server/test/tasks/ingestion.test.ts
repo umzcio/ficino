@@ -15,7 +15,7 @@ import { makeJobContext } from '../../src/jobs/context.js';
 import { createBoss, JobQueue } from '../../src/jobs/queue.js';
 import { logger } from '../../src/logger.js';
 import { LocalStorage } from '../../src/storage/local.js';
-import { processPaper } from '../../src/tasks/ingestion.js';
+import { FIGURE_FINALIZE_MARGIN_MS, processPaper } from '../../src/tasks/ingestion.js';
 import type { WorkerDeps } from '../../src/worker/handlers.js';
 import { HANDLERS } from '../../src/worker/handlers.js';
 import { startWorker, type RunningWorker } from '../../src/worker/main.js';
@@ -638,6 +638,75 @@ describe('processPaper', () => {
     setTimeout(() => ac.abort(new Error('worker stopping')), 200);
     await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBeDefined();
     expect((await paper(id)).status).toBe('error');
+  });
+
+  /** Sets the job's deadline as the figure step starts, so its time budget is `budgetMs` from then. */
+  function figureBudget(ctx: ReturnType<typeof ctxFor>['ctx'], budgetMs: number) {
+    const progress = ctx.progress.bind(ctx);
+    ctx.progress = async (meta) => {
+      if (meta.step === 'extracting_figures') ctx.deadline = Date.now() + FIGURE_FINALIZE_MARGIN_MS + budgetMs;
+      await progress(meta);
+    };
+  }
+
+  // A vision model's runaway reply (and the requests queued behind it) used to run the job into its soft limit and
+  // mark an otherwise-complete paper error.
+  it('figure detection that outlasts its time budget: the paper completes with its chunks and the figures found, no retry', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes({ detect: (page) => (page === 2 ? [FIGURE] : page === 3 ? new Promise<unknown[]>(() => {}) : []) });
+    const { ctx } = ctxFor();
+    figureBudget(ctx, 500);
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      const t0 = Date.now();
+      const r = await processPaper({ paper_id: id }, ctx, depsWith(f.deps));
+      expect(Date.now() - t0).toBeLessThan(10_000);
+      const p = await paper(id);
+      expect(p.status).toBe('complete');
+      expect(p.error_message).toBeNull();
+      const [{ n }] = (await sql`SELECT count(*)::int AS n FROM chunks WHERE paper_id = ${id}`) as unknown as [{ n: number }];
+      expect(n).toBeGreaterThan(0);
+      expect(p.chunk_count).toBe(n);
+      const figs = await sql`SELECT page_number FROM figures WHERE paper_id = ${id}`;
+      expect(figs.map((x) => x.page_number)).toEqual([2]);
+      expect(p.figure_count).toBe(1);
+      expect(r).toMatchObject({ status: 'complete', figure_count: 1, chunk_count: n });
+      expect(warn).toHaveBeenCalledWith({ pages_done: 2, pages_total: 3 }, 'figure_extraction_budget_exhausted');
+      expect(ctx.signal.aborted).toBe(false);
+      expect(await sentJobs('check_contradictions')).toEqual([{ paper_id: id }]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a figure step that starts with less than the finalize margin left sends no page and still completes', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes();
+    const { ctx } = ctxFor();
+    figureBudget(ctx, -1);
+    const r = await processPaper({ paper_id: id }, ctx, depsWith(f.deps));
+    expect((await paper(id)).status).toBe('complete');
+    expect(r).toMatchObject({ status: 'complete', figure_count: 0 });
+    const detectCalls = f.calls.filter(
+      (c) => c.kind === 'ollama-chat' && JSON.stringify(c.body).includes('You identify the scientific figures'),
+    );
+    expect(detectCalls).toEqual([]);
+  });
+
+  it('a pg-boss abort during figure detection still rejects (so the job is retried) and marks the paper error', async () => {
+    const id = await newPaper(s.user_a, SAMPLE);
+    const f = fakes({ detect: () => new Promise<unknown[]>(() => {}) });
+    const { ctx, ac } = ctxFor();
+    const stop = new Error('worker stopping');
+    const progress = ctx.progress.bind(ctx);
+    ctx.progress = async (meta) => {
+      if (meta.step === 'extracting_figures') setTimeout(() => ac.abort(stop), 200);
+      await progress(meta);
+    };
+    await expect(processPaper({ paper_id: id }, ctx, depsWith(f.deps))).rejects.toBe(stop);
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe('worker stopping');
   });
 
   // Review Focus 1: concurrent jobs for different users never cross keys.

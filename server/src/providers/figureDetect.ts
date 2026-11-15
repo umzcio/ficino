@@ -196,6 +196,14 @@ async function detectAnthropic(
   );
 }
 
+/**
+ * Ollama `num_predict` for one page's detection reply. Real replies are ~450-620 tokens (a handful of figures with
+ * captions); 2048 (the Anthropic path's `max_tokens`) leaves 3x headroom for a page dense with figures. Without a cap a
+ * vision model can loop on an image at temperature 0 until its context is full (minutes), and every page queued
+ * behind it in the server's slot times out.
+ */
+export const DETECT_OLLAMA_NUM_PREDICT = 2048;
+
 async function detectOllama(
   p: ProviderConfig,
   deps: ProviderDeps,
@@ -213,11 +221,17 @@ async function detectOllama(
       ],
       stream: false,
       think: false,
-      options: { temperature: 0.0 },
+      // No repeat_penalty: strict JSON repeats its structural tokens on purpose.
+      options: { temperature: 0.0, num_predict: DETECT_OLLAMA_NUM_PREDICT },
     },
     timeoutMs: 300_000,
     signal,
-  })) as { message: { content?: string; thinking?: string } };
+  })) as { message: { content?: string; thinking?: string }; done_reason?: string };
+  // A reply cut off at the cap is a runaway (no real page needs it): a failed page, not half a JSON object.
+  if (data.done_reason === 'length') {
+    logger.warn({ page: pageNumber, cap: DETECT_OLLAMA_NUM_PREDICT }, 'figure_detect_reply_truncated');
+    return [];
+  }
   const msg = data.message;
   return parseDetectorResponse(msg.content || msg.thinking || '');
 }
