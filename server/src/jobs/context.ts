@@ -9,6 +9,8 @@ export type JobContext = {
   /** True when a throw from this run will not be retried. */
   isFinalAttempt: boolean;
   signal: AbortSignal;
+  /** When the soft time limit stops the job (epoch ms): a step that must leave time to finish budgets against it. */
+  deadline: number;
   /**
    * True when the soft time limit stopped the job (not a pg-boss abort): `signal` aborted with the soft limit's
    * reason, or `signal` has not aborted yet but the limit's time has passed (synchronous work kept its timer from
@@ -41,6 +43,7 @@ export function makeJobContext(
     retryLimit,
     isFinalAttempt: job.retryCount >= retryLimit,
     signal,
+    deadline,
     // AbortSignal.any takes the reason of whichever source aborted first.
     softLimitHit: () =>
       signal.aborted ? softLimit.aborted && signal.reason === softLimit.reason : Date.now() >= deadline,

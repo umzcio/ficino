@@ -53,13 +53,22 @@ export const DEFAULT_FIGURE_DETECT_MAX_PAGES = 60;
  * a thread the job's signal terminates) or a `PdfDoc` read in this thread. `checkpoint` runs before each page is
  * rendered and, for a `PdfDoc`, before each page's text is read; it throws to stop the job (as `signal` does
  * between awaits).
+ *
+ * `timeBudget` ends detection early without failing: once it aborts, no page starts, in-flight detection requests are
+ * aborted, the pages already detected are still cropped, and the figures found so far are returned (with a
+ * `figure_extraction_budget_exhausted` warning: pages answered, pages total). Any other error, even one after the
+ * budget ran out, rejects as before, and so does `signal` (the job's own abort).
  */
 export async function extractFigures(
   doc: PdfDoc | PdfSession,
   p: ProviderConfig,
   deps: ProviderDeps,
   signal?: AbortSignal,
-  { maxPages = DEFAULT_FIGURE_DETECT_MAX_PAGES, checkpoint }: { maxPages?: number; checkpoint?: PdfCheckpoint } = {},
+  {
+    maxPages = DEFAULT_FIGURE_DETECT_MAX_PAGES,
+    checkpoint,
+    timeBudget,
+  }: { maxPages?: number; checkpoint?: PdfCheckpoint; timeBudget?: AbortSignal } = {},
 ): Promise<ExtractedFigure[]> {
   if (!isFigureDetectAvailable(p)) {
     logger.warn('figure_detector_unavailable_skipping_figures');
@@ -69,6 +78,17 @@ export async function extractFigures(
   const total = pdf.pages;
   const count = Math.min(total, maxPages);
   if (total > count) logger.warn({ pages: total, cap: maxPages }, 'figure_detect_page_cap_hit');
+  /** Pages whose detection request returned, including a page that failed and returned no detections. */
+  let answered = 0;
+  const budgetSpent = (): boolean => !!timeBudget?.aborted && !signal?.aborted;
+  const budgetExhausted = (): void =>
+    logger.warn({ pages_answered: answered, pages_total: count }, 'figure_extraction_budget_exhausted');
+  if (budgetSpent()) {
+    budgetExhausted();
+    return [];
+  }
+  // Detection requests stop at the job's abort or the time budget, whichever comes first.
+  const detectSignal = timeBudget ? (signal ? AbortSignal.any([signal, timeBudget]) : timeBudget) : signal;
   const texts = await pdf.extractPagesText(undefined, { pages: count });
 
   // A failed page must not reject while other pages are still using `doc`: the caller closes it right
@@ -89,7 +109,7 @@ export async function extractFigures(
     DETECT_CONCURRENCY,
     async (i): Promise<PageFigure[]> => {
       try {
-        if (failure || spent) return [];
+        if (failure || spent || budgetSpent()) return [];
         return await detectAndCropPage(i);
       } catch (error) {
         failure ??= { error };
@@ -100,6 +120,8 @@ export async function extractFigures(
     },
   );
   if (failure) throw signal?.aborted ? signal.reason : failure.error;
+  // Only when it cost pages: a time budget that ran out during the last pages' crops cost nothing.
+  if (budgetSpent() && answered < count) budgetExhausted();
 
   function spend(page: number, event: string, fields: Record<string, number>): void {
     if (!spent) logger.warn({ page, ...fields }, event);
@@ -111,7 +133,16 @@ export async function extractFigures(
     checkpoint?.();
     const page = await pdf.openRenderedPage(i, DETECT_DPI);
     try {
-      const detections = await detectFiguresOnPage(p, deps, page.png, i + 1, texts[i] ?? '', signal);
+      let detections;
+      try {
+        detections = await detectFiguresOnPage(p, deps, page.png, i + 1, texts[i] ?? '', detectSignal);
+      } catch (error) {
+        // The time budget ended this page's detection: not a failure, the paper keeps what it found. Only this call
+        // gets the budget's signal, so any other error (render, crop, checkpoint) is still a failure.
+        if (budgetSpent()) return [];
+        throw error;
+      }
+      answered++;
       if (detections.length > MAX_FIGURES_PER_PAGE)
         logger.warn({ page: i + 1, detected: detections.length, cap: MAX_FIGURES_PER_PAGE }, 'figure_detect_page_capped');
       // Indices follow page order, so every earlier page spends the budget first.

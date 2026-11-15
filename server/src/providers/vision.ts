@@ -80,6 +80,17 @@ async function extractPageClaude(
   );
 }
 
+/**
+ * Ollama `num_predict` for one page. The default vision model reasons before it answers, and Ollama counts those
+ * reasoning tokens against `num_predict`, so the cap covers reasoning plus a dense page: a dense two-column page is
+ * ~1,000-1,500 words, about 2,000 tokens of markdown with tables and footnotes. 8192 is about 3 minutes at ~45
+ * tokens/s, inside the 300 s request timeout (pages are read one at a time). Without a cap a vision model can loop on
+ * an image until its context is full. A reply cut off at the cap keeps what it returned (the page's own text comes
+ * first, the loop after) with a warning, as the Anthropic path keeps a reply cut at `max_tokens`; a reply cut off
+ * before any text (still reasoning) is kept as an empty page, so one page cannot fail the paper.
+ */
+export const VISION_OLLAMA_NUM_PREDICT = 8192;
+
 async function extractPageOllama(
   p: ProviderConfig,
   deps: ProviderDeps,
@@ -94,6 +105,7 @@ async function extractPageOllama(
       { role: 'user', content: userText(pageNum), images: [b64(png)] },
     ],
     stream: false,
+    options: { num_predict: VISION_OLLAMA_NUM_PREDICT },
   };
   return withRetry(
     async () => {
@@ -101,10 +113,17 @@ async function extractPageOllama(
         body: payload,
         timeoutMs: 300_000,
         signal,
-      })) as { message: { content?: string } };
-      const content = data.message.content;
-      // A 200 with empty content means a misconfigured model; not transient, so not retried.
-      if (!content || !pyStrip(content))
+      })) as { message: { content?: string }; done_reason?: string };
+      const content = data.message.content ?? '';
+      const blank = !pyStrip(content);
+      // Cut off at the cap: keep what was returned, or an empty page when the cap was reached while reasoning.
+      if (data.done_reason === 'length') {
+        const kept = blank ? '' : content;
+        logger.warn({ page: pageNum, cap: VISION_OLLAMA_NUM_PREDICT, chars: kept.length }, 'vision_page_truncated');
+        return kept;
+      }
+      // A finished 200 with empty content means a misconfigured model; not transient, so not retried.
+      if (blank)
         throw new Error(`ollama vision model '${p.vision.ollamaModel}' returned empty content for page ${pageNum}`);
       return content;
     },

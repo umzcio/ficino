@@ -374,6 +374,39 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       within each batch (100/100/56) and no pause between batches; the vectors are the same, and a 429 is still
       retried.
 
+31. **Ollama vision replies are capped, and figure detection is best-effort under the job's time budget** (found in
+    production). Python sent the Ollama figure detector `options: {temperature: 0}` and the Ollama page reader no
+    options at all, so neither reply had a length bound, and a figure step that ran into the soft time limit failed
+    the whole paper. One real paper failed every upload: figure detection on one page fell into a runaway reply
+    (about 10,000 tokens over 4 minutes) in Ollama's single slot, the detection requests queued behind it hit their
+    300 s timeout, and the job's soft limit then aborted the figure step and marked the paper `error`, although its
+    text and chunks were already stored; at temperature 0 every retry failed the same way. Three changes:
+    - The Ollama figure detector (`server/src/providers/figureDetect.ts`) sends `num_predict` 2048 (the Anthropic
+      detector's `max_tokens`; real replies are about 450-620 tokens). A reply Ollama ends with `done_reason`
+      `"length"` is a failed page: no detections, and the warning `figure_detect_reply_truncated` (page, cap)
+      instead of parsing part of it. The temperature is unchanged, and no `repeat_penalty` is sent (strict JSON
+      repeats its structural tokens).
+    - The Ollama page reader (`server/src/providers/vision.ts`) sends `num_predict` 8192. The default vision model
+      reasons before it answers and Ollama counts those tokens against `num_predict`, so the cap covers reasoning
+      plus a dense page (about 2,000 tokens of markdown); at about 45 tokens/s it is about 3 minutes, inside the 300 s
+      request timeout, and pages are read one at a time. A reply Ollama ends with `done_reason` `"length"` keeps what
+      it returned, with the warning `vision_page_truncated` (page, cap, chars kept), as the Anthropic reader already
+      keeps a reply cut at its `max_tokens` (2048). When the cap is reached while the model is still reasoning (empty
+      or blank content), the page is kept as an empty page with the same warning (chars 0) instead of failing the
+      paper; Python had no cap, so this case did not arise. Empty content without `done_reason` `"length"` still
+      throws the non-retried "returned empty content" error. `MAX_PAPER_CHARS` and its `PdfLimitError` apply as
+      before.
+    - `process_paper` gives the figure step a time budget that ends `FIGURE_FINALIZE_MARGIN_MS` (60 s) before the
+      job's soft limit (`JobContext.deadline`). When it runs out, `extractFigures` starts no further page, aborts the
+      detection requests in flight (every page still settles before the PDF session is closed), crops the pages
+      already detected, logs `figure_extraction_budget_exhausted` (pages answered, i.e. pages whose detection request
+      returned, including a page that failed and returned no detections; pages total), and returns the figures found;
+      the paper completes with them. Only a detection request the budget aborted is excused: any other error in the
+      figure step (render, crop, checkpoint), even one after the budget ran out, fails it as before. A figure step that starts with less than the margin left sends no page.
+      A pg-boss abort, or the soft limit reached outside the figure step, is handled as before (item 17).
+      `DETECT_CONCURRENCY` stays 4: with the cap a reply takes at most about 45-90 s, so the fourth request queued in
+      a single-slot server still finishes inside its 300 s timeout.
+
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the
@@ -519,9 +552,9 @@ cleanly; after the key is added, the api and worker are recreated and this smoke
   thread prompt says not to number) and quotes carry `"quoting": "@handle"` (the quote prompt asks for
   `quoting_handle`). Neither drops posts today; the feed rework should give the preamble and the per-type formats one
   source.
-- **Figure detection on the local vision model is slow.** It ignores `think: false`, and the requests have no output
-  cap, so a chart-heavy page can take minutes and hit the 300 s per-page timeout (the sample paper takes 3-5 GPU
-  minutes). Capping `num_predict` is a product call for the feed rework.
+- **Figure detection on the local vision model is slow.** It ignores `think: false` (the sample paper takes 3-5 GPU
+  minutes). Its replies are now capped and the figure step is best-effort under the job's time budget (section 2,
+  item 31), so a slow page costs figures, not the paper; a faster figure model is left for the feed rework.
 - **Joined thread content is cut at 2000 characters.** A long thread's search text (`feed_posts`) loses its tail and
   logs `post_shape_content_truncated`; the thread itself renders and is spoken in full.
 - **Google Fonts blocks the first paint.** `frontend/index.html` loads the Cormorant Garamond stylesheet from

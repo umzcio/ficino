@@ -53,8 +53,11 @@ export type ChatInfo = {
 export type FakeProviderOpts = {
   /** Reply text for every non-detector chat (metadata, context, vision). May return a never-settling promise. */
   chat?: (body: unknown, info: ChatInfo) => string | Promise<string>;
-  /** Raw detector figures for a page (1-based), serialized as `{"figures": [...]}`. */
-  detect?: (pageNumber: number) => unknown[];
+  /**
+   * Raw detector figures for a page (1-based), serialized as `{"figures": [...]}`. May return a never-settling promise
+   * (the request then waits until it is aborted).
+   */
+  detect?: (pageNumber: number) => unknown[] | Promise<unknown[]>;
   /** Vector length; defaults to the request's `dimensions`, else 1024. */
   dim?: number;
   /** Wait this long (abortably) before every reply, so concurrent jobs interleave. */
@@ -170,9 +173,9 @@ export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps
   const delay = async (signal?: AbortSignal | null) => {
     if (opts.delayMs) await abortable(new Promise((r) => setTimeout(r, opts.delayMs)), signal);
   };
-  const detectReply = (user: string): string => {
+  const detectReply = async (user: string, signal?: AbortSignal | null): Promise<string> => {
     const page = Number(/This is page (\d+) of/.exec(user)?.[1]);
-    return JSON.stringify({ figures: detect(page) });
+    return JSON.stringify({ figures: await abortable(Promise.resolve(detect(page)), signal) });
   };
 
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -220,7 +223,7 @@ export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps
       const system = messages.find((m) => m.role === 'system')?.content ?? '';
       const user = messages.find((m) => m.role === 'user')?.content ?? '';
       const content = system.startsWith(DETECT_SYSTEM)
-        ? detectReply(user)
+        ? await detectReply(user, signal)
         : await abortable(
             Promise.resolve(
               chat(body, {
@@ -256,7 +259,7 @@ export function fakeProviders(opts: FakeProviderOpts = {}): { deps: ProviderDeps
                 .map((b) => b.text ?? '')
                 .join('');
         const text = system.startsWith(DETECT_SYSTEM)
-          ? detectReply(user)
+          ? await detectReply(user, o?.signal)
           : await abortable(
               Promise.resolve(
                 chat(params, {

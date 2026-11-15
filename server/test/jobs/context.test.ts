@@ -115,3 +115,16 @@ it('isFinalAttempt: a queue without retries is final on its first run', () => {
   );
   expect(ctx.isFinalAttempt).toBe(true);
 });
+
+it('deadline is when the soft limit stops the job', () => {
+  const before = Date.now();
+  const ctx = makeJobContext(
+    { id: randomUUID(), name: 'process_paper', retryCount: 0, signal: new AbortController().signal },
+    testSql(),
+    pino({ level: 'silent' }),
+    60_000,
+    2,
+  );
+  expect(ctx.deadline).toBeGreaterThanOrEqual(before + 60_000);
+  expect(ctx.deadline).toBeLessThanOrEqual(Date.now() + 60_000);
+});

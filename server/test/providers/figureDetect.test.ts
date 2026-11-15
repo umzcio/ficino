@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config.js';
+import { logger } from '../../src/logger.js';
 import {
   detectFiguresOnPage,
   FIGURE_TYPES,
@@ -124,7 +125,9 @@ describe('detectFiguresOnPage', () => {
     expect(out).toHaveLength(1);
     const b = calls[0]!.body;
     expect(calls[0]!.url).toBe('http://fake-ollama:11434/api/chat');
-    expect(b).toMatchObject({ model: 'qwen-vl', stream: false, think: false, options: { temperature: 0 } });
+    expect(b).toMatchObject({ model: 'qwen-vl', stream: false, think: false });
+    // A capped reply: one page's JSON is ~450-620 tokens, and an uncapped runaway reply held Ollama's slot for minutes.
+    expect(b.options).toEqual({ temperature: 0, num_predict: 2048 });
     expect(b.messages[1].images).toEqual([Buffer.from(png).toString('base64')]);
     expect(b.messages[1].content).toContain('This is page 3 of a scientific paper.');
     expect(b.messages[1].content).toContain('<page_text>\n' + 'x'.repeat(8000) + '\n</page_text>');
@@ -134,6 +137,39 @@ describe('detectFiguresOnPage', () => {
       fetch: (async () => new Response(JSON.stringify({ message: { content: '', thinking: resp([fig(), fig()]) } }))) as typeof fetch,
     });
     expect(await detectFiguresOnPage(p, th.deps, png, 1, '')).toHaveLength(2);
+  });
+
+  it('ollama: a reply cut off at num_predict (done_reason length) is a failed page: [] and a truncation warning', async () => {
+    const p = cfg({ figure_detect_provider: 'ollama', figure_detect_ollama_model: 'm' });
+    const reply = (content: string) =>
+      mk({
+        fetch: (async () =>
+          new Response(JSON.stringify({ message: { content }, done: true, done_reason: 'length' }))) as typeof fetch,
+      }).deps;
+    const warn = vi.spyOn(logger, 'warn');
+    try {
+      // Half a JSON object, as a runaway reply ends.
+      expect(await detectFiguresOnPage(p, reply(resp([fig()]).slice(0, 40)), png, 7, '')).toEqual([]);
+      expect(warn).toHaveBeenCalledWith({ page: 7, cap: 2048 }, 'figure_detect_reply_truncated');
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'figure_detect_response_unparseable');
+      // Even a parseable prefix (a complete fenced object, then the loop) is not half-trusted.
+      warn.mockClear();
+      const fenced = '```json\n' + resp([fig()]) + '\n```\nThe figure shows the figure shows the figure shows';
+      expect(await detectFiguresOnPage(p, reply(fenced), png, 8, '')).toEqual([]);
+      expect(warn).toHaveBeenCalledWith({ page: 8, cap: 2048 }, 'figure_detect_reply_truncated');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('ollama: done_reason stop (or none, from an older server) parses the reply as before', async () => {
+    const p = cfg({ figure_detect_provider: 'ollama', figure_detect_ollama_model: 'm' });
+    for (const extra of [{ done_reason: 'stop' }, {}]) {
+      const { deps } = mk({
+        fetch: (async () => new Response(JSON.stringify({ message: { content: resp([fig()]) }, ...extra }))) as typeof fetch,
+      });
+      expect(await detectFiguresOnPage(p, deps, png, 1, '')).toHaveLength(1);
+    }
   });
 
   it('anthropic: model, temperature 0, 2048 tokens, joins text blocks, default SDK retries', async () => {
