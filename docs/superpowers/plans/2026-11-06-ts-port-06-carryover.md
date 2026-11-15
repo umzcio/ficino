@@ -369,7 +369,10 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       embedding call and one store, the same rows as before. For a longer paper, the batches written so far are
       readable while the later ones are embedded (the paper's status is still `embedding`), as a stored paper's
       chunks already were while its figures were extracted. An abort that arrives during the embedding call now
-      discards that batch instead of storing it; the paper ends `error` either way.
+      discards that batch instead of storing it; the paper ends `error` either way. With the OpenAI embedder
+      (100 texts per request, a 1 s pause between requests) a paper over 256 chunks now has its requests split
+      within each batch (100/100/56) and no pause between batches; the vectors are the same, and a 429 is still
+      retried.
 
 ## 3. Rulings made during execution
 
