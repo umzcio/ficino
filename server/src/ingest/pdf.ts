@@ -20,6 +20,7 @@
  */
 import * as mupdf from 'mupdf';
 import { logger } from '../logger.js';
+import { PdfLimitError } from './limitError.js';
 import { PY_WORD, PY_WS, pyIsUpper, pyLen, pyRound, pySplit, pyStrip } from '../shared/pystr.js';
 
 // MuPDF engine messages (repairs, font fallbacks) go to the process logger instead of raw stderr. The hook is
@@ -36,13 +37,8 @@ export class PdfOpenError extends Error {
   }
 }
 
-/** A bound this module enforces was passed; the same input fails the same way again, so it is not worth a retry. */
-export class PdfLimitError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'PdfLimitError';
-  }
-}
+/** A bound this module enforces was passed (see `limitError.ts`). */
+export { PdfLimitError };
 
 export type PdfDoc = {
   readonly doc: mupdf.Document;

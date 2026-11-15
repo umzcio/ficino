@@ -3,14 +3,13 @@ import { readFile } from 'node:fs/promises';
 import type { Logger } from 'pino';
 import type { Sql } from '../db/sql.js';
 import { generateContexts } from '../ingest/contextualize.js';
-import { chunkEmbedText } from '../ingest/embedText.js';
 import { extractFigures } from '../ingest/figures.js';
 import { extractMetadata } from '../ingest/metadata.js';
 import { PdfLimitError } from '../ingest/pdf.js';
 import { openIsolatedPdf } from '../ingest/pdfIsolated.js';
 import type { PdfSession } from '../ingest/pdfSession.js';
 import { checkExtractionQuality } from '../ingest/qualityCheck.js';
-import { storeChunks, storeFigure } from '../ingest/store.js';
+import { embedAndStoreChunks, storeFigure } from '../ingest/store.js';
 import type { JobContext } from '../jobs/context.js';
 import { loadJobSettings } from '../providers/config.js';
 import { embedModelId, embedTexts, EmbeddingUnavailableError } from '../providers/embed.js';
@@ -40,8 +39,10 @@ async function setError(sql: Sql, paperId: string, message: string): Promise<voi
  * call and terminates the thread that runs the paper's MuPDF work and chunking (`openIsolatedPdf`), even mid-page.
  * An embedding failure is final (status error, returned, no retry), and so are the soft time limit (a rerun would
  * spend the same provider budget again and time out the same way) and a `PdfLimitError` (a page over
- * `MAX_PAGE_CHARS`, PDF or vision text over `MAX_PAPER_CHARS`, or the PDF thread past its heap cap: the same file
- * fails the same way). Any other failure (a pg-boss abort included) marks the paper error and rethrows so pg-boss
+ * `MAX_PAGE_CHARS`, PDF or vision text over `MAX_PAPER_CHARS`, text over `MAX_PAPER_CHUNKS` chunks, or the PDF thread
+ * past its heap cap: the same file fails the same way). Chunks are embedded and stored in batches
+ * (`embedAndStoreChunks`); a failure after the first batch is written deletes the batches written, so a failed paper
+ * never keeps part of its chunks. Any other failure (a pg-boss abort included) marks the paper error and rethrows so pg-boss
  * retries the whole job.
  */
 export async function processPaper(
@@ -166,8 +167,9 @@ export async function processPaper(
     await setStatus(sql, paperId, 'chunking');
     step('chunking');
     const chunkMax = Number(settings.chunk_max_tokens ?? 800);
-    // In the PDF thread: token counting a long paper takes seconds, which would block every other queue here.
-    const chunks = await doc.chunkMarkdown(markdown, chunkMax);
+    // In the PDF thread: token counting a long paper takes seconds, which would block every other queue here. Over
+    // MAX_PAPER_CHUNKS it fails with a PdfLimitError (no retry) before any contextualizer or embedding call.
+    const chunks = await doc.chunkMarkdown(markdown, chunkMax, config.maxPaperChunks);
     log.info({ count: chunks.length }, 'chunks_created');
 
     // --- Step 3b: contextual prefixes (best-effort) ---
@@ -185,28 +187,29 @@ export async function processPaper(
     }
     const prefixed = chunks.map((c, i) => ({ ...c, contextual_prefix: prefixes[i] ?? '' }));
 
-    // --- Step 4: embedding ---
+    // --- Steps 4 and 5: embedding and storing, EMBED_STORE_BATCH chunks at a time ---
     signal.throwIfAborted();
     await progress('embedding');
     await setStatus(sql, paperId, 'embedding');
     step('embedding');
-    let embeddings: number[][] = [];
-    if (prefixed.length > 0) {
-      const texts = prefixed.map((c) => chunkEmbedText(c));
-      try {
-        embeddings = await embedTexts(p, deps.providers, texts, { inputType: 'document', signal });
-      } catch (e) {
-        if (!(e instanceof EmbeddingUnavailableError)) throw e;
-        // A config problem, not a transient one: mark the paper and stop without a retry.
-        const msg = `No embedding provider available: ${e.message}`;
-        log.error({ error: e.message }, 'embedding_provider_unavailable');
-        await setError(sql, paperId, msg);
-        return { status: 'error', paper_id: paperId, error: msg };
-      }
+    let stored: number;
+    try {
+      stored = await embedAndStoreChunks(sql, {
+        paperId,
+        userId: owner,
+        chunks: prefixed,
+        embedModel: embedModelId(p),
+        embed: (texts) => embedTexts(p, deps.providers, texts, { inputType: 'document', signal }),
+        signal,
+      });
+    } catch (e) {
+      if (!(e instanceof EmbeddingUnavailableError)) throw e;
+      // A config problem, not a transient one: mark the paper and stop without a retry.
+      const msg = `No embedding provider available: ${e.message}`;
+      log.error({ error: e.message }, 'embedding_provider_unavailable');
+      await setError(sql, paperId, msg);
+      return { status: 'error', paper_id: paperId, error: msg };
     }
-
-    // --- Step 5: store chunks ---
-    const stored = await storeChunks(sql, paperId, owner, prefixed, embeddings, embedModelId(p));
     log.info({ count: stored }, 'chunks_stored');
 
     // --- Step 6: figures ---

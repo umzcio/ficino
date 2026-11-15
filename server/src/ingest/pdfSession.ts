@@ -30,8 +30,11 @@ export interface PdfSession {
   extractPagesText(log?: PdfWarnLogger, opts?: { pages?: number }): Promise<string[]>;
   renderPage(index: number, dpi: number): Promise<PageImage>;
   openRenderedPage(index: number, dpi: number): Promise<SessionRenderedPage>;
-  /** `chunkMarkdown(markdown, maxTokens)`, in the session's thread (it token-counts the whole text). */
-  chunkMarkdown(markdown: string, maxTokens: number): Promise<Chunk[]>;
+  /**
+   * `chunkMarkdown(markdown, maxTokens, maxChunks)`, in the session's thread (it token-counts the whole text). Over
+   * `maxChunks` it rejects with a `PdfLimitError` and no chunk array leaves the thread.
+   */
+  chunkMarkdown(markdown: string, maxTokens: number, maxChunks?: number): Promise<Chunk[]>;
   /** Frees the document. Idempotent; calls afterwards reject. */
   close(): Promise<void>;
 }
@@ -56,7 +59,7 @@ export function localPdfSession(doc: PdfDoc, { checkpoint }: { checkpoint?: PdfC
         dispose: () => page.dispose(),
       };
     },
-    chunkMarkdown: async (markdown, maxTokens) => chunkMarkdown(markdown, maxTokens),
+    chunkMarkdown: async (markdown, maxTokens, maxChunks) => chunkMarkdown(markdown, maxTokens, maxChunks),
     close: async () => {},
   };
 }

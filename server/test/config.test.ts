@@ -110,6 +110,12 @@ it('MAX_PAPER_CHARS is read with its default and floor', () => {
   expect(loadConfig({ MAX_PAPER_CHARS: '50000' }).maxPaperChars).toBe(50_000);
   expect(() => loadConfig({ MAX_PAPER_CHARS: '0' })).toThrow('MAX_PAPER_CHARS must be at least 1');
 });
+it('MAX_PAPER_CHUNKS is read with its default and floor', () => {
+  expect(loadConfig({}).maxPaperChunks).toBe(10_000);
+  expect(loadConfig({ MAX_PAPER_CHUNKS: '500' }).maxPaperChunks).toBe(500);
+  expect(() => loadConfig({ MAX_PAPER_CHUNKS: '0' })).toThrow('MAX_PAPER_CHUNKS must be at least 1');
+});
+
 it('CONTEXT_MAX_CHUNKS is read and must be at least 1', () => {
   expect(loadConfig({ CONTEXT_MAX_CHUNKS: '50' }).contextMaxChunks).toBe(50);
   expect(() => loadConfig({ CONTEXT_MAX_CHUNKS: '0' })).toThrow('CONTEXT_MAX_CHUNKS must be at least 1');

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { chunkMarkdown } from '../../src/ingest/chunker.js';
 import { closePdf, cropPage, openPdf, PdfLimitError, PdfOpenError, renderPage } from '../../src/ingest/pdf.js';
 import { openIsolatedPdf } from '../../src/ingest/pdfIsolated.js';
+import { localPdfSession } from '../../src/ingest/pdfSession.js';
 import { formBomb, glyphPages } from '../helpers/pdfBombs.js';
 
 const fixture = (name: string): string => new URL(`../fixtures/${name}`, import.meta.url).pathname;
@@ -113,6 +114,26 @@ describe('openIsolatedPdf (PDF work in a worker thread)', () => {
       expect(ticks).toBeGreaterThan(0);
     } finally {
       await pdf.close();
+    }
+  });
+
+  it('chunks under a ceiling in the thread: a paper over it rejects with a PdfLimitError, as in this thread', async () => {
+    const md = Array.from({ length: 6 }, (_, i) => `\n# h${i}\n\nb${i}`).join('\n');
+    const pdf = await openIsolatedPdf(SAMPLE);
+    const doc = openPdf(SAMPLE);
+    const local = localPdfSession(doc);
+    try {
+      expect(await pdf.chunkMarkdown(md, 800, 6)).toEqual(chunkMarkdown(md, 800));
+      for (const session of [pdf, local]) {
+        const err = await session.chunkMarkdown(md, 800, 5).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(PdfLimitError);
+        expect((err as Error).message).toBe('Paper text splits into more than 5 chunks (the per-paper limit)');
+      }
+      // The thread is still usable after the limit error.
+      expect(await pdf.chunkMarkdown(md, 800)).toHaveLength(6);
+    } finally {
+      await pdf.close();
+      closePdf(doc);
     }
   });
 

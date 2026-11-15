@@ -342,6 +342,35 @@ TS-only, self-host stack; pre-existing host-specific values in older docs were r
       font hosts are the only third parties left. The captcha widget only rendered for a build-time site key that
       the self-host image never sets.
 
+30. **A paper's chunk count is capped, and chunks are embedded and stored in batches** (security review). Python
+    bounded neither; after item 27 the text was capped at `MAX_PAPER_CHARS`, but the number of chunks it made was
+    not: a PDF alternating oversized one-glyph heading lines with one-glyph lines starts a section, and so a chunk,
+    every few characters (a 200 KB file of 500 pages gave about 95,000 chunks), and `process_paper` embedded every
+    chunk in one call and then built the pgvector text of every vector for one `INSERT`, holding all of it in the
+    worker's heap at once. Two changes:
+    - `MAX_PAPER_CHUNKS` (default 10,000, at least 1): `chunkMarkdown` (`server/src/ingest/chunker.ts`) takes a
+      ceiling and throws a `PdfLimitError` (`Paper text splits into more than N chunks (the per-paper limit)`) as
+      soon as the paper would get one chunk more, before token counting the rest of the text (sections are now found
+      as they are chunked; the chunks are the same, and the goldens are unchanged). `process_paper` passes it to the
+      session's `chunkMarkdown`, so the check runs in the paper's PDF thread and an over-ceiling chunk array never
+      reaches the main thread. Like every `PdfLimitError`, it marks the paper `error` and returns without a retry,
+      before any contextualizer or embedding call; it applies to PDF and vision text alike. Skipped reference
+      sections do not count. `PdfLimitError` moved to `server/src/ingest/limitError.ts` (re-exported by `pdf.ts`) so
+      the chunker can throw it without loading MuPDF. The default comes from the chunker on book-like text: a 500-page
+      book (about 1.25 million characters) makes about 480 chunks at the default `chunk_max_tokens` (800) and about
+      3,400 at the smallest allowed (100); text at the 3,000,000-character cap makes about 1,000 to 1,900 and about
+      8,000 to 8,100 respectively. Real papers make at most a few hundred.
+    - `embedAndStoreChunks` (`server/src/ingest/store.ts`) embeds and writes `EMBED_STORE_BATCH` (256) chunks at a
+      time, each batch written before the next is requested, and checks the job's signal before each batch and
+      after each embedding call. The first batch replaces the paper's rows in one transaction as `storeChunks` does
+      (DELETE, INSERT); later batches are inserted after it. A failure before the first batch is written leaves the
+      rows as they were (as before); a failure after it deletes the batches already written, so a failed paper keeps
+      no partial chunk set, and its status is `error` as before. A paper of up to 256 chunks is one batch: one
+      embedding call and one store, the same rows as before. For a longer paper, the batches written so far are
+      readable while the later ones are embedded (the paper's status is still `embedding`), as a stored paper's
+      chunks already were while its figures were extracted. An abort that arrives during the embedding call now
+      discards that batch instead of storing it; the paper ends `error` either way.
+
 ## 3. Rulings made during execution
 
 - **Task 1.** The deploy-test helpers strip `COMPOSE_*` variables from the inherited env and resolve paths against the

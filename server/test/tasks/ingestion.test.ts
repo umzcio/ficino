@@ -7,7 +7,10 @@ import * as mupdf from 'mupdf';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, type Config } from '../../src/config.js';
 import { createSql } from '../../src/db/sql.js';
+import { chunkMarkdown } from '../../src/ingest/chunker.js';
 import { CONTEXT_SYSTEM_PROMPT } from '../../src/ingest/contextualize.js';
+import { closePdf, extractTextMarkdown, openPdf } from '../../src/ingest/pdf.js';
+import { EMBED_STORE_BATCH, storeChunks } from '../../src/ingest/store.js';
 import { makeJobContext } from '../../src/jobs/context.js';
 import { createBoss, JobQueue } from '../../src/jobs/queue.js';
 import { logger } from '../../src/logger.js';
@@ -17,9 +20,9 @@ import type { WorkerDeps } from '../../src/worker/handlers.js';
 import { HANDLERS } from '../../src/worker/handlers.js';
 import { startWorker, type RunningWorker } from '../../src/worker/main.js';
 import { createScratchDb, resetDb, seedUsers, testSql, type Seeded } from '../helpers/db.js';
-import { fakeProviders, type FakeProviderOpts } from '../helpers/fakeProviders.js';
+import { fakeProviders, fakeVector, type FakeProviderOpts } from '../helpers/fakeProviders.js';
 import { testQueue } from '../helpers/queue.js';
-import { formBomb, glyphPages } from '../helpers/pdfBombs.js';
+import { formBomb, glyphPages, headingPairs } from '../helpers/pdfBombs.js';
 
 const sql = testSql();
 const SAMPLE = new Uint8Array(readFileSync(new URL('../fixtures/sample.pdf', import.meta.url)));
@@ -435,6 +438,136 @@ describe('processPaper', () => {
     expect(f.calls.map((c) => c.kind)).toEqual(['ollama-chat', 'ollama-chat']); // two vision pages, nothing after
   });
 
+  // Security review: text under MAX_PAPER_CHARS could still make hundreds of thousands of chunks (a PDF alternating
+  // oversized one-glyph headings with one-glyph lines starts a section, so a chunk, every pair), all embedded and
+  // stored at once until the worker's heap ran out. The chunker stops at MAX_PAPER_CHUNKS, in the PDF thread.
+  const chunkCeiling = (n: number) => ({ ...config, maxPaperChunks: n });
+  const isContextCall = (c: { kind: string; body: unknown }) =>
+    c.kind === 'ollama-chat' && JSON.stringify(c.body).includes(CONTEXT_SYSTEM_PROMPT);
+
+  it('a paper over MAX_PAPER_CHUNKS marks the paper error before any contextualizer or embedding call (no retry)', async () => {
+    await setSettings(s.user_a, { extraction_mode: 'pymupdf', context_provider: 'ollama' });
+    const id = await newPaper(s.user_a, headingPairs(40));
+    const f = fakes();
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, { ...depsWith(f.deps), config: chunkCeiling(39) });
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe('Paper text splits into more than 39 chunks (the per-paper limit)');
+    expect(r).toEqual({ status: 'error', paper_id: id, error: p.error_message });
+    expect(f.calls.some((c) => c.kind === 'ollama-embed')).toBe(false);
+    expect(f.calls.some(isContextCall)).toBe(false);
+    expect(f.calls.map((c) => c.kind)).toEqual(['ollama-chat']); // the metadata call only
+    const [n] = await sql`SELECT count(*)::int AS n FROM chunks WHERE paper_id = ${id}`;
+    expect(n!.n).toBe(0);
+    expect(await sentJobs('check_contradictions')).toEqual([]);
+  });
+
+  it('a paper with exactly MAX_PAPER_CHUNKS chunks completes', async () => {
+    await setSettings(s.user_a, { extraction_mode: 'pymupdf' });
+    const id = await newPaper(s.user_a, headingPairs(40));
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, { ...depsWith(fakes().deps), config: chunkCeiling(40) });
+    expect(r).toMatchObject({ status: 'complete', chunk_count: 40 });
+    expect((await paper(id)).chunk_count).toBe(40);
+  });
+
+  it('vision text over MAX_PAPER_CHUNKS fails the same way, before any embedding call', async () => {
+    await setSettings(s.user_a, { extraction_mode: 'vision' });
+    const id = await newPaper(s.user_a, SAMPLE);
+    const sections = Array.from({ length: 6 }, (_, i) => `# h${i}\n\nb${i}`).join('\n\n');
+    const f = fakes({ chat: (_b, i) => (i.purpose === 'vision' ? sections : i.purpose === 'metadata' ? '{}' : 'x') });
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, { ...depsWith(f.deps), config: chunkCeiling(10) });
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toBe('Paper text splits into more than 10 chunks (the per-paper limit)');
+    expect(r).toEqual({ status: 'error', paper_id: id, error: p.error_message });
+    expect(f.calls.some((c) => c.kind === 'ollama-embed')).toBe(false);
+  });
+
+  // Security review: embedding and storing ran on the whole paper at once; now each batch of EMBED_STORE_BATCH
+  // chunks is embedded and written before the next is requested.
+  const BATCHED = 600; // three batches: 256, 256, 88
+
+  /** `f`'s provider deps, with every embed request seeing how many chunks of `paperId` are stored when it is sent. */
+  function watchEmbeds(f: ReturnType<typeof fakes>, paperId: string, fail?: (n: number) => Response | undefined) {
+    const seen: Array<{ inputs: number; stored: number }> = [];
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith('/api/embed')) {
+        const [row] = await sql`SELECT count(*)::int AS n FROM chunks WHERE paper_id = ${paperId}`;
+        const body = JSON.parse(String(init?.body)) as { input: string[] };
+        seen.push({ inputs: body.input.length, stored: row!.n });
+        const failed = fail?.(seen.length);
+        if (failed) return failed;
+      }
+      return f.deps.fetch(input, init);
+    }) as typeof fetch;
+    return { deps: { ...f.deps, fetch: fetchFn }, seen };
+  }
+
+  it('a paper of several batches is embedded and stored batch by batch, with the rows one batch would store', async () => {
+    expect(EMBED_STORE_BATCH).toBe(256);
+    await setSettings(s.user_a, { extraction_mode: 'pymupdf' });
+    const bytes = headingPairs(BATCHED);
+    const id = await newPaper(s.user_a, bytes);
+    const f = fakes();
+    const w = watchEmbeds(f, id);
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, depsWith(w.deps));
+    expect(r).toMatchObject({ status: 'complete', chunk_count: BATCHED });
+
+    // Ollama takes 16 inputs a request: 16 + 16 + 6 requests, each batch's sent only once the one before is stored.
+    expect(w.seen.every((c) => c.inputs <= 16)).toBe(true);
+    expect(w.seen.map((c) => c.stored)).toEqual([
+      ...Array<number>(16).fill(0),
+      ...Array<number>(16).fill(256),
+      ...Array<number>(6).fill(512),
+    ]);
+    expect(w.seen.reduce((a, c) => a + c.inputs, 0)).toBe(BATCHED);
+
+    // The same chunks and vectors stored in one go (for another paper) give the same rows.
+    const doc = openPdf(bytes);
+    const chunks = chunkMarkdown(extractTextMarkdown(doc), 800).map((c) => ({ ...c, contextual_prefix: '' }));
+    closePdf(doc);
+    const model = 'ollama:qwen3-embedding:latest@1024';
+    await storeChunks(sql, s.paper_b, s.user_a, chunks, chunks.map((c) => fakeVector(c.content, 1024)), model);
+    const rows = (paperId: string) => sql`
+      SELECT section, content, chunk_type, chunk_index, token_count, user_id, metadata, contextual_prefix,
+             embedding::text AS emb, search_vector::text AS sv
+      FROM chunks WHERE paper_id = ${paperId} ORDER BY chunk_index`;
+    const got = await rows(id);
+    expect(got).toHaveLength(BATCHED);
+    expect(got.map((g) => g.chunk_index)).toEqual(Array.from({ length: BATCHED }, (_, i) => i));
+    expect(got).toEqual(await rows(s.paper_b));
+  });
+
+  it('a failed request in a middle batch leaves the paper error with no chunks (and the job is retried)', async () => {
+    await setSettings(s.user_a, { extraction_mode: 'pymupdf' });
+    const id = await newPaper(s.user_a, headingPairs(BATCHED));
+    const f = fakes();
+    const w = watchEmbeds(f, id, (n) => (n === 20 ? new Response('bad request', { status: 400 }) : undefined));
+    await expect(processPaper({ paper_id: id }, ctxFor().ctx, depsWith(w.deps))).rejects.toThrow();
+    expect(w.seen[19]!.stored).toBe(256); // the first batch had been written
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.chunk_count).toBe(0); // never set to the stored count
+    const [n] = await sql`SELECT count(*)::int AS n FROM chunks WHERE paper_id = ${id}`;
+    expect(n!.n).toBe(0);
+    expect(await sentJobs('check_contradictions')).toEqual([]);
+  });
+
+  it('a wrong-dimension vector in a middle batch marks the paper error with no chunks and returns (no retry)', async () => {
+    await setSettings(s.user_a, { extraction_mode: 'pymupdf' });
+    const id = await newPaper(s.user_a, headingPairs(BATCHED));
+    const f = fakes();
+    const short = Response.json({ embeddings: Array.from({ length: 16 }, () => [0.1, 0.2]) });
+    const w = watchEmbeds(f, id, (n) => (n === 20 ? short : undefined));
+    const r = await processPaper({ paper_id: id }, ctxFor().ctx, depsWith(w.deps));
+    const p = await paper(id);
+    expect(p.status).toBe('error');
+    expect(p.error_message).toMatch(/^No embedding provider available: embed_texts dim mismatch/);
+    expect(r).toEqual({ status: 'error', paper_id: id, error: p.error_message });
+    const [n] = await sql`SELECT count(*)::int AS n FROM chunks WHERE paper_id = ${id}`;
+    expect(n!.n).toBe(0);
+  });
+
   // Security review: one page can run MuPDF for as long as it likes, so the PDF work runs in a thread the job kills.
   it('a page that runs past the soft limit is stopped at it: status error (no retry), no provider call', async () => {
     const id = await newPaper(s.user_a, formBomb(8, 10, 'q Q')); // 10^8 operators from a 2 KB file
@@ -607,6 +740,58 @@ describe('process_paper through a real worker', () => {
       expect(p!.status).toBe('error');
       expect(String(p!.error_message)).not.toBe('');
       expect(f.calls).toEqual([]);
+    } finally {
+      await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
+      await probe.end();
+    }
+  }, 60_000);
+
+  it('a paper over MAX_PAPER_CHUNKS completes the job without a retry or any embedding request', async () => {
+    const scratch = await createScratchDb();
+    drop = scratch.drop;
+    const env = {
+      DATABASE_URL: scratch.url,
+      AUTH_PROVIDER: 'none',
+      ENVIRONMENT: 'development',
+      LOG_LEVEL: 'silent',
+      OLLAMA_BASE_URL: OLLAMA,
+      UPLOAD_DIR: join(dir, 'w-uploads'),
+      FIGURES_DIR: join(dir, 'w-figures'),
+      MEDIA_DIR: join(dir, 'w-media'),
+      MAX_PAPER_CHUNKS: '20',
+    };
+    const f = fakes();
+    worker = await startWorker(env, { providers: f.deps, queueOverrides: { process_paper: { retryDelay: 0 } } });
+
+    const probe = createSql(scratch.url, { max: 2 });
+    const boss = createBoss(scratch.url, { max: 2, supervise: false, schedule: false });
+    boss.on('error', () => undefined);
+    try {
+      const userId = randomUUID();
+      const paperId = randomUUID();
+      await probe`INSERT INTO users (id, email) VALUES (${userId}, 'w@ficino.dev')`;
+      await probe`INSERT INTO user_settings (user_id, settings) VALUES (${userId}, ${probe.json({ extraction_mode: 'pymupdf' })})`;
+      await probe`
+        INSERT INTO papers (id, user_id, filename, file_path, status)
+        VALUES (${paperId}, ${userId}, 'h.pdf', 'h.pdf', 'pending')`;
+      await mkdir(env.UPLOAD_DIR, { recursive: true });
+      await writeFile(join(env.UPLOAD_DIR, `${paperId}.pdf`), headingPairs(21));
+
+      await boss.start();
+      const queue = new JobQueue(boss, probe);
+      const jobId = await queue.send('process_paper', { paper_id: paperId });
+      await vi.waitFor(
+        async () => {
+          expect((await queue.getJobState(jobId)).state).toBe('completed');
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+      const job = await boss.getJobById('process_paper', jobId);
+      expect(job!.retryCount).toBe(0);
+      const [p] = await probe`SELECT status, error_message FROM papers WHERE id = ${paperId}`;
+      expect(p!.status).toBe('error');
+      expect(p!.error_message).toBe('Paper text splits into more than 20 chunks (the per-paper limit)');
+      expect(f.calls.some((c) => c.kind === 'ollama-embed')).toBe(false);
     } finally {
       await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
       await probe.end();

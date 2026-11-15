@@ -28,6 +28,22 @@ export function glyphPages(counts: number[]): Uint8Array {
 }
 
 /**
+ * `pairs` pairs of lines, `perPage` pairs a page: a one-glyph line at twice the body size (a `# ` heading to the
+ * markdown pass) and a two-glyph body line. The chunker starts a section at every heading, so each pair is a chunk.
+ */
+export function headingPairs(pairs: number, perPage = 15): Uint8Array {
+  const pdf = new mupdf.PDFDocument();
+  const font = pdf.addSimpleFont(new mupdf.Font('Helvetica'));
+  for (let start = 0; start < pairs; start += perPage) {
+    const rows: string[] = [];
+    for (let i = start; i < Math.min(pairs, start + perPage); i++) rows.push("/F1 20 Tf (a) ' /F1 10 Tf (bb) '");
+    const contents = `BT 22 TL 72 770 Td ${rows.join(' ')} ET`;
+    pdf.insertPage(-1, pdf.addPage([0, 0, 612, 792], 0, { Font: { F1: font } }, contents));
+  }
+  return save(pdf);
+}
+
+/**
  * A one-page PDF of nested form XObjects: the page draws form `depth`, and every form draws the one below it
  * `fanout` times, so the page runs `leaf` fanout^depth times from a file of a couple of kilobytes.
  */
